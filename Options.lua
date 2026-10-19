@@ -3,7 +3,7 @@ local ADDON_NAME, ns = ...
 ---------------------------------------------------------------------------
 -- Minimap button, options window and key bindings
 ---------------------------------------------------------------------------
-local BUTTON_RIM_OFFSET = 10 -- pixels outside the minimap edge
+local BUTTON_RIM_OFFSET = 8 -- pixels outside the minimap edge
 local PIN_SIZE_MIN, PIN_SIZE_MAX, PIN_SIZE_DEFAULT = 8, 24, 14
 
 local function ToggleRun()
@@ -162,29 +162,28 @@ end
 ---------------------------------------------------------------------------
 -- Minimap button
 ---------------------------------------------------------------------------
+local ICON = "Interface\\AddOns\\" .. ADDON_NAME .. "\\Media\\Icon"
+
 local button = CreateFrame("Button", "GathercraftMinimapButton", Minimap)
-button:SetSize(31, 31)
+button:SetSize(34, 34)
 button:SetFrameStrata("MEDIUM")
 button:SetFrameLevel(8)
 button:RegisterForClicks("LeftButtonUp", "RightButtonUp")
 button:RegisterForDrag("LeftButton")
-button:SetHighlightTexture("Interface\\Minimap\\UI-Minimap-ZoomButton-Highlight")
 
-local bg = button:CreateTexture(nil, "BACKGROUND")
-bg:SetSize(20, 20)
-bg:SetTexture("Interface\\Minimap\\UI-Minimap-Background")
-bg:SetPoint("TOPLEFT", 7, -5)
-
+-- The forged emblem is its own frame, so no round minimap border around it
 local icon = button:CreateTexture(nil, "ARTWORK")
-icon:SetSize(18, 18)
-icon:SetTexture("Interface\\Icons\\INV_Misc_Flower_02")
-icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-icon:SetPoint("TOPLEFT", 7, -6)
+icon:SetAllPoints()
+icon:SetTexture(ICON)
 
-local border = button:CreateTexture(nil, "OVERLAY")
-border:SetSize(53, 53)
-border:SetTexture("Interface\\Minimap\\MiniMap-TrackingBorder")
-border:SetPoint("TOPLEFT")
+local glow = button:CreateTexture(nil, "HIGHLIGHT")
+glow:SetAllPoints()
+glow:SetTexture(ICON)
+glow:SetBlendMode("ADD")
+glow:SetAlpha(0.35)
+
+button:SetScript("OnMouseDown", function() icon:SetTexCoord(0.04, 0.96, 0.04, 0.96) end)
+button:SetScript("OnMouseUp", function() icon:SetTexCoord(0, 1, 0, 1) end)
 
 local function PlaceButton()
     local angle = math.rad(ns.db.minimapAngle or 220)

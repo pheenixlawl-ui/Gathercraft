@@ -2,6 +2,7 @@
 ## Title: Gathercraft
 ## Notes: Gather. Route. Profit. Node tracking, farm routes and node sharing for herbs, ores and chests.
 ## Author: pheenixlawl
+## IconTexture: Interface\AddOns\Gathercraft\Media\Icon
 ## Version: 0.1.0
 ## SavedVariables: GathercraftDB, WoWFFarmDB
 
