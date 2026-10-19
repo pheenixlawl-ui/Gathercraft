@@ -42,6 +42,9 @@ local function ShowTooltip(pin)
         GameTooltip:AddLine(n.type == "herb" and "Herb" or "Ore", 0.6, 0.6, 0.6)
     end
     GameTooltip:AddLine(("Seen %d times"):format(n.count or 1), 0.8, 0.8, 0.8)
+    if n.source == "sync" then
+        GameTooltip:AddLine("Shared by other players", 0.4, 0.8, 1)
+    end
     if ns.IsOnCooldown(n) then
         GameTooltip:AddLine(("Harvested, respawn in ~%ds"):format(n.emptyUntil - time()), 1, 0.5, 0.5)
     end

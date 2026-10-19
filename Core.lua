@@ -208,6 +208,7 @@ local function AddNodeAt(mapID, x, y, name, nodeType, id, spawn, item)
         n.type = n.type or nodeType
         n.item = n.item or item
         n.lastSpawn = spawn or n.lastSpawn
+        if spawn then n.source = nil end -- harvested ourselves: our own node now
         Print(("Merged %s%s (seen %d times)."):format(n.name, TypeTag(n.type), n.count))
         NodesChanged()
         return n
@@ -422,6 +423,9 @@ local function TryRecord()
     if ns.OnHarvested then
         ns.OnHarvested(node)
     end
+    if ns.SyncShare then
+        ns.SyncShare(p.mapID, node)
+    end
 end
 
 local function OnSpellcastSent(unit, target, castGUID, spellID)
@@ -608,6 +612,7 @@ local function Help()
     print("  /fg wipe zone|all - delete stored nodes")
     print("  /fg stats        - node totals")
     print("  /fg clear        - remove waypoint")
+    print("  /fg sync         - sync status and options")
     print("  /fg debug        - toggle debug output")
     print("  /fg test         - API check")
 end
@@ -657,6 +662,10 @@ SlashCmdList.WOWFFARM = function(msg)
         Print("Waypoint cleared.")
     elseif cmd == "stats" then
         Stats()
+    elseif cmd == "sync" then
+        if ns.SyncCommand then
+            ns.SyncCommand(rest)
+        end
     elseif cmd == "debug" then
         ToggleDebug()
     elseif cmd == "test" then
