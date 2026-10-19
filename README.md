@@ -11,6 +11,11 @@
   Every node on your map. A live route through all of them. One key for fishing. An announcer that roars <i>"RARE!"</i>.
 </p>
 
+<p align="center">
+  <img src="docs/overview.jpg" width="49%" alt="The Forge – Gathercraft main window">
+  <img src="docs/route.jpg" width="49%" alt="Live farm route on the world map">
+</p>
+
 ---
 
 ## ⚔️ Without Gathercraft vs. with Gathercraft
@@ -29,11 +34,13 @@
 **🗺️ The Map That Never Forgets**
 Herbs and ores are recorded the moment you gather them, no setup. Known spawn points for every classic zone load as you explore. Harvested nodes fade until they respawn.
 
+<p align="center"><img src="docs/map.jpg" width="70%" alt="Every node on your map"></p>
+
 **🧭 The Route That Thinks Ahead**
 Pick *Herbs*, *Ores* or *both*, or fine-tune zones and single materials. Gathercraft plans the shortest path through everything on your continent and keeps re-planning while you move. Follow the forged Gathercraft arrow or Blizzard's waypoint.
 
 **⚒️ The Forge**
-Your main window: bars for all professions, *"Gather here"* with everything in your current zone and whether it still gives skill-ups, live session stats.
+Your main window: bars for Herbalism, Mining, Fishing, Cooking and First Aid, *"Gather here"* with everything in your current zone and whether it still gives skill-ups, live session stats.
 
 **⏱️ Farm panel**
 While you farm: run time, nodes gathered, nodes per hour, skill points gained.
@@ -54,20 +61,18 @@ Optional node sharing. Guild and friends are trusted instantly, strangers need c
 3. Click the emblem on your minimap → **Overview** → *Farm run: Herbs / Ores / Herbs + Ores*.
 4. Follow the arrow.
 
-## 📖 Commands
+## 🎮 Controls
 
-| Command | |
+**Everything lives in the Gathercraft window** – click the emblem on your minimap or type `/gcr`.
+
+| | |
 |---|---|
-| `/gcr` | Open Gathercraft |
-| `/gcr run [herb\|ore\|both\|name]` | Start a farm run |
-| `/gcr route` | Preview the route on the map |
-| `/gcr skip` / `/gcr stop` | Next node / stop the run |
-| `/gcr loadall` | Load known spawn points for the whole continent |
-| `/gcr pins` | Show / hide map pins |
-| `/gcr sync` | Node sharing status and settings |
-| `/gcr rare` | Test the rare alert |
+| **Overview** | Your professions, what to gather in this zone, one-click farm runs |
+| **Zones** | Pick zones and single materials for your routes |
+| **Skills** | Which nodes gave you skill-ups so far |
+| **Options** | Arrow, route line, sharing, RARE! alert, fishing, minimap button |
 
-**Key bindings:** Options › Keybindings › AddOns › Gathercraft – *Fish · Start/stop run · Skip node · Zones*
+**Key bindings:** Options › Keybindings › AddOns › Gathercraft – *Fish · Start/stop run · Skip node*
 
 ## ❓ FAQ
 
@@ -80,6 +85,8 @@ Optional node sharing. Guild and friends are trusted instantly, strangers need c
 **What does it cost?** Nothing. Free, no paid features.
 
 ## 🗺️ Roadmap
+
+<p align="center"><img src="docs/roadmap.jpg" width="100%" alt="Gathercraft roadmap"></p>
 
 Gathercraft is **actively developed** – during the Forever launch weeks expect **updates almost every day**. Here's what's coming:
 

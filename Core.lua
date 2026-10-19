@@ -202,8 +202,10 @@ local function GetZoneNodes(mapID, create)
 end
 
 -- Key that identifies a kind of node (e.g. all Peacebloom), language independent if possible
+-- One "kind" per material name and type: the same herb can have several
+-- object IDs (e.g. two Earthroot objects), but players think in names
 local function KindKey(n)
-    return n.id or ("n:" .. n.name:lower())
+    return (n.type or "?") .. ":" .. (n.name or n.id or "?"):lower()
 end
 
 -- Continent a zone belongs to (e.g. Mulgore -> Kalimdor), cached

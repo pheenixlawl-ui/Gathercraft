@@ -80,13 +80,22 @@ local function CreatePin()
     return pin
 end
 
-local function Sizes()
+-- Known spawn points (Questie / beta data) are drawn smaller and a bit
+-- transparent, so your own nodes stand out and the map stays readable
+local KNOWN_SCALE, KNOWN_ALPHA = 0.7, 0.75
+
+local function Sizes(n)
     local world = ns.db.pinSize or WORLD_SIZE
-    return world, math.max(8, world - 2)
+    local mini = math.max(8, world - 2)
+    if n and n.source then
+        return math.max(7, math.floor(world * KNOWN_SCALE + 0.5)), math.max(7, math.floor(mini * 0.85 + 0.5))
+    end
+    return world, mini
 end
 
 local function SetAlpha(pin)
-    pin:SetAlpha(ns.IsOnCooldown(pin.node) and DIM_ALPHA or 1)
+    local n = pin.node
+    pin:SetAlpha(ns.IsOnCooldown(n) and DIM_ALPHA or (n.source and KNOWN_ALPHA or 1))
 end
 
 -- Adds the two pins (world map + minimap) of one node
@@ -98,7 +107,7 @@ local playerMap
 local function AddNodePins(mapID, n)
     if ns.db.pinsHidden or not ns.IsNodeEnabled(n, mapID) then return end
     local icon = NodeIcon(n)
-    local worldSize, miniSize = Sizes()
+    local worldSize, miniSize = Sizes(n)
 
     local w = table.remove(freeWorld) or CreatePin()
     w.node, w.mapID = n, mapID

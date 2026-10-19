@@ -37,7 +37,7 @@ local function ImportQuestieZone(mapID, quiet)
             x, y = tonumber(x) / 10000, tonumber(y) / 10000
             if not ns.FindNode(mapID, oid, x, y, MERGE_RADIUS) then
                 table.insert(list, {
-                    id = oid, type = TYPES[kind[1]], name = kind[3], x = x, y = y,
+                    id = oid, type = TYPES[kind[1]], name = ns.KnownName(oid) or kind[3], x = x, y = y,
                     count = 0, item = kind[2] > 0 and kind[2] or nil,
                     source = "questie", last = 0,
                 })

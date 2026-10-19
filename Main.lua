@@ -82,7 +82,7 @@ titleRest:SetFont(TITLE_FONT, 25, "OUTLINE")
 titleRest:SetTextColor(unpack(GOLD))
 titleRest:SetShadowColor(0, 0, 0, 1)
 titleRest:SetShadowOffset(2, -2)
-titleRest:SetPoint("BOTTOMLEFT", titleBig, "BOTTOMRIGHT", 0, 3)
+titleRest:SetPoint("BOTTOMLEFT", titleBig, "BOTTOMRIGHT", -5, 3)
 titleRest:SetText("ATHERCRAFT")
 
 local tagline = main:CreateFontString(nil, "OVERLAY")
@@ -336,17 +336,8 @@ for i = 1, LIST_ROWS do
 end
 
 -- Skill-up verdict for a node kind at the current skill
-local function Verdict(type, key)
-    if type == "chest" then return 3, "|cffaaaaaaChest|r" end
-    local mine = ns.GetSkill(type)
-    if not mine then return 4, "|cffff5555Profession not learned|r" end
-    local s = ns.db.kindStats and ns.db.kindStats[key]
-    if s and s.minNoUp and mine >= s.minNoUp and not (s.maxUp and s.maxUp >= mine) then
-        return 2, "|cff999999No more skill-ups|r"
-    elseif s and s.maxUp and mine <= s.maxUp then
-        return 0, "|cff55ff55Skill-ups|r"
-    end
-    return 1, "|cffffd060Skill-ups unknown|r"
+local function Verdict(type, key, name, id)
+    return ns.SkillVerdict(type, name, id, key)
 end
 
 local function UpdateHere()
@@ -354,18 +345,20 @@ local function UpdateHere()
     hereHeader:SetText("Gather here" .. (mapID and ("  |cffcccccc– " .. ns.GetZoneName(mapID) .. "|r") or ""))
     local kinds, byKey = {}, {}
     for _, n in ipairs(mapID and ns.db.nodes[mapID] or {}) do
-        local key = ns.KindKey(n)
-        local k = byKey[key]
-        if not k then
-            k = { key = key, name = n.name, type = n.type, item = n.item, count = 0 }
+        local key = n.type ~= "chest" and ns.KindKey(n) -- chests: map icons only
+        local k = key and byKey[key]
+        if key and not k then
+            k = { key = key, name = n.name, type = n.type, item = n.item, id = n.id, count = 0 }
             byKey[key] = k
             kinds[#kinds + 1] = k
         end
-        k.count = k.count + 1
-        k.item = k.item or n.item
+        if k then
+            k.count = k.count + 1
+            k.item = k.item or n.item
+        end
     end
     for _, k in ipairs(kinds) do
-        k.rank, k.verdict = Verdict(k.type, k.key)
+        k.rank, k.verdict = Verdict(k.type, k.key, k.name, k.id)
     end
     table.sort(kinds, function(a, b)
         if a.rank ~= b.rank then return a.rank < b.rank end
@@ -388,7 +381,7 @@ end
 ---------------------------------------------------------------------------
 -- Overview: session + database (right column)
 ---------------------------------------------------------------------------
-local session = { start = GetTime(), nodes = 0, chests = 0, skillStart = {} }
+local session = { start = GetTime(), nodes = 0, skillStart = {} }
 
 local sessHeader = Header(overview, "This session", 346, -108)
 Divider(overview, sessHeader)
@@ -398,10 +391,10 @@ sessText:SetWidth(160)
 sessText:SetJustifyH("LEFT")
 sessText:SetSpacing(4)
 
-local dbHeader = Header(overview, "Your map", 346, -234)
+local dbHeader = Header(overview, "Your map", 346, -214)
 Divider(overview, dbHeader)
 local dbText = overview:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-dbText:SetPoint("TOPLEFT", 350, -260)
+dbText:SetPoint("TOPLEFT", 350, -240)
 dbText:SetWidth(160)
 dbText:SetJustifyH("LEFT")
 dbText:SetSpacing(4)
@@ -415,21 +408,23 @@ local function UpdateStats()
             ups = ups + math.max(0, now - session.skillStart[t])
         end
     end
-    sessText:SetText(("Gathered: |cffffffff%d|r\nPer hour: |cffffffff%d|r\nChests: |cffffffff%d|r\nSkill points: |cff55ff55+%d|r"):format(
-        session.nodes, math.floor(session.nodes / hours + 0.5), session.chests, ups))
+    sessText:SetText(("Gathered: |cffffffff%d|r\nPer hour: |cffffffff%d|r\nSkill points: |cff55ff55+%d|r"):format(
+        session.nodes, math.floor(session.nodes / hours + 0.5), ups))
 
-    local herbs, ores, chests, zones, shared = 0, 0, 0, 0, 0
+    local herbs, ores, zones, known = 0, 0, 0, 0
     for _, list in pairs(ns.db.nodes) do
-        if #list > 0 then zones = zones + 1 end
+        local any = false
         for _, n in ipairs(list) do
-            if n.type == "herb" then herbs = herbs + 1
-            elseif n.type == "ore" then ores = ores + 1
-            elseif n.type == "chest" then chests = chests + 1 end
-            if n.source then shared = shared + 1 end
+            if n.type == "herb" or n.type == "ore" then
+                any = true
+                if n.type == "herb" then herbs = herbs + 1 else ores = ores + 1 end
+                if n.source then known = known + 1 end
+            end
         end
+        if any then zones = zones + 1 end
     end
-    dbText:SetText(("|cff66ff66Herbs|r: %d\n|cffffcc66Ores|r: %d\n|cffff9955Chests|r: %d\nZones: %d\n|cff999999%d from others/beta|r"):format(
-        herbs, ores, chests, zones, shared))
+    dbText:SetText(("|cff66ff66Herbs|r: %d\n|cffffcc66Ores|r: %d\nZones: %d\n|cff999999%d known spawns / shared|r"):format(
+        herbs, ores, zones, known))
 end
 
 -- Farm run buttons: herbs, ores or both (single materials: Zones tab)
@@ -501,7 +496,7 @@ local function SkillRow(i)
     row.info = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     row.info:SetPoint("BOTTOMLEFT", row.icon, "BOTTOMRIGHT", 8, -1)
     row.verdict = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    row.verdict:SetPoint("RIGHT", -6, 0)
+    row.verdict:SetPoint("LEFT", row.name, "RIGHT", 12, 0)
     skillRows[i] = row
     return row
 end
@@ -515,8 +510,8 @@ local function UpdateSkills()
         end
     end
     local list = {}
-    for key, s in pairs(ns.db.kindStats or {}) do
-        list[#list + 1] = { key = key, s = s }
+    for key, s in pairs(ns.KindStats()) do
+        if s.type ~= "chest" then list[#list + 1] = { key = key, s = s } end
     end
     table.sort(list, function(a, b)
         if (a.s.type or "") ~= (b.s.type or "") then return (a.s.type or "") < (b.s.type or "") end
@@ -529,7 +524,7 @@ local function UpdateSkills()
         row.name:SetText(((ns.TYPE_COLORS[s.type] or "|cffffffff") .. (s.name or "?") .. "|r"))
         row.info:SetText(("Gathered from %s  ·  skill points seen up to %s  ·  %d gathered, %d skill-ups"):format(
             tostring(s.minSkill or "?"), tostring(s.maxUp or "–"), s.n or 0, s.ups or 0))
-        local _, verdict = Verdict(s.type, e.key)
+        local _, verdict = Verdict(s.type, e.key, s.name)
         row.verdict:SetText(verdict)
         row:Show()
     end
@@ -578,8 +573,7 @@ main:SetScript("OnUpdate", function(self, elapsed)
 end)
 
 table.insert(ns.gatherListeners, function(node)
-    session.nodes = session.nodes + 1
-    if node.type == "chest" then session.chests = session.chests + 1 end
+    if node.type ~= "chest" then session.nodes = session.nodes + 1 end
 end)
 
 local loader = CreateFrame("Frame")

@@ -2,9 +2,9 @@ local ADDON_NAME, ns = ...
 
 ---------------------------------------------------------------------------
 -- Zones window (/gcr zones)
---   Continent -> materials on the continent
---             -> zones -> materials in the zone
---   A node is shown and routed only if every level above it is checked.
+--   Continent -> zones (always listed) -> materials in the zone
+--   A node is routed only if every level above it is checked.
+--   Chests are map icons only and never listed here.
 ---------------------------------------------------------------------------
 local ROW_HEIGHT = 22
 local WIDTH = 400
@@ -44,7 +44,7 @@ close:SetPoint("TOPRIGHT", -2, -2)
 
 local hint = window:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 hint:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -6)
-hint:SetText("Unchecked continents, zones and materials are hidden and not routed.")
+hint:SetText("Unchecked zones and materials are hidden and not routed. Click + to pick single materials.")
 
 local scroll = CreateFrame("ScrollFrame", "GathercraftZonesScroll", window, "UIPanelScrollFrameTemplate")
 scroll:SetPoint("TOPLEFT", 12, -56)
@@ -81,7 +81,7 @@ local function SortKinds(list)
     end)
 end
 
-local function CollectTree()
+local function CollectTree(playerContinent)
     local continents, byID = {}, {}
     for mapID, list in pairs(ns.db.nodes) do
         if #list > 0 then
@@ -92,22 +92,34 @@ local function CollectTree()
                 byID[cID] = c
                 table.insert(continents, c)
             end
-            local z = { mapID = mapID, name = ns.GetZoneName(mapID), total = #list, kinds = {} }
+            local z = { mapID = mapID, name = ns.GetZoneName(mapID), total = 0, kinds = {} }
             local zoneKinds = {}
             for _, n in ipairs(list) do
-                AddKind(z.kinds, zoneKinds, n)
-                AddKind(c.kinds, c.kindsByKey, n)
+                if n.type ~= "chest" then
+                    AddKind(z.kinds, zoneKinds, n)
+                    AddKind(c.kinds, c.kindsByKey, n)
+                    z.total = z.total + 1
+                end
             end
-            SortKinds(z.kinds)
-            table.insert(c.zones, z)
-            c.total = c.total + #list
+            if z.total > 0 then
+                SortKinds(z.kinds)
+                table.insert(c.zones, z)
+                c.total = c.total + z.total
+            end
         end
+    end
+    local current = playerContinent
+    for i = #continents, 1, -1 do
+        if #continents[i].zones == 0 then table.remove(continents, i) end
     end
     for _, c in ipairs(continents) do
         SortKinds(c.kinds)
         table.sort(c.zones, function(a, b) return a.name < b.name end)
     end
-    table.sort(continents, function(a, b) return a.name < b.name end)
+    table.sort(continents, function(a, b) -- your continent first
+        if (a.id == current) ~= (b.id == current) then return a.id == current end
+        return a.name < b.name
+    end)
     return continents
 end
 
@@ -202,9 +214,13 @@ end
 Refresh = function()
     if not window:IsShown() or not ns.db then return end
     local db = ns.db
-    local tree = CollectTree()
     local playerMap = C_Map.GetBestMapForUnit("player")
     local currentContinent = playerMap and ns.GetContinent(playerMap)
+    local tree = CollectTree(currentContinent)
+    if not db.zonesV2 then -- continent-wide material filters are gone from the UI
+        wipe(db.disabledContinentKinds)
+        db.zonesV2 = true
+    end
     local i, y = 0, 0
 
     local function Add(opts)
@@ -214,8 +230,6 @@ Refresh = function()
     end
 
     for _, c in ipairs(tree) do
-        local cKey = "c" .. c.id
-        local cOpen = IsExpanded(cKey, c.id == currentContinent)
         Add({
             indent = 0,
             font = "GameFontNormalLarge",
@@ -225,62 +239,40 @@ Refresh = function()
                 db.disabledContinents[c.id] = (not on) or nil
                 Changed()
             end,
-            isExpanded = cOpen,
-            onExpand = function()
-                expanded[cKey] = not cOpen
-                Refresh()
-            end,
         })
 
-        if cOpen then
-            -- Materials on the whole continent
-            Add({ indent = INDENT, font = "GameFontNormalSmall", text = "Materials on this continent:" })
-            for _, k in ipairs(c.kinds) do
-                local key = c.id .. ":" .. k.key
-                Add({
-                    indent = INDENT,
-                    text = KindText(k),
-                    checked = not db.disabledContinentKinds[key],
-                    onToggle = function(on)
-                        db.disabledContinentKinds[key] = (not on) or nil
-                        Changed()
-                    end,
-                })
-            end
-
-            -- Zones
-            Add({ indent = INDENT, font = "GameFontNormalSmall", text = "Zones:" })
-            for _, z in ipairs(c.zones) do
-                local zKey = "z" .. z.mapID
-                local zOpen = IsExpanded(zKey, false)
-                Add({
-                    indent = INDENT,
-                    font = "GameFontNormal",
-                    text = ("%s  |cff999999(%d nodes)|r"):format(z.name, z.total),
-                    checked = not db.disabledZones[z.mapID],
-                    onToggle = function(on)
-                        db.disabledZones[z.mapID] = (not on) or nil
-                        Changed()
-                    end,
-                    isExpanded = zOpen,
-                    onExpand = function()
-                        expanded[zKey] = not zOpen
-                        Refresh()
-                    end,
-                })
-                if zOpen then
-                    for _, k in ipairs(z.kinds) do
-                        local key = z.mapID .. ":" .. k.key
-                        Add({
-                            indent = INDENT * 2,
-                            text = KindText(k),
-                            checked = not db.disabledKinds[key],
-                            onToggle = function(on)
-                                db.disabledKinds[key] = (not on) or nil
-                                Changed()
-                            end,
-                        })
-                    end
+        -- Zones stay visible; each zone opens to its materials
+        for _, z in ipairs(c.zones) do
+            local zKey = "z" .. z.mapID
+            local here = z.mapID == playerMap
+            local zOpen = IsExpanded(zKey, here)
+            Add({
+                indent = INDENT,
+                font = "GameFontNormal",
+                text = ("%s  |cff999999(%d nodes)|r%s"):format(z.name, z.total, here and "  |cff7bd35f< you are here >|r" or ""),
+                checked = not db.disabledZones[z.mapID],
+                onToggle = function(on)
+                    db.disabledZones[z.mapID] = (not on) or nil
+                    Changed()
+                end,
+                isExpanded = zOpen,
+                onExpand = function()
+                    expanded[zKey] = not zOpen
+                    Refresh()
+                end,
+            })
+            if zOpen then
+                for _, k in ipairs(z.kinds) do
+                    local key = z.mapID .. ":" .. k.key
+                    Add({
+                        indent = INDENT * 2,
+                        text = KindText(k),
+                        checked = not db.disabledKinds[key],
+                        onToggle = function(on)
+                            db.disabledKinds[key] = (not on) or nil
+                            Changed()
+                        end,
+                    })
                 end
             end
         end
