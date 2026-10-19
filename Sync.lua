@@ -24,7 +24,7 @@ local ADDON_NAME, ns = ...
 ---------------------------------------------------------------------------
 local PREFIX = "Gathercraft"
 local CHANNEL = "GathercraftSync"
-local CONFIRMATIONS = 2       -- different players needed for a public node
+local CONFIRMATIONS = 3       -- different players needed for a public node
 local PUSH_KNOWN_LIMIT = 3    -- stop live-sending a node once this many others reported it
 local MERGE_RADIUS = 10       -- yards: same kind closer than this = same node
 local SEND_INTERVAL = 1.2     -- seconds between outgoing messages
@@ -35,7 +35,9 @@ local RATE_WINDOW = 60        -- seconds
 local RATE_MAX_NODES = 150    -- max nodes accepted per sender per window
 local QUERY_COOLDOWN = 600    -- seconds before asking for the same zone again
 local MAX_RESPONDERS = 3
-local PENDING_MAX_AGE = 14 * 24 * 3600
+local PENDING_MAX_AGE = 3 * 24 * 3600
+local PENDING_MAX_PER_ZONE = 300 -- unconfirmed reports kept per zone (oldest go first)
+local PENDING_PER_REPORTER = 30  -- one stranger can't fill the list with fake reports
 local JOIN_DELAY = 8          -- seconds after login (let General/Trade join first)
 
 local TYPE_CODE = { herb = "h", ore = "o", chest = "c" }
@@ -139,10 +141,12 @@ local function Targets()
     return t
 end
 
-local function Shareable(n)
+local function Shareable(n, mapID)
     -- Only nodes we harvested ourselves (real game object), never re-share
-    -- imports from other players or from the beta starter data
+    -- imports from other players or from the beta starter data, and never
+    -- known spawn points: every Gathercraft user has those already
     return n.id and n.id:match("^o%d+$") and n.type and not n.source
+        and not (ns.IsKnownSpawn and ns.IsKnownSpawn(mapID, n.id, n.x, n.y))
 end
 
 local function Busy()
@@ -152,7 +156,7 @@ end
 
 -- Push: called by the recorder after every harvest
 local function ShareHarvest(mapID, node)
-    if not DB().enabled or not Shareable(node) then return end
+    if not DB().enabled or not Shareable(node, mapID) then return end
     if (node.heard or 0) >= PUSH_KNOWN_LIMIT then
         stats.skippedKnown = stats.skippedKnown + 1
         Debug(("not sending %s: %d others already reported it"):format(node.name, node.heard))
@@ -170,8 +174,19 @@ end
 local function QueryZone(mapID)
     if not DB().enabled or not mapID then return end
     if time() - (lastQuery[mapID] or 0) < QUERY_COOLDOWN then return end
-    lastQuery[mapID] = time()
-    local known = ns.db.nodes[mapID] and #ns.db.nodes[mapID] or 0
+    -- Not in the public channel yet (e.g. right after login): don't use up the
+    -- cooldown, JoinChannel asks again once we are in
+    if not DB().public or (channelID and channelID > 0) then
+        lastQuery[mapID] = time()
+    end
+    -- Count only what sync can add: nodes beyond the known spawn points
+    local known = 0
+    for _, n in ipairs(ns.db.nodes[mapID] or {}) do
+        if n.source ~= "questie" and n.source ~= "starter"
+            and not (ns.IsKnownSpawn and ns.IsKnownSpawn(mapID, n.id, n.x, n.y)) then
+            known = known + 1
+        end
+    end
     for _, t in ipairs(Targets()) do Enqueue(("Q:%d:%d"):format(mapID, known), t) end
     Debug(("asked for zone %d (we know %d)"):format(mapID, known))
 end
@@ -249,7 +264,15 @@ local function HandleNode(mapID, entry, sender, trusted, dry)
     local list = root[mapID]
     local p = FindNear(list, id, mapID, x, y)
     if not p then
-        p = { id = id, type = nodeType, x = x, y = y, item = item, reporters = {}, rc = 0, first = time() }
+        local mine = 0
+        for _, q in ipairs(list) do
+            if q.by == who then mine = mine + 1 end
+        end
+        if mine >= PENDING_PER_REPORTER then return end
+        if #list >= PENDING_MAX_PER_ZONE then
+            table.remove(list, 1) -- oldest unconfirmed report goes
+        end
+        p = { id = id, type = nodeType, x = x, y = y, item = item, reporters = {}, rc = 0, first = time(), by = who }
         table.insert(list, p)
     end
     if not p.reporters[who] then
@@ -290,10 +313,14 @@ local function OnNodes(body, sender, trusted, dry)
     end
 end
 
+-- Nodes we can tell a newcomer about: our own harvests plus nodes that
+-- reached us through sync and were confirmed (trusted or several reporters)
 local function OwnNodes(mapID)
     local own = {}
     for _, n in ipairs(ns.db.nodes[mapID] or {}) do
-        if Shareable(n) then own[#own + 1] = n end
+        local ok = Shareable(n, mapID) or (n.source == "sync" and n.id and n.id:match("^o%d+$") and n.type
+            and not (ns.IsKnownSpawn and ns.IsKnownSpawn(mapID, n.id, n.x, n.y)))
+        if ok then own[#own + 1] = n end
     end
     return own
 end

@@ -54,6 +54,31 @@ local function ImportQuestieZone(mapID, quiet)
     return added
 end
 
+-- Is this node one of the known spawn points? Everyone has those already,
+-- so sync never needs to send them. Parsed per zone on first use.
+local spawnIndex = {}
+ns.IsKnownSpawn = function(mapID, id, x, y)
+    local data = GathercraftQuestieData
+    if not (data and mapID and id) then return false end
+    local byId = spawnIndex[mapID]
+    if not byId then
+        byId = {}
+        for sid, sx, sy in (data.zones[mapID] or ""):gmatch("(%d+),(%d+),(%d+)") do
+            local key = "o" .. sid
+            byId[key] = byId[key] or {}
+            table.insert(byId[key], { tonumber(sx) / 10000, tonumber(sy) / 10000 })
+        end
+        spawnIndex[mapID] = byId
+    end
+    for _, p in ipairs(byId[id] or {}) do
+        if math.abs(p[1] - x) < 0.01 and math.abs(p[2] - y) < 0.01
+            and ns.Distance(mapID, x, y, p[1], p[2]) <= MERGE_RADIUS * 1.5 then
+            return true
+        end
+    end
+    return false
+end
+
 -- /gcr loadall : every zone of the current continent at once (for long routes)
 ns.LoadQuestieContinent = function()
     local data = GathercraftQuestieData
