@@ -9,7 +9,7 @@ local function ToggleRun()
     if ns.run then
         ns.StopRun()
     else
-        ns.StartRun("")
+        ns.StartRun("both")
     end
 end
 
@@ -50,7 +50,7 @@ local function AddHeader(text)
     local fs = options:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     fs:SetPoint("TOPLEFT", 16, nextY)
     fs:SetText(text)
-    nextY = nextY - 20
+    nextY = nextY - 18
 end
 
 -- get() returns the current state, set(on) changes it
@@ -67,7 +67,7 @@ local function AddCheck(label, get, set)
     end)
     cb.get = get
     controls[#controls + 1] = cb
-    nextY = nextY - 26
+    nextY = nextY - 22
 end
 
 local pinSizeText
@@ -120,6 +120,12 @@ local function Build()
             ns.NotifyNodesChanged()
         end)
     AddPinSize()
+    AddCheck("Show Gathercraft arrow during farm runs",
+        function() return not ns.db.arrowHidden end,
+        function(on)
+            ns.db.arrowHidden = not on
+            if ns.UpdateArrow then ns.UpdateArrow() end
+        end)
     AddCheck("Show route line",
         function() return not ns.db.routeLineHidden end,
         function(on)
@@ -143,6 +149,9 @@ local function Build()
     AddCheck("Say \"Rare!\" out loud (text-to-speech)",
         function() return ns.db.rareVoice ~= false end,
         function(on) ns.db.rareVoice = on end)
+    AddCheck("Also play an alarm sound",
+        function() return ns.db.rareSound end,
+        function(on) ns.db.rareSound = on end)
 
     AddHeader("Fishing")
     AddCheck("Fish key applies a lure when the pole has none",
@@ -162,9 +171,9 @@ local function Build()
 
     local hint = options:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     hint:SetPoint("BOTTOMLEFT", 16, 14)
-    hint:SetWidth(290)
+    hint:SetWidth(480)
     hint:SetJustifyH("LEFT")
-    hint:SetText("Key bindings: Esc > Options > Keybindings > AddOns > Gathercraft")
+    hint:SetText("Key bindings: Esc > Options > Keybindings > AddOns > Gathercraft\n|cff999999Gathercraft by pheenixlawl · Node data from Questie (github.com/Questie/Questie) · Map pins via HereBeDragons|r")
 end
 
 -- Puts the options into a tab of the main window
@@ -190,7 +199,7 @@ end
 ---------------------------------------------------------------------------
 -- Minimap button
 ---------------------------------------------------------------------------
-local ICON = "Interface\\AddOns\\" .. ADDON_NAME .. "\\Media\\Icon"
+local ICON = "Interface\\AddOns\\" .. ADDON_NAME .. "\\Media\\IconRound" -- round: fills the minimap button
 
 -- LibDataBroker launcher + LibDBIcon: works with the plain minimap and with
 -- ElvUI, minimap button collectors and broker displays like Titan Panel
@@ -233,6 +242,10 @@ local function UpdateMinimapButton()
     if not registered then
         DBIcon:Register(ADDON_NAME, launcher, db.minimap)
         registered = true
+        -- a bit bigger than the default so the round emblem fills the ring
+        if DBIcon.SetButtonIcon then
+            DBIcon:SetButtonIcon(ADDON_NAME, ICON, 22, "CENTER", 0, 0)
+        end
     end
     if db.minimap.hide then DBIcon:Hide(ADDON_NAME) else DBIcon:Show(ADDON_NAME) end
 end

@@ -8,10 +8,13 @@ local ADDON_NAME, ns = ...
 --     maxUp    : highest skill at which a skill point was gained
 --     minNoUp  : lowest skill at which no point was gained
 ---------------------------------------------------------------------------
-local SKILL_LINE = { herb = 182, ore = 186 } -- Herbalism, Mining
+local SKILL_LINE = { herb = 182, ore = 186, fish = 356, cook = 185, aid = 129 } -- Herbalism, Mining, Fishing, Cooking, First Aid
 local SKILL_NAMES = {
     herb = { ["herbalism"] = true, ["kräuterkunde"] = true, ["herboristerie"] = true, ["herboristería"] = true },
     ore = { ["mining"] = true, ["bergbau"] = true, ["minage"] = true, ["minería"] = true },
+    fish = { ["fishing"] = true, ["angeln"] = true, ["pêche"] = true, ["pesca"] = true },
+    cook = { ["cooking"] = true, ["kochkunst"] = true, ["cuisine"] = true, ["cocina"] = true },
+    aid = { ["first aid"] = true, ["erste hilfe"] = true, ["secourisme"] = true, ["primeros auxilios"] = true },
 }
 local PROFESSION_LABEL = { herb = "Herbalism", ore = "Mining" }
 local CHECK_DELAY = 1.5 -- seconds after the harvest before reading the new skill
@@ -24,8 +27,10 @@ local countedSpawns = {}
 -- Current skill for "herb" / "ore", or nil if the profession is not learned
 local function GetSkill(nodeType)
     if GetProfessions and GetProfessionInfo then
-        local p1, p2 = GetProfessions()
-        for _, index in ipairs({ p1, p2 }) do
+        -- prof1, prof2, archaeology, fishing, cooking, first aid (some may be nil)
+        local profs = { GetProfessions() }
+        for i = 1, 6 do
+            local index = profs[i]
             if index then
                 local _, _, rank, maxRank, _, _, skillLine = GetProfessionInfo(index)
                 if skillLine == SKILL_LINE[nodeType] then

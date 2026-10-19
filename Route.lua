@@ -50,6 +50,7 @@ end
 -- Planning
 ---------------------------------------------------------------------------
 local function MatchesFilter(n, filter)
+    if filter == "both" then return n.type == "herb" or n.type == "ore" end
     return not filter or n.type == filter or n.name:lower():find(filter, 1, true)
 end
 

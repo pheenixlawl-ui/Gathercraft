@@ -49,12 +49,16 @@ local function ShowTooltip(pin)
     if n.type then
         GameTooltip:AddLine(TYPE_LABELS[n.type] or n.type, 0.6, 0.6, 0.6)
     end
-    GameTooltip:AddLine(("Seen %d times"):format(n.count or 1), 0.8, 0.8, 0.8)
+    if (n.count or 1) > 0 then
+        GameTooltip:AddLine(("Seen %d times"):format(n.count or 1), 0.8, 0.8, 0.8)
+    end
     if ns.SkillTooltip then
         ns.SkillTooltip(GameTooltip, n)
     end
     if n.source == "sync" then
         GameTooltip:AddLine("Shared by other players", 0.4, 0.8, 1)
+    elseif n.source == "questie" then
+        GameTooltip:AddLine("Known spawn point (Questie data)", 0.8, 0.7, 1)
     elseif n.source == "starter" then
         GameTooltip:AddLine("From the beta database (not confirmed yet)", 0.8, 0.7, 1)
     end

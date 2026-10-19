@@ -7,7 +7,7 @@ local ADDON_NAME, ns = ...
 --   Skills   : what we learned about skill-ups per node kind
 --   Options  : the options (Options.lua)
 ---------------------------------------------------------------------------
-local WIDTH, HEIGHT = 580, 600
+local WIDTH, HEIGHT = 580, 620
 local ICON = "Interface\\AddOns\\" .. ADDON_NAME .. "\\Media\\Icon"
 local TITLE_FONT = "Fonts\\MORPHEUS.TTF"
 local BAR_TEXTURE = "Interface\\TargetingFrame\\UI-StatusBar"
@@ -16,7 +16,10 @@ local TYPE_ICONS = {
     ore = "Interface\\Icons\\INV_Ore_Copper_01",
     chest = "Interface\\Icons\\INV_Box_02",
 }
-local BAR_COLORS = { herb = { 0.30, 0.72, 0.28 }, ore = { 0.86, 0.52, 0.24 } }
+local BAR_COLORS = {
+    herb = { 0.30, 0.72, 0.28 }, ore = { 0.86, 0.52, 0.24 }, fish = { 0.25, 0.55, 0.90 },
+    cook = { 0.80, 0.55, 0.20 }, aid = { 0.85, 0.25, 0.25 },
+}
 local GOLD = { 1, 0.82, 0.30 }
 local EMBER = { 0.42, 0.10, 0.04 }
 local LIST_ROWS = 9
@@ -222,7 +225,7 @@ local function CreateBar(type, label, y)
     local frame = CreateFrame("Frame", nil, overview, "BackdropTemplate")
     frame:SetPoint("TOPLEFT", 90, y + 2)
     frame:SetPoint("RIGHT", overview, "RIGHT", -8, 0)
-    frame:SetHeight(18)
+    frame:SetHeight(17)
     frame:SetBackdrop({
         bgFile = "Interface\\Buttons\\WHITE8X8",
         edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
@@ -243,8 +246,11 @@ local function CreateBar(type, label, y)
     text:SetPoint("CENTER", 0, 0)
     bars[type] = { bar = bar, text = text }
 end
-CreateBar("herb", "Herbalism", -28)
-CreateBar("ore", "Mining", -52)
+CreateBar("herb", "Herbalism", -26)
+CreateBar("ore", "Mining", -46)
+CreateBar("fish", "Fishing", -66)
+CreateBar("cook", "Cooking", -86)
+CreateBar("aid", "First Aid", -106)
 
 local function UpdateBars()
     for type, b in pairs(bars) do
@@ -256,7 +262,7 @@ local function UpdateBars()
         else
             b.bar:SetMinMaxValues(0, 1)
             b.bar:SetValue(0)
-            b.text:SetText("|cff888888not learned|r")
+            b.text:SetText("|cff8888880 / 0  ·  not learned|r")
         end
     end
 end
@@ -264,12 +270,12 @@ end
 ---------------------------------------------------------------------------
 -- Overview: gather here (current zone)
 ---------------------------------------------------------------------------
-local hereHeader = Header(overview, "Gather here", 4, -84)
+local hereHeader = Header(overview, "Gather here", 4, -138)
 local hereLine = Divider(overview, hereHeader)
 hereLine:SetPoint("RIGHT", overview, "LEFT", 330, 0)
 
 local hereEmpty = overview:CreateFontString(nil, "OVERLAY", "GameFontDisable")
-hereEmpty:SetPoint("TOPLEFT", 6, -110)
+hereEmpty:SetPoint("TOPLEFT", 6, -164)
 hereEmpty:SetWidth(320)
 hereEmpty:SetJustifyH("LEFT")
 hereEmpty:SetText("No nodes known in this zone yet.")
@@ -278,7 +284,7 @@ local hereRows = {}
 for i = 1, LIST_ROWS do
     local row = CreateFrame("Frame", nil, overview)
     row:SetSize(326, 26)
-    row:SetPoint("TOPLEFT", 4, -106 - (i - 1) * 28)
+    row:SetPoint("TOPLEFT", 4, -160 - (i - 1) * 28)
     row.icon = row:CreateTexture(nil, "ARTWORK")
     row.icon:SetSize(22, 22)
     row.icon:SetPoint("LEFT", 0, 0)
@@ -289,11 +295,8 @@ for i = 1, LIST_ROWS do
     row.name:SetJustifyH("LEFT")
     row.info = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     row.info:SetPoint("BOTTOMLEFT", row.icon, "BOTTOMRIGHT", 6, -1)
-    row.info:SetWidth(200)
+    row.info:SetWidth(290)
     row.info:SetJustifyH("LEFT")
-    row.go = Button(row, "Route", 64)
-    row.go:SetHeight(20)
-    row.go:SetPoint("RIGHT", 0, 0)
     row:Hide()
     hereRows[i] = row
 end
@@ -341,10 +344,6 @@ local function UpdateHere()
             row.icon:SetTexture(KindIcon(k.type, k.item))
             row.name:SetText(((ns.TYPE_COLORS[k.type] or "|cffffffff") .. k.name .. "|r"))
             row.info:SetText(("%d node%s  ·  %s"):format(k.count, k.count == 1 and "" or "s", k.verdict))
-            row.go:SetScript("OnClick", function()
-                ns.StartRun(k.name)
-                main:Hide()
-            end)
             row:Show()
         else
             row:Hide()
@@ -357,18 +356,18 @@ end
 ---------------------------------------------------------------------------
 local session = { start = GetTime(), nodes = 0, chests = 0, skillStart = {} }
 
-local sessHeader = Header(overview, "This session", 346, -84)
+local sessHeader = Header(overview, "This session", 346, -138)
 Divider(overview, sessHeader)
 local sessText = overview:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-sessText:SetPoint("TOPLEFT", 350, -110)
+sessText:SetPoint("TOPLEFT", 350, -164)
 sessText:SetWidth(160)
 sessText:SetJustifyH("LEFT")
 sessText:SetSpacing(4)
 
-local dbHeader = Header(overview, "Your map", 346, -210)
+local dbHeader = Header(overview, "Your map", 346, -264)
 Divider(overview, dbHeader)
 local dbText = overview:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-dbText:SetPoint("TOPLEFT", 350, -236)
+dbText:SetPoint("TOPLEFT", 350, -290)
 dbText:SetWidth(160)
 dbText:SetJustifyH("LEFT")
 dbText:SetSpacing(4)
@@ -399,25 +398,39 @@ local function UpdateStats()
         herbs, ores, chests, zones, shared))
 end
 
-local startAll = Button(overview, "Start farm run", 140)
-startAll:SetPoint("BOTTOMRIGHT", -4, 4)
-startAll:SetScript("OnClick", function()
-    ns.StartRun("")
-    main:Hide()
+-- Farm run buttons: herbs, ores or both (single materials: Zones tab)
+local runLabel = overview:CreateFontString(nil, "OVERLAY")
+runLabel:SetFont(TITLE_FONT, 15, "")
+runLabel:SetTextColor(unpack(GOLD))
+runLabel:SetPoint("BOTTOMLEFT", 6, 10)
+runLabel:SetText("Farm run:")
+
+local runButtons = {}
+local function RunButton(text, filter, width, anchor)
+    local b = Button(overview, text, width)
+    b:SetPoint("LEFT", anchor, "RIGHT", 6, 0)
+    b:SetScript("OnClick", function()
+        ns.StartRun(filter)
+        main:Hide()
+    end)
+    runButtons[#runButtons + 1] = b
+    return b
+end
+local herbRun = RunButton("|cff66ff66Herbs|r", "herb", 80, runLabel)
+local oreRun = RunButton("|cffffcc66Ores|r", "ore", 80, herbRun)
+RunButton("Herbs + Ores", "both", 110, oreRun)
+
+local stopRun = Button(overview, "Stop", 70)
+stopRun:SetPoint("BOTTOMRIGHT", -4, 4)
+stopRun:SetScript("OnClick", function()
+    ns.StopRun()
 end)
-local preview = Button(overview, "Show route", 110)
-preview:SetPoint("RIGHT", startAll, "LEFT", -6, 0)
-preview:SetScript("OnClick", function() ns.PreviewRoute("") end)
 
 local function UpdateOverview()
     UpdateBars()
     UpdateHere()
     UpdateStats()
-    startAll:SetText(ns.run and "Stop farm run" or "Start farm run")
-    startAll:SetScript("OnClick", function()
-        if ns.run then ns.StopRun() else ns.StartRun("") main:Hide() end
-        UpdateOverview()
-    end)
+    if ns.run then stopRun:Enable() else stopRun:Disable() end
 end
 overview:SetScript("OnShow", UpdateOverview)
 

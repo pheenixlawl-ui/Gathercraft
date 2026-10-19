@@ -12,6 +12,70 @@ local EXPIRE_DAYS = 21
 local MERGE_RADIUS = 10 -- yards, same as the recorder
 local TYPES = { h = "herb", o = "ore", c = "chest" }
 
+---------------------------------------------------------------------------
+-- Known spawn points from Questie (Data\QuestieNodes.lua)
+--   Node data from Questie (https://github.com/Questie/Questie), used with
+--   permission. Stored compactly and imported zone by zone: a zone is
+--   loaded the first time you enter it or look at it on the world map.
+--   These are possible spawn points: not every one is up at the same time.
+---------------------------------------------------------------------------
+local function ImportQuestieZone(mapID, quiet)
+    local data = GathercraftQuestieData
+    if not (data and mapID and ns.db) then return 0 end
+    ns.db.questieZones = ns.db.questieZones or {}
+    if ns.db.questieZones[mapID] == data.version then return 0 end
+    ns.db.questieZones[mapID] = data.version
+    local packed = data.zones[mapID]
+    if not packed then return 0 end
+
+    ns.db.nodes[mapID] = ns.db.nodes[mapID] or {}
+    local list, added = ns.db.nodes[mapID], 0
+    for id, x, y in packed:gmatch("(%d+),(%d+),(%d+)") do
+        local oid = "o" .. id
+        local kind = data.kinds[oid]
+        if kind then
+            x, y = tonumber(x) / 10000, tonumber(y) / 10000
+            if not ns.FindNode(mapID, oid, x, y, MERGE_RADIUS) then
+                table.insert(list, {
+                    id = oid, type = TYPES[kind[1]], name = kind[3], x = x, y = y,
+                    count = 0, item = kind[2] > 0 and kind[2] or nil,
+                    source = "questie", last = 0,
+                })
+                added = added + 1
+            end
+        end
+    end
+    if added > 0 then
+        ns.NotifyNodesChanged()
+        if not quiet then
+            ns.Print(("Loaded %d known spawn points for %s."):format(added, ns.GetZoneName(mapID)))
+        end
+    end
+    return added
+end
+
+-- /gcr loadall : every zone of the current continent at once (for long routes)
+ns.LoadQuestieContinent = function()
+    local data = GathercraftQuestieData
+    local mapID = ns.GetPlayerPos()
+    if not (data and mapID) then return end
+    local continent = ns.GetContinent(mapID)
+    local added, zones = 0, 0
+    for zoneMapID in pairs(data.zones) do
+        if ns.GetContinent(zoneMapID) == continent then
+            local n = ImportQuestieZone(zoneMapID, true)
+            if n > 0 then zones = zones + 1 end
+            added = added + n
+        end
+    end
+    ns.Print(("Loaded %d known spawn points in %d more zones of this continent."):format(added, zones))
+end
+
+local function ImportCurrentZone()
+    local mapID = ns.GetPlayerPos()
+    if mapID then ImportQuestieZone(mapID) end
+end
+
 local function Confirmed(n)
     return n.source ~= "starter" or (n.heard or 0) >= 1
 end
@@ -70,4 +134,18 @@ loader:SetScript("OnEvent", function()
         Import(data)
     end
     ExpireOld()
+    C_Timer.After(2, ImportCurrentZone)
+    -- Zones looked at on the world map are loaded too
+    if WorldMapFrame and WorldMapFrame.OnMapChanged and hooksecurefunc then
+        hooksecurefunc(WorldMapFrame, "OnMapChanged", function(frame)
+            local ok, mapID = pcall(frame.GetMapID, frame)
+            if ok and mapID then ImportQuestieZone(mapID) end
+        end)
+    end
+end)
+
+local zoneWatch = CreateFrame("Frame")
+zoneWatch:RegisterEvent("ZONE_CHANGED_NEW_AREA")
+zoneWatch:SetScript("OnEvent", function()
+    C_Timer.After(1, ImportCurrentZone)
 end)

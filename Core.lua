@@ -716,6 +716,7 @@ local function Help()
     print("  /gcr options      - options window (or shift-click the minimap button)")
     print("  /gcr skills       - your gathering skills and what we learned")
     print("  /gcr sync         - sync status and options")
+    print("  /gcr loadall      - load known spawn points for the whole continent")
     print("  /gcr rare         - test the rare alert")
     print("  /gcr debug        - toggle debug output")
     print("  /gcr test         - API check")
@@ -782,6 +783,8 @@ SlashCmdList.GATHERCRAFT = function(msg)
         if ns.SyncCommand then
             ns.SyncCommand(rest)
         end
+    elseif cmd == "loadall" then
+        if ns.LoadQuestieContinent then ns.LoadQuestieContinent() end
     elseif cmd == "rare" then
         if ns.TestRareAlert then ns.TestRareAlert() end
     elseif cmd == "debug" then

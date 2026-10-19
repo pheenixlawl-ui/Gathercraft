@@ -4,6 +4,7 @@
 ## Author: pheenixlawl
 ## IconTexture: Interface\AddOns\Gathercraft\Media\Icon
 ## Version: 0.1.0
+## X-Credits: Node data from Questie (github.com/Questie/Questie). Map pins via HereBeDragons.
 ## SavedVariables: GathercraftDB, WoWFFarmDB
 
 Libs\HereBeDragons\LibStub\LibStub.lua
@@ -25,4 +26,5 @@ Rares.lua
 Options.lua
 Main.lua
 Data\StarterData.lua
+Data\QuestieNodes.lua
 Starter.lua
