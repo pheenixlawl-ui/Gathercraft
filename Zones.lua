@@ -1,7 +1,7 @@
 local ADDON_NAME, ns = ...
 
 ---------------------------------------------------------------------------
--- Zones window (/fg zones)
+-- Zones window (/gcr zones)
 --   Continent -> materials on the continent
 --             -> zones -> materials in the zone
 --   A node is shown and routed only if every level above it is checked.
@@ -15,7 +15,7 @@ local expanded = {} -- "c<continentID>" / "z<mapID>" -> true/false (this session
 ---------------------------------------------------------------------------
 -- Window
 ---------------------------------------------------------------------------
-local window = CreateFrame("Frame", "WoWFFarmZones", UIParent, "BackdropTemplate")
+local window = CreateFrame("Frame", "GathercraftZones", UIParent, "BackdropTemplate")
 window:SetSize(WIDTH, 520)
 window:SetPoint("CENTER")
 window:SetBackdrop({
@@ -33,11 +33,11 @@ window:RegisterForDrag("LeftButton")
 window:SetScript("OnDragStart", window.StartMoving)
 window:SetScript("OnDragStop", window.StopMovingOrSizing)
 window:Hide()
-tinsert(UISpecialFrames, "WoWFFarmZones") -- close with ESC
+tinsert(UISpecialFrames, "GathercraftZones") -- close with ESC
 
 local title = window:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
 title:SetPoint("TOPLEFT", 14, -12)
-title:SetText("WoWFFarm - Zones")
+title:SetText("Gathercraft - Zones")
 
 local close = CreateFrame("Button", nil, window, "UIPanelCloseButton")
 close:SetPoint("TOPRIGHT", -2, -2)
@@ -46,7 +46,7 @@ local hint = window:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 hint:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -6)
 hint:SetText("Unchecked continents, zones and materials are hidden and not routed.")
 
-local scroll = CreateFrame("ScrollFrame", "WoWFFarmZonesScroll", window, "UIPanelScrollFrameTemplate")
+local scroll = CreateFrame("ScrollFrame", "GathercraftZonesScroll", window, "UIPanelScrollFrameTemplate")
 scroll:SetPoint("TOPLEFT", 12, -56)
 scroll:SetPoint("BOTTOMRIGHT", -32, 44)
 
@@ -190,7 +190,8 @@ end
 local Refresh
 
 local function Changed()
-    ns.NotifyNodesChanged() -- updates this window, the pins and the route
+    ns.NotifyNodesChanged() -- updates the pins and the route
+    Refresh()               -- and this window right away
 end
 
 local function KindText(k)
@@ -342,4 +343,13 @@ window:SetScript("OnShow", Refresh)
 ns.ToggleZones = function()
     window:SetShown(not window:IsShown())
 end
-ns.OnNodesChanged = Refresh
+-- Many changes in a row (e.g. sync imports) only refresh the window once
+local refreshPending = false
+ns.OnNodesChanged = function()
+    if refreshPending or not window:IsShown() then return end
+    refreshPending = true
+    C_Timer.After(0.5, function()
+        refreshPending = false
+        Refresh()
+    end)
+end

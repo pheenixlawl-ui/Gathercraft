@@ -3,7 +3,7 @@ local ADDON_NAME, ns = ...
 ---------------------------------------------------------------------------
 -- Live routing and farm runs
 --   The route is always planned from the player's current position through
---   all remaining nodes of this round (checked zones/kinds in /fg zones, on
+--   all remaining nodes of this round (checked zones/kinds in /gcr zones, on
 --   the current continent). It is re-planned whenever something changes:
 --   arriving at a node, harvesting, skipping, new nodes. Marker and route
 --   line always come from the same plan.
@@ -27,7 +27,7 @@ local LINE_REF = ADDON_NAME .. "Route"
 local LINE_COLOR = { 1, 0.82, 0.2, 0.9 }
 
 local ticker
-local preview -- plan shown with /fg route (no run)
+local preview -- plan shown with /gcr route (no run)
 local Plan    -- forward declaration
 
 ---------------------------------------------------------------------------
@@ -53,6 +53,18 @@ local function MatchesFilter(n, filter)
     return not filter or n.type == filter or n.name:lower():find(filter, 1, true)
 end
 
+-- World coordinates per node, cached (weak keys: deleted nodes drop out)
+local worldCache = setmetatable({}, { __mode = "k" })
+local function WorldPos(n, mapID)
+    local c = worldCache[n]
+    if c and c.x == n.x and c.y == n.y and c.mapID == mapID then
+        return c.wx, c.wy, c.inst
+    end
+    local wx, wy, inst = HBD:GetWorldCoordinatesFromZone(n.x, n.y, mapID)
+    worldCache[n] = { x = n.x, y = n.y, mapID = mapID, wx = wx, wy = wy, inst = inst }
+    return wx, wy, inst
+end
+
 -- All checked nodes on the given continent
 local function CollectPoints(filter, instance)
     local points = {}
@@ -60,7 +72,7 @@ local function CollectPoints(filter, instance)
         if not ns.db.disabledZones[mapID] then
             for _, n in ipairs(nodes) do
                 if ns.IsNodeEnabled(n, mapID) and MatchesFilter(n, filter) then
-                    local wx, wy, inst = HBD:GetWorldCoordinatesFromZone(n.x, n.y, mapID)
+                    local wx, wy, inst = WorldPos(n, mapID)
                     if wx and inst == instance then
                         points[#points + 1] = { node = n, mapID = mapID, wx = wx, wy = wy }
                     end
@@ -247,7 +259,7 @@ Plan = function(quick)
     local points = CollectPoints(run.filter, instance)
     run.total = #points
     if #points == 0 then
-        ns.Print("No matching nodes on this continent (check /fg zones).")
+        ns.Print("No matching nodes on this continent (check /gcr zones).")
         StopRun()
         return
     end
@@ -378,7 +390,7 @@ end
 local function SkipNode()
     local run = ns.run
     if not run or not run.target then
-        ns.Print("No run target right now. Start one with /fg run.")
+        ns.Print("No run target right now. Start one with /gcr run.")
         return
     end
     local node = run.target
@@ -429,13 +441,13 @@ local function PreviewRoute(filter)
         if not ns.IsOnCooldown(p.node) then open[#open + 1] = p end
     end
     if #open == 0 then
-        ns.Print("No available nodes on this continent (check /fg zones).")
+        ns.Print("No available nodes on this continent (check /gcr zones).")
         return
     end
     local path, length = PlanPath(open, px, py)
     preview = { path = path, length = length, instance = instance, px = px, py = py }
     DrawLine(path, length, instance, px, py)
-    ns.Print(("Route preview: %d nodes in %d zone(s), path %d yd. /fg route again to hide."):format(
+    ns.Print(("Route preview: %d nodes in %d zone(s), path %d yd. /gcr route again to hide."):format(
         #path, CountZones(path), length))
 end
 

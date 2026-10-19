@@ -1,12 +1,13 @@
 local ADDON_NAME, ns = ...
 
-local PREFIX = "|cff33ff99WoWFFarm|r: "
+local PREFIX = "|cff33ff99Gathercraft|r: "
 local MERGE_RADIUS = 10   -- yards: same node kind closer than this can be the same node
-local NEXT_MIN_DIST = 10  -- yards: /fg next skips nodes you are standing on
+local NEXT_MIN_DIST = 10  -- yards: /gcr next skips nodes you are standing on
 local RESPAWN_TIME = 300  -- seconds a harvested node stays out of runs
+local RESPAWN_BY_TYPE = { chest = 900 } -- chests take longer
 local LOOT_WAIT = 1.5     -- seconds to wait for the loot window after a gather
 local LIST_MAX = 15
-local DEBUG_WINDOW = "WoWFFarm"
+local DEBUG_WINDOW = "Gathercraft"
 
 -- Gathering spells by (lowercased) spell name -> node type
 local GATHER_SPELLS = {
@@ -16,9 +17,22 @@ local GATHER_SPELLS = {
     ["kräuterkunde"] = "herb",
     ["mining"] = "ore",
     ["bergbau"] = "ore",
+    ["opening"] = "chest", -- only counts for chest-like objects, see IsChestName
+    ["öffnen"] = "chest",
 }
 
-local TYPE_COLORS = { herb = "|cff66ff66", ore = "|cffffcc66" }
+-- "Opening" is also used for quest objects and doors: only real chests count
+local CHEST_WORDS = { "chest", "strongbox", "footlocker", "coffer", "truhe", "kiste", "schatulle", "kassette" }
+local function IsChestName(name)
+    if not name then return false end
+    name = name:lower()
+    for _, word in ipairs(CHEST_WORDS) do
+        if name:find(word, 1, true) then return true end
+    end
+    return false
+end
+
+local TYPE_COLORS = { herb = "|cff66ff66", ore = "|cffffcc66", chest = "|cffff9955" }
 
 -- Other files register functions here to hear about database changes
 ns.nodeListeners = ns.nodeListeners or {}
@@ -27,7 +41,7 @@ local function Print(text)
     print(PREFIX .. text)
 end
 
--- Finds the chat window named "WoWFFarm" or creates it
+-- Finds the chat window named "Gathercraft" or creates it
 local function GetDebugFrame()
     for i = 1, NUM_CHAT_WINDOWS do
         local name = GetChatWindowInfo(i)
@@ -44,7 +58,7 @@ end
 
 local function Debug(text)
     if ns.db and ns.db.debug then
-        GetDebugFrame():AddMessage("|cff999999WoWFFarm debug|r: " .. text)
+        GetDebugFrame():AddMessage("|cff999999Gathercraft debug|r: " .. text)
     end
 end
 
@@ -53,12 +67,29 @@ local function TypeTag(nodeType)
     return " " .. (TYPE_COLORS[nodeType] or "") .. "[" .. nodeType .. "]|r"
 end
 
-local function NodesChanged()
+-- Lookup caches, rebuilt lazily after changes (see FindNode / KnownName)
+local nodeIndex = {}   -- mapID -> kind id -> { nodes }
+local nameCache        -- kind id -> name we know in our own language
+
+-- Tells everyone about database changes.
+--   kind = "add" / "update" with mapID and node for a single node,
+--   nil for bigger changes (delete, wipe, imports, selection)
+local function NodesChanged(kind, mapID, node)
+    if kind == "add" and mapID and nodeIndex[mapID] and node and node.id then
+        local byId = nodeIndex[mapID]
+        byId[node.id] = byId[node.id] or {}
+        table.insert(byId[node.id], node)
+    elseif kind ~= "update" then
+        wipe(nodeIndex)
+    end
+    if kind ~= "update" then
+        nameCache = nil
+    end
     if ns.OnNodesChanged then
-        ns.OnNodesChanged()
+        ns.OnNodesChanged(kind, mapID, node)
     end
     for _, fn in ipairs(ns.nodeListeners) do
-        fn()
+        fn(kind, mapID, node)
     end
 end
 
@@ -107,6 +138,52 @@ local function IsOnCooldown(node)
     return node.emptyUntil and node.emptyUntil > time()
 end
 
+-- Fast lookup: a node of this kind near x/y (map coordinates) or nil.
+-- Uses an index per zone and kind instead of scanning every node.
+local function FindNode(mapID, id, x, y, radius)
+    local list = ns.db.nodes[mapID]
+    if not list or not id then return end
+    local byId = nodeIndex[mapID]
+    if not byId then
+        byId = {}
+        for _, n in ipairs(list) do
+            if n.id then
+                byId[n.id] = byId[n.id] or {}
+                table.insert(byId[n.id], n)
+            end
+        end
+        nodeIndex[mapID] = byId
+    end
+    local candidates = byId[id]
+    if not candidates then return end
+    local best, bestD
+    for _, n in ipairs(candidates) do
+        -- cheap pre-check before the exact distance (0.02 = 2% of the map)
+        if math.abs(n.x - x) < 0.02 and math.abs(n.y - y) < 0.02 then
+            local d = Distance(mapID, x, y, n.x, n.y)
+            if d <= radius and (not bestD or d < bestD) then
+                best, bestD = n, d
+            end
+        end
+    end
+    return best
+end
+
+-- Name of a node kind in our own language, if we harvested it ourselves
+local function KnownName(id)
+    if not nameCache then
+        nameCache = {}
+        for _, list in pairs(ns.db.nodes) do
+            for _, n in ipairs(list) do
+                if n.id and not n.source and not nameCache[n.id] then
+                    nameCache[n.id] = n.name
+                end
+            end
+        end
+    end
+    return nameCache[id]
+end
+
 ---------------------------------------------------------------------------
 -- Node database
 --   node = { id, name, type, x, y, count, last, emptyUntil, lastSpawn, item }
@@ -152,7 +229,7 @@ local function GetContinent(mapID)
     return id, name
 end
 
--- Selection from the zones window (/fg zones). A node is used only if all
+-- Selection from the zones window (/gcr zones). A node is used only if all
 -- levels are checked: continent, material on the continent, zone, material in the zone.
 local function IsNodeEnabled(n, mapID)
     local db = ns.db
@@ -210,7 +287,7 @@ local function AddNodeAt(mapID, x, y, name, nodeType, id, spawn, item)
         n.lastSpawn = spawn or n.lastSpawn
         if spawn then n.source = nil end -- harvested ourselves: our own node now
         Print(("Merged %s%s (seen %d times)."):format(n.name, TypeTag(n.type), n.count))
-        NodesChanged()
+        NodesChanged("update", mapID, n)
         return n
     end
 
@@ -221,7 +298,7 @@ local function AddNodeAt(mapID, x, y, name, nodeType, id, spawn, item)
     table.insert(list, node)
     Print(("Added %s%s at %.1f / %.1f (%d nodes in %s)."):format(
         name, TypeTag(nodeType), x * 100, y * 100, #list, GetZoneName(mapID)))
-    NodesChanged()
+    NodesChanged("add", mapID, node)
     return node
 end
 
@@ -324,7 +401,7 @@ local function DeleteNearest()
 end
 
 local function Stats()
-    local zones, total, herbs, ores = 0, 0, 0, 0
+    local zones, total, herbs, ores, chests = 0, 0, 0, 0, 0
     for _, list in pairs(ns.db.nodes) do
         if #list > 0 then
             zones = zones + 1
@@ -334,11 +411,13 @@ local function Stats()
                     herbs = herbs + 1
                 elseif n.type == "ore" then
                     ores = ores + 1
+                elseif n.type == "chest" then
+                    chests = chests + 1
                 end
             end
         end
     end
-    Print(("%d nodes in %d zones (%d herbs, %d ores)."):format(total, zones, herbs, ores))
+    Print(("%d nodes in %d zones (%d herbs, %d ores, %d chests)."):format(total, zones, herbs, ores, chests))
 end
 
 -- Farm runs and routes live in Route.lua
@@ -418,13 +497,16 @@ local function TryRecord()
 
     local node = AddNodeAt(p.mapID, p.x, p.y, p.name, p.type, id, p.spawn, p.itemID)
     if not node then return end
-    node.emptyUntil = time() + RESPAWN_TIME
+    node.emptyUntil = time() + (RESPAWN_BY_TYPE[node.type] or RESPAWN_TIME)
 
     if ns.OnHarvested then
         ns.OnHarvested(node)
     end
     if ns.SyncShare then
         ns.SyncShare(p.mapID, node)
+    end
+    if ns.OnGathered then
+        ns.OnGathered(node, p)
     end
 end
 
@@ -436,6 +518,9 @@ local function OnSpellcastSent(unit, target, castGUID, spellID)
     if not nodeType then return end
 
     local name = (target and target ~= "") and target or GetTooltipTitle()
+    if nodeType == "chest" and not IsChestName(name) then
+        return -- opening a door, a quest object, ...
+    end
     if not name or name == "" then
         name = (nodeType == "herb") and "Unknown Herb" or "Unknown Ore"
     end
@@ -446,6 +531,9 @@ local function OnSpellcastSent(unit, target, castGUID, spellID)
         castGUID = castGUID, name = name, type = nodeType,
         mapID = mapID, x = x, y = y, sentAt = GetTime(),
     }
+    if ns.OnGatherStart then
+        ns.OnGatherStart(ns.pending)
+    end
 end
 
 local function OnSpellcastSucceeded(castGUID, spellID)
@@ -498,7 +586,7 @@ local function WipeNodes(scope)
         if ns.StopRun then ns.StopRun(true) end
         Print("All nodes deleted.")
     else
-        Print("Usage: /fg wipe zone  or  /fg wipe all")
+        Print("Usage: /gcr wipe zone  or  /gcr wipe all")
         return
     end
     NodesChanged()
@@ -553,24 +641,33 @@ frame:SetScript("OnEvent", function(self, event, ...)
     if event == "ADDON_LOADED" then
         local name = ...
         if name == ADDON_NAME then
-            WoWFFarmDB = WoWFFarmDB or {}
-            WoWFFarmDB.version = WoWFFarmDB.version or 1
-            WoWFFarmDB.nodes = WoWFFarmDB.nodes or {}
-            WoWFFarmDB.disabledZones = WoWFFarmDB.disabledZones or {}
-            WoWFFarmDB.disabledKinds = WoWFFarmDB.disabledKinds or {}
-            WoWFFarmDB.disabledContinents = WoWFFarmDB.disabledContinents or {}
-            WoWFFarmDB.disabledContinentKinds = WoWFFarmDB.disabledContinentKinds or {}
-            if WoWFFarmDB.selectionVersion ~= 2 then
-                -- Node kind selection is per zone now; old global entries are reset
-                wipe(WoWFFarmDB.disabledKinds)
-                WoWFFarmDB.selectionVersion = 2
+            -- Take over the data of the old addon name (WoWFFarm) once
+            if not GathercraftDB and WoWFFarmDB then
+                GathercraftDB = WoWFFarmDB
+                ns.migratedOld = true
             end
-            ns.db = WoWFFarmDB
+            WoWFFarmDB = nil
+            GathercraftDB = GathercraftDB or {}
+            GathercraftDB.version = GathercraftDB.version or 1
+            GathercraftDB.nodes = GathercraftDB.nodes or {}
+            GathercraftDB.disabledZones = GathercraftDB.disabledZones or {}
+            GathercraftDB.disabledKinds = GathercraftDB.disabledKinds or {}
+            GathercraftDB.disabledContinents = GathercraftDB.disabledContinents or {}
+            GathercraftDB.disabledContinentKinds = GathercraftDB.disabledContinentKinds or {}
+            if GathercraftDB.selectionVersion ~= 2 then
+                -- Node kind selection is per zone now; old global entries are reset
+                wipe(GathercraftDB.disabledKinds)
+                GathercraftDB.selectionVersion = 2
+            end
+            ns.db = GathercraftDB
         end
     elseif event == "PLAYER_LOGIN" then
-        Print("loaded. Type /fg help for commands.")
+        Print("by pheenixlawl loaded. Type /gcr help for commands.")
+        if ns.migratedOld then
+            Print("Your WoWFFarm data was taken over. Welcome to Gathercraft!")
+        end
         if ns.db.debug then
-            Print("Debug mode is ON (/fg debug to turn off).")
+            Print("Debug mode is ON (/gcr debug to turn off).")
         end
         -- Resume a run that was active before reload/logout
         if ns.db.activeRun then
@@ -598,33 +695,37 @@ end)
 ---------------------------------------------------------------------------
 local function Help()
     Print("commands:")
-    print("  /fg zones        - choose zones and node kinds")
-    print("  /fg run [herb|ore|name] - farm run along the best route")
-    print("  /fg route [herb|ore|name] - preview the route on the map")
-    print("  /fg line         - show/hide the route line")
-    print("  /fg skip         - current node is empty, go to next")
-    print("  /fg stop         - stop the farm run")
-    print("  /fg pins         - show/hide map and minimap pins")
-    print("  /fg list [filter] - list nodes in this zone")
-    print("  /fg next [filter] - waypoint to nearest node")
-    print("  /fg add <name>   - store a node manually")
-    print("  /fg del          - delete the node you stand at")
-    print("  /fg wipe zone|all - delete stored nodes")
-    print("  /fg stats        - node totals")
-    print("  /fg clear        - remove waypoint")
-    print("  /fg sync         - sync status and options")
-    print("  /fg debug        - toggle debug output")
-    print("  /fg test         - API check")
+    print("  /gcr zones        - choose zones and node kinds")
+    print("  /gcr run [herb|ore|chest|name] - farm run along the best route")
+    print("  /gcr route [herb|ore|chest|name] - preview the route on the map")
+    print("  /gcr line         - show/hide the route line")
+    print("  /gcr skip         - current node is empty, go to next")
+    print("  /gcr stop         - stop the farm run")
+    print("  /gcr pins         - show/hide map and minimap pins")
+    print("  /gcr list [filter] - list nodes in this zone")
+    print("  /gcr next [filter] - waypoint to nearest node")
+    print("  /gcr add <name>   - store a node manually")
+    print("  /gcr del          - delete the node you stand at")
+    print("  /gcr wipe zone|all - delete stored nodes")
+    print("  /gcr stats        - node totals")
+    print("  /gcr clear        - remove waypoint")
+    print("  /gcr options      - options window (or shift-click the minimap button)")
+    print("  /gcr skills       - your gathering skills and what we learned")
+    print("  /gcr sync         - sync status and options")
+    print("  /gcr debug        - toggle debug output")
+    print("  /gcr test         - API check")
 end
 
-SLASH_WOWFFARM1 = "/fg"
-SlashCmdList.WOWFFARM = function(msg)
+SLASH_GATHERCRAFT1 = "/gcr"
+SLASH_GATHERCRAFT2 = "/gathercraft"
+SLASH_GATHERCRAFT3 = "/fg" -- old name, kept for now
+SlashCmdList.GATHERCRAFT = function(msg)
     local cmd, rest = (msg or ""):match("^(%S*)%s*(.-)%s*$")
     cmd = cmd:lower()
 
     if cmd == "add" then
         if rest == "" then
-            Print("Usage: /fg add <name>")
+            Print("Usage: /gcr add <name>")
         else
             AddNode(rest)
         end
@@ -662,6 +763,14 @@ SlashCmdList.WOWFFARM = function(msg)
         Print("Waypoint cleared.")
     elseif cmd == "stats" then
         Stats()
+    elseif cmd == "options" or cmd == "config" then
+        if ns.ToggleOptions then
+            ns.ToggleOptions()
+        end
+    elseif cmd == "skills" then
+        if ns.ShowSkills then
+            ns.ShowSkills()
+        end
     elseif cmd == "sync" then
         if ns.SyncCommand then
             ns.SyncCommand(rest)
@@ -689,4 +798,6 @@ ns.GetContinent = GetContinent
 ns.IsOnCooldown = IsOnCooldown
 ns.IsNodeEnabled = IsNodeEnabled
 ns.NotifyNodesChanged = NodesChanged
+ns.FindNode = FindNode
+ns.KnownName = KnownName
 ns.SetWaypoint = SetWaypoint

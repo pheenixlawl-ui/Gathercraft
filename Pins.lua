@@ -1,27 +1,35 @@
 local ADDON_NAME, ns = ...
 
+---------------------------------------------------------------------------
+-- Node pins on the world map and minimap (HereBeDragons)
+--   Single new/changed nodes only add or move their own pins.
+--   Bigger changes (selection, pin size, deletes) rebuild everything,
+--   at most once per short moment.
+---------------------------------------------------------------------------
 local HBD = LibStub and LibStub("HereBeDragons-2.0", true)
 local HBDPins = LibStub and LibStub("HereBeDragons-Pins-2.0", true)
 
 local WORLD_SIZE = 14
-local MINI_SIZE = 12
 local DIM_ALPHA = 0.35   -- nodes on cooldown (just harvested)
 local REF = ADDON_NAME   -- owner key for HereBeDragons
+local REBUILD_DELAY = 0.3
 
 local TYPE_ICONS = {
     herb = "Interface\\Icons\\INV_Misc_Flower_02",
     ore = "Interface\\Icons\\INV_Ore_Copper_01",
+    chest = "Interface\\Icons\\INV_Box_02",
 }
+local TYPE_LABELS = { herb = "Herb", ore = "Ore", chest = "Chest" }
 local DEFAULT_ICON = "Interface\\Icons\\INV_Misc_QuestionMark"
 
 ---------------------------------------------------------------------------
 -- Pin frames
 ---------------------------------------------------------------------------
-local freeWorld, usedWorld = {}, {}
-local freeMini, usedMini = {}, {}
+local freeWorld, freeMini = {}, {}
+local pinsByNode = {}    -- node -> { world = pin, mini = pin }
 
 local function NodeIcon(n)
-    if n.item then
+    if n.item and n.type ~= "chest" then -- chest loot is random, keep the chest icon
         local icon
         if C_Item and C_Item.GetItemIconByID then
             icon = C_Item.GetItemIconByID(n.item)
@@ -39,11 +47,16 @@ local function ShowTooltip(pin)
     GameTooltip:SetOwner(pin, "ANCHOR_RIGHT")
     GameTooltip:AddLine(n.name, 1, 1, 1)
     if n.type then
-        GameTooltip:AddLine(n.type == "herb" and "Herb" or "Ore", 0.6, 0.6, 0.6)
+        GameTooltip:AddLine(TYPE_LABELS[n.type] or n.type, 0.6, 0.6, 0.6)
     end
     GameTooltip:AddLine(("Seen %d times"):format(n.count or 1), 0.8, 0.8, 0.8)
+    if ns.SkillTooltip then
+        ns.SkillTooltip(GameTooltip, n)
+    end
     if n.source == "sync" then
         GameTooltip:AddLine("Shared by other players", 0.4, 0.8, 1)
+    elseif n.source == "starter" then
+        GameTooltip:AddLine("From the beta database (not confirmed yet)", 0.8, 0.7, 1)
     end
     if ns.IsOnCooldown(n) then
         GameTooltip:AddLine(("Harvested, respawn in ~%ds"):format(n.emptyUntil - time()), 1, 0.5, 0.5)
@@ -51,9 +64,8 @@ local function ShowTooltip(pin)
     GameTooltip:Show()
 end
 
-local function CreatePin(size)
+local function CreatePin()
     local pin = CreateFrame("Frame", nil, UIParent)
-    pin:SetSize(size, size)
     pin.icon = pin:CreateTexture(nil, "OVERLAY")
     pin.icon:SetAllPoints()
     pin.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92) -- crop the icon border
@@ -64,64 +76,94 @@ local function CreatePin(size)
     return pin
 end
 
-local function Acquire(free, used, size)
-    local pin = table.remove(free) or CreatePin(size)
-    table.insert(used, pin)
-    return pin
+local function Sizes()
+    local world = ns.db.pinSize or WORLD_SIZE
+    return world, math.max(8, world - 2)
 end
 
-local function Release(free, used)
-    for _, pin in ipairs(used) do
+local function SetAlpha(pin)
+    pin:SetAlpha(ns.IsOnCooldown(pin.node) and DIM_ALPHA or 1)
+end
+
+-- Adds the two pins (world map + minimap) of one node
+local function AddNodePins(mapID, n)
+    if ns.db.pinsHidden or not ns.IsNodeEnabled(n, mapID) then return end
+    local icon = NodeIcon(n)
+    local worldSize, miniSize = Sizes()
+
+    local w = table.remove(freeWorld) or CreatePin()
+    w.node, w.mapID = n, mapID
+    w:SetSize(worldSize, worldSize)
+    w.icon:SetTexture(icon)
+    SetAlpha(w)
+    HBDPins:AddWorldMapIconMap(REF, w, mapID, n.x, n.y, HBD_PINS_WORLDMAP_SHOW_PARENT or 1)
+
+    local m = table.remove(freeMini) or CreatePin()
+    m.node, m.mapID = n, mapID
+    m:SetSize(miniSize, miniSize)
+    m.icon:SetTexture(icon)
+    SetAlpha(m)
+    HBDPins:AddMinimapIconMap(REF, m, mapID, n.x, n.y, false, false)
+
+    pinsByNode[n] = { world = w, mini = m }
+end
+
+-- Removes the pins of one node
+local function RemoveNodePins(n)
+    local pins = pinsByNode[n]
+    if not pins then return end
+    HBDPins:RemoveWorldMapIcon(REF, pins.world)
+    HBDPins:RemoveMinimapIcon(REF, pins.mini)
+    for key, pin in pairs(pins) do
         pin:Hide()
         pin.node = nil
-        table.insert(free, pin)
+        table.insert(key == "world" and freeWorld or freeMini, pin)
     end
-    wipe(used)
+    pinsByNode[n] = nil
 end
 
 ---------------------------------------------------------------------------
 -- Build / update
 ---------------------------------------------------------------------------
 local function UpdateAlpha()
-    for _, used in ipairs({ usedWorld, usedMini }) do
-        for _, pin in ipairs(used) do
-            local n = pin.node
-            if n then
-                pin:SetAlpha(ns.IsOnCooldown(n) and DIM_ALPHA or 1)
-            end
-        end
+    for _, pins in pairs(pinsByNode) do
+        SetAlpha(pins.world)
+        SetAlpha(pins.mini)
     end
 end
 
 local function Rebuild()
     if not ns.db or not HBDPins then return end
-    HBDPins:RemoveAllWorldMapIcons(REF)
-    HBDPins:RemoveAllMinimapIcons(REF)
-    Release(freeWorld, usedWorld)
-    Release(freeMini, usedMini)
-
+    for n in pairs(pinsByNode) do
+        RemoveNodePins(n)
+    end
     if ns.db.pinsHidden then return end
-
-    local showFlag = HBD_PINS_WORLDMAP_SHOW_PARENT or 1
     for mapID, list in pairs(ns.db.nodes) do
         for _, n in ipairs(list) do
-            -- Zones and node kinds unchecked in /fg zones are hidden
-            if ns.IsNodeEnabled(n, mapID) then
-                local icon = NodeIcon(n)
-
-                local w = Acquire(freeWorld, usedWorld, WORLD_SIZE)
-                w.node, w.mapID = n, mapID
-                w.icon:SetTexture(icon)
-                HBDPins:AddWorldMapIconMap(REF, w, mapID, n.x, n.y, showFlag)
-
-                local m = Acquire(freeMini, usedMini, MINI_SIZE)
-                m.node, m.mapID = n, mapID
-                m.icon:SetTexture(icon)
-                HBDPins:AddMinimapIconMap(REF, m, mapID, n.x, n.y, false, false)
-            end
+            AddNodePins(mapID, n)
         end
     end
-    UpdateAlpha()
+end
+
+local rebuildPending = false
+local function RequestRebuild()
+    if rebuildPending then return end
+    rebuildPending = true
+    C_Timer.After(REBUILD_DELAY, function()
+        rebuildPending = false
+        Rebuild()
+    end)
+end
+
+-- Database changed (see NotifyNodesChanged in Core.lua)
+local function OnNodesChanged(kind, mapID, node)
+    if not ns.db then return end
+    if (kind == "add" or kind == "update") and mapID and node then
+        RemoveNodePins(node)       -- "update": the position may have moved a bit
+        AddNodePins(mapID, node)
+    else
+        RequestRebuild()
+    end
 end
 
 ---------------------------------------------------------------------------
@@ -137,7 +179,7 @@ if not (HBD and HBDPins) then
     return
 end
 
-table.insert(ns.nodeListeners, Rebuild)
+table.insert(ns.nodeListeners, OnNodesChanged)
 
 ns.TogglePins = function()
     ns.db.pinsHidden = not ns.db.pinsHidden
@@ -149,5 +191,5 @@ local loader = CreateFrame("Frame")
 loader:RegisterEvent("PLAYER_LOGIN")
 loader:SetScript("OnEvent", function()
     C_Timer.After(1, Rebuild)
-    C_Timer.NewTicker(3, UpdateAlpha) -- cooldowns run out, zone selection changes
+    C_Timer.NewTicker(3, UpdateAlpha) -- cooldowns run out
 end)

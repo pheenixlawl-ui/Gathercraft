@@ -1,0 +1,5 @@
+<Bindings>
+    <Binding name="GATHERCRAFT_TOGGLERUN" header="GATHERCRAFT" category="ADDONS">Gathercraft_ToggleRun()</Binding>
+    <Binding name="GATHERCRAFT_SKIP" category="ADDONS">Gathercraft_Skip()</Binding>
+    <Binding name="GATHERCRAFT_ZONES" category="ADDONS">Gathercraft_Zones()</Binding>
+</Bindings>

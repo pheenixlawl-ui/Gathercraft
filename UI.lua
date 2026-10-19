@@ -3,7 +3,7 @@ local ADDON_NAME, ns = ...
 ---------------------------------------------------------------------------
 -- Farm panel
 ---------------------------------------------------------------------------
-local panel = CreateFrame("Frame", "WoWFFarmPanel", UIParent, "BackdropTemplate")
+local panel = CreateFrame("Frame", "GathercraftPanel", UIParent, "BackdropTemplate")
 panel:SetSize(230, 78)
 panel:SetPoint("CENTER", UIParent, "CENTER", 0, 200)
 panel:SetBackdrop({
@@ -27,7 +27,7 @@ panel:Hide()
 
 local title = panel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
 title:SetPoint("TOPLEFT", 10, -10)
-title:SetText("WoWFFarm")
+title:SetText("Gathercraft")
 
 local targetText = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
 targetText:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -4)
@@ -57,7 +57,7 @@ local function Update()
         return
     end
 
-    title:SetText("WoWFFarm" .. (run.filter and ("  |cff999999(" .. run.filter .. ")|r") or ""))
+    title:SetText("Gathercraft" .. (run.filter and ("  |cff999999(" .. run.filter .. ")|r") or ""))
     local left = run.path and #run.path or 0
 
     local t = run.target
