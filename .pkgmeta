@@ -1,0 +1,7 @@
+package-as: Gathercraft
+
+ignore:
+  - tools
+  - .github
+  - .vscode
+  - "*.zip"

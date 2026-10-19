@@ -36,6 +36,7 @@ local TYPE_COLORS = { herb = "|cff66ff66", ore = "|cffffcc66", chest = "|cffff99
 
 -- Other files register functions here to hear about database changes
 ns.nodeListeners = ns.nodeListeners or {}
+ns.gatherListeners = ns.gatherListeners or {} -- fn(node, pending) after each recorded gather
 
 local function Print(text)
     print(PREFIX .. text)
@@ -508,6 +509,9 @@ local function TryRecord()
     if ns.OnGathered then
         ns.OnGathered(node, p)
     end
+    for _, fn in ipairs(ns.gatherListeners) do
+        fn(node, p)
+    end
 end
 
 local function OnSpellcastSent(unit, target, castGUID, spellID)
@@ -712,6 +716,7 @@ local function Help()
     print("  /gcr options      - options window (or shift-click the minimap button)")
     print("  /gcr skills       - your gathering skills and what we learned")
     print("  /gcr sync         - sync status and options")
+    print("  /gcr rare         - test the rare alert")
     print("  /gcr debug        - toggle debug output")
     print("  /gcr test         - API check")
 end
@@ -723,7 +728,9 @@ SlashCmdList.GATHERCRAFT = function(msg)
     local cmd, rest = (msg or ""):match("^(%S*)%s*(.-)%s*$")
     cmd = cmd:lower()
 
-    if cmd == "add" then
+    if cmd == "" and ns.ToggleMain then
+        ns.ToggleMain()
+    elseif cmd == "add" then
         if rest == "" then
             Print("Usage: /gcr add <name>")
         else
@@ -775,6 +782,8 @@ SlashCmdList.GATHERCRAFT = function(msg)
         if ns.SyncCommand then
             ns.SyncCommand(rest)
         end
+    elseif cmd == "rare" then
+        if ns.TestRareAlert then ns.TestRareAlert() end
     elseif cmd == "debug" then
         ToggleDebug()
     elseif cmd == "test" then

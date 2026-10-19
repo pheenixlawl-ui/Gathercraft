@@ -3,7 +3,6 @@ local ADDON_NAME, ns = ...
 ---------------------------------------------------------------------------
 -- Minimap button, options window and key bindings
 ---------------------------------------------------------------------------
-local BUTTON_RIM_OFFSET = 8 -- pixels outside the minimap edge
 local PIN_SIZE_MIN, PIN_SIZE_MAX, PIN_SIZE_DEFAULT = 8, 24, 14
 
 local function ToggleRun()
@@ -137,6 +136,19 @@ local function Build()
             if ns.db.sync.public ~= on then ns.SyncCommand("public") end
         end)
 
+    AddHeader("Rares")
+    AddCheck("Alert when a rare shows up (sound + warning)",
+        function() return ns.db.rareAlert ~= false end,
+        function(on) ns.db.rareAlert = on end)
+    AddCheck("Say \"Rare!\" out loud (text-to-speech)",
+        function() return ns.db.rareVoice ~= false end,
+        function(on) ns.db.rareVoice = on end)
+
+    AddHeader("Fishing")
+    AddCheck("Fish key applies a lure when the pole has none",
+        function() return ns.db.fishLure ~= false end,
+        function(on) ns.db.fishLure = on end)
+
     AddHeader("Other")
     AddCheck("Minimap button",
         function() return not ns.db.minimapHidden end,
@@ -155,6 +167,22 @@ local function Build()
     hint:SetText("Key bindings: Esc > Options > Keybindings > AddOns > Gathercraft")
 end
 
+-- Puts the options into a tab of the main window
+ns.EmbedOptions = function(parent)
+    options:SetParent(parent)
+    options:ClearAllPoints()
+    options:SetAllPoints(parent)
+    options:SetBackdrop(nil)
+    options:SetMovable(false)
+    options:SetScript("OnDragStart", nil)
+    options:SetScript("OnDragStop", nil)
+    options:SetFrameStrata(parent:GetFrameStrata())
+    title:Hide()
+    close:Hide()
+    tDeleteItem(UISpecialFrames, "GathercraftOptions")
+    return options
+end
+
 local function ToggleOptions()
     options:SetShown(not options:IsShown())
 end
@@ -164,80 +192,49 @@ end
 ---------------------------------------------------------------------------
 local ICON = "Interface\\AddOns\\" .. ADDON_NAME .. "\\Media\\Icon"
 
-local button = CreateFrame("Button", "GathercraftMinimapButton", Minimap)
-button:SetSize(34, 34)
-button:SetFrameStrata("MEDIUM")
-button:SetFrameLevel(8)
-button:RegisterForClicks("LeftButtonUp", "RightButtonUp")
-button:RegisterForDrag("LeftButton")
+-- LibDataBroker launcher + LibDBIcon: works with the plain minimap and with
+-- ElvUI, minimap button collectors and broker displays like Titan Panel
+local LDB = LibStub("LibDataBroker-1.1", true)
+local DBIcon = LibStub("LibDBIcon-1.0", true)
 
--- The forged emblem is its own frame, so no round minimap border around it
-local icon = button:CreateTexture(nil, "ARTWORK")
-icon:SetAllPoints()
-icon:SetTexture(ICON)
+local launcher = LDB and LDB:NewDataObject(ADDON_NAME, {
+    type = "launcher",
+    text = "Gathercraft",
+    icon = ICON,
+    OnClick = function(_, mouse)
+        if mouse == "RightButton" then
+            ToggleRun()
+        elseif IsShiftKeyDown() then
+            ns.ToggleOptions()
+        elseif ns.ToggleMain then
+            ns.ToggleMain()
+        else
+            ns.ToggleZones()
+        end
+    end,
+    OnTooltipShow = function(tooltip)
+        tooltip:AddLine("Gathercraft")
+        tooltip:AddLine("Left-click: open Gathercraft", 1, 1, 1)
+        tooltip:AddLine(ns.run and "Right-click: stop farm run" or "Right-click: start farm run", 1, 1, 1)
+        tooltip:AddLine("Shift-click: options", 1, 1, 1)
+        tooltip:AddLine("Drag: move button", 0.6, 0.6, 0.6)
+    end,
+})
 
-local glow = button:CreateTexture(nil, "HIGHLIGHT")
-glow:SetAllPoints()
-glow:SetTexture(ICON)
-glow:SetBlendMode("ADD")
-glow:SetAlpha(0.35)
-
-button:SetScript("OnMouseDown", function() icon:SetTexCoord(0.04, 0.96, 0.04, 0.96) end)
-button:SetScript("OnMouseUp", function() icon:SetTexCoord(0, 1, 0, 1) end)
-
-local function PlaceButton()
-    local angle = math.rad(ns.db.minimapAngle or 220)
-    -- Sit on the rim, whatever size this client's minimap has
-    local radius = (Minimap:GetWidth() or 140) / 2 + BUTTON_RIM_OFFSET
-    button:ClearAllPoints()
-    button:SetPoint("CENTER", Minimap, "CENTER", math.cos(angle) * radius, math.sin(angle) * radius)
-end
-
-local function DragUpdate()
-    local mx, my = Minimap:GetCenter()
-    local cx, cy = GetCursorPosition()
-    local scale = Minimap:GetEffectiveScale()
-    cx, cy = cx / scale, cy / scale
-    local atan2 = math.atan2 or atan2
-    ns.db.minimapAngle = math.deg(atan2(cy - my, cx - mx))
-    PlaceButton()
-end
-
-button:SetScript("OnDragStart", function(self)
-    self:SetScript("OnUpdate", DragUpdate)
-end)
-button:SetScript("OnDragStop", function(self)
-    self:SetScript("OnUpdate", nil)
-end)
-
-button:SetScript("OnClick", function(self, mouse)
-    if mouse == "RightButton" then
-        ToggleRun()
-    elseif IsShiftKeyDown() then
-        ToggleOptions()
-    else
-        ns.ToggleZones()
-    end
-end)
-
-button:SetScript("OnEnter", function(self)
-    GameTooltip:SetOwner(self, "ANCHOR_LEFT")
-    GameTooltip:AddLine("Gathercraft")
-    GameTooltip:AddLine("Left-click: zones and materials", 1, 1, 1)
-    GameTooltip:AddLine(ns.run and "Right-click: stop farm run" or "Right-click: start farm run", 1, 1, 1)
-    GameTooltip:AddLine("Shift-click: options", 1, 1, 1)
-    GameTooltip:AddLine("Drag: move button", 0.6, 0.6, 0.6)
-    GameTooltip:Show()
-end)
-button:SetScript("OnLeave", function() GameTooltip:Hide() end)
-
+local registered = false
 local function UpdateMinimapButton()
-    if ns.db.minimapHidden then
-        button:Hide()
-    else
-        PlaceButton()
-        button:Show()
+    if not (launcher and DBIcon) then return end
+    local db = ns.db
+    if not db.minimap then
+        -- take over the settings of the old self-made button
+        db.minimap = { hide = db.minimapHidden or false, minimapPos = db.minimapAngle and (db.minimapAngle % 360) or 220 }
     end
+    db.minimap.hide = db.minimapHidden or false
+    if not registered then
+        DBIcon:Register(ADDON_NAME, launcher, db.minimap)
+        registered = true
+    end
+    if db.minimap.hide then DBIcon:Hide(ADDON_NAME) else DBIcon:Show(ADDON_NAME) end
 end
 
 ---------------------------------------------------------------------------
@@ -262,5 +259,5 @@ loader:SetScript("OnEvent", function()
     UpdateMinimapButton()
 end)
 
-ns.ToggleOptions = ToggleOptions
+ns.ToggleOptions = ns.ToggleOptions or ToggleOptions
 ns.UpdateMinimapButton = UpdateMinimapButton

@@ -320,7 +320,7 @@ startButton:SetPoint("BOTTOMLEFT", 12, 12)
 startButton:SetText("Start run")
 startButton:SetScript("OnClick", function()
     ns.StartRun("")
-    window:Hide()
+    if ns.HideMain then ns.HideMain() else window:Hide() end
 end)
 
 local noneButton = CreateFrame("Button", nil, window, "UIPanelButtonTemplate")
@@ -337,6 +337,32 @@ allButton:SetScript("OnClick", function() SetAll(true) end)
 
 window:SetScript("OnShow", Refresh)
 
+-- Puts the zones list into a tab of the main window
+ns.EmbedZones = function(parent)
+    window:SetParent(parent)
+    window:ClearAllPoints()
+    window:SetAllPoints(parent)
+    window:SetBackdrop(nil)
+    window:SetMovable(false)
+    window:SetScript("OnDragStart", nil)
+    window:SetScript("OnDragStop", nil)
+    window:SetFrameStrata(parent:GetFrameStrata())
+    title:Hide()
+    close:Hide()
+    hint:ClearAllPoints()
+    hint:SetPoint("TOPLEFT", 6, -6)
+    scroll:ClearAllPoints()
+    scroll:SetPoint("TOPLEFT", 4, -26)
+    scroll:SetPoint("BOTTOMRIGHT", -26, 40)
+    content:SetWidth(parent:GetWidth() - 40)
+    startButton:ClearAllPoints()
+    startButton:SetPoint("BOTTOMLEFT", 4, 6)
+    noneButton:ClearAllPoints()
+    noneButton:SetPoint("BOTTOMRIGHT", -4, 6)
+    tDeleteItem(UISpecialFrames, "GathercraftZones")
+    return window
+end
+
 ---------------------------------------------------------------------------
 -- Shared
 ---------------------------------------------------------------------------
@@ -346,7 +372,7 @@ end
 -- Many changes in a row (e.g. sync imports) only refresh the window once
 local refreshPending = false
 ns.OnNodesChanged = function()
-    if refreshPending or not window:IsShown() then return end
+    if refreshPending or not window:IsVisible() then return end
     refreshPending = true
     C_Timer.After(0.5, function()
         refreshPending = false
