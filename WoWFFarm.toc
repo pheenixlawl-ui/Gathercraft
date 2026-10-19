@@ -4,5 +4,11 @@
 ## Version: 0.0.1
 ## SavedVariables: WoWFFarmDB
 
+Libs\HereBeDragons\LibStub\LibStub.lua
+Libs\HereBeDragons\HereBeDragons-2.0.lua
+Libs\HereBeDragons\HereBeDragons-Pins-2.0.lua
+
 Core.lua
 UI.lua
+Zones.lua
+Pins.lua
