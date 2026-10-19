@@ -1,0 +1,8 @@
+## Interface: 16001
+## Title: WoWFFarm
+## Notes: Gathering helper with node tracking and navigation
+## Version: 0.0.1
+## SavedVariables: WoWFFarmDB
+
+Core.lua
+UI.lua
