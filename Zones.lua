@@ -354,7 +354,7 @@ ns.EmbedZones = function(parent)
     scroll:ClearAllPoints()
     scroll:SetPoint("TOPLEFT", 4, -26)
     scroll:SetPoint("BOTTOMRIGHT", -26, 40)
-    content:SetWidth(parent:GetWidth() - 40)
+    content:SetWidth(math.max(parent:GetWidth() or 0, 480) - 40) -- width can be 0 before the first layout
     startButton:ClearAllPoints()
     startButton:SetPoint("BOTTOMLEFT", 4, 6)
     noneButton:ClearAllPoints()

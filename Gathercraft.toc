@@ -5,6 +5,9 @@
 ## IconTexture: Interface\AddOns\Gathercraft\Media\Icon
 ## Version: 0.1.0
 ## X-Credits: Node data from Questie (github.com/Questie/Questie). Map pins via HereBeDragons.
+## X-Curse-Project-ID: 1754991
+## X-Wago-ID: aNerwj62
+## X-Website: https://github.com/pheenixlawl-ui/Gathercraft
 ## SavedVariables: GathercraftDB, WoWFFarmDB
 
 Libs\HereBeDragons\LibStub\LibStub.lua

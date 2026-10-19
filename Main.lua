@@ -22,7 +22,7 @@ local BAR_COLORS = {
 }
 local GOLD = { 1, 0.82, 0.30 }
 local EMBER = { 0.42, 0.10, 0.04 }
-local LIST_ROWS = 9
+local LIST_ROWS = 10
 
 ---------------------------------------------------------------------------
 -- Frame
@@ -211,21 +211,44 @@ local optionsPage = AddTab("options", "Options", 4)
 ---------------------------------------------------------------------------
 -- Overview: profession bars
 ---------------------------------------------------------------------------
-local profHeader = Header(overview, "Professions", 4, -2)
-Divider(overview, profHeader)
+-- Two columns: gathering professions left, secondary professions right
+local COL_LEFT, COL_RIGHT, COL_WIDTH = 4, 270, 254
+local PROF_ICONS = {
+    herb = "Interface\\Icons\\Trade_Herbalism",
+    ore = "Interface\\Icons\\Trade_Mining",
+    fish = "Interface\\Icons\\Trade_Fishing",
+    cook = "Interface\\Icons\\INV_Misc_Food_15",
+    aid = "Interface\\Icons\\Spell_Holy_SealOfSacrifice",
+}
+local TIERS = { [75] = "Apprentice", [150] = "Journeyman", [225] = "Expert", [300] = "Artisan" }
+
+local gatherHeader = Header(overview, "Gathering", COL_LEFT, -2)
+local gatherLine = Divider(overview, gatherHeader)
+gatherLine:SetPoint("RIGHT", overview, "LEFT", COL_LEFT + COL_WIDTH, 0)
+Header(overview, "Secondary", COL_RIGHT, -2)
+local secLine = overview:CreateTexture(nil, "ARTWORK")
+secLine:SetHeight(1)
+secLine:SetPoint("TOPLEFT", overview, "TOPLEFT", COL_RIGHT, -23)
+secLine:SetPoint("RIGHT", overview, "RIGHT", -6, 0)
+secLine:SetColorTexture(GOLD[1], GOLD[2], GOLD[3], 0.35)
 
 local bars = {}
-local function CreateBar(type, label, y)
+local function CreateBar(type, label, x, y)
+    local icon = overview:CreateTexture(nil, "ARTWORK")
+    icon:SetSize(18, 18)
+    icon:SetPoint("TOPLEFT", x + 2, y + 2)
+    icon:SetTexture(PROF_ICONS[type])
+    icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+
     local name = overview:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    name:SetPoint("TOPLEFT", 6, y)
-    name:SetWidth(80)
+    name:SetPoint("LEFT", icon, "RIGHT", 6, 0)
+    name:SetWidth(70)
     name:SetJustifyH("LEFT")
     name:SetText(label)
 
     local frame = CreateFrame("Frame", nil, overview, "BackdropTemplate")
-    frame:SetPoint("TOPLEFT", 90, y + 2)
-    frame:SetPoint("RIGHT", overview, "RIGHT", -8, 0)
-    frame:SetHeight(17)
+    frame:SetPoint("TOPLEFT", x + 100, y + 2)
+    frame:SetSize(COL_WIDTH - 100, 18)
     frame:SetBackdrop({
         bgFile = "Interface\\Buttons\\WHITE8X8",
         edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
@@ -244,25 +267,36 @@ local function CreateBar(type, label, y)
 
     local text = bar:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     text:SetPoint("CENTER", 0, 0)
-    bars[type] = { bar = bar, text = text }
+
+    -- shown instead of the bar when the profession is not learned
+    local missing = overview:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    missing:SetPoint("LEFT", frame, "LEFT", 4, 0)
+    missing:SetText("< not learned yet >")
+
+    bars[type] = { icon = icon, name = name, frame = frame, bar = bar, text = text, missing = missing }
 end
-CreateBar("herb", "Herbalism", -26)
-CreateBar("ore", "Mining", -46)
-CreateBar("fish", "Fishing", -66)
-CreateBar("cook", "Cooking", -86)
-CreateBar("aid", "First Aid", -106)
+CreateBar("herb", "Herbalism", COL_LEFT, -28)
+CreateBar("ore", "Mining", COL_LEFT, -52)
+CreateBar("fish", "Fishing", COL_RIGHT, -28)
+CreateBar("cook", "Cooking", COL_RIGHT, -52)
+CreateBar("aid", "First Aid", COL_RIGHT, -76)
 
 local function UpdateBars()
     for type, b in pairs(bars) do
         local rank, maxRank = ns.GetSkill(type)
-        if rank then
+        local learned = rank ~= nil
+        b.frame:SetShown(learned)
+        b.missing:SetShown(not learned)
+        b.icon:SetDesaturated(not learned)
+        b.icon:SetAlpha(learned and 1 or 0.5)
+        if learned then
+            b.name:SetTextColor(1, 1, 1)
             b.bar:SetMinMaxValues(0, maxRank > 0 and maxRank or 1)
             b.bar:SetValue(rank)
-            b.text:SetText(("%d / %d"):format(rank, maxRank))
+            local tier = TIERS[maxRank]
+            b.text:SetText((tier and ("|cffffd27f" .. tier .. "|r  ") or "") .. ("%d / %d"):format(rank, maxRank))
         else
-            b.bar:SetMinMaxValues(0, 1)
-            b.bar:SetValue(0)
-            b.text:SetText("|cff8888880 / 0  ·  not learned|r")
+            b.name:SetTextColor(0.5, 0.5, 0.5)
         end
     end
 end
@@ -270,12 +304,12 @@ end
 ---------------------------------------------------------------------------
 -- Overview: gather here (current zone)
 ---------------------------------------------------------------------------
-local hereHeader = Header(overview, "Gather here", 4, -138)
+local hereHeader = Header(overview, "Gather here", 4, -108)
 local hereLine = Divider(overview, hereHeader)
 hereLine:SetPoint("RIGHT", overview, "LEFT", 330, 0)
 
 local hereEmpty = overview:CreateFontString(nil, "OVERLAY", "GameFontDisable")
-hereEmpty:SetPoint("TOPLEFT", 6, -164)
+hereEmpty:SetPoint("TOPLEFT", 6, -134)
 hereEmpty:SetWidth(320)
 hereEmpty:SetJustifyH("LEFT")
 hereEmpty:SetText("No nodes known in this zone yet.")
@@ -284,7 +318,7 @@ local hereRows = {}
 for i = 1, LIST_ROWS do
     local row = CreateFrame("Frame", nil, overview)
     row:SetSize(326, 26)
-    row:SetPoint("TOPLEFT", 4, -160 - (i - 1) * 28)
+    row:SetPoint("TOPLEFT", 4, -130 - (i - 1) * 28)
     row.icon = row:CreateTexture(nil, "ARTWORK")
     row.icon:SetSize(22, 22)
     row.icon:SetPoint("LEFT", 0, 0)
@@ -356,18 +390,18 @@ end
 ---------------------------------------------------------------------------
 local session = { start = GetTime(), nodes = 0, chests = 0, skillStart = {} }
 
-local sessHeader = Header(overview, "This session", 346, -138)
+local sessHeader = Header(overview, "This session", 346, -108)
 Divider(overview, sessHeader)
 local sessText = overview:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-sessText:SetPoint("TOPLEFT", 350, -164)
+sessText:SetPoint("TOPLEFT", 350, -134)
 sessText:SetWidth(160)
 sessText:SetJustifyH("LEFT")
 sessText:SetSpacing(4)
 
-local dbHeader = Header(overview, "Your map", 346, -264)
+local dbHeader = Header(overview, "Your map", 346, -234)
 Divider(overview, dbHeader)
 local dbText = overview:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-dbText:SetPoint("TOPLEFT", 350, -290)
+dbText:SetPoint("TOPLEFT", 350, -260)
 dbText:SetWidth(160)
 dbText:SetJustifyH("LEFT")
 dbText:SetSpacing(4)

@@ -68,7 +68,11 @@ ns.LoadQuestieContinent = function()
             added = added + n
         end
     end
-    ns.Print(("Loaded %d known spawn points in %d more zones of this continent."):format(added, zones))
+    if added > 0 then
+        ns.Print(("Loaded %d known spawn points in %d more zones of this continent."):format(added, zones))
+    else
+        ns.Print("All known spawn points of this continent are already loaded.")
+    end
 end
 
 local function ImportCurrentZone()

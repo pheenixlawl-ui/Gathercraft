@@ -146,10 +146,10 @@ local function Build()
     AddCheck("Alert when a rare shows up (sound + warning)",
         function() return ns.db.rareAlert ~= false end,
         function(on) ns.db.rareAlert = on end)
-    AddCheck("Say \"Rare!\" out loud (text-to-speech)",
-        function() return ns.db.rareVoice ~= false end,
-        function(on) ns.db.rareVoice = on end)
-    AddCheck("Also play an alarm sound",
+    AddCheck("Announcer shouts \"RARE!\"",
+        function() return ns.db.rareAnnouncer ~= false end,
+        function(on) ns.db.rareAnnouncer = on end)
+    AddCheck("Also play the raid warning sound",
         function() return ns.db.rareSound end,
         function(on) ns.db.rareSound = on end)
 

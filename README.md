@@ -4,9 +4,11 @@
 
 <h3 align="center"><i>Peacebloom fears you now.</i></h3>
 
+<p align="center"><a href="https://ko-fi.com/gathercraft"><img src="https://ko-fi.com/img/githubbutton_sm.svg" alt="Support Gathercraft on Ko-fi"></a></p>
+
 <p align="center">
   The free gathering companion for <b>World of Warcraft: Forever</b>.<br>
-  Every node on your map. A live route through all of them. One key for fishing. A voice that shouts <i>"Rare!"</i>.
+  Every node on your map. A live route through all of them. One key for fishing. An announcer that roars <i>"RARE!"</i>.
 </p>
 
 ---
@@ -40,7 +42,7 @@ While you farm: run time, nodes gathered, nodes per hour, skill points gained.
 Bind one key: it equips your pole, applies your best lure, casts and reels in. Every press is one action – you're always in control.
 
 **👁️ RARE!**
-A rare shows up and a deep voice calls it out, with a warning across your screen. Runs only on your client.
+A rare shows up and an announcer roars **"RARE!"**, with a warning across your screen. Runs only on your client.
 
 **🤝 Stronger Together**
 Optional node sharing. Guild and friends are trusted instantly, strangers need confirmations.
@@ -77,14 +79,45 @@ Optional node sharing. Guild and friends are trusted instantly, strangers need c
 
 **What does it cost?** Nothing. Free, no paid features.
 
-## 🛠️ On the anvil
+## 🗺️ Roadmap
 
-- Profession planner with material lists for your next skill-ups
-- Market: auction prices, gold per hour **per route**, "is it worth crafting?"
+Gathercraft is **actively developed** – during the Forever launch weeks expect **updates almost every day**. Here's what's coming:
+
+**✅ Live now (v0.1)**
+- Node recording, map & minimap pins, 25,000+ known spawn points
+- Live farm routes with the Gathercraft arrow and farm panel
+- Skill-up info per node, one-key fishing, RARE! announcer, optional node sharing
+
+**🔨 Next up (launch weeks)**
+- **Auction house prices** in node tooltips (via Auctionator)
+- **Gold per hour** – live in the farm panel, per route
+- **New Forever zones** – Zephras Isle, Darkspear Islands, Riverglades & co.
+- **Translations** – German, French, Spanish and more
+
+**🔮 Later**
+- **Profession planner** – pick a target skill, get the material list, and Gathercraft routes you straight to it
+- **"Is it worth crafting?"** – sell raw or craft first, with live prices
+- **Smarter routes** – plan by expected gold or skill-ups, not just distance
+
+*Got an idea? Tell us – the best ones end up on this list.*
 
 ## 🐛 Bugs & ideas
 
 Open an [issue](../../issues) – please add your Gathercraft version and what you were doing.
+
+## ☕ Fuel the Forge
+Gathercraft is free and always will be. No paid features, no ads, no pop-ups.
+But every route needs a smith – and every smith needs coffee.
+
+**If Gathercraft saved you an hour of riding in circles, buy me a coffee and keep the forge burning:**
+[![Support Gathercraft on Ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/gathercraft)
+
+*Every coffee goes straight into new features – and maybe a voice actor for the next "RARE!".*
+
+## 📜 License
+
+Gathercraft's own code is released under the [MIT License](LICENSE).
+The node data in `Data/QuestieNodes.lua` comes from [Questie](https://github.com/Questie/Questie) and is used with permission of the Questie team; it is **not** covered by the MIT license. Libraries in `Libs/` keep their own licenses.
 
 ## ❤️ Credits
 

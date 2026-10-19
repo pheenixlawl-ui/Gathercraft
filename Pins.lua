@@ -90,6 +90,11 @@ local function SetAlpha(pin)
 end
 
 -- Adds the two pins (world map + minimap) of one node
+-- Minimap pins only for the zone the player is in: with known spawn data a
+-- continent can hold thousands of nodes, and every minimap pin costs time
+-- while moving. The world map still shows every zone.
+local playerMap
+
 local function AddNodePins(mapID, n)
     if ns.db.pinsHidden or not ns.IsNodeEnabled(n, mapID) then return end
     local icon = NodeIcon(n)
@@ -102,12 +107,15 @@ local function AddNodePins(mapID, n)
     SetAlpha(w)
     HBDPins:AddWorldMapIconMap(REF, w, mapID, n.x, n.y, HBD_PINS_WORLDMAP_SHOW_PARENT or 1)
 
-    local m = table.remove(freeMini) or CreatePin()
-    m.node, m.mapID = n, mapID
-    m:SetSize(miniSize, miniSize)
-    m.icon:SetTexture(icon)
-    SetAlpha(m)
-    HBDPins:AddMinimapIconMap(REF, m, mapID, n.x, n.y, false, false)
+    local m
+    if mapID == playerMap then
+        m = table.remove(freeMini) or CreatePin()
+        m.node, m.mapID = n, mapID
+        m:SetSize(miniSize, miniSize)
+        m.icon:SetTexture(icon)
+        SetAlpha(m)
+        HBDPins:AddMinimapIconMap(REF, m, mapID, n.x, n.y, false, false)
+    end
 
     pinsByNode[n] = { world = w, mini = m }
 end
@@ -117,7 +125,7 @@ local function RemoveNodePins(n)
     local pins = pinsByNode[n]
     if not pins then return end
     HBDPins:RemoveWorldMapIcon(REF, pins.world)
-    HBDPins:RemoveMinimapIcon(REF, pins.mini)
+    if pins.mini then HBDPins:RemoveMinimapIcon(REF, pins.mini) end
     for key, pin in pairs(pins) do
         pin:Hide()
         pin.node = nil
@@ -132,7 +140,7 @@ end
 local function UpdateAlpha()
     for _, pins in pairs(pinsByNode) do
         SetAlpha(pins.world)
-        SetAlpha(pins.mini)
+        if pins.mini then SetAlpha(pins.mini) end
     end
 end
 
@@ -193,7 +201,21 @@ end
 
 local loader = CreateFrame("Frame")
 loader:RegisterEvent("PLAYER_LOGIN")
-loader:SetScript("OnEvent", function()
-    C_Timer.After(1, Rebuild)
-    C_Timer.NewTicker(3, UpdateAlpha) -- cooldowns run out
+loader:RegisterEvent("ZONE_CHANGED_NEW_AREA")
+loader:RegisterEvent("PLAYER_ENTERING_WORLD")
+loader:SetScript("OnEvent", function(_, event)
+    if event == "PLAYER_LOGIN" then
+        playerMap = ns.GetPlayerPos()
+        C_Timer.After(1, Rebuild)
+        C_Timer.NewTicker(3, UpdateAlpha) -- cooldowns run out
+        return
+    end
+    -- New zone: move the minimap pins over
+    C_Timer.After(0.5, function()
+        local mapID = ns.GetPlayerPos()
+        if mapID and mapID ~= playerMap then
+            playerMap = mapID
+            RequestRebuild()
+        end
+    end)
 end)
