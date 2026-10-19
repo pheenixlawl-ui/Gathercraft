@@ -1,14 +1,10 @@
 local ADDON_NAME, ns = ...
 
 local PREFIX = "|cff33ff99WoWFFarm|r: "
-local MERGE_RADIUS = 15   -- yards: same node kind closer than this = same node
+local MERGE_RADIUS = 10   -- yards: same node kind closer than this can be the same node
 local NEXT_MIN_DIST = 10  -- yards: /fg next skips nodes you are standing on
-local ARRIVE_DIST = 10    -- yards: counts as "arrived" during a run
-local SKIP_TIME = 300     -- seconds a skipped (empty) node stays out of runs
 local RESPAWN_TIME = 300  -- seconds a harvested node stays out of runs
-local WAIT_RETRY = 5      -- seconds between retries while all nodes are on cooldown
 local LOOT_WAIT = 1.5     -- seconds to wait for the loot window after a gather
-local TICK = 0.5          -- seconds between arrival checks
 local LIST_MAX = 15
 local DEBUG_WINDOW = "WoWFFarm"
 
@@ -132,10 +128,40 @@ local function KindKey(n)
     return n.id or ("n:" .. n.name:lower())
 end
 
--- Selection from the zones window (/fg zones)
+-- Continent a zone belongs to (e.g. Mulgore -> Kalimdor), cached
+local continentCache = {}
+local CONTINENT_TYPE = (Enum and Enum.UIMapType and Enum.UIMapType.Continent) or 2
+
+local function GetContinent(mapID)
+    if continentCache[mapID] then
+        return continentCache[mapID].id, continentCache[mapID].name
+    end
+    local id, name = 0, "Other"
+    local info = C_Map.GetMapInfo(mapID)
+    local guard = 0
+    while info and guard < 10 do
+        if info.mapType == CONTINENT_TYPE then
+            id, name = info.mapID, info.name
+            break
+        end
+        if not info.parentMapID or info.parentMapID == 0 then break end
+        info = C_Map.GetMapInfo(info.parentMapID)
+        guard = guard + 1
+    end
+    continentCache[mapID] = { id = id, name = name }
+    return id, name
+end
+
+-- Selection from the zones window (/fg zones). A node is used only if all
+-- levels are checked: continent, material on the continent, zone, material in the zone.
 local function IsNodeEnabled(n, mapID)
-    if ns.db.disabledZones[mapID] then return false end
-    if ns.db.disabledKinds[KindKey(n)] then return false end
+    local db = ns.db
+    if db.disabledZones[mapID] then return false end
+    local kind = KindKey(n)
+    if db.disabledKinds[mapID .. ":" .. kind] then return false end
+    local continent = GetContinent(mapID)
+    if db.disabledContinents[continent] then return false end
+    if db.disabledContinentKinds[continent .. ":" .. kind] then return false end
     return true
 end
 
@@ -150,27 +176,41 @@ local function AddNodeAt(mapID, x, y, name, nodeType, id, spawn, item)
     local list = GetZoneNodes(mapID, true)
     local nameKey = name:lower()
 
-    -- Merge with an existing node of the same kind nearby
+    -- Find the closest existing node of the same kind that this gather can belong to
+    local best, bestDist
     for _, n in ipairs(list) do
-        if SameKind(n, id, nameKey) and Distance(mapID, x, y, n.x, n.y) <= MERGE_RADIUS then
-            if spawn and n.lastSpawn == spawn then
-                -- Same spawn gathered again (e.g. a vein mined twice): don't count it again
-                n.last = time()
-                Debug(("Same spawn of %s gathered again, not counted."):format(n.name))
-                return n
+        if SameKind(n, id, nameKey) then
+            local d = Distance(mapID, x, y, n.x, n.y)
+            if d <= MERGE_RADIUS then
+                if spawn and n.lastSpawn == spawn then
+                    -- Same spawn gathered again (e.g. a vein mined twice): don't count it again
+                    n.last = time()
+                    Debug(("Same spawn of %s gathered again, not counted."):format(n.name))
+                    return n
+                end
+                -- A different spawn next to a node harvested minutes ago can't be its
+                -- respawn: it is a neighbour node (e.g. two veins close together)
+                local tooSoon = spawn and n.lastSpawn and IsOnCooldown(n)
+                if not tooSoon and (not bestDist or d < bestDist) then
+                    best, bestDist = n, d
+                end
             end
-            n.x = (n.x * n.count + x) / (n.count + 1)
-            n.y = (n.y * n.count + y) / (n.count + 1)
-            n.count = n.count + 1
-            n.last = time()
-            n.id = n.id or id
-            n.type = n.type or nodeType
-            n.item = n.item or item
-            n.lastSpawn = spawn or n.lastSpawn
-            Print(("Merged %s%s (seen %d times)."):format(n.name, TypeTag(n.type), n.count))
-            NodesChanged()
-            return n
         end
+    end
+
+    if best then
+        local n = best
+        n.x = (n.x * n.count + x) / (n.count + 1)
+        n.y = (n.y * n.count + y) / (n.count + 1)
+        n.count = n.count + 1
+        n.last = time()
+        n.id = n.id or id
+        n.type = n.type or nodeType
+        n.item = n.item or item
+        n.lastSpawn = spawn or n.lastSpawn
+        Print(("Merged %s%s (seen %d times)."):format(n.name, TypeTag(n.type), n.count))
+        NodesChanged()
+        return n
     end
 
     local node = {
@@ -300,141 +340,7 @@ local function Stats()
     Print(("%d nodes in %d zones (%d herbs, %d ores)."):format(total, zones, herbs, ores))
 end
 
----------------------------------------------------------------------------
--- Farm run: auto-advance to the next unvisited node
----------------------------------------------------------------------------
-local function StopRun(silent)
-    ns.db.activeRun = nil
-    if ns.ticker then
-        ns.ticker:Cancel()
-        ns.ticker = nil
-    end
-    if ns.run then
-        ns.run = nil
-        C_Map.ClearUserWaypoint()
-        if not silent then
-            Print("Run stopped.")
-        end
-    end
-end
-
-local function CountVisited(visited)
-    local n = 0
-    for _ in pairs(visited) do n = n + 1 end
-    return n
-end
-
-local function AdvanceRun()
-    local run = ns.run
-    if not run then return end
-    run.lastTry = time()
-    run.target = nil
-
-    local sorted, mapID = GetSortedNodes(run.filter, true)
-    if not sorted then return end -- no position right now, retry later
-    if #sorted == 0 then
-        Print("No matching nodes in this zone (check /fg zones).")
-        StopRun()
-        return
-    end
-
-    -- Only nodes that are not on cooldown
-    local available = {}
-    for _, e in ipairs(sorted) do
-        if not IsOnCooldown(e.node) then
-            table.insert(available, e)
-        end
-    end
-    if #available == 0 then
-        if not run.waiting then
-            Print("All matching nodes are on cooldown. Waiting for respawns...")
-            C_Map.ClearUserWaypoint()
-        end
-        run.waiting = true
-        return
-    end
-    run.waiting = nil
-
-    local pick
-    for _, e in ipairs(available) do
-        if not run.visited[e.node] then
-            pick = e
-            break
-        end
-    end
-
-    -- Everything visited: start the next round
-    if not pick then
-        Print(("Round %d complete, starting again."):format(run.round))
-        run.round = run.round + 1
-        wipe(run.visited)
-        for _, e in ipairs(available) do
-            if e.dist > NEXT_MIN_DIST then
-                pick = e
-                break
-            end
-        end
-        pick = pick or available[1]
-    end
-
-    run.mapID = mapID
-    run.target = pick.node
-    if SetWaypoint(mapID, pick.node.x, pick.node.y) then
-        Print(("Next: %s, %d yd (%d/%d this round)."):format(
-            pick.node.name, pick.dist, CountVisited(run.visited) + 1, #available))
-    end
-end
-
-local function CheckArrival()
-    local run = ns.run
-    if not run then return end
-
-    -- Waiting for respawns (or no position): retry every few seconds
-    if not run.target then
-        if time() - (run.lastTry or 0) >= WAIT_RETRY then
-            AdvanceRun()
-        end
-        return
-    end
-
-    local mapID, x, y = GetPlayerPos()
-    if mapID ~= run.mapID then return end
-    if Distance(mapID, x, y, run.target.x, run.target.y) <= ARRIVE_DIST then
-        run.visited[run.target] = true
-        if SOUNDKIT and SOUNDKIT.MAP_PING then
-            PlaySound(SOUNDKIT.MAP_PING)
-        end
-        AdvanceRun()
-    end
-end
-
-local function SkipNode()
-    local run = ns.run
-    if not run or not run.target then
-        Print("No run target right now. Start one with /fg run.")
-        return
-    end
-    local node = run.target
-    node.emptyUntil = time() + SKIP_TIME
-    run.visited[node] = true
-    Print(("%s marked empty for %d min."):format(node.name, SKIP_TIME / 60))
-    AdvanceRun()
-end
-
-local function StartRun(filter)
-    StopRun(true)
-    ns.run = {
-        filter = (filter and filter ~= "" and filter) or nil,
-        visited = {},
-        round = 1,
-    }
-    ns.db.activeRun = { filter = ns.run.filter }
-    Print("Run started" .. (ns.run.filter and (" (" .. ns.run.filter .. ")") or "") .. ".")
-    AdvanceRun()
-    if ns.run then
-        ns.ticker = C_Timer.NewTicker(TICK, CheckArrival)
-    end
-end
+-- Farm runs and routes live in Route.lua
 
 ---------------------------------------------------------------------------
 -- Recorder: detect herb gathering / mining and store the node
@@ -513,12 +419,8 @@ local function TryRecord()
     if not node then return end
     node.emptyUntil = time() + RESPAWN_TIME
 
-    local run = ns.run
-    if run then
-        run.visited[node] = true
-        if run.target == node then
-            AdvanceRun()
-        end
+    if ns.OnHarvested then
+        ns.OnHarvested(node)
     end
 end
 
@@ -585,11 +487,11 @@ local function WipeNodes(scope)
         end
         local count = ns.db.nodes[mapID] and #ns.db.nodes[mapID] or 0
         ns.db.nodes[mapID] = nil
-        StopRun(true)
+        if ns.StopRun then ns.StopRun(true) end
         Print(("Deleted %d nodes in %s."):format(count, GetZoneName(mapID)))
     elseif scope == "all" then
         wipe(ns.db.nodes)
-        StopRun(true)
+        if ns.StopRun then ns.StopRun(true) end
         Print("All nodes deleted.")
     else
         Print("Usage: /fg wipe zone  or  /fg wipe all")
@@ -652,6 +554,13 @@ frame:SetScript("OnEvent", function(self, event, ...)
             WoWFFarmDB.nodes = WoWFFarmDB.nodes or {}
             WoWFFarmDB.disabledZones = WoWFFarmDB.disabledZones or {}
             WoWFFarmDB.disabledKinds = WoWFFarmDB.disabledKinds or {}
+            WoWFFarmDB.disabledContinents = WoWFFarmDB.disabledContinents or {}
+            WoWFFarmDB.disabledContinentKinds = WoWFFarmDB.disabledContinentKinds or {}
+            if WoWFFarmDB.selectionVersion ~= 2 then
+                -- Node kind selection is per zone now; old global entries are reset
+                wipe(WoWFFarmDB.disabledKinds)
+                WoWFFarmDB.selectionVersion = 2
+            end
             ns.db = WoWFFarmDB
         end
     elseif event == "PLAYER_LOGIN" then
@@ -663,7 +572,7 @@ frame:SetScript("OnEvent", function(self, event, ...)
         if ns.db.activeRun then
             C_Timer.After(2, function()
                 if ns.db.activeRun then
-                    StartRun(ns.db.activeRun.filter)
+                    ns.StartRun(ns.db.activeRun.filter)
                 end
             end)
         end
@@ -686,7 +595,9 @@ end)
 local function Help()
     Print("commands:")
     print("  /fg zones        - choose zones and node kinds")
-    print("  /fg run [herb|ore|name] - farm run, auto-advances on arrival")
+    print("  /fg run [herb|ore|name] - farm run along the best route")
+    print("  /fg route [herb|ore|name] - preview the route on the map")
+    print("  /fg line         - show/hide the route line")
     print("  /fg skip         - current node is empty, go to next")
     print("  /fg stop         - stop the farm run")
     print("  /fg pins         - show/hide map and minimap pins")
@@ -727,17 +638,21 @@ SlashCmdList.WOWFFARM = function(msg)
     elseif cmd == "next" then
         NextNode(rest)
     elseif cmd == "run" then
-        StartRun(rest)
+        ns.StartRun(rest)
+    elseif cmd == "route" then
+        ns.PreviewRoute(rest)
+    elseif cmd == "line" then
+        ns.ToggleRouteLine()
     elseif cmd == "skip" then
-        SkipNode()
+        ns.SkipNode()
     elseif cmd == "stop" then
-        StopRun()
+        ns.StopRun()
     elseif cmd == "del" then
         DeleteNearest()
     elseif cmd == "wipe" then
         WipeNodes(rest:lower())
     elseif cmd == "clear" then
-        StopRun(true)
+        ns.StopRun(true)
         C_Map.ClearUserWaypoint()
         Print("Waypoint cleared.")
     elseif cmd == "stats" then
@@ -761,8 +676,8 @@ ns.GetPlayerPos = GetPlayerPos
 ns.Distance = Distance
 ns.GetZoneName = GetZoneName
 ns.KindKey = KindKey
+ns.GetContinent = GetContinent
 ns.IsOnCooldown = IsOnCooldown
 ns.IsNodeEnabled = IsNodeEnabled
-ns.StartRun = StartRun
-ns.StopRun = StopRun
-ns.SkipNode = SkipNode
+ns.NotifyNodesChanged = NodesChanged
+ns.SetWaypoint = SetWaypoint

@@ -1,13 +1,22 @@
 local ADDON_NAME, ns = ...
 
+---------------------------------------------------------------------------
+-- Zones window (/fg zones)
+--   Continent -> materials on the continent
+--             -> zones -> materials in the zone
+--   A node is shown and routed only if every level above it is checked.
+---------------------------------------------------------------------------
 local ROW_HEIGHT = 22
-local WIDTH = 360
+local WIDTH = 400
+local INDENT = 18
+
+local expanded = {} -- "c<continentID>" / "z<mapID>" -> true/false (this session)
 
 ---------------------------------------------------------------------------
 -- Window
 ---------------------------------------------------------------------------
 local window = CreateFrame("Frame", "WoWFFarmZones", UIParent, "BackdropTemplate")
-window:SetSize(WIDTH, 480)
+window:SetSize(WIDTH, 520)
 window:SetPoint("CENTER")
 window:SetBackdrop({
     bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
@@ -35,7 +44,7 @@ close:SetPoint("TOPRIGHT", -2, -2)
 
 local hint = window:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 hint:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -6)
-hint:SetText("Checked zones and node kinds are used for farm runs.")
+hint:SetText("Unchecked continents, zones and materials are hidden and not routed.")
 
 local scroll = CreateFrame("ScrollFrame", "WoWFFarmZonesScroll", window, "UIPanelScrollFrameTemplate")
 scroll:SetPoint("TOPLEFT", 12, -56)
@@ -50,39 +59,65 @@ empty:SetPoint("TOPLEFT", 4, -4)
 empty:SetText("No nodes stored yet. Go gather something!")
 
 ---------------------------------------------------------------------------
--- Data
+-- Data: continents -> materials + zones -> materials
 ---------------------------------------------------------------------------
-local function CollectZones()
-    local zones = {}
+local function AddKind(list, byKey, n)
+    local key = ns.KindKey(n)
+    local k = byKey[key]
+    if not k then
+        k = { key = key, name = n.name, type = n.type, count = 0 }
+        byKey[key] = k
+        table.insert(list, k)
+    end
+    k.count = k.count + 1
+end
+
+local function SortKinds(list)
+    table.sort(list, function(a, b)
+        if (a.type or "") ~= (b.type or "") then
+            return (a.type or "") < (b.type or "")
+        end
+        return a.name < b.name
+    end)
+end
+
+local function CollectTree()
+    local continents, byID = {}, {}
     for mapID, list in pairs(ns.db.nodes) do
         if #list > 0 then
-            local z = { mapID = mapID, name = ns.GetZoneName(mapID), total = #list, kinds = {} }
-            local byKey = {}
-            for _, n in ipairs(list) do
-                local key = ns.KindKey(n)
-                local k = byKey[key]
-                if not k then
-                    k = { key = key, name = n.name, type = n.type, count = 0 }
-                    byKey[key] = k
-                    table.insert(z.kinds, k)
-                end
-                k.count = k.count + 1
+            local cID, cName = ns.GetContinent(mapID)
+            local c = byID[cID]
+            if not c then
+                c = { id = cID, name = cName, total = 0, kinds = {}, kindsByKey = {}, zones = {} }
+                byID[cID] = c
+                table.insert(continents, c)
             end
-            table.sort(z.kinds, function(a, b)
-                if (a.type or "") ~= (b.type or "") then
-                    return (a.type or "") < (b.type or "")
-                end
-                return a.name < b.name
-            end)
-            table.insert(zones, z)
+            local z = { mapID = mapID, name = ns.GetZoneName(mapID), total = #list, kinds = {} }
+            local zoneKinds = {}
+            for _, n in ipairs(list) do
+                AddKind(z.kinds, zoneKinds, n)
+                AddKind(c.kinds, c.kindsByKey, n)
+            end
+            SortKinds(z.kinds)
+            table.insert(c.zones, z)
+            c.total = c.total + #list
         end
     end
-    table.sort(zones, function(a, b) return a.name < b.name end)
-    return zones
+    for _, c in ipairs(continents) do
+        SortKinds(c.kinds)
+        table.sort(c.zones, function(a, b) return a.name < b.name end)
+    end
+    table.sort(continents, function(a, b) return a.name < b.name end)
+    return continents
+end
+
+local function IsExpanded(key, default)
+    if expanded[key] == nil then return default end
+    return expanded[key]
 end
 
 ---------------------------------------------------------------------------
--- Rows
+-- Rows: [+/-] [x] label
 ---------------------------------------------------------------------------
 local rows = {}
 
@@ -90,85 +125,192 @@ local function GetRow(i)
     if rows[i] then return rows[i] end
     local row = CreateFrame("Frame", nil, content)
     row:SetHeight(ROW_HEIGHT)
+
+    row.expand = CreateFrame("Button", nil, row)
+    row.expand:SetSize(14, 14)
+    row.expand:SetScript("OnClick", function()
+        if row.onExpand then row.onExpand() end
+    end)
+
     row.check = CreateFrame("CheckButton", nil, row, "UICheckButtonTemplate")
     row.check:SetSize(22, 22)
-    row.label = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    row.label:SetPoint("LEFT", row.check, "RIGHT", 4, 0)
-    row.label:SetJustifyH("LEFT")
     row.check:SetScript("OnClick", function(self)
-        if row.onToggle then
-            row.onToggle(self:GetChecked())
-        end
+        if row.onToggle then row.onToggle(self:GetChecked()) end
     end)
+
+    row.label = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    row.label:SetJustifyH("LEFT")
+
     rows[i] = row
     return row
 end
 
-local Refresh
-
-local function PlaceRow(i, y, indent, checked, font, text, onToggle)
+-- opts: indent, text, font, checked (nil = no checkbox), onToggle,
+--       isExpanded (nil = no expand button), onExpand
+local function PlaceRow(i, y, opts)
     local row = GetRow(i)
     row:ClearAllPoints()
     row:SetPoint("TOPLEFT", 0, -y)
     row:SetWidth(content:GetWidth())
-    row.check:ClearAllPoints()
-    row.check:SetPoint("LEFT", indent, 0)
-    row.check:SetChecked(checked)
-    row.label:SetFontObject(font)
-    row.label:SetText(text)
-    row.onToggle = onToggle
+
+    local x = opts.indent or 0
+    if opts.isExpanded ~= nil then
+        local tex = opts.isExpanded and "Interface\\Buttons\\UI-MinusButton-Up" or "Interface\\Buttons\\UI-PlusButton-Up"
+        row.expand:SetNormalTexture(tex)
+        row.expand:ClearAllPoints()
+        row.expand:SetPoint("LEFT", x, 0)
+        row.expand:Show()
+    else
+        row.expand:Hide()
+    end
+    x = x + 16
+
+    row.label:ClearAllPoints()
+    if opts.checked ~= nil then
+        row.check:ClearAllPoints()
+        row.check:SetPoint("LEFT", x, 0)
+        row.check:SetChecked(opts.checked)
+        row.check:Show()
+        row.label:SetPoint("LEFT", row.check, "RIGHT", 2, 0)
+    else
+        row.check:Hide()
+        row.label:SetPoint("LEFT", x, 0)
+    end
+
+    row.label:SetFontObject(opts.font or "GameFontHighlight")
+    row.label:SetText(opts.text)
+    row.onToggle = opts.onToggle
+    row.onExpand = opts.onExpand
     row:Show()
+end
+
+---------------------------------------------------------------------------
+-- Refresh
+---------------------------------------------------------------------------
+local Refresh
+
+local function Changed()
+    ns.NotifyNodesChanged() -- updates this window, the pins and the route
+end
+
+local function KindText(k)
+    local color = ns.TYPE_COLORS[k.type] or "|cffffffff"
+    return ("%s%s|r  |cff999999x%d|r"):format(color, k.name, k.count)
 end
 
 Refresh = function()
     if not window:IsShown() or not ns.db then return end
-    local zones = CollectZones()
+    local db = ns.db
+    local tree = CollectTree()
+    local playerMap = C_Map.GetBestMapForUnit("player")
+    local currentContinent = playerMap and ns.GetContinent(playerMap)
     local i, y = 0, 0
 
-    for _, z in ipairs(zones) do
-        local mapID = z.mapID
+    local function Add(opts)
         i = i + 1
-        PlaceRow(i, y, 0, not ns.db.disabledZones[mapID], "GameFontNormal",
-            ("%s  |cff999999(%d nodes)|r"):format(z.name, z.total),
-            function(on)
-                ns.db.disabledZones[mapID] = (not on) or nil
-                Refresh()
-            end)
+        PlaceRow(i, y, opts)
         y = y + ROW_HEIGHT
+    end
 
-        for _, k in ipairs(z.kinds) do
-            local key = k.key
-            local color = ns.TYPE_COLORS[k.type] or "|cffffffff"
-            i = i + 1
-            PlaceRow(i, y, 20, not ns.db.disabledKinds[key], "GameFontHighlight",
-                ("%s%s|r  |cff999999x%d|r"):format(color, k.name, k.count),
-                function(on)
-                    ns.db.disabledKinds[key] = (not on) or nil
-                    Refresh()
-                end)
-            y = y + ROW_HEIGHT
+    for _, c in ipairs(tree) do
+        local cKey = "c" .. c.id
+        local cOpen = IsExpanded(cKey, c.id == currentContinent)
+        Add({
+            indent = 0,
+            font = "GameFontNormalLarge",
+            text = ("%s  |cff999999(%d nodes)|r"):format(c.name, c.total),
+            checked = not db.disabledContinents[c.id],
+            onToggle = function(on)
+                db.disabledContinents[c.id] = (not on) or nil
+                Changed()
+            end,
+            isExpanded = cOpen,
+            onExpand = function()
+                expanded[cKey] = not cOpen
+                Refresh()
+            end,
+        })
+
+        if cOpen then
+            -- Materials on the whole continent
+            Add({ indent = INDENT, font = "GameFontNormalSmall", text = "Materials on this continent:" })
+            for _, k in ipairs(c.kinds) do
+                local key = c.id .. ":" .. k.key
+                Add({
+                    indent = INDENT,
+                    text = KindText(k),
+                    checked = not db.disabledContinentKinds[key],
+                    onToggle = function(on)
+                        db.disabledContinentKinds[key] = (not on) or nil
+                        Changed()
+                    end,
+                })
+            end
+
+            -- Zones
+            Add({ indent = INDENT, font = "GameFontNormalSmall", text = "Zones:" })
+            for _, z in ipairs(c.zones) do
+                local zKey = "z" .. z.mapID
+                local zOpen = IsExpanded(zKey, false)
+                Add({
+                    indent = INDENT,
+                    font = "GameFontNormal",
+                    text = ("%s  |cff999999(%d nodes)|r"):format(z.name, z.total),
+                    checked = not db.disabledZones[z.mapID],
+                    onToggle = function(on)
+                        db.disabledZones[z.mapID] = (not on) or nil
+                        Changed()
+                    end,
+                    isExpanded = zOpen,
+                    onExpand = function()
+                        expanded[zKey] = not zOpen
+                        Refresh()
+                    end,
+                })
+                if zOpen then
+                    for _, k in ipairs(z.kinds) do
+                        local key = z.mapID .. ":" .. k.key
+                        Add({
+                            indent = INDENT * 2,
+                            text = KindText(k),
+                            checked = not db.disabledKinds[key],
+                            onToggle = function(on)
+                                db.disabledKinds[key] = (not on) or nil
+                                Changed()
+                            end,
+                        })
+                    end
+                end
+            end
         end
-        y = y + 6
+        y = y + 8
     end
 
     for j = i + 1, #rows do
         rows[j]:Hide()
     end
     content:SetHeight(math.max(y, 10))
-    empty:SetShown(#zones == 0)
+    empty:SetShown(#tree == 0)
 end
 
 ---------------------------------------------------------------------------
 -- Buttons
 ---------------------------------------------------------------------------
 local function SetAll(on)
-    for _, z in ipairs(CollectZones()) do
-        ns.db.disabledZones[z.mapID] = (not on) or nil
-        for _, k in ipairs(z.kinds) do
-            ns.db.disabledKinds[k.key] = (not on) or nil
+    local db = ns.db
+    for _, c in ipairs(CollectTree()) do
+        db.disabledContinents[c.id] = (not on) or nil
+        for _, k in ipairs(c.kinds) do
+            db.disabledContinentKinds[c.id .. ":" .. k.key] = (not on) or nil
+        end
+        for _, z in ipairs(c.zones) do
+            db.disabledZones[z.mapID] = (not on) or nil
+            for _, k in ipairs(z.kinds) do
+                db.disabledKinds[z.mapID .. ":" .. k.key] = (not on) or nil
+            end
         end
     end
-    Refresh()
+    Changed()
 end
 
 local startButton = CreateFrame("Button", nil, window, "UIPanelButtonTemplate")

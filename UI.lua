@@ -50,29 +50,28 @@ skipButton:SetScript("OnClick", function() ns.SkipNode() end)
 ---------------------------------------------------------------------------
 -- Live update
 ---------------------------------------------------------------------------
-local function CountVisited(visited)
-    local n = 0
-    for _ in pairs(visited) do n = n + 1 end
-    return n
-end
-
 local function Update()
     local run = ns.run
-    if not run or not run.target then
+    if not run then
         if panel:IsShown() then panel:Hide() end
         return
     end
 
-    local t = run.target
-    targetText:SetText(t.name)
+    title:SetText("WoWFFarm" .. (run.filter and ("  |cff999999(" .. run.filter .. ")|r") or ""))
+    local left = run.path and #run.path or 0
 
-    local mapID, x, y = ns.GetPlayerPos()
-    local distText = "?"
-    if mapID and mapID == run.mapID then
-        distText = ("%d yd"):format(ns.Distance(mapID, x, y, t.x, t.y))
+    local t = run.target
+    if not t then
+        targetText:SetText("|cff999999Waiting for respawns...|r")
+        infoText:SetText(("Round %d  |  %d done"):format(run.round, run.done))
+        skipButton:Disable()
+    else
+        targetText:SetText(t.name)
+        local dist = ns.DistanceToTarget()
+        local distText = dist and ("%d yd"):format(dist) or "?"
+        infoText:SetText(("%s  |  %d left  |  Round %d"):format(distText, left, run.round))
+        skipButton:Enable()
     end
-    infoText:SetText(("%s  |  Round %d  |  %d done"):format(
-        distText, run.round, CountVisited(run.visited)))
 
     if not panel:IsShown() then panel:Show() end
 end

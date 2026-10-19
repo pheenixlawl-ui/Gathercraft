@@ -5,7 +5,7 @@ local HBDPins = LibStub and LibStub("HereBeDragons-Pins-2.0", true)
 
 local WORLD_SIZE = 14
 local MINI_SIZE = 12
-local DIM_ALPHA = 0.35   -- nodes on cooldown or unchecked in /fg zones
+local DIM_ALPHA = 0.35   -- nodes on cooldown (just harvested)
 local REF = ADDON_NAME   -- owner key for HereBeDragons
 
 local TYPE_ICONS = {
@@ -44,9 +44,6 @@ local function ShowTooltip(pin)
     GameTooltip:AddLine(("Seen %d times"):format(n.count or 1), 0.8, 0.8, 0.8)
     if ns.IsOnCooldown(n) then
         GameTooltip:AddLine(("Harvested, respawn in ~%ds"):format(n.emptyUntil - time()), 1, 0.5, 0.5)
-    end
-    if not ns.IsNodeEnabled(n, pin.mapID) then
-        GameTooltip:AddLine("Unchecked in /fg zones", 0.6, 0.6, 0.6)
     end
     GameTooltip:Show()
 end
@@ -87,8 +84,7 @@ local function UpdateAlpha()
         for _, pin in ipairs(used) do
             local n = pin.node
             if n then
-                local dim = ns.IsOnCooldown(n) or not ns.IsNodeEnabled(n, pin.mapID)
-                pin:SetAlpha(dim and DIM_ALPHA or 1)
+                pin:SetAlpha(ns.IsOnCooldown(n) and DIM_ALPHA or 1)
             end
         end
     end
@@ -106,17 +102,20 @@ local function Rebuild()
     local showFlag = HBD_PINS_WORLDMAP_SHOW_PARENT or 1
     for mapID, list in pairs(ns.db.nodes) do
         for _, n in ipairs(list) do
-            local icon = NodeIcon(n)
+            -- Zones and node kinds unchecked in /fg zones are hidden
+            if ns.IsNodeEnabled(n, mapID) then
+                local icon = NodeIcon(n)
 
-            local w = Acquire(freeWorld, usedWorld, WORLD_SIZE)
-            w.node, w.mapID = n, mapID
-            w.icon:SetTexture(icon)
-            HBDPins:AddWorldMapIconMap(REF, w, mapID, n.x, n.y, showFlag)
+                local w = Acquire(freeWorld, usedWorld, WORLD_SIZE)
+                w.node, w.mapID = n, mapID
+                w.icon:SetTexture(icon)
+                HBDPins:AddWorldMapIconMap(REF, w, mapID, n.x, n.y, showFlag)
 
-            local m = Acquire(freeMini, usedMini, MINI_SIZE)
-            m.node, m.mapID = n, mapID
-            m.icon:SetTexture(icon)
-            HBDPins:AddMinimapIconMap(REF, m, mapID, n.x, n.y, false, false)
+                local m = Acquire(freeMini, usedMini, MINI_SIZE)
+                m.node, m.mapID = n, mapID
+                m.icon:SetTexture(icon)
+                HBDPins:AddMinimapIconMap(REF, m, mapID, n.x, n.y, false, false)
+            end
         end
     end
     UpdateAlpha()

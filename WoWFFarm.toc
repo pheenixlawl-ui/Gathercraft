@@ -5,6 +5,7 @@
 ## SavedVariables: WoWFFarmDB
 
 Libs\HereBeDragons\LibStub\LibStub.lua
+Libs\HereBeDragons\CallbackHandler-1.0\CallbackHandler-1.0.lua
 Libs\HereBeDragons\HereBeDragons-2.0.lua
 Libs\HereBeDragons\HereBeDragons-Pins-2.0.lua
 
@@ -12,3 +13,4 @@ Core.lua
 UI.lua
 Zones.lua
 Pins.lua
+Route.lua
