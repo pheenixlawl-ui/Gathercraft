@@ -285,6 +285,13 @@ ns.BuildFarmPage = function(page, style)
     ModeButton("ore", "|cffffcc66Ores|r", 88)
     ModeButton("both", "Herbs + Ores", 172)
 
+    -- what sells above its usual price right now (price alerts)
+    local hot = page:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    hot:SetPoint("TOPLEFT", 292, -50)
+    hot:SetWidth(222)
+    hot:SetJustifyH("LEFT")
+    hot:SetWordWrap(true)
+
     -- column titles, click to sort
     local cols = {}
     local function Col(key, text, x, width, justify)
@@ -447,6 +454,17 @@ ns.BuildFarmPage = function(page, style)
         sub:SetText(("%s  ·  %s"):format(
             #skillText > 0 and table.concat(skillText, ", ") or "no gathering profession",
             ns.PriceSourceText and ns.PriceSourceText() or ""))
+
+        local hotList = ns.HotItems and ns.HotItems() or {}
+        if #hotList > 0 then
+            local parts = {}
+            for i = 1, math.min(3, #hotList) do
+                parts[#parts + 1] = ("%s |cff55ff55x%.1f|r"):format(ns.ItemName(hotList[i].id), hotList[i].ratio)
+            end
+            hot:SetText("|cffffd060Hot right now:|r " .. table.concat(parts, ", "))
+        else
+            hot:SetText("")
+        end
 
         local groups = Evaluate(mode)
         local here = ns.GetPlayerPos()

@@ -18,40 +18,107 @@ local TYPES = { h = "herb", o = "ore", c = "chest" }
 --   permission. Stored compactly and imported zone by zone: a zone is
 --   loaded the first time you enter it or look at it on the world map.
 --   These are possible spawn points: not every one is up at the same time.
+--
+--   They live in memory only. Your SavedVariables keep just the list of
+--   zones you had loaded and the few spawn points that are resting (empty
+--   or just harvested); on logout the rest is dropped and on login loaded
+--   again from the addon file. Keeps login, logout and /reload fast.
 ---------------------------------------------------------------------------
+local loaded = {} -- mapID -> true: imported this session
+
+local function SpawnKey(id, x, y)
+    return id .. ":" .. x .. ":" .. y -- packed coordinates from the data file
+end
+
 local function ImportQuestieZone(mapID, quiet)
     local data = GathercraftQuestieData
-    if not (data and mapID and ns.db) then return 0 end
-    ns.db.questieZones = ns.db.questieZones or {}
-    if ns.db.questieZones[mapID] == data.version then return 0 end
-    ns.db.questieZones[mapID] = data.version
+    if not (data and mapID and ns.db) or loaded[mapID] then return 0 end
+    loaded[mapID] = true
     local packed = data.zones[mapID]
     if not packed then return 0 end
+    ns.db.spawnZones = ns.db.spawnZones or {}
+    local firstTime = not ns.db.spawnZones[mapID]
+    ns.db.spawnZones[mapID] = true
+    local state = ns.db.spawnState and ns.db.spawnState[mapID]
+    local now = time()
 
     ns.db.nodes[mapID] = ns.db.nodes[mapID] or {}
     local list, added = ns.db.nodes[mapID], 0
-    for id, x, y in packed:gmatch("(%d+),(%d+),(%d+)") do
+    for id, xs, ys in packed:gmatch("(%d+),(%d+),(%d+)") do
         local oid = "o" .. id
         local kind = data.kinds[oid]
         if kind then
-            x, y = tonumber(x) / 10000, tonumber(y) / 10000
+            local x, y = tonumber(xs) / 10000, tonumber(ys) / 10000
             if not ns.FindNode(mapID, oid, x, y, MERGE_RADIUS) then
-                table.insert(list, {
+                local key = SpawnKey(oid, xs, ys)
+                local n = {
                     id = oid, type = TYPES[kind[1]], name = ns.KnownName(oid) or kind[3], x = x, y = y,
                     count = 0, item = kind[2] > 0 and kind[2] or nil,
-                    source = "questie", last = 0,
-                })
+                    source = "questie", last = 0, sk = key,
+                }
+                local st = state and state[key]
+                if st then
+                    local untilT, streak = st:match("^(%d+):(%d+)$")
+                    untilT, streak = tonumber(untilT), tonumber(streak)
+                    if untilT and untilT > now then n.emptyUntil = untilT end
+                    if streak and streak > 0 then n.emptyStreak = streak end
+                end
+                table.insert(list, n)
                 added = added + 1
             end
         end
     end
     if added > 0 then
         ns.NotifyNodesChanged()
-        if not quiet then
+        if not quiet and firstTime then
             ns.Print(("Loaded %d known spawn points for %s."):format(added, ns.GetZoneName(mapID)))
         end
     end
     return added
+end
+
+-- Logout / reload: keep only what we can't get back from the addon file
+local function SaveSpawnState()
+    if not ns.db then return end
+    local state, now = {}, time()
+    for mapID, list in pairs(ns.db.nodes) do
+        local keep = {}
+        for _, n in ipairs(list) do
+            if n.source == "questie" then
+                local resting = n.emptyUntil and n.emptyUntil > now
+                if n.sk and (resting or n.emptyStreak) then
+                    state[mapID] = state[mapID] or {}
+                    state[mapID][n.sk] = ("%d:%d"):format(resting and n.emptyUntil or 0, n.emptyStreak or 0)
+                end
+            else
+                keep[#keep + 1] = n
+            end
+        end
+        ns.db.nodes[mapID] = #keep > 0 and keep or nil
+    end
+    ns.db.spawnState = state
+end
+
+-- Login: load the zones you had loaded before, a few per frame
+local function ReloadSpawnZones()
+    local zones = {}
+    -- older versions remembered loaded zones as questieZones
+    for mapID in pairs(ns.db.questieZones or {}) do zones[#zones + 1] = mapID end
+    for mapID in pairs(ns.db.spawnZones or {}) do zones[#zones + 1] = mapID end
+    ns.db.questieZones = nil
+    ns.db.spawnZones = ns.db.spawnZones or {}
+    for _, mapID in ipairs(zones) do ns.db.spawnZones[mapID] = true end
+    local i = 0
+    local function step()
+        for _ = 1, 2 do
+            i = i + 1
+            local mapID = zones[i]
+            if not mapID then return end
+            ImportQuestieZone(mapID, true)
+        end
+        C_Timer.After(0.05, step)
+    end
+    step()
 end
 
 -- Is this node one of the known spawn points? Everyone has those already,
@@ -159,7 +226,13 @@ end
 
 local loader = CreateFrame("Frame")
 loader:RegisterEvent("PLAYER_LOGIN")
-loader:SetScript("OnEvent", function()
+loader:RegisterEvent("PLAYER_LOGOUT")
+loader:SetScript("OnEvent", function(_, event)
+    if event == "PLAYER_LOGOUT" then
+        SaveSpawnState()
+        return
+    end
+    ReloadSpawnZones()
     local data = GathercraftStarterData
     if data and data.version and ns.db.starterVersion ~= data.version then
         Import(data)

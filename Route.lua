@@ -11,17 +11,12 @@ local ADDON_NAME, ns = ...
 local HBD = LibStub and LibStub("HereBeDragons-2.0", true)
 local HBDPins = LibStub and LibStub("HereBeDragons-Pins-2.0", true)
 
-local ARRIVE_DIST = 10       -- yards: counts as "arrived"
+local ARRIVE_DEFAULT = 25    -- yards: close enough to see whether the node is there
+local ARRIVE_MIN, ARRIVE_MAX = 10, 40
 local SKIP_TIME = 300        -- seconds a skipped (empty) node stays out of runs
 local EMPTY_GRACE = 25       -- seconds after arriving: no harvest by then = the node wasn't there
 local EMPTY_NEAR = 30        -- yards: a harvest this close counts for the node we arrived at
 local EMPTY_MAX = 1800       -- seconds: longest rest for a spawn point that is empty again and again
-local LOOK_DIST = 22         -- yards: close enough to see whether the node is there
-local LOOK_TIME = 1.5        -- seconds in sight without the node = it's not there
--- While a run is on, interact targeting reaches nodes from further away. That
--- tells us early whether a node is there (and lets your interact key gather it).
--- Your own settings come back when the run stops.
-local RUN_CVARS = { SoftTargetInteract = "3", SoftTargetInteractRange = "25", SoftTargetInteractArc = "2" }
 local WAIT_RETRY = 5         -- seconds between retries while all nodes are on cooldown
 local TICK = 0.5             -- seconds between arrival checks
 local MAX_ROUTE_NODES = 800  -- more nodes: only the nearest ones are planned
@@ -249,52 +244,8 @@ end
 ---------------------------------------------------------------------------
 -- Farm run
 ---------------------------------------------------------------------------
----------------------------------------------------------------------------
--- Seeing nodes before we arrive (interact targeting)
----------------------------------------------------------------------------
-local savedCVars
-
-local function LookAhead()
-    return ns.db.lookAhead ~= false and GetCVar and SetCVar
-end
-
-local function WidenLook()
-    if savedCVars or not LookAhead() then return end
-    savedCVars = {}
-    for name, value in pairs(RUN_CVARS) do
-        local current = GetCVar(name)
-        if current and current ~= value and not (tonumber(current) and tonumber(current) > tonumber(value)) then
-            savedCVars[name] = current
-            pcall(SetCVar, name, value)
-        end
-    end
-end
-
-local function RestoreLook()
-    if not savedCVars then return end
-    for name, value in pairs(savedCVars) do pcall(SetCVar, name, value) end
-    savedCVars = nil
-end
-
--- Gathering object the game currently offers to interact with: id, type
-local function SoftTargetNode()
-    local guid = UnitGUID and UnitGUID("softinteract")
-    if not guid then return end
-    local unitType, _, _, _, _, id = strsplit("-", guid)
-    if unitType ~= "GameObject" then return end
-    local data = GathercraftQuestieData
-    local kind = data and data.kinds["o" .. id]
-    local types = { h = "herb", o = "ore", c = "chest" }
-    return "o" .. id, kind and types[kind[1]]
-end
-
-local logoutWatch = CreateFrame("Frame")
-logoutWatch:RegisterEvent("PLAYER_LOGOUT")
-logoutWatch:SetScript("OnEvent", RestoreLook)
-
 local function StopRun(silent)
     ns.db.activeRun = nil
-    RestoreLook()
     if ticker then
         ticker:Cancel()
         ticker = nil
@@ -468,34 +419,6 @@ local function CheckArrival()
     local px, py, instance = PlayerWorld()
     if not px or instance ~= run.instance or not run.path then return end
 
-    -- Look ahead: once we are close and facing the node, interact targeting
-    -- shows whether it is there. Nothing there for a moment = skip it now
-    -- instead of walking all the way. Only used after we saw it work once.
-    local t = run.targetPoint
-    if t and LookAhead() then
-        local id, kind = SoftTargetNode()
-        if id then
-            run.lookWorks = true
-        end
-        local d = WDist(px, py, t.wx, t.wy)
-        if id and d <= LOOK_DIST + 8 and (id == t.node.id or kind == t.node.type) then
-            run.lookSeen = t.node
-        end
-        if run.lookWorks and d <= LOOK_DIST and d > ARRIVE_DIST and run.lookSeen ~= t.node then
-            run.lookSince = run.lookSince or GetTime()
-            if GetTime() - run.lookSince >= LOOK_TIME then
-                run.lookSince = nil
-                run.visited[t.node] = true
-                run.done = run.done + 1
-                MarkEmpty(t.node, "seen from afar")
-                Plan(true)
-                return
-            end
-        else
-            run.lookSince = nil
-        end
-    end
-
     -- Nodes we reached a moment ago: no harvest close by = nothing was there.
     -- Mark them empty so later rounds don't send you back right away.
     for i = #run.checking, 1, -1 do
@@ -513,10 +436,12 @@ local function CheckArrival()
         end
     end
 
-    -- Every node of the plan you walk past counts as visited, not only the target
+    -- Every node of the plan you get close to counts as checked, not only the
+    -- target. "Close" = where you can see whether it is there (Options).
+    local arrive = ns.ArriveDistance()
     local reached = false
     for _, p in ipairs(run.path) do
-        if not run.visited[p.node] and WDist(px, py, p.wx, p.wy) <= ARRIVE_DIST then
+        if not run.visited[p.node] and WDist(px, py, p.wx, p.wy) <= arrive then
             run.visited[p.node] = true
             run.done = run.done + 1
             run.checking[#run.checking + 1] = { node = p.node, wx = p.wx, wy = p.wy, at = time() }
@@ -556,7 +481,6 @@ local function StartRun(filter, zone)
         done = 0,
     }
     ns.db.activeRun = { filter = filter, zone = zone }
-    WidenLook()
     Plan()
     local run = ns.run
     if not run then return end -- nothing to farm
@@ -661,6 +585,13 @@ end
 ---------------------------------------------------------------------------
 -- Shared
 ---------------------------------------------------------------------------
+-- Distance at which a node counts as reached and the arrow moves on
+ns.ArriveDistance = function()
+    local d = ns.db and ns.db.arriveDist or ARRIVE_DEFAULT
+    return math.max(ARRIVE_MIN, math.min(ARRIVE_MAX, d))
+end
+ns.ARRIVE_LIMITS = { ARRIVE_MIN, ARRIVE_MAX, ARRIVE_DEFAULT }
+
 ns.StartRun = StartRun
 ns.StopRun = StopRun
 ns.SkipNode = SkipNode

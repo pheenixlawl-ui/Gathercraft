@@ -2,7 +2,8 @@ local ADDON_NAME, ns = ...
 
 ---------------------------------------------------------------------------
 -- Prices: what the things you gather (and craft) are worth
---   1. Our own auction house scan (button at the auction house, /gcr scan)
+--   1. Our own auction house data: the full scan (button at the auction
+--      house, /gcr scan) plus every search you do there (any addon's)
 --   2. Fallback while there is no scan yet: Auctionator, TSM or the shared
 --      GetAuctionBuyout of other auction addons
 --   3. The vendor price, which every client knows
@@ -15,6 +16,10 @@ local SCAN_CHUNK = 1500         -- auctions read per step (keeps the game smooth
 local MAX_PRICE_AGE = 7 * 86400 -- older own prices: use the fallbacks instead
 local HISTORY_DAYS = 14
 local MARKET_SHARE = 0.15       -- market price: what the cheapest 15% of the stock cost
+local BROWSE_TRUST = 3600       -- a search result beats a browse "lowest price" for an hour
+local ALERT_HIGH = 1.5          -- price alert: 50% above the usual price ...
+local ALERT_MIN_GAIN = 50       -- ... and at least 50 copper more per item
+local ALERT_MIN_DAYS = 3        -- days of history before we know what "usual" is
 
 local function RealmKey()
     local realm = (GetNormalizedRealmName and GetNormalizedRealmName()) or GetRealmName() or "?"
@@ -30,12 +35,17 @@ local function PriceDB()
         p = { items = {}, qty = {}, history = {}, scanned = 0 }
         ns.db.prices[key] = p
     end
+    p.seen = p.seen or {} -- itemID -> when its price was last updated
     return p
+end
+
+local function PriceAge(p, itemID)
+    return time() - (p.seen[itemID] or p.scanned or 0)
 end
 
 local function ScanPrice(itemID)
     local p = PriceDB()
-    if p and p.items[itemID] and time() - (p.scanned or 0) < MAX_PRICE_AGE then
+    if p and p.items[itemID] and PriceAge(p, itemID) < MAX_PRICE_AGE then
         return p.items[itemID]
     end
 end
@@ -163,7 +173,20 @@ local function SetButton(text, enabled)
             pcall(PanelTemplates_TabResize, scanButton, 0, nil, 130)
         end
     end
-    if enabled then scanButton:Enable() else scanButton:Disable() end
+    if scanButton.isTab then
+        -- Blizzard draws a disabled tab like the selected one (golden), so the
+        -- tab always stays clickable; while waiting it just looks dimmed and a
+        -- click tells you how long to wait
+        local fs = scanButton:GetFontString()
+        if fs then
+            if enabled then fs:SetTextColor(1, 0.82, 0) else fs:SetTextColor(0.5, 0.5, 0.5) end
+        end
+        if PanelTemplates_DeselectTab then pcall(PanelTemplates_DeselectTab, scanButton) end
+    elseif enabled then
+        scanButton:Enable()
+    else
+        scanButton:Disable()
+    end
 end
 
 local function UpdateButton()
@@ -194,28 +217,58 @@ local function MarketPrice(list)
     return math.floor(entries[#entries][1] + 0.5), total
 end
 
+local TRADE_GOODS = 7 -- item class "Tradeskill"
+local function IsTradeGood(itemID)
+    if not (C_Item and C_Item.GetItemInfoInstant) then return true end
+    local classID = select(6, C_Item.GetItemInfoInstant(itemID))
+    return classID == nil or classID == TRADE_GOODS
+end
+
+-- history: "day:price;day:price;..." (one value per day, newest last), only
+-- for trade goods (herbs, ores, cloth, ...): that's what the price alerts
+-- watch, and it keeps the SavedVariables small
+local function AddHistory(p, itemID, price)
+    if not IsTradeGood(itemID) then
+        p.history[itemID] = nil
+        return
+    end
+    local day = math.floor(time() / 86400)
+    local kept = {}
+    for d, v in (p.history[itemID] or ""):gmatch("(%d+):(%d+)") do
+        if tonumber(d) ~= day and tonumber(d) > day - HISTORY_DAYS then kept[#kept + 1] = d .. ":" .. v end
+    end
+    kept[#kept + 1] = day .. ":" .. price
+    p.history[itemID] = table.concat(kept, ";")
+end
+
+local CheckAlerts -- price alerts, further down
+
+-- One item's price from a search or browse result
+local function StorePrice(itemID, price, qty)
+    local p = PriceDB()
+    if not (p and itemID and price and price > 0) then return end
+    p.items[itemID] = math.floor(price + 0.5)
+    if qty then p.qty[itemID] = qty end
+    p.seen[itemID] = time()
+    AddHistory(p, itemID, p.items[itemID])
+end
+
 local function FinishScan()
     local p = PriceDB()
-    local day = math.floor(time() / 86400)
-    local items, qty = {}, {}
-    local count = 0
+    local items, qty, seen = {}, {}, {}
+    local count, now = 0, time()
     for itemID, list in pairs(scan.acc) do
         local price, total = MarketPrice(list)
-        items[itemID], qty[itemID] = price, total
+        items[itemID], qty[itemID], seen[itemID] = price, total, now
         count = count + 1
-        -- history: "day:price;day:price;..." (one value per day, newest last)
-        local h = p.history[itemID] or ""
-        local kept = {}
-        for d, v in h:gmatch("(%d+):(%d+)") do
-            if tonumber(d) ~= day and tonumber(d) > day - HISTORY_DAYS then kept[#kept + 1] = d .. ":" .. v end
-        end
-        kept[#kept + 1] = day .. ":" .. price
-        p.history[itemID] = table.concat(kept, ";")
+        AddHistory(p, itemID, price)
     end
-    p.items, p.qty, p.scanned = items, qty, time()
+    -- a full scan shows everything: items no longer listed have no price now
+    p.items, p.qty, p.seen, p.scanned = items, qty, seen, now
     ns.Print(("Auction house scanned: %d auctions, prices for %d items."):format(scan.total, count))
     scan = nil
     UpdateButton()
+    if CheckAlerts then CheckAlerts() end
 end
 
 local function ReadInfo(index)
@@ -272,7 +325,10 @@ local function StartScan()
         ns.Print("Open the auction house first.")
         return
     end
-    if scan then return end
+    if scan then
+        ns.Print("Scan is already running...")
+        return
+    end
     local left = Cooldown()
     if left > 0 then
         ns.Print(("The server allows one full scan every 15 minutes. Next scan in %d:%02d."):format(math.floor(left / 60), left % 60))
@@ -386,11 +442,85 @@ local function CreateScanButton()
     end)
 end
 
+---------------------------------------------------------------------------
+-- Learning from every search at the auction house
+--   Whatever you (or Auctionator, or any addon) look up at the auction house
+--   updates our price for those items right away: no extra click, no
+--   15 minute wait. Full search results give a market price; the browse
+--   list only knows the lowest price, so it only fills gaps.
+---------------------------------------------------------------------------
+local learned = 0
+local alertPending = false
+local function Learned()
+    learned = learned + 1
+    if not alertPending and CheckAlerts then
+        alertPending = true
+        C_Timer.After(2, function()
+            alertPending = false
+            CheckAlerts()
+        end)
+    end
+end
+
+local function OnCommodityResults(itemID)
+    if not (itemID and AH.GetNumCommoditySearchResults and AH.GetCommoditySearchResultInfo) then return end
+    local list = {}
+    for i = 1, AH.GetNumCommoditySearchResults(itemID) or 0 do
+        local ok, r = pcall(AH.GetCommoditySearchResultInfo, itemID, i)
+        if ok and r and r.unitPrice and r.quantity and r.quantity > 0 then
+            list[#list + 1] = r.unitPrice
+            list[#list + 1] = r.quantity
+        end
+    end
+    if #list == 0 then return end
+    local price, total = MarketPrice(list)
+    local full = AH.HasFullCommoditySearchResults and AH.HasFullCommoditySearchResults(itemID)
+    StorePrice(itemID, price, full and total or nil)
+    Learned()
+end
+
+local function OnItemResults(itemKey)
+    if not (itemKey and itemKey.itemID and AH.GetNumItemSearchResults and AH.GetItemSearchResultInfo) then return end
+    local list = {}
+    for i = 1, AH.GetNumItemSearchResults(itemKey) or 0 do
+        local ok, r = pcall(AH.GetItemSearchResultInfo, itemKey, i)
+        local buyout = ok and r and r.buyoutAmount
+        local count = ok and r and (r.quantity or 1)
+        if buyout and buyout > 0 and count and count > 0 then
+            list[#list + 1] = buyout / count
+            list[#list + 1] = count
+        end
+    end
+    if #list == 0 then return end
+    local price, total = MarketPrice(list)
+    StorePrice(itemKey.itemID, price, total)
+    Learned()
+end
+
+local function OnBrowseResults()
+    if not AH.GetBrowseResults then return end
+    local ok, results = pcall(AH.GetBrowseResults)
+    if not ok or type(results) ~= "table" then return end
+    local p = PriceDB()
+    for _, r in ipairs(results) do
+        local id = r.itemKey and r.itemKey.itemID
+        if id and r.minPrice and r.minPrice > 0 then
+            -- lowest price only: don't overwrite a fresh market price from a search
+            if not p.items[id] or PriceAge(p, id) > BROWSE_TRUST then
+                StorePrice(id, r.minPrice, r.totalQuantity)
+            end
+        end
+    end
+    Learned()
+end
+
 local ahEvents = CreateFrame("Frame")
-for _, e in ipairs({ "AUCTION_HOUSE_SHOW", "AUCTION_HOUSE_CLOSED", "REPLICATE_ITEM_LIST_UPDATE" }) do
+for _, e in ipairs({ "AUCTION_HOUSE_SHOW", "AUCTION_HOUSE_CLOSED", "REPLICATE_ITEM_LIST_UPDATE",
+    "COMMODITY_SEARCH_RESULTS_UPDATED", "ITEM_SEARCH_RESULTS_UPDATED", "BROWSE_RESULTS_UPDATED",
+    "BROWSE_RESULTS_ADDED" }) do
     pcall(ahEvents.RegisterEvent, ahEvents, e) -- not every client knows every event
 end
-ahEvents:SetScript("OnEvent", function(_, event)
+ahEvents:SetScript("OnEvent", function(_, event, arg)
     if event == "AUCTION_HOUSE_SHOW" then
         ahOpen = true
         -- a moment later: other addons add their tabs when the window opens
@@ -408,6 +538,14 @@ ahEvents:SetScript("OnEvent", function(_, event)
         end
     elseif event == "REPLICATE_ITEM_LIST_UPDATE" then
         OnReplicateReady()
+    elseif not AH or scan then
+        return -- a full scan is running: it brings everything anyway
+    elseif event == "COMMODITY_SEARCH_RESULTS_UPDATED" then
+        OnCommodityResults(arg)
+    elseif event == "ITEM_SEARCH_RESULTS_UPDATED" then
+        OnItemResults(arg)
+    elseif event == "BROWSE_RESULTS_UPDATED" or event == "BROWSE_RESULTS_ADDED" then
+        OnBrowseResults()
     end
 end)
 
@@ -422,10 +560,20 @@ local function AddTooltipPrice(tooltip, itemID)
     local p = PriceDB()
     local price = p and p.items[itemID]
     if not price then return end
-    local age = math.floor((time() - (p.scanned or 0)) / 86400)
-    local extra = ("%d listed"):format(p.qty[itemID] or 0)
-    if age >= 1 then extra = extra .. (", %d day%s old"):format(age, age == 1 and "" or "s") end
+    local mins = math.floor(PriceAge(p, itemID) / 60)
+    local age = mins < 1 and "just now" or mins < 60 and (mins .. " min ago")
+        or mins < 2880 and (math.floor(mins / 60) .. " h ago") or (math.floor(mins / 1440) .. " days ago")
+    local extra = ("%d listed, %s"):format(p.qty[itemID] or 0, age)
     tooltip:AddDoubleLine("|cffffd060Gathercraft|r AH", Money(price) .. "  |cff999999(" .. extra .. ")|r", 1, 1, 1, 1, 1, 1)
+    local usual = ns.UsualPrice and ns.UsualPrice(itemID)
+    if usual and usual > 0 then
+        local ratio = price / usual
+        if ratio >= 1.2 or ratio <= 0.8 then
+            local color = ratio > 1 and "|cff55ff55" or "|cffff7070"
+            tooltip:AddDoubleLine("    usually", ("%s  %s%+d%%|r"):format(Money(usual), color, math.floor((ratio - 1) * 100 + 0.5)),
+                0.7, 0.7, 0.7, 1, 1, 1)
+        end
+    end
     return true
 end
 
@@ -460,6 +608,86 @@ local function PriceHistory(itemID)
 end
 
 ---------------------------------------------------------------------------
+-- Price alerts
+--   "Usual" price = median of the last days (not today). When something you
+--   can gather sells for clearly more than usual, you hear about it once a
+--   day: in chat after a scan or search, and on the Farm Spots page.
+---------------------------------------------------------------------------
+local function UsualPrice(itemID)
+    local day = math.floor(time() / 86400)
+    local values = {}
+    for _, h in ipairs(PriceHistory(itemID)) do
+        if h[1] < day then values[#values + 1] = h[2] end
+    end
+    if #values < ALERT_MIN_DAYS then return end
+    table.sort(values)
+    local mid = math.floor((#values + 1) / 2)
+    if #values % 2 == 0 then return (values[mid] + values[mid + 1]) / 2 end
+    return values[mid]
+end
+
+-- Items you could farm: every herb and ore from the spawn data
+local gatherItems
+local function GatherItems()
+    if gatherItems then return gatherItems end
+    gatherItems = {}
+    local data = GathercraftQuestieData
+    for _, kind in pairs((data and data.kinds) or {}) do
+        if (kind[1] == "h" or kind[1] == "o") and kind[2] > 0 then
+            gatherItems[kind[2]] = kind[3]
+        end
+    end
+    return gatherItems
+end
+
+-- Gatherable items selling well above their usual price, best first
+local function HotItems()
+    local p = PriceDB()
+    local hot = {}
+    if not p then return hot end
+    for itemID in pairs(GatherItems()) do
+        local price, usual = p.items[itemID], UsualPrice(itemID)
+        if price and usual and usual > 0 and price >= usual * ALERT_HIGH and price - usual >= ALERT_MIN_GAIN
+            and PriceAge(p, itemID) < 86400 then
+            hot[#hot + 1] = { id = itemID, price = price, usual = usual, ratio = price / usual }
+        end
+    end
+    table.sort(hot, function(a, b) return a.ratio > b.ratio end)
+    return hot
+end
+
+local function ItemName(itemID)
+    return (C_Item and C_Item.GetItemNameByID and C_Item.GetItemNameByID(itemID)) or GatherItems()[itemID] or ("item " .. itemID)
+end
+
+CheckAlerts = function()
+    if not ns.db or ns.db.priceAlerts == false then return end
+    ns.db.alerted = ns.db.alerted or {}
+    local day = math.floor(time() / 86400)
+    local fresh = {}
+    for _, h in ipairs(HotItems()) do
+        if ns.db.alerted[h.id] ~= day then
+            ns.db.alerted[h.id] = day
+            fresh[#fresh + 1] = h
+        end
+    end
+    if #fresh == 0 then return end
+    local parts = {}
+    for i = 1, math.min(3, #fresh) do
+        local h = fresh[i]
+        parts[#parts + 1] = ("%s %s (usually %s, x%.1f)"):format(ItemName(h.id), Money(h.price), Money(h.usual), h.ratio)
+    end
+    ns.Print("|cffffd060Price alert:|r " .. table.concat(parts, " · ")
+        .. (#fresh > 3 and (" and %d more"):format(#fresh - 3) or "")
+        .. "  |cff999999Farm Spots shows where to farm it.|r")
+    if PlaySound and SOUNDKIT and SOUNDKIT.AUCTION_WINDOW_OPEN then PlaySound(SOUNDKIT.AUCTION_WINDOW_OPEN) end
+end
+
+ns.UsualPrice = UsualPrice
+ns.HotItems = HotItems
+ns.ItemName = ItemName
+
+---------------------------------------------------------------------------
 -- /gcr ahtest : which price sources and auction functions this client has
 ---------------------------------------------------------------------------
 local SAMPLES = { 2447, 765, 2449, 785, 2770, 2771, 2835, 2589 } -- herbs, ores, stone, linen
@@ -485,7 +713,8 @@ local function PriceTest()
     if p and (p.scanned or 0) > 0 then
         local n = 0
         for _ in pairs(p.items) do n = n + 1 end
-        print(("  Own scan: %d items, %d min ago"):format(n, math.floor((time() - p.scanned) / 60)))
+        print(("  Own scan: %d items, %d min ago, %d searches learned this session"):format(
+            n, math.floor((time() - p.scanned) / 60), learned))
     else
         print("  Own scan: none yet (button at the auction house or /gcr scan)")
     end
@@ -506,10 +735,14 @@ ns.PriceTest = PriceTest
 -- "prices: AH scan, 25 min ago" for labels
 ns.PriceSourceText = function()
     local p = PriceDB()
-    if p and (p.scanned or 0) > 0 and time() - p.scanned < MAX_PRICE_AGE then
-        local mins = math.floor((time() - p.scanned) / 60)
+    local last = p and (p.scanned or 0) or 0
+    for _, t in pairs(p and p.seen or {}) do
+        if t > last then last = t end
+    end
+    if last > 0 and time() - last < MAX_PRICE_AGE then
+        local mins = math.floor((time() - last) / 60)
         local age = mins < 60 and (mins .. " min") or mins < 2880 and (math.floor(mins / 60) .. " h") or (math.floor(mins / 1440) .. " days")
-        return "prices: AH scan, " .. age .. " ago"
+        return "prices: auction house, updated " .. age .. " ago"
     end
     local api = Auctionator and Auctionator.API and Auctionator.API.v1
     if api then return "prices: Auctionator (scan at the auction house for our own)" end

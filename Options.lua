@@ -70,6 +70,41 @@ local function AddCheck(label, get, set)
     nextY = nextY - 22
 end
 
+-- Farm runs: how close you must get before the arrow moves to the next node
+local arriveText
+local function AddArrive()
+    local label = options:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    label:SetPoint("TOPLEFT", 20, nextY - 4)
+    label:SetText("Next node at")
+
+    local minus = CreateFrame("Button", nil, options, "UIPanelButtonTemplate")
+    minus:SetSize(24, 20)
+    minus:SetPoint("TOPLEFT", 120, nextY)
+    minus:SetText("-")
+
+    arriveText = options:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    arriveText:SetPoint("LEFT", minus, "RIGHT", 6, 0)
+    arriveText:SetWidth(40)
+
+    local plus = CreateFrame("Button", nil, options, "UIPanelButtonTemplate")
+    plus:SetSize(24, 20)
+    plus:SetPoint("LEFT", arriveText, "RIGHT", 6, 0)
+    plus:SetText("+")
+
+    local hint = options:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    hint:SetPoint("LEFT", plus, "RIGHT", 10, 0)
+    hint:SetText("(once you can see whether the node is there)")
+
+    local function Change(delta)
+        local lo, hi = ns.ARRIVE_LIMITS[1], ns.ARRIVE_LIMITS[2]
+        ns.db.arriveDist = math.max(lo, math.min(hi, ns.ArriveDistance() + delta))
+        options:Refresh()
+    end
+    minus:SetScript("OnClick", function() Change(-5) end)
+    plus:SetScript("OnClick", function() Change(5) end)
+    nextY = nextY - 30
+end
+
 local pinSizeText
 local function AddPinSize()
     local label = options:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
@@ -105,6 +140,9 @@ function options:Refresh()
     for _, cb in ipairs(controls) do
         cb:SetChecked(cb.get())
     end
+    if arriveText and ns.ArriveDistance then
+        arriveText:SetText(ns.ArriveDistance() .. " yd")
+    end
     if pinSizeText then
         pinSizeText:SetText(tostring(ns.db.pinSize or PIN_SIZE_DEFAULT))
     end
@@ -126,9 +164,7 @@ local function Build()
             ns.db.arrowHidden = not on
             if ns.UpdateArrow then ns.UpdateArrow() end
         end)
-    AddCheck("Skip empty nodes as soon as you can see them",
-        function() return ns.db.lookAhead ~= false end,
-        function(on) ns.db.lookAhead = on end)
+    AddArrive()
     AddCheck("Show route line",
         function() return not ns.db.routeLineHidden end,
         function(on)
@@ -162,6 +198,9 @@ local function Build()
         function(on) ns.db.fishLure = on end)
 
     AddHeader("Other")
+    AddCheck("Price alerts in chat (something you can gather sells well)",
+        function() return ns.db.priceAlerts ~= false end,
+        function(on) ns.db.priceAlerts = on end)
     AddCheck("Auction prices in item tooltips",
         function() return ns.db.tooltipPrices ~= false end,
         function(on) ns.db.tooltipPrices = on end)

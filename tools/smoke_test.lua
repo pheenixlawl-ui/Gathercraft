@@ -217,7 +217,11 @@ C_Item = {
     GetItemIconByID = function() return 134400 end,
     GetItemNameByID = function(id) return "Item" .. id end,
     GetItemCount = function(id) return id == 6529 and 2 or 0 end,
-    GetItemInfoInstant = function(id) if id == 6256 then return id, nil, nil, nil, nil, 2, 20 end return id, nil, nil, nil, nil, 0, 0 end,
+    GetItemInfoInstant = function(id)
+        if id == 6256 then return id, nil, nil, nil, nil, 2, 20 end
+        if ({ [2447] = 1, [765] = 1, [2449] = 1, [785] = 1, [2770] = 1, [2771] = 1 })[id] then return id, nil, nil, nil, nil, 7, 9 end
+        return id, nil, nil, nil, nil, 0, 0
+    end,
 }
 local bags = { [0] = { 6256 } }
 C_Container = {
@@ -347,7 +351,7 @@ step("Farm run: target stays while walking to it", function()
             for step = 1, 400 do
                 local dx, dy = (t.x - player.x) * 5000, (t.y - player.y) * 3333
                 local d = math.sqrt(dx * dx + dy * dy)
-                if d < 16 then break end
+                if d < ns.ArriveDistance() + 4 then break end
                 local k = math.min(1, 3.5 / d)
                 player.x, player.y = player.x + dx * k / 5000, player.y + dy * k / 3333
                 advance(0.5)
@@ -362,30 +366,6 @@ step("Farm run: target stays while walking to it", function()
     end
     note("target changes while walking", changed, "of", trials)
     assert(changed == 0, "target jumped in " .. changed .. " runs")
-    player.map, player.x, player.y = 1412, 0.45, 0.72
-end)
-step("Farm run: empty node skipped from afar (soft target)", function()
-    local soft = nil
-    local oldGUID = UnitGUID
-    UnitGUID = function(u) if u == "softinteract" then return soft end return oldGUID(u) end
-    slash("run herb") advance(1)
-    -- interact targeting works: we once saw a mailbox
-    soft = "GameObject-0-1-1-1-143984-000011" advance(1) soft = nil
-    local t = ns.run.target
-    -- stand 18 yards away from the node, nothing to interact with
-    player.map, player.x, player.y = ns.run.mapID, t.x + 18 / 5000, t.y
-    advance(3)
-    assert(ns.run.target ~= t, "empty node not skipped from afar")
-    assert(t.emptyUntil and t.emptyUntil > time(), "not marked empty")
-    -- next node is there: soft target shows a herb, must not be skipped
-    local t2 = ns.run.target
-    player.x, player.y = t2.x + 18 / 5000, t2.y
-    soft = "GameObject-0-1-1-1-" .. t2.id:sub(2) .. "-000022"
-    advance(3)
-    assert(ns.run.target == t2, "node that is there was skipped")
-    soft = nil
-    UnitGUID = oldGUID
-    slash("stop")
     player.map, player.x, player.y = 1412, 0.45, 0.72
 end)
 step("Farm run: empty node gets skipped", function()
@@ -472,6 +452,34 @@ step("Own auction house scan", function()
     GameTooltip.GetItem = function() return "Peacebloom", "|cffffffff|Hitem:2447::::::::12:::::|h[Peacebloom]|h|r" end
     GameTooltip.AddDoubleLine = function(_, l, r) note("TTPRICE", l, r) end
     GameTooltip.__scripts.OnTooltipSetItem(GameTooltip)
+    -- learning from searches: a commodity search for Earthroot, a browse list
+    C_AuctionHouse.GetNumCommoditySearchResults = function() return 3 end
+    C_AuctionHouse.HasFullCommoditySearchResults = function() return true end
+    C_AuctionHouse.GetCommoditySearchResultInfo = function(id, i)
+        return ({ { unitPrice = 500, quantity = 10 }, { unitPrice = 520, quantity = 30 }, { unitPrice = 900, quantity = 5 } })[i]
+    end
+    C_AuctionHouse.GetBrowseResults = function()
+        return { { itemKey = { itemID = 4306 }, minPrice = 1500, totalQuantity = 40 }, { itemKey = { itemID = 2449 }, minPrice = 1, totalQuantity = 1 } }
+    end
+    fire("COMMODITY_SEARCH_RESULTS_UPDATED", 2449)
+    fire("BROWSE_RESULTS_UPDATED")
+    local e = ns.GetPrice(2449)
+    local silk = ns.GetPrice(4306)
+    note("learned prices earthroot", e, "silk", silk)
+    assert(e == 500, "commodity search not learned: " .. tostring(e))
+    assert(silk == 1500, "browse not learned")
+    -- price alert: Earthroot usually 100c (4 days of history), now 500c
+    local day = math.floor(time() / 86400)
+    local realm = next(ns.db.prices)
+    local p = ns.db.prices[realm]
+    p.history[2449] = ("%d:100;%d:110;%d:90;%d:100;%d:500"):format(day - 4, day - 3, day - 2, day - 1, day)
+    assert(ns.UsualPrice(2449) == 100, "usual price " .. tostring(ns.UsualPrice(2449)))
+    local hot = ns.HotItems()
+    assert(#hot >= 1 and hot[1].id == 2449, "hot items")
+    advance(3) -- alert fires after a search
+    GameTooltip.GetItem = function() return "Earthroot", "|Hitem:2449::|h" end
+    GameTooltip.__scripts.OnTooltipSetItem(GameTooltip)
+    ns.ToggleMain("farm") advance(1) ns.HideMain()
     slash("scan") -- cooldown message
     slash("ahtest")
     fire("AUCTION_HOUSE_CLOSED")
@@ -551,6 +559,43 @@ step("Harvest cost during a run (after loadall)", function()
     note("harvest cost ms: worst", math.floor(worst), "avg", math.floor(total / 5), "pins redrawn", PIN_ADDS)
     slash("stop")
 end)
+step("Logout keeps SavedVariables slim, login loads spawns again", function()
+    -- one known spawn point resting (was empty)
+    local resting
+    for _, n in ipairs(ns.db.nodes[1413] or {}) do
+        if n.source == "questie" then resting = n break end
+    end
+    resting.emptyUntil, resting.emptyStreak = time() + 600, 2
+    local before = 0
+    for _, list in pairs(ns.db.nodes) do before = before + #list end
+    fire("PLAYER_LOGOUT")
+    local after, questie = 0, 0
+    for _, list in pairs(ns.db.nodes) do
+        for _, n in ipairs(list) do
+            after = after + 1
+            if n.source == "questie" then questie = questie + 1 end
+        end
+    end
+    local stateCount = 0
+    for _, zone in pairs(ns.db.spawnState) do for _ in pairs(zone) do stateCount = stateCount + 1 end end
+    note("slim: nodes before", before, "saved", after, "questie saved", questie, "resting saved", stateCount)
+    assert(questie == 0 and stateCount >= 1, "questie nodes still saved")
+    -- "reload": a fresh Starter.lua loads the zones again
+    local chunk = assert(loadfile(ROOT .. "/Starter.lua"))
+    chunk("Gathercraft", ns)
+    fire("PLAYER_LOGIN") advance(5)
+    local again, found = 0, false
+    for _, list in pairs(ns.db.nodes) do
+        for _, n in ipairs(list) do
+            if n.source == "questie" then
+                again = again + 1
+                if n.sk == resting.sk and n.emptyStreak == 2 and n.emptyUntil then found = true end
+            end
+        end
+    end
+    note("slim: spawn points after login", again, "resting state back", found)
+    assert(again > 1000 and found, "spawn points or resting state not restored")
+end)
 step("Delete + wipe zone", function() slash("del") slash("wipe zone") advance(1) end)
 step("Long run (10 min) for leaks", function() slash("run herb") advance(600) slash("stop") end)
 
@@ -558,7 +603,7 @@ io.write("\n--- errors: " .. #errors .. "\n")
 for _, e in ipairs(errors) do io.write("  " .. e .. "\n") end
 io.write("\n--- notable log lines:\n")
 for _, l in ipairs(log) do
-    if l:find("questie nodes") or l:find("fish next") or l:find("SOUNDFILE") or l:find("RAIDWARN") or l:find("sync sent") or l:find("empty test") or l:find("prices ok") or l:find("scan price") or l:find("TTPRICE") or l:find("advisor") or l:find("target changes") or l:find("JUMP") or l:find("harvest cost") or l:find("scanned") or l:find("Own scan") or l:find("15 minutes") or l:find("shared spawn") or l:find("Shared spawn") or l:find("Loaded") or l:find("took over") or l:find("RECORD") or l:find("No ") or l:find("rror") then
+    if l:find("questie nodes") or l:find("fish next") or l:find("SOUNDFILE") or l:find("RAIDWARN") or l:find("sync sent") or l:find("empty test") or l:find("prices ok") or l:find("scan price") or l:find("TTPRICE") or l:find("advisor") or l:find("target changes") or l:find("JUMP") or l:find("harvest cost") or l:find("slim:") or l:find("learned prices") or l:find("Price alert") or l:find("scanned") or l:find("Own scan") or l:find("15 minutes") or l:find("shared spawn") or l:find("Shared spawn") or l:find("Loaded") or l:find("took over") or l:find("RECORD") or l:find("No ") or l:find("rror") then
         io.write("  " .. l:sub(1, 160) .. "\n")
     end
 end
