@@ -8,7 +8,8 @@
 
 <p align="center">
   The free gathering companion for <b>World of Warcraft: Forever</b>.<br>
-  Every node on your map. A live route through all of them. One key for fishing. An announcer that roars <i>"RARE!"</i>.
+  Every node on your map. A live route through all of them. What it's worth, and what's worth crafting.<br>
+  One key for fishing. An announcer that roars <i>"RARE!"</i>. In 10 languages.
 </p>
 
 <p align="center">
@@ -22,67 +23,112 @@
 
 | Without | With Gathercraft |
 |---|---|
-| *"Wasn't there a vein around here somewhere?"* | Every node is pinned on your map and minimap, plus **25,000+ known spawn points** from day one. |
-| You arrive, the herb is gone, you guess where to go next | Your route **re-plans live while you ride**. Taken? One key, next node. |
-| You farm nodes that stopped giving skill-ups ages ago | You see **which nodes still level you**, right in the overview. |
-| Your guild mate found a rich zone, you never hear about it | Optional **shared node map** with guild and friends. |
-| Click, wait, hunt the bobber, click, re-apply lure… | **One key.** Pole, lure, cast, reel in. |
-| The rare you hunted for days walks by while you're in chat | **"RARE!"** You hear it before you see it. |
+| "Wasn't there a vein around here somewhere?" | Every node is pinned on your map and minimap, plus **25,000+ known spawn points** from day one. |
+| You arrive, the herb is gone, you guess where to go next | Your route **re-plans while you ride** – and keeps its target until you get there. Empty? One key, next node. |
+| You farm nodes that stopped giving skill-ups 20 points ago | You see **which nodes still level you**, right in the overview. |
+| "Is this zone even worth it?" | **Farm Spots** ranks every zone by **gold per hour** – estimated first, your real numbers after 10 minutes. |
+| You craft, list, and find out you lost money | **Crafting** shows the **profit of every recipe** of all professions, with what you can make right now. |
+| Alt-tabbing to look up prices | Your own **auction house scan** – prices in every tooltip, gold per hour live while you farm. |
+| Click, wait, hunt for the bobber, click, re-apply lure… | **One key.** Pole, lure, cast, reel in – with its own gold-per-hour panel. |
+| The rare you've hunted for days walks by while you're tabbed into chat | **"RARE!"** You hear it before you see it. |
 
 ## 🔥 Features
 
 **🗺️ The Map That Never Forgets**
-Herbs and ores are recorded the moment you gather them, no setup. Known spawn points for every classic zone load as you explore. Harvested nodes fade until they respawn.
+
+Herbs and ores are recorded the moment you gather them, no setup. On top of that, **25,000+ known herb, ore and chest spawn points** across Kalimdor and the Eastern Kingdoms load as you explore. Spots where Copper *or* Tin can spawn get one pin, harvested nodes fade until they respawn. Chests show on the map only – they never clutter your routes.
 
 <p align="center"><img src="docs/map.jpg" width="70%" alt="Every node on your map"></p>
 
 **🧭 The Route That Thinks Ahead**
-Pick *Herbs*, *Ores* or *both*, or fine-tune zones and single materials. Gathercraft plans the shortest path through everything on your continent and keeps re-planning while you move. Follow the forged Gathercraft arrow or Blizzard's waypoint.
 
-**⚒️ The Forge**
-Your main window: bars for Herbalism, Mining, Fishing, Cooking and First Aid, *"Gather here"* with everything in your current zone and whether it still gives skill-ups, live session stats.
+Hit *Herbs*, *Ores* or *Herbs + Ores* and go. Gathercraft plans the shortest path through every node you selected on your continent and re-plans while you ride. Your target stays put until you reach it, and at 25 yards (you choose) it already moves on to the next one. Nodes that keep turning up empty rest longer each time. In the Zones tab, *Only herbs* or *Only ores* is one click – or tick single materials per zone.
 
-**⏱️ Farm panel**
-While you farm: run time, nodes gathered, nodes per hour, skill points gained.
+**💰 Farm Spots – where gold grows**
+
+Every zone of your continent, ranked by **gold per hour**, nodes per hour and skill-ups for *your* skill. Estimates from spawn points and prices to start with, your own numbers once you've farmed there. Plus what sells above its usual price right now. *Go* starts a run right there.
+
+**⚒️ Crafting – what's worth making?**
+
+**2,000+ recipes of all professions** – Alchemy, Blacksmithing, Enchanting, Engineering, Leatherworking, Tailoring, Cooking, First Aid and Smelting. For each one: profit after the auction cut, what it sells for, what the materials cost, and how many you can make from your bags and bank. Enchants show their material cost, handy for pricing your service. Recipes you don't know yet show the skill they need.
+
+**🏷️ Your own auction house scan**
+
+One click on the Gathercraft tab at the auction house reads every auction and keeps a fair market price per item. Prices show in item tooltips with how many are listed and how old the price is. Every search you do at the auction house teaches it too. **Price alerts** tell you when something you gather sells well above normal. Works on its own – Auctionator or TSM prices are only used if you have no scan yet.
+
+**➤ The Gathercraft Arrow & Farm Panel**
+
+A forged golden arrow points to your next node with live distance. The farm panel shows nodes gathered, per hour, **gold per hour** and skill points gained. Skip and Stop always one click away.
 
 **🎣 One Key. One Fish. Repeat.**
-Bind one key: it equips your pole, applies your best lure, casts and reels in. Every press is one action – you're always in control.
+
+Bind one key. It equips your pole, applies your best lure, casts, and reels in the bobber. While you fish, the panel shows your catches, catches per hour, gold per hour and how long your lure lasts. Every press is one action – you're always in control.
 
 **👁️ RARE!**
-A rare shows up and an announcer roars **"RARE!"**, with a warning across your screen. Runs only on your client.
+
+A rare walks into view and an announcer roars **"RARE!"**, with a warning across your screen and its position in chat. Runs only on your own client, nothing is shared.
 
 **🤝 Stronger Together**
-Optional node sharing. Guild and friends are trusted instantly, strangers need confirmations.
+
+Optional node sharing with other Gathercraft players. Guild and friends are trusted instantly; strangers need confirmations, so fake nodes go nowhere.
+
+**🌍 Every client language**
+
+Gathering, routes and crafting work in every client language. Gathercraft itself speaks 10 languages – pick one in the options or let it follow your game.
+
+**🧩 Plays nice with your UI**
+
+Minimap button via LibDBIcon – works with ElvUI, minimap button bags and broker displays like Titan Panel.
 
 ## 🎒 Getting started
+**1** Install & log in → **2** Gather anything → **3** Click the emblem on your minimap → **4** *Farm run: Herbs / Ores / Herbs + Ores*
 
-1. Install from CurseForge or Wago *(coming soon)*, or copy the `Gathercraft` folder into `World of Warcraft\_classic_\Interface\AddOns`.
-2. Log in and gather something – the pin appears.
-3. Click the emblem on your minimap → **Overview** → *Farm run: Herbs / Ores / Herbs + Ores*.
-4. Follow the arrow.
+Then visit the auction house once and press *Gathercraft Scan* – from now on everything shows its gold value.
 
 ## 🎮 Controls
-
-**Everything lives in the Gathercraft window** – click the emblem on your minimap or type `/gcr`.
+**Everything lives in the Gathercraft window** – click the emblem on your minimap (right-click starts a farm run) or type `/gcr`.
 
 | | |
 |---|---|
-| **Overview** | Your professions, what to gather in this zone, one-click farm runs |
-| **Zones** | Pick zones and single materials for your routes |
+| **Overview** | Your professions, what to gather in this zone, one-click farm runs, session stats |
+| **Farm Spots** | Best zones by gold per hour, nodes per hour and skill-ups |
+| **Crafting** | Profit of every recipe, per profession |
+| **Zones** | Pick zones and materials for your routes |
 | **Skills** | Which nodes gave you skill-ups so far |
-| **Options** | Arrow, route line, sharing, RARE! alert, fishing, minimap button |
+| **Options** | Map, arrow, route, sharing, language, RARE! alert, fishing, price alerts |
 
-**Key bindings:** Options › Keybindings › AddOns › Gathercraft – *Fish · Start/stop run · Skip node*
+For power users and macros: `/gcr run herb|ore|both` · `/gcr route` *(preview)* · `/gcr loadall` *(whole continent)* · `/gcr help` *(all commands)*
+
+**Key bindings:** Options › Keybindings › AddOns › Gathercraft *(Fish · Start/stop run · Skip node)*
 
 ## ❓ FAQ
+**"Does it play for me?"**
 
-**Does it play for me?** No. You ride, you gather, you press the keys. Gathercraft only shows information and points the way.
+Nope. You ride, you gather, you press the keys. Gathercraft just makes sure you never waste a step.
 
-**Can it see nodes nobody has found?** No. It knows what you, other players and the known spawn data have found. No hidden spawns, no tricks.
+**"Can it see nodes nobody has found?"**
 
-**What does sharing send?** Node positions only (object, zone, coordinates). Nothing about your character. Off with one click.
+No. It shows known spawn points and what you and other players have found. The game doesn't reveal what's spawned out of sight, and Gathercraft doesn't try to.
 
-**What does it cost?** Nothing. Free, no paid features.
+**"Why is a node empty when I get there?"**
+
+Known spawn points are *possible* spawns – not every one is up at the same time. Press Skip and you're on your way to the next.
+
+**"Do I need Auctionator?"**
+
+No. Gathercraft scans the auction house itself. If you have Auctionator or TSM, their prices are used until your first own scan.
+
+**"Are the crafting numbers exact?"**
+
+Prices come from your own scan, so they're as fresh as your last visit. Some trainer skill levels are estimated for Forever and marked with **~** – visit the trainer once and Gathercraft notes the real value.
+
+**"What does sharing send?"**
+
+Node positions only (object, zone, coordinates). Nothing about you or your character. Off with one click.
+
+**"What does it cost?"**
+
+Nothing. Free, no paid features, no pop-ups.
 
 ## 🗺️ Roadmap
 
@@ -90,21 +136,27 @@ Optional node sharing. Guild and friends are trusted instantly, strangers need c
 
 Gathercraft is **actively developed** – during the Forever launch weeks expect **updates almost every day**. Here's what's coming:
 
-**✅ Live now (v0.1)**
+**✅ Live now**
+
 - Node recording, map & minimap pins, 25,000+ known spawn points
 - Live farm routes with the Gathercraft arrow and farm panel
-- Skill-up info per node, one-key fishing, RARE! announcer, optional node sharing
+- Own auction house scan, prices in tooltips, price alerts, **gold per hour**
+- **Farm Spots** – best zones by gold per hour
+- **Crafting** – profit of 2,000+ recipes of all professions
+- One-key fishing with its own panel, RARE! announcer, optional node sharing
+- 10 languages, works in every client language
 
 **🔨 Next up (launch weeks)**
-- **Auction house prices** in node tooltips (via Auctionator)
-- **Gold per hour** – live in the farm panel, per route
+
 - **New Forever zones** – Zephras Isle, Darkspear Islands, Riverglades & co.
-- **Translations** – German, French, Spanish and more
+- **Where to get that recipe** – vendor, drop or trainer, with a waypoint
+- **Selling helper** – list what you gathered at the right price in one click
 
 **🔮 Later**
+
 - **Profession planner** – pick a target skill, get the material list, and Gathercraft routes you straight to it
-- **"Is it worth crafting?"** – sell raw or craft first, with live prices
 - **Smarter routes** – plan by expected gold or skill-ups, not just distance
+- **Shared recipe book** – trainer visits of other players fill in yours
 
 *Got an idea? Tell us – the best ones end up on this list.*
 
