@@ -16,6 +16,12 @@
 --   arrive=25        the addon's "Next node at" option
 --   seed=1           random seed (same seed = same world)
 --   runs=1           repeat with seeds seed .. seed+runs-1 and average
+--   dead=0           share of the known spawn points that never have a node (old data, changed zones)
+--   skew=0           uneven spawn points: 0 = all alike, 1 = some points get nodes far more often
+--   warm=0           minutes farmed before measuring (the addon has learned its spawn points)
+--   skill=300        herbalism and mining skill at the start (goes up while gathering, classic rules)
+--   goal=auto        the addon's route goal: auto | skill | gold | nodes
+--   tune=a:1,b:2     override ns.RouteTune values (spawn point learning), e.g. tune=prune:0,learn:0
 --   oracle=1         ignore the addon, always ride to the nearest node that is up
 --                    (nobody can know that: the best any route could ever do)
 --
@@ -23,12 +29,14 @@
 -- `active` of them do at any time. A gathered node comes back after `respawn`
 -- seconds at a random free spawn point of the same kind (that's how Classic
 -- spreads nodes). You ride straight lines (no mountains, no mobs), gather
--- every node you see within `see` yards, 5 seconds per node.
+-- every node you see within `see` yards, 5 seconds per node. Gold uses the
+-- rough prices below (the addon gets them too, as if you had scanned).
 
 local ROOT = arg[1] or "."
 local opts = {
     zone = 1412, mode = "herb", minutes = 60, speed = 11.2, active = 0.35, respawn = 600,
-    see = 40, track = 0, arrive = 25, seed = 1, runs = 1, oracle = 0,
+    see = 40, track = 0, arrive = 25, seed = 1, runs = 1, oracle = 0, tune = "",
+    dead = 0, skew = 0, warm = 0, skill = 300, goal = "auto",
 }
 for i = 2, #arg do
     local k, v = arg[i]:match("^(%w+)=(.+)$")
@@ -53,6 +61,15 @@ local SIZES = {
 local function Size(zone) local s = SIZES[zone] or { 5000, 3333 } return s[1], s[2] end
 local function OffsetX(zone) return (zone - 1400) * 12000 end -- zones side by side, never overlapping
 local SPELL = { herb = 2366, ore = 2575 }
+-- rough auction prices in copper per node (2 items), only for the simulation
+local PRICES = {
+    ["Peacebloom"] = 800, ["Silverleaf"] = 600, ["Earthroot"] = 1600, ["Mageroyal"] = 3000,
+    ["Briarthorn"] = 5000, ["Stranglekelp"] = 3000, ["Bruiseweed"] = 8000, ["Wild Steelbloom"] = 6000,
+    ["Grave Moss"] = 6000, ["Kingsblood"] = 8000, ["Liferoot"] = 10000, ["Fadeleaf"] = 8000,
+    ["Goldthorn"] = 10000, ["Khadgar's Whisker"] = 12000, ["Copper Vein"] = 3000, ["Tin Vein"] = 6000,
+    ["Silver Vein"] = 15000, ["Iron Deposit"] = 10000, ["Gold Vein"] = 30000,
+    ["Incendicite Mineral Vein"] = 2000, ["Lesser Bloodstone Deposit"] = 3000,
+}
 local out = io.write
 
 local function RunOnce(seed)
@@ -75,21 +92,45 @@ local function RunOnce(seed)
     end
 
     -- a character that can gather everything here
-    h.profs[1][2], h.profs[1][3] = 300, 300
-    h.profs[2][2], h.profs[2][3] = 300, 300
+    h.profs[1][2], h.profs[1][3] = opts.skill, 300
+    h.profs[2][2], h.profs[2][3] = opts.skill, 300
     h.fire("ADDON_LOADED", "Gathercraft")
     player.map, player.x, player.y = opts.zone, 0.5, 0.5
     h.fire("PLAYER_LOGIN")
     h.fire("PLAYER_ENTERING_WORLD")
     h.advance(5)
     ns.db.arriveDist = opts.arrive
+    -- plans are cut off by real time in the game; here they always finish,
+    -- so the same seed gives the same result however busy the computer is
+    debugprofilestop = function() return 0 end
+    ns.db.routeGoal = opts.goal
+    local GetPrice = ns.GetPrice
+    ns.GetPrice = function(itemID)
+        for _, kind in pairs(GathercraftQuestieData.kinds) do
+            if kind[2] == itemID and PRICES[kind[3]] then return PRICES[kind[3]] / 2, "scan" end
+        end
+        return GetPrice(itemID)
+    end
+    for k, v in tostring(opts.tune):gmatch("(%w+):([%w%.%-]+)") do
+        assert(ns.RouteTune[k] ~= nil, "unknown tune value " .. k)
+        if type(ns.RouteTune[k]) == "boolean" then ns.RouteTune[k] = v ~= "0" and v ~= "false"
+        else ns.RouteTune[k] = tonumber(v) end
+    end
     ns.db.debug = false
+    -- count every arrival at a spawn point that turned out empty
+    local emptyCount = 0
+    local Debug = ns.Debug
+    ns.Debug = function(msg, ...)
+        if type(msg) == "string" and msg:find("was empty", 1, true) then emptyCount = emptyCount + 1 end
+        return Debug(msg, ...)
+    end
 
     -- the world: spawn points of this zone, grouped by kind
     local data = GathercraftQuestieData
     local packed = data.zones[opts.zone]
     assert(packed, "no known spawn points for zone " .. tostring(opts.zone))
     local TYPES = { h = "herb", o = "ore" }
+    local function oidOf(id) return "o" .. id end
     local points, byKind = {}, {}
     for id, xs, ys in packed:gmatch("(%d+),(%d+),(%d+)") do
         local kind = data.kinds["o" .. id]
@@ -97,19 +138,42 @@ local function RunOnce(seed)
         if t and (opts.mode == "both" or opts.mode == t) then
             local p = { id = tonumber(id), type = t, item = kind[2], x = tonumber(xs) / 10000, y = tonumber(ys) / 10000 }
             p.wx, p.wy = p.x * WORLD_W + OffsetX(opts.zone), p.y * WORLD_H
+            p.req = ns.RequiredSkill(oidOf(id), kind[3])
             points[#points + 1] = p
             byKind[id] = byKind[id] or {}
             table.insert(byKind[id], p)
         end
     end
     assert(#points > 0, "no " .. opts.mode .. " spawn points in zone " .. opts.zone)
+    -- how often each spawn point gets a node (dead points never)
+    local function Normal()
+        return math.sqrt(-2 * math.log(1 - math.random())) * math.cos(2 * math.pi * math.random())
+    end
+    for _, p in ipairs(points) do
+        p.weight = math.random() < opts.dead and 0 or math.exp(opts.skew * Normal())
+    end
+    local function PickFree(list)
+        local total = 0
+        for _, p in ipairs(list) do if not p.up then total = total + p.weight end end
+        if total <= 0 then return end
+        local r = math.random() * total
+        for _, p in ipairs(list) do
+            if not p.up then
+                r = r - p.weight
+                if r <= 0 then return p end
+            end
+        end
+    end
     -- which spawn points hold a node right now
     for _, list in pairs(byKind) do
-        local want = math.max(1, math.floor(#list * opts.active + 0.5))
-        local order = {}
-        for i = 1, #list do order[i] = list[i] end
-        for i = #order, 2, -1 do local j = math.random(i) order[i], order[j] = order[j], order[i] end
-        for i = 1, want do order[i].up = true end
+        local live = 0
+        for _, p in ipairs(list) do if p.weight > 0 then live = live + 1 end end
+        local want = math.floor(#list * opts.active + 0.5)
+        if live > 0 then want = math.max(1, math.min(want, live)) end
+        for _ = 1, want do
+            local p = PickFree(list)
+            if p then p.up = true end
+        end
     end
     local respawns = {} -- { at, kind }
 
@@ -118,16 +182,26 @@ local function RunOnce(seed)
             local r = respawns[i]
             if now >= r.at then
                 table.remove(respawns, i)
-                local free = {}
-                for _, p in ipairs(byKind[r.kind]) do if not p.up then free[#free + 1] = p end end
-                if #free > 0 then free[math.random(#free)].up = true end
+                local p = PickFree(byKind[r.kind])
+                if p then p.up = true end
             end
         end
     end
 
     local spawnSeq = 0
+    local skillUps, gold = 0, 0
     local function Gather(p, now)
         spawnSeq = spawnSeq + 1
+        local kindName = data.kinds["o" .. p.id][3]
+        local prof = h.profs[p.type == "herb" and 1 or 2]
+        local req = ns.RequiredSkill("o" .. p.id, kindName)
+        local d = prof[2] - req
+        local chance = d < 25 and 1 or d < 50 and 0.75 or d < 100 and 0.25 or 0
+        if prof[2] < 300 and math.random() < chance then
+            prof[2] = prof[2] + 1
+            skillUps = skillUps + 1
+        end
+        gold = gold + (PRICES[kindName] or 1000)
         player.x, player.y = p.x, p.y
         local cast = "simcast" .. spawnSeq
         h.fire("UNIT_SPELLCAST_SENT", "player", data.kinds["o" .. p.id][3], cast, SPELL[p.type])
@@ -144,18 +218,24 @@ local function RunOnce(seed)
     local lastTarget
     ns.StartRun(opts.mode, opts.zone)
     h.advance(1)
-    local start = h.now()
+    local start = h.now() + opts.warm * 60
     local stop = start + opts.minutes * 60
     local busyUntil = 0
+    local measuring = opts.warm <= 0
     while h.now() < stop do
         local now = h.now()
+        if not measuring and now >= start then
+            measuring = true
+            for k in pairs(stats) do stats[k] = 0 end
+            emptyCount, skillUps, gold = 0, 0, 0
+        end
         Respawn(now)
         if now >= busyUntil then
             local px, py = player.x * WORLD_W + OffsetX(opts.zone), player.y * WORLD_H
             -- a node in sight: take it
             local best, bestD
             for _, p in ipairs(points) do
-                if p.up then
+                if p.up and h.profs[p.type == "herb" and 1 or 2][2] >= p.req then
                     local d = math.sqrt((p.wx - px) ^ 2 + (p.wy - py) ^ 2)
                     if d <= opts.see and (not bestD or d < bestD) then best, bestD = p, d end
                 end
@@ -170,7 +250,7 @@ local function RunOnce(seed)
                 local goal
                 if opts.oracle == 1 then
                     for _, p in ipairs(points) do
-                        if p.up then
+                        if p.up and h.profs[p.type == "herb" and 1 or 2][2] >= p.req then
                             local d = math.sqrt((p.wx - px) ^ 2 + (p.wy - py) ^ 2)
                             if not goal or d < goal.d then goal = { wx = p.wx, wy = p.wy, d = d } end
                         end
@@ -178,7 +258,7 @@ local function RunOnce(seed)
                 end
                 if not goal and opts.track > 0 then
                     for _, p in ipairs(points) do
-                        if p.up then
+                        if p.up and h.profs[p.type == "herb" and 1 or 2][2] >= p.req then
                             local d = math.sqrt((p.wx - px) ^ 2 + (p.wy - py) ^ 2)
                             if d <= opts.track and (not goal or d < goal.d) then goal = { wx = p.wx, wy = p.wy, d = d, tracked = true } end
                         end
@@ -212,9 +292,10 @@ local function RunOnce(seed)
     stats.points = #points
     stats.rounds = ns.run and ns.run.round or 0
     -- arrivals at spawn points that turned out empty (the addon marks them)
-    for _, n in ipairs(ns.db.nodes[opts.zone] or {}) do
-        if (n.emptyStreak or 0) > 0 then stats.emptyArrivals = stats.emptyArrivals + n.emptyStreak end
-    end
+    stats.emptyArrivals = emptyCount
+    stats.skillUpsPerHour = skillUps / minutes * 60
+    stats.goldPerHour = gold / minutes * 60 / 10000
+    stats.skillEnd = h.profs[opts.mode == "ore" and 2 or 1][2]
     if #h.errors > 0 then
         out("errors:\n")
         for _, e in ipairs(h.errors) do out("  " .. e .. "\n") end
@@ -228,11 +309,12 @@ out(("Route simulator: zone %s, %s, %d min, speed %.1f yd/s, %d%% of spawn point
 local sum = {}
 for r = 0, opts.runs - 1 do
     local s = RunOnce(opts.seed + r)
-    out(("  seed %d: %d nodes (%.0f/h), %.0f yd ridden, %.0f s idle, %d empty arrivals, %d targets reached, %d spawn points\n")
-        :format(opts.seed + r, s.gathered, s.perHour, s.distance, s.idle, s.emptyArrivals, s.arrivals, s.points))
+    out(("  seed %d: %d nodes (%.0f/h), %.0f skill-ups/h (skill %d at the end), %.1fg/h, %.0f yd ridden, %.0f s idle, %d empty arrivals, %d spawn points\n")
+        :format(opts.seed + r, s.gathered, s.perHour, s.skillUpsPerHour, s.skillEnd, s.goldPerHour, s.distance, s.idle, s.emptyArrivals, s.points))
     for k, v in pairs(s) do sum[k] = (sum[k] or 0) + v end
 end
 if opts.runs > 1 then
-    out(("  average: %.1f nodes/h, %.0f yd ridden, %.0f s idle, %.1f empty arrivals\n")
-        :format(sum.perHour / opts.runs, sum.distance / opts.runs, sum.idle / opts.runs, sum.emptyArrivals / opts.runs))
+    out(("  average: %.1f nodes/h, %.1f skill-ups/h, %.1fg/h, %.0f yd ridden, %.1f empty arrivals\n")
+        :format(sum.perHour / opts.runs, sum.skillUpsPerHour / opts.runs, sum.goldPerHour / opts.runs,
+            sum.distance / opts.runs, sum.emptyArrivals / opts.runs))
 end

@@ -37,6 +37,8 @@ local RATE_MAX_NODES = 150    -- max nodes accepted per sender per window
 local QUERY_COOLDOWN = 600    -- seconds before asking for the same zone again
 local MAX_RESPONDERS = 3
 local PENDING_MAX_AGE = 3 * 24 * 3600
+local PENDING_MAX_AGE_NEW = 14 * 24 * 3600 -- zones without known spawn points (new Forever zones): keep them longer
+local PENDING_MAX_TOTAL = 2000 -- unconfirmed reports kept in all zones together
 local PENDING_MAX_PER_ZONE = 300 -- unconfirmed reports kept per zone (oldest go first)
 local PENDING_PER_REPORTER = 30  -- one stranger can't fill the list with fake reports
 local JOIN_DELAY = 8          -- seconds after login (let General/Trade join first)
@@ -47,7 +49,7 @@ local CODE_TYPE = { h = "herb", o = "ore", c = "chest" }
 local queue = {}              -- outgoing messages { text, target }
 local channelID
 local rate = {}               -- sender -> { start, count }
-local lastQuery = {}          -- mapID -> time
+local lastQuery = {}          -- mapID -> time (kept in the saved data: a /reload doesn't ask again)
 local answering = {}          -- mapID -> { responders = {} }
 local recv = { start = 0, count = 0, processed = 0 }
 local incomingRate = 0        -- smoothed messages per second
@@ -236,13 +238,22 @@ local function Import(mapID, p)
     ns.NotifyNodesChanged("add", mapID, node) -- adds just this pin, keeps the index current
 end
 
+local function TotalPending(root)
+    local total = 0
+    for _, list in pairs(root) do total = total + #list end
+    return total
+end
+
 local function HandleNode(mapID, entry, sender, trusted, dry)
     local id, code, xs, ys, items = strsplit(",", entry)
+    -- Validation: only real game objects, valid type, plain whole numbers
+    -- (tonumber alone lets "nan", "1e3" or hex through)
+    if not (xs and ys and xs:match("^%d+$") and ys:match("^%d+$")) then return end
+    if items and items ~= "" and not items:match("^%d+$") then return end
     local x, y, item = tonumber(xs), tonumber(ys), tonumber(items) or 0
     local nodeType = CODE_TYPE[code or ""]
-    -- Validation: only real game objects, valid type and coordinates
     if not (id and id:match("^o%d+$") and nodeType and x and y) then return end
-    if x < 0 or x > 10000 or y < 0 or y > 10000 then return end
+    if x > 10000 or y > 10000 then return end
     x, y = x / 10000, y / 10000
     local who = ShortName(sender)
 
@@ -270,11 +281,17 @@ local function HandleNode(mapID, entry, sender, trusted, dry)
             if q.by == who then mine = mine + 1 end
         end
         if mine >= PENDING_PER_REPORTER then return end
+        -- all zones together: a flood of reports for many maps stops here
+        if not trusted and not dry and TotalPending(root) >= PENDING_MAX_TOTAL then return end
         if #list >= PENDING_MAX_PER_ZONE then
-            table.remove(list, 1) -- oldest unconfirmed report goes
+            local gone = table.remove(list, 1) -- oldest unconfirmed report goes
+            if not dry and ns.OnPendingChanged then ns.OnPendingChanged(mapID, gone, "remove") end
         end
         p = { id = id, type = nodeType, x = x, y = y, item = item, reporters = {}, rc = 0, first = time(), by = who }
         table.insert(list, p)
+        -- new zones show single reports as grey pins (Pins.lua); an instant
+        -- import (guild, friends) doesn't need one
+        if not dry and not trusted and ns.OnPendingChanged then ns.OnPendingChanged(mapID, p, "add") end
     end
     if not p.reporters[who] then
         p.reporters[who] = true
@@ -291,6 +308,7 @@ local function HandleNode(mapID, entry, sender, trusted, dry)
         if dry then
             stress.imported = stress.imported + 1
         else
+            if ns.OnPendingChanged then ns.OnPendingChanged(mapID, p, "remove") end
             Import(mapID, p)
             Debug(("imported %s in %d (%s)"):format(id, mapID, trusted and "trusted" or (p.rc .. " reports")))
         end
@@ -366,9 +384,16 @@ end
 
 local function Receive(prefix, text, distribution, sender, dry)
     if prefix ~= PREFIX or not DB().enabled then return end
+    local msgKind, msgMap = text:match("^(%u):(%d+)")
+    msgMap = tonumber(msgMap)
     if not dry then
-        Debug(("recv [%s] %s: %s"):format(distribution, sender, text:sub(1, 60)))
+        -- our own messages come back from the channel: not worth a debug line
         if IsSelf(sender) then return end
+        if ns.db.debug then
+            local zone = msgMap and ns.GetZoneName and ns.GetZoneName(msgMap)
+            Debug(("recv [%s] %s: %s%s"):format(distribution, sender, text:sub(1, 60),
+                zone and ("  (" .. zone .. ")") or ""))
+        end
     end
     if DB().blocked[ShortName(sender)] then return end
     if distribution == "CHANNEL" and not DB().public then return end
@@ -376,7 +401,14 @@ local function Receive(prefix, text, distribution, sender, dry)
 
     if not dry then
         stats.received = stats.received + 1
-        stats.peers[ShortName(sender)] = time()
+        local peer = stats.peers[ShortName(sender)] or { asked = 0, nodes = 0 }
+        stats.peers[ShortName(sender)] = peer
+        peer.t, peer.map = time(), msgMap or peer.map
+        if msgKind == "Q" then peer.asked = peer.asked + 1 end
+        if msgKind == "N" then
+            local _, count = text:gsub(";", ";")
+            peer.nodes = peer.nodes + count
+        end
     end
 
     local kind, body = text:match("^(%u):(.*)$")
@@ -491,10 +523,14 @@ local function CountPending()
 end
 
 local function Status()
-    local peers, now = 0, time()
-    for _, t in pairs(stats.peers) do
-        if now - t < 3600 then peers = peers + 1 end
+    local peers, now, recent = 0, time(), {}
+    for name, p in pairs(stats.peers) do
+        if now - p.t < 3600 then
+            peers = peers + 1
+            recent[#recent + 1] = { name = name, p = p }
+        end
     end
+    table.sort(recent, function(a, b) return a.p.t > b.p.t end)
     ns.Print((L["Sync %s, public channel %s (%s), guild %s."]):format(
         DB().enabled and L["|cff00ff00ON|r"] or L["|cffff0000OFF|r"],
         DB().public and "on" or "off",
@@ -506,6 +542,15 @@ local function Status()
     print((L["  Not sent (already known): %d   Not sent (busy): %d   Dropped (budget): %d"]):format(
         stats.skippedKnown, stats.skippedBusy, stats.dropped))
     print((L["  Confirmations needed: %d (guild and friends count instantly)"]):format(CONFIRMATIONS))
+    -- who was active where: tells whether someone shared nodes or only asked
+    for i = 1, math.min(8, #recent) do
+        local r = recent[i]
+        local zone = r.p.map and ns.GetZoneName and ns.GetZoneName(r.p.map) or "?"
+        local what = (r.p.nodes > 0 and (L["%d nodes shared"]):format(r.p.nodes))
+            or (r.p.asked > 0 and L["only asked for nodes"]) or "-"
+        print(("  |cffffd100%s|r  %s  ·  %s  ·  %d min"):format(r.name, zone, what,
+            math.floor((now - r.p.t) / 60)))
+    end
 end
 
 local function Command(rest)
@@ -531,7 +576,7 @@ local function Command(rest)
         db.blocked[arg] = nil
         ns.Print(L["No longer ignoring "] .. arg .. ".")
     elseif cmd == "ask" then
-        lastQuery = {}
+        wipe(lastQuery)
         CurrentZoneQuery()
         ns.Print(L["Asked other players for nodes in this zone."])
     elseif cmd == "stress" then
@@ -560,11 +605,27 @@ frame:SetScript("OnEvent", function(self, event, ...)
         if s.public == nil then s.public = true end
         s.pending = s.pending or {}
         s.blocked = s.blocked or {}
+        -- per realm and faction: an alt elsewhere talks to other players
+        local scope = (GetNormalizedRealmName() or "") .. "-" .. (UnitFactionGroup and UnitFactionGroup("player") or "")
+        if type(s.lastQuery) ~= "table" then s.lastQuery = {} end
+        for key, list in pairs(s.lastQuery) do
+            if type(list) ~= "table" then
+                s.lastQuery[key] = nil
+            else
+                for mapID, t in pairs(list) do
+                    if time() - t >= QUERY_COOLDOWN then list[mapID] = nil end
+                end
+                if not next(list) then s.lastQuery[key] = nil end
+            end
+        end
+        s.lastQuery[scope] = s.lastQuery[scope] or {}
+        lastQuery = s.lastQuery[scope]
 
         -- Drop old unconfirmed reports
         for mapID, list in pairs(s.pending) do
             for i = #list, 1, -1 do
-                if time() - (list[i].first or 0) > PENDING_MAX_AGE then
+                local maxAge = (ns.HasKnownSpawns and ns.HasKnownSpawns(mapID)) and PENDING_MAX_AGE or PENDING_MAX_AGE_NEW
+                if time() - (list[i].first or 0) > maxAge then
                     table.remove(list, i)
                 end
             end
@@ -589,4 +650,10 @@ frame:SetScript("OnEvent", function(self, event, ...)
 end)
 
 ns.SyncShare = ShareHarvest
+-- unconfirmed reports of one zone (grey pins in zones without known spawn points)
+ns.SyncPending = function(mapID)
+    local db = ns.db and ns.db.sync
+    return db and db.pending and db.pending[mapID]
+end
+ns.SyncDisplayName = DisplayName
 ns.SyncCommand = Command

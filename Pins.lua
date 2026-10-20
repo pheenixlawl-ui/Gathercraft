@@ -45,12 +45,19 @@ end
 local function ShowTooltip(pin)
     local n = pin.node
     if not n then return end
+    if n.pendingReport and ns.SyncDisplayName then
+        -- the item name may have loaded since the pin was made
+        n.name = ns.SyncDisplayName(n.id, n.pendingReport.item, n.type)
+    end
     GameTooltip:SetOwner(pin, "ANCHOR_RIGHT")
     GameTooltip:AddLine(n.name, 1, 1, 1)
     if n.type then
         GameTooltip:AddLine(L[TYPE_LABELS[n.type] or n.type], 0.6, 0.6, 0.6)
     end
-    if (n.count or 1) > 0 then
+    if n.pendingReport then
+        GameTooltip:AddLine((L["Reported by %d player(s), not confirmed yet"]):format(n.pendingReport.rc or 1), 0.7, 0.7, 0.7)
+        GameTooltip:AddLine(L["Not part of routes until you or other players confirm it."], 0.6, 0.6, 0.6, true)
+    elseif (n.count or 1) > 0 then
         GameTooltip:AddLine((L["Seen %d times"]):format(n.count or 1), 0.8, 0.8, 0.8)
     end
     if ns.SkillTooltip then
@@ -113,8 +120,13 @@ local function Sizes(n)
     return world, mini
 end
 
+local PENDING_ALPHA = 0.5 -- unconfirmed reports from other players
 local function SetAlpha(pin)
     local n = pin.node
+    if n.pendingReport then
+        pin:SetAlpha(PENDING_ALPHA)
+        return
+    end
     pin:SetAlpha(ns.IsOnCooldown(n) and DIM_ALPHA or (n.source and KNOWN_ALPHA or 1))
 end
 
@@ -174,6 +186,7 @@ local function AddNodePins(mapID, n)
     w.node, w.mapID = n, mapID
     w:SetSize(worldSize, worldSize)
     w.icon:SetTexture(icon)
+    w.icon:SetDesaturated(n.pendingReport and true or false)
     SetAlpha(w)
     w.others = nil
     HBDPins:AddWorldMapIconMap(REF, w, mapID, n.x, n.y, HBD_PINS_WORLDMAP_SHOW_PARENT or 1)
@@ -185,6 +198,7 @@ local function AddNodePins(mapID, n)
         m.node, m.mapID = n, mapID
         m:SetSize(miniSize, miniSize)
         m.icon:SetTexture(icon)
+        m.icon:SetDesaturated(n.pendingReport and true or false)
         m.others = nil
         SetAlpha(m)
         HBDPins:AddMinimapIconMap(REF, m, mapID, n.x, n.y, false, false)
@@ -232,6 +246,53 @@ local function UpdateAlpha()
     end
 end
 
+-- Unconfirmed reports in zones without known spawn points (new Forever
+-- zones) get grey pins. They are drawn from proxy tables, never saved, never
+-- routed. Only zones of the continent you are on: a flood of reports for far
+-- away maps draws nothing.
+local proxies = {} -- pending report -> its pin node (rebuilt with the pins)
+
+local function PendingEligible(mapID)
+    if ns.db.pinsHidden or (ns.HasKnownSpawns and ns.HasKnownSpawns(mapID)) then return false end
+    local here = playerMap and ns.GetContinent(playerMap)
+    return here ~= nil and ns.GetContinent(mapID) == here
+end
+
+local function AddPendingPin(mapID, p)
+    if not (p and p.x and p.y and p.type and p.type ~= "chest") then return end
+    -- not where we know a node already (you picked it yourself meanwhile)
+    if ns.FindNode(mapID, p.id, p.x, p.y, 10) then return end
+    local proxy = proxies[p]
+    if not proxy then
+        proxy = {
+            id = p.id, type = p.type, x = p.x, y = p.y, source = "pending",
+            item = (p.item or 0) > 0 and p.item or nil, pendingReport = p,
+            name = ns.SyncDisplayName and ns.SyncDisplayName(p.id, p.item, p.type) or "?",
+        }
+        proxies[p] = proxy
+    end
+    if not pinsByNode[proxy] then AddNodePins(mapID, proxy) end
+end
+
+local function RemovePendingPin(p)
+    local proxy = p and proxies[p]
+    if proxy then
+        RemoveNodePins(proxy, true)
+        proxies[p] = nil
+    end
+end
+
+-- A node of ours or from sync appeared: grey pins of the same node there go
+local function RemovePendingNear(mapID, node)
+    local list = ns.SyncPending and ns.SyncPending(mapID)
+    if not list or not node or node.pendingReport then return end
+    for _, p in ipairs(list) do
+        if proxies[p] and p.id == node.id and ns.Distance(mapID, p.x, p.y, node.x, node.y) <= 10 then
+            RemovePendingPin(p)
+        end
+    end
+end
+
 local function Rebuild()
     if not ns.db or not HBDPins then return end
     rebuilding = true
@@ -240,10 +301,18 @@ local function Rebuild()
     end
     rebuilding = false
     wipe(grid)
+    wipe(proxies) -- old reports (imported, expired) are let go here
     if ns.db.pinsHidden then return end
     for mapID, list in pairs(ns.db.nodes) do
         for _, n in ipairs(list) do
             AddNodePins(mapID, n)
+        end
+    end
+    -- grey pins: what another player reported in a new zone (see above)
+    local pending = ns.db.sync and ns.db.sync.pending
+    for mapID, list in pairs(pending or {}) do
+        if PendingEligible(mapID) then
+            for _, p in ipairs(list) do AddPendingPin(mapID, p) end
         end
     end
 end
@@ -274,6 +343,7 @@ local function OnNodesChanged(kind, mapID, node)
             new.world.others = others
             for _, o in ipairs(others) do pinsByNode[o] = { sharedWith = new.world } end
         end
+        RemovePendingNear(mapID, node)
     else
         RequestRebuild()
     end
@@ -293,6 +363,16 @@ if not (HBD and HBDPins) then
 end
 
 table.insert(ns.nodeListeners, OnNodesChanged)
+
+-- Sync: one report arrived ("add") or left ("remove": confirmed, or the
+-- oldest dropped). Only that report's pin changes, nothing is rebuilt.
+ns.OnPendingChanged = function(mapID, p, what)
+    if what == "remove" then
+        RemovePendingPin(p)
+    elseif what == "add" and PendingEligible(mapID) then
+        AddPendingPin(mapID, p)
+    end
+end
 
 ns.TogglePins = function()
     ns.db.pinsHidden = not ns.db.pinsHidden

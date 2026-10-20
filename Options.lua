@@ -18,7 +18,7 @@ end
 -- Options window
 ---------------------------------------------------------------------------
 local options = CreateFrame("Frame", "GathercraftOptions", UIParent, "BackdropTemplate")
-options:SetSize(740, 440)
+options:SetSize(740, 480) -- standalone; in the main window it fills the Options tab
 options:SetPoint("CENTER")
 options:SetBackdrop({
     bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
@@ -45,6 +45,16 @@ local close = CreateFrame("Button", nil, options, "UIPanelCloseButton")
 close:SetPoint("TOPRIGHT", -2, -2)
 
 local controls = {}
+-- Labels in front of +/- and < > controls have ~100 px; long translations
+-- get the smaller font instead of running into the buttons
+local fitLabels = {}
+local LABEL_WIDTH = 98
+local function FitLabels()
+    for _, fs in ipairs(fitLabels) do
+        fs:SetFontObject(GameFontHighlight)
+        if (fs:GetStringWidth() or 0) > LABEL_WIDTH then fs:SetFontObject(GameFontHighlightSmall) end
+    end
+end
 local TOP_Y = -44
 local COLUMN_X = { 14, 380 } -- two columns, the main window is wide
 local colX, nextY = COLUMN_X[1], TOP_Y
@@ -83,6 +93,7 @@ local function AddArrive()
     local label = options:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     label:SetPoint("TOPLEFT", colX + 6, nextY - 4)
     ns.LText(label, "Next node at")
+    fitLabels[#fitLabels + 1] = label
 
     local minus = CreateFrame("Button", nil, options, "UIPanelButtonTemplate")
     minus:SetSize(24, 20)
@@ -117,6 +128,7 @@ local function AddPinSize()
     local label = options:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     label:SetPoint("TOPLEFT", colX + 6, nextY - 4)
     ns.LText(label, "Pin size")
+    fitLabels[#fitLabels + 1] = label
 
     local minus = CreateFrame("Button", nil, options, "UIPanelButtonTemplate")
     minus:SetSize(24, 20)
@@ -185,12 +197,145 @@ local function AddLanguage()
     nextY = nextY - 44
 end
 
+-- Route goal: < Auto | Skill-ups | Gold | Nodes >, explained in the tooltip
+local GOALS = {
+    { code = "auto", name = "Auto", tip = "Skill-ups while nodes here still level you, then gold." },
+    { code = "skill", name = "Skill-ups", tip = "Prefers nodes that still give skill-ups." },
+    { code = "gold", name = "Gold", tip = "Prefers what sells best (your auction house scan)." },
+    { code = "nodes", name = "Nodes", tip = "Every node the same: as many nodes as possible." },
+}
+local goalText
+local function CurrentGoal()
+    for i, g in ipairs(GOALS) do
+        if g.code == (ns.db.routeGoal or "auto") then return g, i end
+    end
+    return GOALS[1], 1
+end
+local function AddRouteGoal()
+    local label = options:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    label:SetPoint("TOPLEFT", colX + 6, nextY - 4)
+    ns.LText(label, "Route goal")
+    fitLabels[#fitLabels + 1] = label
+
+    local minus = CreateFrame("Button", nil, options, "UIPanelButtonTemplate")
+    minus:SetSize(24, 20)
+    minus:SetPoint("TOPLEFT", colX + 106, nextY)
+    minus:SetText("<")
+
+    goalText = options:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    goalText:SetPoint("LEFT", minus, "RIGHT", 6, 0)
+    goalText:SetWidth(130)
+
+    local plus = CreateFrame("Button", nil, options, "UIPanelButtonTemplate")
+    plus:SetSize(24, 20)
+    plus:SetPoint("LEFT", goalText, "RIGHT", 6, 0)
+    plus:SetText(">")
+
+    local function Tip(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:AddLine(L["Route goal"], 1, 0.82, 0)
+        GameTooltip:AddLine(L[CurrentGoal().tip], 1, 1, 1, true)
+        GameTooltip:AddLine(L["Nodes you can't gather yet are never part of a route."], 0.7, 0.7, 0.7, true)
+        GameTooltip:Show()
+    end
+    local function Change(delta)
+        local _, index = CurrentGoal()
+        index = (index - 1 + delta) % #GOALS + 1
+        ns.db.routeGoal = GOALS[index].code
+        if ns.RouteGoalChanged then ns.RouteGoalChanged() end
+        options:Refresh()
+        if GameTooltip:IsOwned(minus) or GameTooltip:IsOwned(plus) then Tip(delta < 0 and minus or plus) end
+    end
+    minus:SetScript("OnClick", function() Change(-1) end)
+    plus:SetScript("OnClick", function() Change(1) end)
+    for _, b in ipairs({ minus, plus }) do
+        b:SetScript("OnEnter", Tip)
+        b:SetScript("OnLeave", GameTooltip_Hide)
+    end
+    nextY = nextY - 30
+end
+
+-- Route line look: a color swatch (click: next, right-click: back) and < style >
+local lineSwatch, lineStyleText
+local function Cycle(list, code, delta)
+    local index = 1
+    for i, e in ipairs(list) do
+        if e.code == code then index = i end
+    end
+    return list[(index - 1 + delta) % #list + 1].code
+end
+local function AddRouteLineLook()
+    local label = options:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    label:SetPoint("TOPLEFT", colX + 6, nextY - 4)
+    ns.LText(label, "Route line")
+    fitLabels[#fitLabels + 1] = label
+
+    lineSwatch = CreateFrame("Button", nil, options, "BackdropTemplate")
+    lineSwatch:SetSize(20, 20)
+    lineSwatch:SetPoint("TOPLEFT", colX + 106, nextY)
+    lineSwatch:SetBackdrop({ edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border", edgeSize = 8,
+        insets = { left = 2, right = 2, top = 2, bottom = 2 } })
+    lineSwatch.tex = lineSwatch:CreateTexture(nil, "ARTWORK")
+    lineSwatch.tex:SetPoint("TOPLEFT", 3, -3)
+    lineSwatch.tex:SetPoint("BOTTOMRIGHT", -3, 3)
+    lineSwatch.tex:SetColorTexture(1, 1, 1)
+    lineSwatch:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+
+    local minus = CreateFrame("Button", nil, options, "UIPanelButtonTemplate")
+    minus:SetSize(24, 20)
+    minus:SetPoint("LEFT", lineSwatch, "RIGHT", 12, 0)
+    minus:SetText("<")
+    lineStyleText = options:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    lineStyleText:SetPoint("LEFT", minus, "RIGHT", 4, 0)
+    lineStyleText:SetWidth(84)
+    local plus = CreateFrame("Button", nil, options, "UIPanelButtonTemplate")
+    plus:SetSize(24, 20)
+    plus:SetPoint("LEFT", lineStyleText, "RIGHT", 4, 0)
+    plus:SetText(">")
+
+    local function Changed()
+        if ns.RedrawRouteLine then ns.RedrawRouteLine() end
+        options:Refresh()
+    end
+    lineSwatch:SetScript("OnClick", function(self, button)
+        ns.db.routeLineColor = Cycle(ns.ROUTE_LINE_COLORS, ns.RouteLineColor().code, button == "RightButton" and -1 or 1)
+        Changed()
+        if GameTooltip:IsOwned(self) then self:GetScript("OnEnter")(self) end
+    end)
+    lineSwatch:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:AddLine(L["Route line color"], 1, 0.82, 0)
+        GameTooltip:AddLine(L[ns.RouteLineColor().name], 1, 1, 1)
+        GameTooltip:AddLine(L["Click: next color, right-click: back"], 0.7, 0.7, 0.7, true)
+        GameTooltip:Show()
+    end)
+    lineSwatch:SetScript("OnLeave", GameTooltip_Hide)
+    minus:SetScript("OnClick", function()
+        ns.db.routeLineStyle = Cycle(ns.ROUTE_LINE_STYLES, ns.RouteLineStyle().code, -1)
+        Changed()
+    end)
+    plus:SetScript("OnClick", function()
+        ns.db.routeLineStyle = Cycle(ns.ROUTE_LINE_STYLES, ns.RouteLineStyle().code, 1)
+        Changed()
+    end)
+    nextY = nextY - 30
+end
+
 function options:Refresh()
+    FitLabels()
     for _, cb in ipairs(controls) do
         cb:SetChecked(cb.get())
     end
     if arriveText and ns.ArriveDistance then
         arriveText:SetText(ns.ArriveDistance() .. L[" yd"])
+    end
+    if lineSwatch and ns.RouteLineColor then
+        local rgb = ns.RouteLineColor().rgb
+        lineSwatch.tex:SetColorTexture(rgb[1], rgb[2], rgb[3])
+        lineStyleText:SetText(L[ns.RouteLineStyle().name])
+    end
+    if goalText then
+        goalText:SetText(L[CurrentGoal().name])
     end
     if pinSizeText then
         pinSizeText:SetText(tostring(ns.db.pinSize or PIN_SIZE_DEFAULT))
@@ -244,6 +389,11 @@ local function Build()
     AddLanguage()
 
     Column(2)
+    AddHeader("Farm runs")
+    AddRouteGoal()
+    AddRouteLineLook()
+
+    nextY = nextY - 8
     AddHeader("Rares")
     AddCheck("Alert when a rare shows up (sound + warning)",
         function() return ns.db.rareAlert ~= false end,

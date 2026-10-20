@@ -11,6 +11,7 @@ local L = ns.L or setmetatable({}, { __index = function(_, k) return k end })
 ---------------------------------------------------------------------------
 local EXPIRE_DAYS = 21
 local MERGE_RADIUS = 10 -- yards, same as the recorder
+local EMPTY_MEMORY = 3 * 3600 -- seconds an "it was empty here" is remembered over logouts
 local TYPES = { h = "herb", o = "ore", c = "chest" }
 
 ---------------------------------------------------------------------------
@@ -107,10 +108,15 @@ local function ImportQuestieZone(mapID, quiet)
                 }
                 local st = state and state[key]
                 if st then
-                    local untilT, streak = st:match("^(%d+):(%d+)$")
+                    -- "until:streak[:hits:misses:emptyAt]" (older saves have only the first two)
+                    local untilT, streak, hits, misses, emptyAt = st:match("^(%d+):(%d+):?(%d*):?(%d*):?(%d*)$")
                     untilT, streak = tonumber(untilT), tonumber(streak)
+                    hits, misses, emptyAt = tonumber(hits), tonumber(misses), tonumber(emptyAt)
                     if untilT and untilT > now then n.emptyUntil = untilT end
                     if streak and streak > 0 then n.emptyStreak = streak end
+                    if hits and hits > 0 then n.hits = hits end
+                    if misses and misses > 0 then n.misses = misses end
+                    if emptyAt and emptyAt > 0 and now - emptyAt < EMPTY_MEMORY then n.emptyAt = emptyAt end
                 end
                 table.insert(list, n)
                 added = added + 1
@@ -135,9 +141,15 @@ local function SaveSpawnState()
         for _, n in ipairs(list) do
             if n.source == "questie" then
                 local resting = n.emptyUntil and n.emptyUntil > now
-                if n.sk and (resting or n.emptyStreak) then
+                local emptyAt = n.emptyAt and now - n.emptyAt < EMPTY_MEMORY and n.emptyAt or 0
+                if n.sk and (resting or n.emptyStreak or n.hits or n.misses) then
                     state[mapID] = state[mapID] or {}
-                    state[mapID][n.sk] = ("%d:%d"):format(resting and n.emptyUntil or 0, n.emptyStreak or 0)
+                    if n.hits or n.misses or emptyAt > 0 then
+                        state[mapID][n.sk] = ("%d:%d:%d:%d:%d"):format(resting and n.emptyUntil or 0,
+                            n.emptyStreak or 0, n.hits or 0, n.misses or 0, emptyAt)
+                    else
+                        state[mapID][n.sk] = ("%d:%d"):format(resting and n.emptyUntil or 0, n.emptyStreak or 0)
+                    end
                 end
             else
                 keep[#keep + 1] = n
@@ -196,6 +208,12 @@ ns.IsKnownSpawn = function(mapID, id, x, y)
 end
 
 ns.ImportQuestieZone = function(mapID, quiet) return ImportQuestieZone(mapID, quiet) end
+
+-- Do we ship known spawn points for this zone? (no: a new Forever zone)
+ns.HasKnownSpawns = function(mapID)
+    local data = GathercraftQuestieData
+    return data and data.zones and mapID and data.zones[mapID] ~= nil or false
+end
 
 -- /gcr loadall : every zone of the current continent at once (for long routes)
 ns.LoadQuestieContinent = function()

@@ -301,9 +301,39 @@ local function SameKind(n, id, nameKey)
     return n.name:lower() == nameKey
 end
 
+-- Tauren "Cultivation" (Forever) grows a copy of a herb right on top of the
+-- one just picked; the copy is gone for good once picked. A copy = a Tauren
+-- picks the same kind of herb again, from where they just stood (the cast
+-- needs you right at the herb), a different spawn, within a minute.
+local CULTIVATED_RANGE = 5      -- yards between the two picking spots
+local CULTIVATED_WINDOW = 60    -- seconds
+local lastPick = setmetatable({}, { __mode = "k" }) -- node -> { x, y, t, spawn } (this session)
+
+local function IsTauren()
+    if not UnitRace then return false end
+    local _, raceFile = UnitRace("player")
+    return raceFile == "Tauren"
+end
+
+local function CultivatedCopy(mapID, x, y, nodeType, id, nameKey, spawn)
+    if not spawn or nodeType ~= "herb" or not IsTauren() then return end
+    for n, lp in pairs(lastPick) do
+        if lp.mapID == mapID and lp.spawn ~= spawn and time() - lp.t <= CULTIVATED_WINDOW
+            and SameKind(n, id, nameKey) and Distance(mapID, x, y, lp.x, lp.y) <= CULTIVATED_RANGE then
+            return n
+        end
+    end
+end
+
 local function AddNodeAt(mapID, x, y, name, nodeType, id, spawn, item)
     local list = GetZoneNodes(mapID, true)
     local nameKey = name:lower()
+
+    local copyOf = CultivatedCopy(mapID, x, y, nodeType, id, nameKey, spawn)
+    if copyOf then
+        Debug(("Cultivated copy of %s picked, not a new node."):format(copyOf.name))
+        return copyOf, true
+    end
 
     -- Find the closest existing node of the same kind that this gather can belong to
     local best, bestDist
@@ -315,7 +345,7 @@ local function AddNodeAt(mapID, x, y, name, nodeType, id, spawn, item)
                     -- Same spawn gathered again (e.g. a vein mined twice): don't count it again
                     n.last = time()
                     Debug(("Same spawn of %s gathered again, not counted."):format(n.name))
-                    return n
+                    return n, true
                 end
                 -- A different spawn next to a node harvested minutes ago can't be its
                 -- respawn: it is a neighbour node (e.g. two veins close together)
@@ -577,12 +607,22 @@ local function TryRecord()
     Debug(("RECORD name=%s type=%s id=%s spawn=%s item=%s"):format(
         p.name, p.type, tostring(id), tostring(p.spawn), tostring(p.itemID)))
 
-    local node = AddNodeAt(p.mapID, p.x, p.y, p.name, p.type, id, p.spawn, p.itemID)
+    local node, again = AddNodeAt(p.mapID, p.x, p.y, p.name, p.type, id, p.spawn, p.itemID)
     if not node then return end
     node.emptyUntil = time() + (RESPAWN_BY_TYPE[node.type] or RESPAWN_TIME)
+    if not again then
+        lastPick[node] = { mapID = p.mapID, x = p.x, y = p.y, t = time(), spawn = p.spawn }
+    end
+    -- the same node a second time (vein mined again, cultivated herb): nothing
+    -- new for routes or sync; skill stats still look at it (spawn-checked there)
+    if again then
+        if ns.OnGathered then ns.OnGathered(node, p) end
+        for _, fn in ipairs(ns.gatherListeners) do fn(node, p) end
+        return
+    end
 
     if ns.OnHarvested then
-        ns.OnHarvested(node)
+        ns.OnHarvested(node, p.spawn)
     end
     if ns.SyncShare then
         ns.SyncShare(p.mapID, node)

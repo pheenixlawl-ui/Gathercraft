@@ -254,8 +254,8 @@ end
 
 ---------------------------------------------------------------------------
 -- Page in the main window ("Farm Spots" tab)
---   Continents open and close with +/-, zones inside sorted A-Z (or by
---   gold / nodes per hour: click the column titles).
+--   One tab per continent (yours is picked), zones sorted by gold per hour
+--   (or A-Z / nodes per hour: click the column titles).
 ---------------------------------------------------------------------------
 local ROW_H = 26
 
@@ -272,26 +272,70 @@ ns.BuildFarmPage = function(page, style)
     local modeButtons = {}
     local Refresh
 
-    local function ModeButton(key, label, x)
-        local b = style.button(page, label, key == "both" and 110 or 80)
-        b:SetPoint("TOPLEFT", x, -46)
+    local function ModeButton(key, label, width)
+        local b = style.button(page, label, width)
         b:SetScript("OnClick", function()
             mode = key
             ns.db.advisorMode = key
             Refresh()
         end)
         modeButtons[key] = b
+        return b
     end
-    ModeButton("herb", "|cff66ff66Herbs|r", 4)
-    ModeButton("ore", "|cffffcc66Ores|r", 88)
-    ModeButton("both", "Herbs + Ores", 172)
+    -- right side: what to farm; left side: on which continent
+    local bothButton = ModeButton("both", "Herbs + Ores", 104)
+    bothButton:SetPoint("TOPRIGHT", -24, -46)
+    local oreButton = ModeButton("ore", "|cffffcc66Ores|r", 66)
+    oreButton:SetPoint("RIGHT", bothButton, "LEFT", -4, 0)
+    local herbButton = ModeButton("herb", "|cff66ff66Herbs|r", 66)
+    herbButton:SetPoint("RIGHT", oreButton, "LEFT", -4, 0)
+    -- widths from the translated texts ("Hierbas + minerales")
+    local function FitModeButtons()
+        local total = 24
+        for _, b in ipairs({ bothButton, oreButton, herbButton }) do
+            local fs = b:GetFontString()
+            local w = fs and ((fs.GetUnboundedStringWidth and fs:GetUnboundedStringWidth()) or fs:GetStringWidth())
+            b:SetWidth(math.max(b == bothButton and 104 or 66, (w or 50) + 24))
+            total = total + b:GetWidth() + 4
+        end
+        return total
+    end
+
+    -- Continent tabs: your continent is picked when you open the page
+    local contTabs = {}
+    local picked, lastHereContinent -- a continent you clicked (until you change continents)
+    -- forget the clicked tab when you travel to another continent, page open or not
+    local travel = CreateFrame("Frame")
+    travel:RegisterEvent("ZONE_CHANGED_NEW_AREA")
+    travel:RegisterEvent("PLAYER_ENTERING_WORLD")
+    travel:SetScript("OnEvent", function()
+        local map = ns.GetPlayerPos and ns.GetPlayerPos()
+        local continent = map and ns.GetContinent(map)
+        if continent and continent ~= lastHereContinent then
+            picked, lastHereContinent = nil, continent
+        end
+    end)
+    local function ContinentTab(i)
+        if contTabs[i] then return contTabs[i] end
+        local b = CreateFrame("Button", nil, page, "UIPanelButtonTemplate")
+        b:SetHeight(24)
+        local fs = b:GetFontString()
+        if fs then fs:SetWordWrap(false) end
+        b:SetScript("OnClick", function(self)
+            picked = self.group and self.group.id
+            if page.farmScroll then page.farmScroll:SetVerticalScroll(0) end
+            Refresh()
+        end)
+        contTabs[i] = b
+        return b
+    end
 
     -- what sells above its usual price right now (price alerts)
     local hot = page:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    hot:SetPoint("TOPLEFT", 300, -50)
-    hot:SetWidth(400)
+    hot:SetPoint("BOTTOMLEFT", 6, 34)
+    hot:SetWidth(700)
     hot:SetJustifyH("LEFT")
-    hot:SetWordWrap(true)
+    hot:SetWordWrap(false)
 
     -- column titles, click to sort
     local cols = {}
@@ -318,8 +362,9 @@ ns.BuildFarmPage = function(page, style)
     ns.LText(skillTitle, "Skill-ups")
 
     local scroll = CreateFrame("ScrollFrame", "GathercraftFarmScroll", page, "UIPanelScrollFrameTemplate")
+    page.farmScroll = scroll
     scroll:SetPoint("TOPLEFT", 0, -96)
-    scroll:SetPoint("BOTTOMRIGHT", -24, 34)
+    scroll:SetPoint("BOTTOMRIGHT", -24, 50)
     local content = CreateFrame("Frame", nil, scroll)
     content:SetSize(700, 10)
     scroll:SetScrollChild(content)
@@ -370,26 +415,12 @@ ns.BuildFarmPage = function(page, style)
         return row
     end
 
-    local function ShowContinent(row, g, open)
-        row.data = nil
-        row.expand:Show()
-        row.expand:SetNormalTexture(open and "Interface\\Buttons\\UI-MinusButton-Up" or "Interface\\Buttons\\UI-PlusButton-Up")
-        row.expand:SetScript("OnClick", function()
-            ns.db.advisorOpen = ns.db.advisorOpen or {}
-            ns.db.advisorOpen[g.id] = not open
-            Refresh()
-        end)
-        row.title:SetText((L["%s  |cff999999(%d zones)|r"]):format(g.name, #g.rows))
-        row.title:Show()
-        row.bg:SetColorTexture(1, 0.8, 0.3, 0.10)
-        for _, f in ipairs({ row.zone, row.gold, row.nodes, row.skill, row.go }) do f:Hide() end
-    end
-
     local function ShowZone(row, r, here, odd)
         row.data = r
         row.expand:Hide()
         row.title:Hide()
-        row.bg:SetColorTexture(1, 0.8, 0.3, odd and 0.035 or 0)
+        -- the best zone gets a golden band
+        row.bg:SetColorTexture(1, 0.8, 0.3, r.best and 0.16 or (odd and 0.035 or 0))
         row.zone:SetText(ns.GetZoneName(r.mapID)
             .. (r.mapID == here and L["  |cff7bd35f(here)|r"] or "")
             .. (r.best and L["  |cffffd700best|r"] or ""))
@@ -436,7 +467,7 @@ ns.BuildFarmPage = function(page, style)
     Refresh = function()
         local herb, ore = ns.GetSkill("herb"), ns.GetSkill("ore")
         mode = mode or ns.db.advisorMode
-        sortKey = sortKey or ns.db.advisorSort or "zone"
+        sortKey = sortKey or ns.db.advisorSort or "gold"
         if not mode or (mode == "herb" and not herb) or (mode == "ore" and not ore) then
             mode = (herb and ore and "both") or (herb and "herb") or (ore and "ore") or "both"
         end
@@ -470,21 +501,68 @@ ns.BuildFarmPage = function(page, style)
         local groups = Evaluate(mode)
         local here = ns.GetPlayerPos()
         local hereContinent = here and ns.GetContinent(here)
-        ns.db.advisorOpen = ns.db.advisorOpen or {}
-        local i = 0
+        -- the continent you are on, unless you clicked another one while there
+        if hereContinent and hereContinent ~= lastHereContinent then
+            picked, lastHereContinent = nil, hereContinent
+        end
+        local current
         for _, g in ipairs(groups) do
-            local open = ns.db.advisorOpen[g.id]
-            if open == nil then open = (g.id == hereContinent) end
-            i = i + 1
-            ShowContinent(Row(i), g, open)
-            Row(i):Show()
-            if open then
-                table.sort(g.rows, SORTS[sortKey] or SORTS.zone)
-                for k, r in ipairs(g.rows) do
-                    i = i + 1
-                    ShowZone(Row(i), r, here, k % 2 == 0)
-                    Row(i):Show()
-                end
+            if g.id == picked then current = g end
+        end
+        if not current then
+            for _, g in ipairs(groups) do
+                if g.id == hereContinent then current = g end
+            end
+        end
+        current = current or groups[1]
+
+        -- tabs, squeezed if there are many (new Forever islands)
+        local modeWidth = FitModeButtons()
+        local room = (page:GetWidth() or 0) > 300 and (page:GetWidth() - modeWidth - 12) or 440
+        local widths, total = {}, 0
+        for t, g in ipairs(groups) do
+            local b = ContinentTab(t)
+            b:SetText(g.name .. (g.id == hereContinent and L["  |cff7bd35f(here)|r"] or ""))
+            local fs = b:GetFontString()
+            local textWidth = 100
+            if fs then
+                fs:SetWidth(0) -- measure the whole name, not what fit last time
+                textWidth = (fs.GetUnboundedStringWidth and fs:GetUnboundedStringWidth()) or fs:GetStringWidth() or 100
+            end
+            widths[t] = textWidth + 26
+            total = total + widths[t] + 4
+        end
+        -- the 4 px gaps stay, only the tabs shrink
+        local gaps = 4 * #groups
+        local scale = total > room and math.max(0.1, (room - gaps) / math.max(total - gaps, 1)) or 1
+        local x = 4
+        for t, g in ipairs(groups) do
+            local b = contTabs[t]
+            b.group = g
+            b:SetWidth(math.max(40, math.floor(widths[t] * scale)))
+            local fs = b:GetFontString()
+            if fs then fs:SetWidth(b:GetWidth() - 10) end
+            b:ClearAllPoints()
+            b:SetPoint("TOPLEFT", x, -46)
+            x = x + b:GetWidth() + 4
+            if g == current then
+                b:SetAlpha(1)
+                b:LockHighlight()
+            else
+                b:SetAlpha(0.55)
+                b:UnlockHighlight()
+            end
+            b:Show()
+        end
+        for t = #groups + 1, #contTabs do contTabs[t]:Hide() end
+
+        local i = 0
+        if current then
+            table.sort(current.rows, SORTS[sortKey] or SORTS.zone)
+            for k, r in ipairs(current.rows) do
+                i = i + 1
+                ShowZone(Row(i), r, here, k % 2 == 0)
+                Row(i):Show()
             end
         end
         for j = i + 1, #rows do rows[j]:Hide() end

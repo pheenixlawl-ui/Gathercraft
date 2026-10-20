@@ -3,13 +3,19 @@ local L = ns.L or setmetatable({}, { __index = function(_, k) return k end })
 
 ---------------------------------------------------------------------------
 -- Zones window (/gcr zones)
---   Continent -> zones (always listed) -> materials in the zone
---   A node is routed only if every level above it is checked.
+--   Continent (All / None) -> zones (always listed) -> materials in the zone
+--   A node is routed only if its zone and material are checked and its
+--   continent isn't switched off.
 --   Chests are map icons only and never listed here.
+--   Wide enough (main window): two columns, Kalimdor left, Eastern Kingdoms
+--   right, any other continent (new Forever islands) below the shorter one.
 ---------------------------------------------------------------------------
 local ROW_HEIGHT = 22
 local WIDTH = 400
 local INDENT = 18
+local COL_GAP = 18
+local TWO_COLUMNS_FROM = 600 -- content width for two columns
+local KALIMDOR, EASTERN_KINGDOMS = 1414, 1415
 
 local expanded = {} -- "c<continentID>" / "z<mapID>" -> true/false (this session)
 
@@ -153,18 +159,31 @@ local function GetRow(i)
 
     row.label = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     row.label:SetJustifyH("LEFT")
+    row.label:SetWordWrap(false)
+
+    -- continent line: All / None for its zones
+    row.none = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
+    row.none:SetSize(50, 18)
+    row.none:SetPoint("RIGHT", -2, 0)
+    ns.LText(row.none, "None")
+    row.none:SetScript("OnClick", function() if row.onNone then row.onNone() end end)
+    row.all = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
+    row.all:SetSize(44, 18)
+    row.all:SetPoint("RIGHT", row.none, "LEFT", -4, 0)
+    ns.LText(row.all, "All")
+    row.all:SetScript("OnClick", function() if row.onAll then row.onAll() end end)
 
     rows[i] = row
     return row
 end
 
 -- opts: indent, text, font, checked (nil = no checkbox), onToggle,
---       isExpanded (nil = no expand button), onExpand
-local function PlaceRow(i, y, opts)
+--       isExpanded (nil = no expand button), onExpand, onAll + onNone (buttons)
+local function PlaceRow(i, x0, y, width, opts)
     local row = GetRow(i)
     row:ClearAllPoints()
-    row:SetPoint("TOPLEFT", 0, -y)
-    row:SetWidth(content:GetWidth())
+    row:SetPoint("TOPLEFT", x0, -y)
+    row:SetWidth(width)
 
     local x = opts.indent or 0
     if opts.isExpanded ~= nil then
@@ -192,8 +211,21 @@ local function PlaceRow(i, y, opts)
 
     row.label:SetFontObject(opts.font or "GameFontHighlight")
     row.label:SetText(opts.text)
+    row.label:SetPoint("RIGHT", row, "RIGHT", opts.onAll and -104 or -2, 0)
     row.onToggle = opts.onToggle
     row.onExpand = opts.onExpand
+    row.onAll, row.onNone = opts.onAll, opts.onNone
+    row.all:SetShown(opts.onAll ~= nil)
+    row.none:SetShown(opts.onNone ~= nil)
+    if opts.onAll then
+        -- fit the translated texts ("Ninguno", "Nessuno", ...)
+        for _, b in ipairs({ row.all, row.none }) do
+            local fs = b:GetFontString()
+            local w = fs and ((fs.GetUnboundedStringWidth and fs:GetUnboundedStringWidth()) or fs:GetStringWidth())
+            b:SetWidth(math.max(40, (w or 30) + 16))
+        end
+        row.label:SetPoint("RIGHT", row, "RIGHT", -(row.all:GetWidth() + row.none:GetWidth() + 10), 0)
+    end
     row:Show()
 end
 
@@ -231,27 +263,72 @@ Refresh = function()
         wipe(db.disabledContinentKinds)
         db.zonesV = 3
     end
-    local i, y = 0, 0
+    -- columns: Kalimdor left, Eastern Kingdoms right, the rest below the shorter one
+    local scrollWidth = scroll:GetWidth() or 0
+    if scrollWidth > 100 then content:SetWidth(scrollWidth) end -- the page has its size now
+    local width = content:GetWidth() or 0
+    local columns = (width >= TWO_COLUMNS_FROM and #tree > 1) and 2 or 1
+    local colW = columns == 2 and (width - COL_GAP) / 2 or width
+    local colY = { 0, 0 }
+    local i, col, y = 0, 1, 0
 
     local function Add(opts)
         i = i + 1
-        PlaceRow(i, y, opts)
-        y = y + ROW_HEIGHT
+        PlaceRow(i, (col - 1) * (colW + COL_GAP), y, colW, opts)
+        y = y + (opts.height or ROW_HEIGHT)
     end
 
-    for _, c in ipairs(tree) do
+    local placed = {}
+    for _, c in ipairs(tree) do placed[#placed + 1] = c end
+    local function Rank(c)
+        return (c.id == KALIMDOR and 1) or (c.id == EASTERN_KINGDOMS and 2) or 3
+    end
+    table.sort(placed, function(a, b)
+        if Rank(a) ~= Rank(b) then return Rank(a) < Rank(b) end
+        return a.name < b.name
+    end)
+    local hasKalimdor = placed[1] and placed[1].id == KALIMDOR
+
+    for index, c in ipairs(placed) do
+        if columns == 1 then
+            col = 1
+        elseif c.id == KALIMDOR then
+            col = 1
+        elseif c.id == EASTERN_KINGDOMS then
+            col = hasKalimdor and 2 or 1
+        elseif index == 1 then
+            col = 1
+        else
+            col = colY[1] <= colY[2] and 1 or 2
+        end
+        y = colY[col]
+        local off = db.disabledContinents[c.id]
         Add({
             indent = 0,
             font = "GameFontNormalLarge",
-            text = (L["%s  |cff999999(%d nodes)|r"]):format(c.name, c.total),
-            checked = not db.disabledContinents[c.id],
-            onToggle = function(on)
-                -- the whole continent: every zone and material with it
-                db.disabledContinents[c.id] = (not on) or nil
-                for _, z in ipairs(c.zones) do SetZone(z, on) end
+            text = off and ("|cff888888" .. c.name .. "|r") or c.name,
+            -- the whole continent: every zone and material with it
+            onAll = function()
+                db.disabledContinents[c.id] = nil
+                for _, z in ipairs(c.zones) do SetZone(z, true) end
+                Changed()
+            end,
+            onNone = function()
+                db.disabledContinents[c.id] = true
+                for _, z in ipairs(c.zones) do SetZone(z, false) end
                 Changed()
             end,
         })
+        -- second line: how many nodes, and whether you are on it
+        Add({
+            indent = 0,
+            height = 16,
+            font = "GameFontHighlightSmall",
+            text = (L["|cff999999%d nodes|r"]):format(c.total)
+                .. (off and L["  |cff888888· off|r"] or "")
+                .. (c.id == currentContinent and L["  |cff7bd35fyou are here|r"] or ""),
+        })
+        y = y + 4
 
         -- Zones stay visible; each zone opens to its materials
         for _, z in ipairs(c.zones) do
@@ -261,7 +338,9 @@ Refresh = function()
             Add({
                 indent = INDENT,
                 font = "GameFontNormal",
-                text = (L["%s  |cff999999(%d nodes)|r%s"]):format(z.name, z.total, here and L["  |cff7bd35f< you are here >|r"] or ""),
+                -- "you are here" before the count: if the line is cut, the count goes
+                text = (L["%s  |cff999999(%d nodes)|r"]):format(
+                    z.name .. (here and L["  |cff7bd35f< you are here >|r"] or ""), z.total),
                 checked = not db.disabledZones[z.mapID],
                 onToggle = function(on)
                     -- a zone ticks or unticks all its materials
@@ -304,13 +383,14 @@ Refresh = function()
                 end
             end
         end
-        y = y + 8
+        y = y + 10
+        colY[col] = y
     end
 
     for j = i + 1, #rows do
         rows[j]:Hide()
     end
-    content:SetHeight(math.max(y, 10))
+    content:SetHeight(math.max(colY[1], colY[2], 10))
     empty:SetShown(#tree == 0)
 end
 

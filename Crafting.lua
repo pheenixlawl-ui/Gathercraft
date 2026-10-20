@@ -1238,6 +1238,80 @@ ns.BuildCraftPage = function(page, style)
     content:SetSize(700, 10)
     scroll:SetScrollChild(content)
 
+    -- Where a recipe is learned: trainer, recipe item (vendor, drop, quest), from
+    -- Data/RecipeSources.lua (SkillUp Forever + Questie)
+    local function AreaName(area)
+        local info = area and area > 0 and C_Map and C_Map.GetAreaInfo and C_Map.GetAreaInfo(area)
+        return type(info) == "string" and info or nil
+    end
+    local function NpcText(id, extra)
+        local src = GathercraftRecipeSources
+        local packed = src and src.npcs and src.npcs[id]
+        if not packed then return nil end
+        local name, area, friendly = packed:match("^([^|]*)|(%d*)|([^|]*)")
+        if not name then return nil end
+        local zone = AreaName(tonumber(area))
+        local bits = {}
+        if zone then bits[#bits + 1] = zone end
+        if extra then bits[#bits + 1] = extra end
+        return name .. (#bits > 0 and ("  |cff999999(" .. table.concat(bits, ", ") .. ")|r") or ""), friendly
+    end
+    local function AddSourceLines(r)
+        local src = GathercraftRecipeSources
+        local spells = GathercraftRecipeData and GathercraftRecipeData.spells
+        local spell = src and spells and spells[r.prof] and spells[r.prof][r.key]
+        if not spell then return end
+        local gold, white = { 1, 0.82, 0 }, { 1, 1, 1 }
+        local fee = src.trainer and src.trainer[spell]
+        if fee then
+            GameTooltip:AddDoubleLine(L["Learn at"], L["a trainer"] .. (fee > 0 and ("  " .. ns.Money(fee)) or ""),
+                gold[1], gold[2], gold[3], white[1], white[2], white[3])
+        end
+        local item = src.scroll and src.scroll[spell]
+        if not item then return end
+        GameTooltip:AddDoubleLine(L["Recipe item"], ns.ItemName and ns.ItemName(item) or tostring(item),
+            gold[1], gold[2], gold[3], white[1], white[2], white[3])
+        local packed = src.items and src.items[item]
+        if not packed then
+            GameTooltip:AddLine(L["Where it comes from is not known yet."], 0.6, 0.6, 0.6, true)
+            return
+        end
+        local mine = UnitFactionGroup and UnitFactionGroup("player")
+        local letter = mine == "Alliance" and "A" or mine == "Horde" and "H" or nil
+        local shown, otherFaction = 0, false
+        for list in packed:gmatch("V:([%d,]+)") do
+            for id in list:gmatch("%d+") do
+                local text, friendly = NpcText(tonumber(id))
+                if text and (not letter or friendly == "" or friendly:find(letter, 1, true)) then
+                    if shown < 2 then
+                        GameTooltip:AddDoubleLine("  " .. L["Vendor"], text, 0.8, 0.8, 0.8, white[1], white[2], white[3])
+                    end
+                    shown = shown + 1
+                elseif text then
+                    otherFaction = true
+                end
+            end
+        end
+        if shown == 0 and otherFaction then
+            GameTooltip:AddLine("  " .. L["Sold only by vendors of the other faction"], 0.8, 0.8, 0.8)
+        end
+        local drops = 0
+        for list in packed:gmatch("D:([%d:.,]+)") do
+            for id, chance in list:gmatch("(%d+):([%d.]+)") do
+                chance = tonumber(chance)
+                local text = drops < 2 and NpcText(tonumber(id), chance and chance > 0 and (chance .. "%") or nil)
+                if text then
+                    GameTooltip:AddDoubleLine("  " .. L["Drop"], text, 0.8, 0.8, 0.8, white[1], white[2], white[3])
+                    drops = drops + 1
+                end
+            end
+        end
+        local tags = {}
+        for tag in packed:gmatch("[^|]+") do tags[tag] = true end
+        if tags.W then GameTooltip:AddLine("  " .. L["World drop (many enemies of its level)"], 0.8, 0.8, 0.8) end
+        if tags.Q then GameTooltip:AddLine("  " .. L["Quest reward"], 0.8, 0.8, 0.8) end
+    end
+
     local function ShowTooltip(row)
         local r = row.data
         if not r then return end
@@ -1251,6 +1325,7 @@ ns.BuildCraftPage = function(page, style)
             if r.reqGuessed then
                 GameTooltip:AddLine(L["Estimated for Forever. Visit the trainer once and Gathercraft notes the real value."], 0.6, 0.6, 0.6, true)
             end
+            AddSourceLines(r)
         end
         if r.enchant then
             GameTooltip:AddLine(L["Enchant: makes no item. Below is what the materials cost, handy for pricing your service."], 0.6, 0.8, 1, true)

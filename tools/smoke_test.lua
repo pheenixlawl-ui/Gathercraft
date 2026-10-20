@@ -40,6 +40,7 @@ ClearOverrideBindings = function() end
 IsInGuild = function() return true end
 Ambiguate = function(n) return n end
 GetNormalizedRealmName = function() return "Forever" end
+UnitFactionGroup = function() return "Horde", "Horde" end
 CreateColor = function(r, g, b, a) return { r = r, g = g, b = b, a = a } end
 Enum = {}
 UiMapPoint = { CreateFromCoordinates = function(m, x, y) return { m = m, x = x, y = y } end }
@@ -145,6 +146,7 @@ WorldMapFrame = newObject("Frame", "WorldMapFrame")
 WorldMapFrame.OnMapChanged = function() end
 GameTooltip = newObject("GameTooltip", "GameTooltip")
 GameTooltip.AddLine = function(self, t) note("TT", t) end
+GameTooltip.AddDoubleLine = function(self, a, b) note("TT2", a, "=", b) end
 DEFAULT_CHAT_FRAME = newObject("Frame", "DEFAULT_CHAT_FRAME")
 DEFAULT_CHAT_FRAME.AddMessage = function(_, m) note("CHAT", m) end
 _G.ChatFrame1 = DEFAULT_CHAT_FRAME
@@ -268,7 +270,7 @@ libs["HereBeDragons-2.0"] = {
 local pinCount = 0
 libs["HereBeDragons-Pins-2.0"] = {
     AddWorldMapIconMap = function() pinCount = pinCount + 1 PIN_ADDS = (PIN_ADDS or 0) + 1 end, AddMinimapIconMap = function() pinCount = pinCount + 1 end,
-    AddWorldMapIconWorld = function() end, AddMinimapIconWorld = function() end,
+    AddWorldMapIconWorld = function() LINE_DOTS = (LINE_DOTS or 0) + 1 end, AddMinimapIconWorld = function() end,
     RemoveWorldMapIcon = function() pinCount = pinCount - 1 end, RemoveMinimapIcon = function() pinCount = pinCount - 1 end,
     RemoveAllWorldMapIcons = function() end, RemoveAllMinimapIcons = function() end,
 }
@@ -294,7 +296,7 @@ end
 -- tools/route_sim.lua uses this file only for the mini WoW: hand it the pieces
 if HARNESS_ONLY then
     return {
-        ns = ns, fire = fire, advance = advance, player = player, errors = errors, note = note, log = log,
+        ns = ns, fire = fire, advance = advance, player = player, errors = errors, note = note, log = log, allFrames = allFrames,
         now = function() return NOW end, setLoot = function(l) loot = l end, profs = PROFS,
         slash = function(cmd) SlashCmdList.GATHERCRAFT(cmd) end,
     }
@@ -333,6 +335,45 @@ step("Gather same node again (merge)", function()
     fire("UNIT_SPELLCAST_SENT", "player", "Peacebloom", "cast2", 2366)
     fire("UNIT_SPELLCAST_SUCCEEDED", "player", "cast2", 2366)
     fire("LOOT_READY") advance(3)
+end)
+step("Tauren Cultivation: the copy on top is not a new node", function()
+    local function CountNear(x, y)
+        local c = 0
+        for _, n in ipairs(ns.db.nodes[1412]) do
+            if n.name == "Earthroot" and math.abs(n.x - x) < 0.002 and math.abs(n.y - y) < 0.002 then c = c + 1 end
+        end
+        return c
+    end
+    local ox, oy = player.x, player.y
+    local oldRace = UnitRace
+    UnitRace = function() return "Tauren", "Tauren" end
+    player.x, player.y = 0.3333, 0.4444
+    fire("UNIT_SPELLCAST_SENT", "player", "Earthroot", "cult1", 2366)
+    fire("UNIT_SPELLCAST_SUCCEEDED", "player", "cult1", 2366)
+    loot = { { guid = "GameObject-0-1-1-1-1619-CULT01", item = 2449, qty = 2 } }
+    fire("LOOT_READY") advance(3)
+    assert(CountNear(0.3333, 0.4444) == 1, "first pick not recorded")
+    advance(20) -- cast Cultivation, then pick the copy (another spawn, same spot)
+    fire("UNIT_SPELLCAST_SENT", "player", "Earthroot", "cult2", 2366)
+    fire("UNIT_SPELLCAST_SUCCEEDED", "player", "cult2", 2366)
+    loot = { { guid = "GameObject-0-1-1-1-1619-CULT02", item = 2449, qty = 2 } }
+    fire("LOOT_READY") advance(3)
+    assert(CountNear(0.3333, 0.4444) == 1, "cultivated copy became a node of its own")
+    -- not a Tauren: two real Earthroots side by side stay two nodes
+    UnitRace = function() return "Human", "Human" end
+    player.x, player.y = 0.6111, 0.2222
+    fire("UNIT_SPELLCAST_SENT", "player", "Earthroot", "cult3", 2366)
+    fire("UNIT_SPELLCAST_SUCCEEDED", "player", "cult3", 2366)
+    loot = { { guid = "GameObject-0-1-1-1-1619-CULT03", item = 2449, qty = 2 } }
+    fire("LOOT_READY") advance(3)
+    player.x = 0.6113 -- about a yard away
+    fire("UNIT_SPELLCAST_SENT", "player", "Earthroot", "cult4", 2366)
+    fire("UNIT_SPELLCAST_SUCCEEDED", "player", "cult4", 2366)
+    loot = { { guid = "GameObject-0-1-1-1-1619-CULT04", item = 2449, qty = 2 } }
+    fire("LOOT_READY") advance(3)
+    assert(CountNear(0.6112, 0.2222) == 2, "two real herbs merged for a non-Tauren: " .. CountNear(0.6112, 0.2222))
+    UnitRace = oldRace
+    player.x, player.y = ox, oy
 end)
 step("Open chest", function()
     player.x, player.y = 0.4752, 0.7335
@@ -420,6 +461,80 @@ step("Farm run both + ore + by name", function()
     slash("run ore") advance(2) slash("stop")
     slash("run silverleaf") advance(2) slash("stop")
 end)
+step("Farm run: only nodes you can gather, route goals", function()
+    -- every herb spawn point of Barrens and Mulgore in the database
+    ns.ImportQuestieZone(1413, true)
+    PROFS[1][2] = 40 -- Herbalism 40: no Briarthorn (70) or Bruiseweed (100)
+    player.map, player.x, player.y = 1413, 0.5, 0.5
+    slash("run herb") advance(2)
+    assert(ns.run and ns.run.path and #ns.run.path > 0, "no route")
+    local tooHigh, kinds = 0, {}
+    for _, p in ipairs(ns.run.path) do
+        local req = ns.RequiredSkill(p.node.id, p.node.name)
+        if req > 40 then tooHigh = tooHigh + 1 end
+        kinds[p.node.name] = true
+    end
+    assert(tooHigh == 0, tooHigh .. " nodes on the route need more skill")
+    local goal = ns.run.goal
+    for _, g in ipairs({ "gold", "nodes", "skill", "auto", "bogus" }) do
+        ns.db.routeGoal = g
+        ns.RouteGoalChanged()
+        assert(ns.run and #ns.run.path > 0, "no route for goal " .. g)
+    end
+    ns.db.routeGoal = nil
+    -- every route line color and style, dots stay within the limit
+    for _, c in ipairs(ns.ROUTE_LINE_COLORS) do
+        ns.db.routeLineColor = c.code
+        ns.RedrawRouteLine()
+    end
+    for _, st in ipairs(ns.ROUTE_LINE_STYLES) do
+        ns.db.routeLineStyle = st.code
+        LINE_DOTS = 0
+        ns.RedrawRouteLine() advance(1)
+        assert(LINE_DOTS > 0 and LINE_DOTS <= 620, "route dots for " .. st.code .. ": " .. LINE_DOTS)
+        note("route line", st.code, "dots", LINE_DOTS, "path yd", math.floor(ns.run.length))
+    end
+    ns.db.routeLineColor, ns.db.routeLineStyle = nil, nil
+    slash("stop")
+    PROFS[1][2] = 1 -- nothing in a Briarthorn-only selection is gatherable
+    slash("run briarthorn") advance(1)
+    assert(not ns.run, "run started with nothing gatherable")
+    PROFS[1][2] = 52
+    player.map, player.x, player.y = 1412, 0.45, 0.7
+    local n = 0 for _ in pairs(kinds) do n = n + 1 end
+    note("route goal", goal, "kinds", n, "chance", ns.NodeChance(ns.db.nodes[1413][1]))
+end)
+step("Route: maxed skill goes for gold, a vein mined 3x is one hit", function()
+    local Z = 1460
+    ns.db.nodes[Z] = {}
+    for i = 1, 6 do
+        table.insert(ns.db.nodes[Z], { id = "o176584", name = "Dreamfoil", type = "herb", x = 0.4 + i * 0.02, y = 0.5, count = 1, last = 1 })
+        table.insert(ns.db.nodes[Z], { id = "o1618", name = "Peacebloom", type = "herb", x = 0.4 + i * 0.02, y = 0.6, count = 1, last = 1 })
+    end
+    local oldRank, oldMax = PROFS[1][2], PROFS[1][3]
+    player.map, player.x, player.y = Z, 0.5, 0.5
+    PROFS[1][2], PROFS[1][3] = 300, 300
+    ns.StartRun("herb", Z) advance(1)
+    assert(ns.run and ns.run.goal == "gold", "maxed skill: goal " .. tostring(ns.run and ns.run.goal))
+    ns.StopRun()
+    PROFS[1][2], PROFS[1][3] = 280, 300
+    ns.StartRun("herb", Z) advance(1)
+    assert(ns.run and ns.run.goal == "skill", "skill 280: goal " .. tostring(ns.run and ns.run.goal))
+    ns.StopRun()
+    ns.db.nodes[Z] = nil
+    PROFS[1][2], PROFS[1][3] = oldRank, oldMax
+    -- one copper vein, mined three times (same spawn)
+    player.map, player.x, player.y = 1412, 0.6, 0.3
+    for i = 1, 3 do
+        fire("UNIT_SPELLCAST_SENT", "player", "Copper Vein", "m" .. i, 2575)
+        fire("UNIT_SPELLCAST_SUCCEEDED", "player", "m" .. i, 2575)
+        loot = { { guid = "GameObject-0-1-1-1-1731-BBBB77", item = 2770, qty = 1 } }
+        fire("LOOT_READY") advance(3)
+    end
+    local vein = ns.FindNode(1412, "o1731", 0.6, 0.3, 10)
+    assert(vein and vein.hits == 1, "vein hits " .. tostring(vein and vein.hits))
+    player.map, player.x, player.y = 1412, 0.45, 0.7
+end)
 step("Route preview + line toggle", function() slash("route") advance(1) slash("route") slash("line") slash("line") end)
 step("Slash commands", function()
     for _, c in ipairs({ "help", "zones", "zones", "pins", "pins", "list", "next", "stats", "skills", "clear", "sync", "options", "options", "rare", "loadall", "debug", "debug", "test" }) do
@@ -434,6 +549,43 @@ step("Sync: share + receive", function()
     fire("CHAT_MSG_ADDON", "Gathercraft", "garbage;;;", "CHANNEL", "Evil", nil, nil, nil, "GathercraftSync")
     advance(5)
     note("sync sent", #sentMessages)
+end)
+step("Sync: single reports in a new zone show as grey pins", function()
+    local function GreyPins()
+        local c, seen = 0, {}
+        for _, f in ipairs(allFrames) do
+            if f.node and f.node.pendingReport and not seen[f.node] then
+                seen[f.node] = true
+                c = c + 1
+            end
+        end
+        return c
+    end
+    assert(not ns.HasKnownSpawns(2521) and ns.HasKnownSpawns(1412), "known spawn zones")
+    local om, ox, oy = player.map, player.x, player.y
+    player.map, player.x, player.y = 2521, 0.5, 0.5 -- you are on that continent
+    fire("ZONE_CHANGED_NEW_AREA") advance(2)
+    fire("CHAT_MSG_ADDON", "Gathercraft", "N:2521;o990001,h,5000,5000,2447;o990002,o,5100,5100,2770", "CHANNEL", "Stranger One", nil, nil, nil, "GathercraftSync")
+    fire("CHAT_MSG_ADDON", "Gathercraft", "N:1412;o1617,h,1234,1234,765", "CHANNEL", "Stranger One", nil, nil, nil, "GathercraftSync")
+    fire("CHAT_MSG_ADDON", "Gathercraft", "N:2521;o990003,h,nan,nan,0;o990004,h,1e3,200,0", "CHANNEL", "Stranger One", nil, nil, nil, "GathercraftSync")
+    advance(1)
+    local pend = ns.SyncPending(2521)
+    assert(pend and #pend == 2, "reports in the new zone: " .. tostring(pend and #pend))
+    local grey = GreyPins()
+    assert(grey == 2, "grey pins " .. grey)
+    -- a guild member confirms one: it becomes a node, its grey pin goes
+    fire("CHAT_MSG_ADDON", "Gathercraft", "N:2521;o990001,h,5000,5000,2447", "GUILD", "Guildie Two")
+    advance(1)
+    assert(#ns.SyncPending(2521) == 1, "confirmed report still pending")
+    assert(GreyPins() == 1, "grey pin of the confirmed node still there: " .. GreyPins())
+    player.map, player.x, player.y = om, ox, oy
+    fire("ZONE_CHANGED_NEW_AREA") advance(2)
+    for _, f in ipairs(allFrames) do
+        if f.node and f.node.pendingReport and f.__scripts.OnEnter then f.__scripts.OnEnter(f) f.__scripts.OnLeave(f) break end
+    end
+    -- never routed: unconfirmed reports are not in the node database
+    for _, n in ipairs(ns.db.nodes[2521] or {}) do assert(n.id ~= "o990002", "report became a node") end
+    note("grey pins", grey)
 end)
 step("Sync stress test (dry)", function() slash("sync stress 50 2") advance(5) end)
 step("Prices: vendor value, Auctionator, ahtest", function()
@@ -521,7 +673,7 @@ step("Best place to farm", function()
         end
     end
     ns.ToggleMain("farm") advance(1)
-    ns.db.advisorOpen = { [1415] = true } ns.db.advisorSort = "gold"
+    ns.db.advisorSort = "zone"
     ns.ToggleMain("overview") ns.ToggleMain("farm") advance(1)
     ns.HideMain()
     slash("run both")  -- placeholder run to make sure zone runs still work
@@ -764,6 +916,30 @@ step("German: profession window, trainer and recipe names", function()
     ns.db.craftTab = "Enchanting" ns.ToggleMain("craft") advance(1) ns.HideMain()
 end)
 end
+step("Crafting: where to learn a recipe (tooltip)", function()
+    local src = GathercraftRecipeSources
+    assert(src and src.trainer and src.scroll and src.items and src.npcs, "recipe sources not loaded")
+    ns.ToggleMain("craft") advance(1)
+    GameTooltip.AddDoubleLine = function(_, l, r) note("TT2", l, "=", r) end
+    local before = #log
+    local tried = 0
+    for _, f in ipairs(allFrames) do
+        local r = f.data
+        if r and r.prof and r.key and not r.learned and f.__scripts and f.__scripts.OnEnter and tried < 40 then
+            f.__scripts.OnEnter(f)
+            if f.__scripts.OnLeave then f.__scripts.OnLeave(f) end
+            tried = tried + 1
+        end
+    end
+    local learnAt, item = 0, 0
+    for i = before + 1, #log do
+        if log[i]:find(ns.L["Learn at"], 1, true) then learnAt = learnAt + 1 end
+        if log[i]:find(ns.L["Recipe item"], 1, true) then item = item + 1 end
+    end
+    note("recipe sources: rows", tried, "trainer lines", learnAt, "recipe item lines", item)
+    assert(tried > 0 and learnAt + item > 0, "no recipe source lines in " .. tried .. " tooltips")
+    ns.HideMain()
+end)
 step("Language: switch to German and back", function()
     ns.db.language = "deDE" ns.ApplyLanguage()
     local de
@@ -869,6 +1045,12 @@ step("Logout keeps SavedVariables slim, login loads spawns again", function()
         if n.source == "questie" then resting = n break end
     end
     resting.emptyUntil, resting.emptyStreak = time() + 600, 2
+    -- and one with learned hits and misses (spawn point learning)
+    local learned
+    for _, n in ipairs(ns.db.nodes[1413] or {}) do
+        if n.source == "questie" and n ~= resting then learned = n break end
+    end
+    learned.hits, learned.misses, learned.emptyAt = 3, 5, time() - 60
     local before = 0
     for _, list in pairs(ns.db.nodes) do before = before + #list end
     fire("PLAYER_LOGOUT")
@@ -887,17 +1069,37 @@ step("Logout keeps SavedVariables slim, login loads spawns again", function()
     local chunk = assert(loadfile(ROOT .. "/Starter.lua"))
     chunk("Gathercraft", ns)
     fire("PLAYER_LOGIN") advance(5)
-    local again, found = 0, false
+    local again, found, learnedBack = 0, false, false
     for _, list in pairs(ns.db.nodes) do
         for _, n in ipairs(list) do
             if n.source == "questie" then
                 again = again + 1
                 if n.sk == resting.sk and n.emptyStreak == 2 and n.emptyUntil then found = true end
+                if n.sk == learned.sk then
+                    assert(n.hits == 3 and n.misses == 5 and n.emptyAt, "learned spawn point lost")
+                    learnedBack = true
+                end
             end
         end
     end
     note("slim: spawn points after login", again, "resting state back", found)
-    assert(again > 1000 and found, "spawn points or resting state not restored")
+    assert(again > 1000 and found and learnedBack, "spawn points or resting state not restored")
+end)
+step("Zones in two columns, Farm Spots continent tabs", function()
+    local zscroll = _G.GathercraftZonesScroll
+    assert(zscroll, "zones scroll frame not global")
+    zscroll:SetWidth(700) -- the size it has in the main window
+    ns.ImportQuestieZone(1421, true) -- a second continent (Silverpine Forest)
+    ns.ToggleMain("zones") advance(1)
+    ns.ToggleMain("farm") advance(1)
+    for _, mode in ipairs({ "herb", "ore", "both" }) do
+        ns.db.advisorMode = mode
+        ns.ToggleMain("overview") ns.ToggleMain("farm") advance(1)
+    end
+    ns.HideMain()
+    zscroll:SetWidth(300) -- narrow: one column
+    ns.ToggleMain("zones") advance(1)
+    ns.HideMain()
 end)
 step("Delete + wipe zone", function() slash("del") slash("wipe zone") advance(1) end)
 step("Long run (10 min) for leaks", function() slash("run herb") advance(600) slash("stop") end)
@@ -906,7 +1108,7 @@ io.write("\n--- errors: " .. #errors .. "\n")
 for _, e in ipairs(errors) do io.write("  " .. e .. "\n") end
 io.write("\n--- notable log lines:\n")
 for _, l in ipairs(log) do
-    if l:find("questie nodes") or l:find("fish next") or l:find("SOUNDFILE") or l:find("RAIDWARN") or l:find("sync sent") or l:find("empty test") or l:find("prices ok") or l:find("scan price") or l:find("TTPRICE") or l:find("advisor") or l:find("target changes") or l:find("JUMP") or l:find("harvest cost") or l:find("slim:") or l:find("learned prices") or l:find("fishing session") or l:find("recipe item") or l:find("craft ") or l:find("recipes") or l:find("profit") or l:find("Price alert") or l:find("scanned") or l:find("Own scan") or l:find("15 minutes") or l:find("shared spawn") or l:find("Shared spawn") or l:find("Loaded") or l:find("took over") or l:find("RECORD") or l:find("No ") or l:find("rror") then
+    if l:find("questie nodes") or l:find("grey pins") or l:find("recipe sources") or l:find("route line") or l:find("route goal") or l:find("fish next") or l:find("SOUNDFILE") or l:find("RAIDWARN") or l:find("sync sent") or l:find("empty test") or l:find("prices ok") or l:find("scan price") or l:find("TTPRICE") or l:find("advisor") or l:find("target changes") or l:find("JUMP") or l:find("harvest cost") or l:find("slim:") or l:find("learned prices") or l:find("fishing session") or l:find("recipe item") or l:find("craft ") or l:find("recipes") or l:find("profit") or l:find("Price alert") or l:find("scanned") or l:find("Own scan") or l:find("15 minutes") or l:find("shared spawn") or l:find("Shared spawn") or l:find("Loaded") or l:find("took over") or l:find("RECORD") or l:find("No ") or l:find("rror") then
         io.write("  " .. l:sub(1, 160) .. "\n")
     end
 end

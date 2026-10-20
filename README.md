@@ -25,7 +25,7 @@
 |---|---|
 | "Wasn't there a vein around here somewhere?" | Every node is pinned on your map and minimap, plus **25,000+ known spawn points** from day one. |
 | You arrive, the herb is gone, you guess where to go next | Your route **re-plans while you ride** – and keeps its target until you get there. Empty? One key, next node. |
-| You farm nodes that stopped giving skill-ups 20 points ago | You see **which nodes still level you**, right in the overview. |
+| You farm nodes that stopped giving skill-ups 20 points ago | You see **which nodes still level you** – and your route goes there first. |
 | "Is this zone even worth it?" | **Farm Spots** ranks every zone by **gold per hour** – estimated first, your real numbers after 10 minutes. |
 | You craft, list, and find out you lost money | **Crafting** shows the **profit of every recipe** of all professions, with what you can make right now. |
 | Alt-tabbing to look up prices | Your own **auction house scan** – prices in every tooltip, gold per hour live while you farm. |
@@ -42,15 +42,15 @@ Herbs and ores are recorded the moment you gather them, no setup. On top of that
 
 **🧭 The Route That Thinks Ahead**
 
-Hit *Herbs*, *Ores* or *Herbs + Ores* and go. Gathercraft plans the shortest path through every node you selected on your continent and re-plans while you ride. Your target stays put until you reach it, and at 25 yards (you choose) it already moves on to the next one. Nodes that keep turning up empty rest longer each time. In the Zones tab, *Only herbs* or *Only ores* is one click – or tick single materials per zone.
+Hit *Herbs*, *Ores* or *Herbs + Ores* and go. Gathercraft plans the shortest path through every node you selected on your continent and re-plans while you ride. It only sends you to nodes you can actually gather, and with the **route goal** it goes for what you need: **skill-ups** while you level, **gold** once you're done – or simply as many nodes as possible. Your target stays put until you reach it, and at 25 yards (you choose) it already moves on to the next one. Grab a node you spotted yourself and the route picks up from where you are. Spawn points that keep turning up empty get visited less – Gathercraft learns them while you farm. Pick the route line you like: seven colors, dots, fine dots, a solid line or big dots. The Zones tab shows Kalimdor and the Eastern Kingdoms side by side: *Only herbs* or *Only ores* is one click – or tick single materials per zone.
 
 **💰 Farm Spots – where gold grows**
 
-Every zone of your continent, ranked by **gold per hour**, nodes per hour and skill-ups for *your* skill. Estimates from spawn points and prices to start with, your own numbers once you've farmed there. Plus what sells above its usual price right now. *Go* starts a run right there.
+Every zone of your continent – or any other, one click away – ranked by **gold per hour**, nodes per hour and skill-ups for *your* skill. Estimates from spawn points and prices to start with, your own numbers once you've farmed there. Plus what sells above its usual price right now. *Go* starts a run right there.
 
 **⚒️ Crafting – what's worth making?**
 
-**2,000+ recipes of all professions** – Alchemy, Blacksmithing, Enchanting, Engineering, Leatherworking, Tailoring, Cooking, First Aid and Smelting. For each one: profit after the auction cut, what it sells for, what the materials cost, and how many you can make from your bags and bank. Enchants show their material cost, handy for pricing your service. Recipes you don't know yet show the skill they need.
+**2,000+ recipes of all professions** – Alchemy, Blacksmithing, Enchanting, Engineering, Leatherworking, Tailoring, Cooking, First Aid and Smelting. For each one: profit after the auction cut, what it sells for, what the materials cost, and how many you can make from your bags and bank. Enchants show their material cost, handy for pricing your service. Recipes you don't know yet show the skill they need and where to learn them: trainer, vendor (with zone) or drop.
 
 **🏷️ Your own auction house scan**
 
@@ -70,7 +70,7 @@ A rare walks into view and an announcer roars **"RARE!"**, with a warning across
 
 **🤝 Stronger Together**
 
-Optional node sharing with other Gathercraft players. Guild and friends are trusted instantly; strangers need confirmations, so fake nodes go nowhere.
+Optional node sharing with other Gathercraft players. Guild and friends are trusted instantly; strangers need confirmations, so fake nodes go nowhere. In brand-new zones, a node someone else found shows up right away as a grey pin – it joins your routes once confirmed. `/gcr sync` shows who shared what, and where.
 
 **🌍 Every client language**
 
@@ -95,7 +95,7 @@ Then visit the auction house once and press *Gathercraft Scan* – from now on e
 | **Crafting** | Profit of every recipe, per profession |
 | **Zones** | Pick zones and materials for your routes |
 | **Skills** | Which nodes gave you skill-ups so far |
-| **Options** | Map, arrow, route, sharing, language, RARE! alert, fishing, price alerts |
+| **Options** | Map, arrow, route goal & line, sharing, language, RARE! alert, fishing, price alerts |
 
 For power users and macros: `/gcr run herb|ore|both` · `/gcr route` *(preview)* · `/gcr loadall` *(whole continent)* · `/gcr help` *(all commands)*
 
@@ -145,17 +145,18 @@ Gathercraft is **actively developed** – during the Forever launch weeks expect
 - **Crafting** – profit of 2,000+ recipes of all professions
 - One-key fishing with its own panel, RARE! announcer, optional node sharing
 - 10 languages, works in every client language
+- **Where to learn every recipe** – trainer, vendor or drop
+- **Smart routes** – only nodes you can gather, by skill-ups or gold
 
 **🔨 Next up (launch weeks)**
 
 - **New Forever zones** – Zephras Isle, Darkspear Islands, Riverglades & co.
-- **Where to get that recipe** – vendor, drop or trainer, with a waypoint
+- **Waypoints to recipe vendors** – one click and the arrow takes you there
 - **Selling helper** – list what you gathered at the right price in one click
 
 **🔮 Later**
 
 - **Profession planner** – pick a target skill, get the material list, and Gathercraft routes you straight to it
-- **Smarter routes** – plan by expected gold or skill-ups, not just distance
 - **Shared recipe book** – trainer visits of other players fill in yours
 
 *Got an idea? Tell us – the best ones end up on this list.*

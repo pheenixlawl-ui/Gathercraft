@@ -28,6 +28,10 @@ Source code: https://github.com/pheenixlawl-ui/Gathercraft
   GPL-3.0-or-later, which reads them from the WoW: Forever client tables
   (via wago.tools) and CMaNGOS classic-db (GPL-3.0). Converted by
   tools/import_skillup.lua.
+- **Data/RecipeSources.lua** - where recipes are learned: trainer fees, recipe
+  items and their likeliest drops from SkillUp Forever (GPL-3.0-or-later, see
+  above); vendors, quest rewards and NPC names and zones from the Questie
+  database (GPLv3). Converted by tools/import_recipe_sources.py.
 - **Libs/HereBeDragons** - HereBeDragons by Nevcairiel, BSD license, bundled
   with CallbackHandler-1.0 (BSD) and LibStub (public domain).
 - **Libs/LibDataBroker-1.1** - LibDataBroker by tekkub, under its own license.
