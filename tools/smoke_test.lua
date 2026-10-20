@@ -2,6 +2,7 @@
 -- Mini WoW environment to smoke-test Gathercraft outside the game.
 local ROOT = arg[1]
 local errors, log = {}, {}
+local savedShipped
 local function note(...) local t = {} for i = 1, select("#", ...) do t[#t + 1] = tostring(select(i, ...)) end log[#log + 1] = table.concat(t, " ") end
 
 -- ---------------------------------------------------------------- basics
@@ -506,6 +507,20 @@ step("Best place to farm", function()
     advance(30)
     slash("stop")
 end)
+step("Crafting: shipped recipe data (all professions)", function()
+    local shipped = GathercraftRecipeData and GathercraftRecipeData.professions
+    assert(shipped and shipped.Enchanting and shipped.Tailoring, "RecipeData.lua not loaded")
+    local n = 0
+    for _, list in pairs(shipped) do for _ in pairs(list) do n = n + 1 end end
+    note("shipped recipes:", n)
+    assert(n > 2000, "too few shipped recipes")
+    local rows = ns.CraftAdvice("Enchanting")
+    note("enchanting rows:", #rows)
+    ns.db.craftTab = "Enchanting" ns.ToggleMain("craft") advance(1) ns.HideMain()
+    -- the rest of the crafting tests work on their own data
+    savedShipped = GathercraftRecipeData
+    GathercraftRecipeData = { version = "test", professions = {} }
+end)
 step("Crafting: learn recipes, profit, can make", function()
     -- classic profession window: Alchemy with two potions
     local skills = {
@@ -599,7 +614,7 @@ step("Crafting: trainer without links (Forever), tooltip reagents", function()
     GetTrainerServiceNumReagents = function() return 0 end
     C_TooltipInfo = { GetTrainerService = function(i)
         local t = i == 2 and { "Heavy Linen Gloves", "Requires Tailoring (35)", "Reagents: |cffff2020Bolt of Linen Cloth|r (2), Coarse Thread" }
-            or i == 4 and { "Enchanting: Enchant Chest - Inferior Stamina", "", "Tools: Runed Copper Rod", "Reagents: \nStrange Dust" }
+            or i == 4 and { "Enchanting: Enchant Chest - Inferior Stamina", "", "Tools: Runed Copper Rod", "Reagents: |nStrange Dust" }
             or { "Journeyman Tailoring", "Allows you to learn more." }
         local lines = {}
         for _, x in ipairs(t) do lines[#lines + 1] = { leftText = x } end
@@ -657,9 +672,13 @@ end)
 step("Crafting: names from the shipped item list", function()
     assert(GathercraftItemNames and GathercraftItemNames:find("10940\tStrange Dust"), "ItemNames.lua not loaded")
     ns.db.itemNames = {}
-    ns.db.recipePending = { Enchanting = { ["Enchant Bracer - Minor Health"] = "1|Strange Dust:1" } }
+    ns.db.recipePending = { Enchanting = { ["Enchant Bracer - Minor Health"] = "1|\nStrange Dust:1;|nSimple Wood:1" } }
     ns.ResolvePending()
-    assert(ns.db.recipeDB.Enchanting["Enchant Bracer - Minor Health"] == "0:1:1:1|10940:1", "shipped names")
+    assert(ns.db.recipeDB.Enchanting["Enchant Bracer - Minor Health"] == "0:1:1:1|10940:1,4470:1", "shipped names " .. tostring(ns.db.recipeDB.Enchanting["Enchant Bracer - Minor Health"]))
+end)
+step("Crafting: shipped data back", function()
+    GathercraftRecipeData = savedShipped
+    assert(#ns.CraftAdvice("Tailoring") > 50, "tailoring rows")
 end)
 step("Rare alert (nameplate + test)", function()
     classification = "rare" fire("NAME_PLATE_UNIT_ADDED", "nameplate1") classification = "normal"

@@ -275,7 +275,7 @@ end
 -- "Reagents: Linen Cloth (2), Coarse Thread" -> { {"Linen Cloth", 2}, {"Coarse Thread", 1} }
 local function ParseReagentLine(lines)
     for _, text in ipairs(lines or {}) do
-        local rest = text:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""):match("^%s*Reagents:%s*(.+)$")
+        local rest = text:gsub("|n", " "):gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""):match("^%s*Reagents:%s*(.+)$")
         if rest then
             local out = {}
             for part in rest:gmatch("[^,]+") do
@@ -495,8 +495,15 @@ local function ShippedNames()
     return shippedNames
 end
 
+-- Tooltip text can carry escape codes: |n (line break), |cffRRGGBB ... |r
+local function CleanName(name)
+    name = name:gsub("|n", " "):gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")
+    return Trim(name)
+end
+
 -- name -> item ID: what we noted, the shipped list, else ask the game
 local function Lookup(idx, name)
+    name = CleanName(name)
     local key = name:lower()
     if idx[key] then return idx[key] end
     local shipped = ShippedNames()[key]
@@ -513,6 +520,7 @@ local function Lookup(idx, name)
 end
 
 local function TryResolve(prof, product, req, reagents)
+    product = CleanName(product)
     local idx = NameIndex()
     local productID = Lookup(idx, product)
     local parts = {}
@@ -841,8 +849,13 @@ local function Evaluate(profFilter, mineOnly)
                         canMake = math.min(canMake, math.floor(have / r.n))
                         parts[#parts + 1] = { id = r.id, n = r.n, cost = c, from = from, have = have }
                     end
+                    -- estimated in the shipped data and not yet seen at a trainer?
+                    local ownReq = ns.db.recipeDB and ns.db.recipeDB[prof] and ns.db.recipeDB[prof][name]
+                    local shippedGuess = GathercraftRecipeData and GathercraftRecipeData.guessed
+                        and GathercraftRecipeData.guessed[prof] and GathercraftRecipeData.guessed[prof][name]
+                    local reqGuessed = shippedGuess and not (ownReq and ownReq:match("^%d+:%d+:%d+:(%d+)") ~= "0") or false
                     rows[#rows + 1] = {
-                        prof = prof, name = name, product = product, made = made, diff = diff, req = req,
+                        prof = prof, name = name, product = product, made = made, diff = diff, req = req, reqGuessed = reqGuessed,
                         learned = learned, value = value, valueSource = source, cost = cost, enchant = enchant,
                         profit = value - cost, missing = missing, guessed = guessed,
                         canMake = canMake == math.huge and 0 or canMake, reagents = parts,
@@ -1005,7 +1018,10 @@ ns.BuildCraftPage = function(page, style)
         if r.learned then
             GameTooltip:AddLine("You know this recipe", 0.4, 1, 0.4)
         else
-            GameTooltip:AddLine("Not learned" .. ((r.req and r.req > 0) and (" · needs skill " .. r.req) or ""), 0.8, 0.8, 0.8)
+            GameTooltip:AddLine("Not learned" .. ((r.req and r.req > 0) and (" · needs skill " .. (r.reqGuessed and "~" or "") .. r.req) or ""), 0.8, 0.8, 0.8)
+            if r.reqGuessed then
+                GameTooltip:AddLine("Estimated for Forever. Visit the trainer once and Gathercraft notes the real value.", 0.6, 0.6, 0.6, true)
+            end
         end
         if r.enchant then
             GameTooltip:AddLine("Enchant: makes no item. Below is what the materials cost, handy for pricing your service.", 0.6, 0.8, 1, true)
@@ -1106,7 +1122,7 @@ ns.BuildCraftPage = function(page, style)
             if r.learned then
                 row.name:SetText((DIFF_COLORS[r.diff] or "|cffffffff") .. r.name .. "|r")
             else
-                row.name:SetText("|cffa0a0a0" .. r.name .. "|r" .. ((r.req and r.req > 0) and ("  |cff777777(" .. r.req .. ")|r") or ""))
+                row.name:SetText("|cffa0a0a0" .. r.name .. "|r" .. ((r.req and r.req > 0) and ("  |cff777777(" .. (r.reqGuessed and "~" or "") .. r.req .. ")|r") or ""))
             end
             if r.enchant then
                 row.profit:SetText(r.missing and "|cff777777?|r" or "|cff777777-|r")
@@ -1125,8 +1141,11 @@ ns.BuildCraftPage = function(page, style)
         for i = #list + 1, #rows do rows[i]:Hide() end
         content:SetHeight(math.max(10, #list * ROW_H))
         if #list == 0 then
+            local knowsHere = filter ~= "mine" and CharRecipes()[filter] and next(CharRecipes()[filter].list or {})
             empty:SetText(filter == "mine" and #Professions() == 0
                 and "Open a profession window (e.g. Alchemy) so Gathercraft can read your recipes."
+                or filter ~= "mine" and mineOnly and not knowsHere
+                and ("You don't know any %s recipes on this character yet. Untick \"Only recipes I know\" to see all of them."):format(filter)
                 or filter ~= "mine" and not next(AllRecipes(filter))
                 and "No recipes for this profession yet. Visit its trainer once (any character) to add them."
                 or "No recipe with a known price yet. Scan the auction house (Gathercraft tab there).")

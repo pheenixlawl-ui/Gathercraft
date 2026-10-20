@@ -4,7 +4,7 @@
 ## Author: pheenixlawl
 ## IconTexture: Interface\AddOns\Gathercraft\Media\Icon
 ## Version: 0.1.5
-## X-Credits: Spawn data from Questie (github.com/Questie/Questie), GPLv3. Map pins via HereBeDragons.
+## X-Credits: Spawn data and item names from Questie (github.com/Questie/Questie), GPLv3. Recipes from SkillUp Forever (github.com/cjber/skillup-forever), GPLv3. Map pins via HereBeDragons.
 ## X-License: GPL-3.0-or-later
 ## X-Curse-Project-ID: 1754991
 ## X-Wago-ID: aNerwj62

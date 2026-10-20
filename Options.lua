@@ -17,7 +17,7 @@ end
 -- Options window
 ---------------------------------------------------------------------------
 local options = CreateFrame("Frame", "GathercraftOptions", UIParent, "BackdropTemplate")
-options:SetSize(320, 360)
+options:SetSize(740, 440)
 options:SetPoint("CENTER")
 options:SetBackdrop({
     bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
@@ -44,20 +44,26 @@ local close = CreateFrame("Button", nil, options, "UIPanelCloseButton")
 close:SetPoint("TOPRIGHT", -2, -2)
 
 local controls = {}
-local nextY = -44
+local TOP_Y = -44
+local COLUMN_X = { 14, 380 } -- two columns, the main window is wide
+local colX, nextY = COLUMN_X[1], TOP_Y
+
+local function Column(n)
+    colX, nextY = COLUMN_X[n], TOP_Y
+end
 
 local function AddHeader(text)
     local fs = options:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    fs:SetPoint("TOPLEFT", 16, nextY)
+    fs:SetPoint("TOPLEFT", colX + 2, nextY)
     fs:SetText(text)
-    nextY = nextY - 18
+    nextY = nextY - 20
 end
 
 -- get() returns the current state, set(on) changes it
 local function AddCheck(label, get, set)
     local cb = CreateFrame("CheckButton", nil, options, "UICheckButtonTemplate")
     cb:SetSize(24, 24)
-    cb:SetPoint("TOPLEFT", 14, nextY)
+    cb:SetPoint("TOPLEFT", colX, nextY)
     local fs = options:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     fs:SetPoint("LEFT", cb, "RIGHT", 4, 0)
     fs:SetText(label)
@@ -67,19 +73,19 @@ local function AddCheck(label, get, set)
     end)
     cb.get = get
     controls[#controls + 1] = cb
-    nextY = nextY - 22
+    nextY = nextY - 24
 end
 
 -- Farm runs: how close you must get before the arrow moves to the next node
 local arriveText
 local function AddArrive()
     local label = options:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    label:SetPoint("TOPLEFT", 20, nextY - 4)
+    label:SetPoint("TOPLEFT", colX + 6, nextY - 4)
     label:SetText("Next node at")
 
     local minus = CreateFrame("Button", nil, options, "UIPanelButtonTemplate")
     minus:SetSize(24, 20)
-    minus:SetPoint("TOPLEFT", 120, nextY)
+    minus:SetPoint("TOPLEFT", colX + 106, nextY)
     minus:SetText("-")
 
     arriveText = options:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
@@ -92,8 +98,8 @@ local function AddArrive()
     plus:SetText("+")
 
     local hint = options:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    hint:SetPoint("LEFT", plus, "RIGHT", 10, 0)
-    hint:SetText("(once you can see whether the node is there)")
+    hint:SetPoint("TOPLEFT", colX + 6, nextY - 24)
+    hint:SetText("Close enough to see whether the node is there")
 
     local function Change(delta)
         local lo, hi = ns.ARRIVE_LIMITS[1], ns.ARRIVE_LIMITS[2]
@@ -102,18 +108,18 @@ local function AddArrive()
     end
     minus:SetScript("OnClick", function() Change(-5) end)
     plus:SetScript("OnClick", function() Change(5) end)
-    nextY = nextY - 30
+    nextY = nextY - 44
 end
 
 local pinSizeText
 local function AddPinSize()
     local label = options:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    label:SetPoint("TOPLEFT", 20, nextY - 4)
+    label:SetPoint("TOPLEFT", colX + 6, nextY - 4)
     label:SetText("Pin size")
 
     local minus = CreateFrame("Button", nil, options, "UIPanelButtonTemplate")
     minus:SetSize(24, 20)
-    minus:SetPoint("TOPLEFT", 120, nextY)
+    minus:SetPoint("TOPLEFT", colX + 106, nextY)
     minus:SetText("-")
 
     pinSizeText = options:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
@@ -150,6 +156,7 @@ end
 options:SetScript("OnShow", options.Refresh)
 
 local function Build()
+    Column(1)
     AddHeader("Map")
     AddCheck("Show nodes on map and minimap",
         function() return not ns.db.pinsHidden end,
@@ -171,6 +178,7 @@ local function Build()
             if (not ns.db.routeLineHidden) ~= on then ns.ToggleRouteLine() end
         end)
 
+    nextY = nextY - 8
     AddHeader("Sync")
     AddCheck("Share nodes with other players",
         function() return ns.db.sync and ns.db.sync.enabled end,
@@ -181,6 +189,7 @@ local function Build()
             if ns.db.sync.public ~= on then ns.SyncCommand("public") end
         end)
 
+    Column(2)
     AddHeader("Rares")
     AddCheck("Alert when a rare shows up (sound + warning)",
         function() return ns.db.rareAlert ~= false end,
@@ -192,13 +201,15 @@ local function Build()
         function() return ns.db.rareSound end,
         function(on) ns.db.rareSound = on end)
 
+    nextY = nextY - 8
     AddHeader("Fishing")
     AddCheck("Fish key applies a lure when the pole has none",
         function() return ns.db.fishLure ~= false end,
         function(on) ns.db.fishLure = on end)
 
+    nextY = nextY - 8
     AddHeader("Other")
-    AddCheck("Price alerts in chat (something you can gather sells well)",
+    AddCheck("Price alerts in chat (hot items you gather)",
         function() return ns.db.priceAlerts ~= false end,
         function(on) ns.db.priceAlerts = on end)
     AddCheck("Auction prices in item tooltips",
@@ -214,11 +225,22 @@ local function Build()
         function() return ns.db.debug end,
         function(on) ns.db.debug = on end)
 
-    local hint = options:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    hint:SetPoint("BOTTOMLEFT", 16, 14)
-    hint:SetWidth(480)
-    hint:SetJustifyH("LEFT")
-    hint:SetText("Key bindings: Esc > Options > Keybindings > AddOns > Gathercraft\n|cff999999Gathercraft by pheenixlawl · Node data from Questie (github.com/Questie/Questie) · Map pins via HereBeDragons|r")
+    -- footer: key bindings and credits, below a thin line
+    local line = options:CreateTexture(nil, "ARTWORK")
+    line:SetColorTexture(1, 0.82, 0, 0.25)
+    line:SetHeight(1)
+    line:SetPoint("BOTTOMLEFT", 16, 52)
+    line:SetPoint("BOTTOMRIGHT", -16, 52)
+
+    local keys = options:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    keys:SetPoint("BOTTOMLEFT", 16, 32)
+    keys:SetText("Key bindings: Esc > Options > Keybindings > AddOns > Gathercraft")
+
+    local credits = options:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    credits:SetPoint("BOTTOMLEFT", 16, 14)
+    credits:SetPoint("BOTTOMRIGHT", -16, 14)
+    credits:SetJustifyH("LEFT")
+    credits:SetText("Gathercraft by pheenixlawl · GPLv3  ·  Data: Questie, SkillUp Forever (cjber)  ·  Map pins: HereBeDragons")
 end
 
 -- Puts the options into a tab of the main window

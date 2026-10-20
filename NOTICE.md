@@ -21,6 +21,11 @@ Source code: https://github.com/pheenixlawl-ui/Gathercraft
   Questie team and are not covered by this license.
 - **Data/ItemNames.lua** - item names and IDs from the same Questie database
   (GPLv3), converted by tools/import_item_names.py.
+- **Data/RecipeData.lua** - recipes (product, amount, required skill, reagents)
+  from SkillUp Forever by Cillian Berragan (https://github.com/cjber/skillup-forever),
+  GPL-3.0-or-later, which reads them from the WoW: Forever client tables
+  (via wago.tools) and CMaNGOS classic-db (GPL-3.0). Converted by
+  tools/import_skillup.lua.
 - **Libs/HereBeDragons** - HereBeDragons by Nevcairiel, BSD license, bundled
   with CallbackHandler-1.0 (BSD) and LibStub (public domain).
 - **Libs/LibDataBroker-1.1** - LibDataBroker by tekkub, under its own license.
