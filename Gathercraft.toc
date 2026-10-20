@@ -3,7 +3,7 @@
 ## Notes: Gather. Route. Profit. Every node on your map, live farm routes, one-key fishing and rare alerts.
 ## Author: pheenixlawl
 ## IconTexture: Interface\AddOns\Gathercraft\Media\Icon
-## Version: 0.1.3
+## Version: 0.1.4
 ## X-Credits: Node data from Questie (github.com/Questie/Questie). Map pins via HereBeDragons.
 ## X-Curse-Project-ID: 1754991
 ## X-Wago-ID: aNerwj62
