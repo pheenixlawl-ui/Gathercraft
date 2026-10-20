@@ -21,6 +21,8 @@ Source code: https://github.com/pheenixlawl-ui/Gathercraft
   Questie team and are not covered by this license.
 - **Data/ItemNames.lua** - item names and IDs from the same Questie database
   (GPLv3), converted by tools/import_item_names.py.
+- **Data/NodeNames.lua** - herb, ore and chest names in other languages from
+  Questie's object lookups (GPLv3), converted by tools/import_node_names.py.
 - **Data/RecipeData.lua** - recipes (product, amount, required skill, reagents)
   from SkillUp Forever by Cillian Berragan (https://github.com/cjber/skillup-forever),
   GPL-3.0-or-later, which reads them from the WoW: Forever client tables

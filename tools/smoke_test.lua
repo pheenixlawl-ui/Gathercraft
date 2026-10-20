@@ -210,9 +210,24 @@ C_Map = {
     ClearUserWaypoint = function() end,
 }
 C_SuperTrack = { SetSuperTrackedUserWaypoint = function() end }
+-- GC_LOCALE=deDE runs everything as a German client
+local LOCALE = os.getenv("GC_LOCALE") or "enUS"
+local GERMAN = LOCALE == "deDE"
+GetLocale = function() return LOCALE end
+local SPELL_NAMES = { [2366] = "Herbalism", [2575] = "Mining", [3365] = "Opening", [7620] = "Fishing" }
+if GERMAN then
+    SPELL_NAMES = {
+        [2366] = "Kräutersammeln", [2575] = "Bergbau", [3365] = "Öffnen", [7620] = "Angeln",
+        [2259] = "Alchimie", [2018] = "Schmiedekunst", [7411] = "Verzauberkunst", [4036] = "Ingenieurskunst",
+        [2108] = "Lederverarbeitung", [3908] = "Schneiderei", [2550] = "Kochkunst", [3273] = "Erste Hilfe",
+        [2656] = "Verhüttung", [7420] = "Brust - Schwache Ausdauer", [3840] = "Schwere Leinenhandschuhe",
+    }
+    ITEM_MIN_SKILL = "Benötigt %s (%d)"
+    SPELL_REAGENTS = "Reagenzien: %s"
+    ITEM_SPELL_TRIGGER_ONUSE = "Benutzen:"
+end
 C_Spell = { GetSpellName = function(id)
-    local names = { [2366] = "Herbalism", [2575] = "Mining", [3365] = "Opening", [7620] = "Fishing" }
-    return names[id] or ("Spell" .. id)
+    return SPELL_NAMES[id] or ("Spell" .. id)
 end }
 C_Item = {
     GetItemIconByID = function() return 134400 end,
@@ -559,6 +574,7 @@ step("Crafting: learn recipes, profit, can make", function()
     IsTradeskillTrainer = function() return true end
     fire("TRAINER_SHOW") advance(1)
     ns.TrainerTest()
+    slash("pintest")
     ns.db.prices[next(ns.db.prices)].items[4238] = 900
     local tailor = ns.CraftAdvice("Tailoring")
     assert(#tailor == 1 and not tailor[1].learned and tailor[1].req == 45, "trainer recipe")
@@ -622,6 +638,7 @@ step("Crafting: trainer without links (Forever), tooltip reagents", function()
     end }
     fire("TRAINER_SHOW") advance(1)
     ns.TrainerTest()
+    slash("pintest")
     local got = ns.db.recipeDB.Tailoring["Heavy Linen Gloves"]
     note("forever trainer stored:", tostring(got))
     note("PENDING", ns.db.recipePending and ns.db.recipePending.Tailoring and ns.db.recipePending.Tailoring["Heavy Linen Gloves"])
@@ -679,6 +696,75 @@ end)
 step("Crafting: shipped data back", function()
     GathercraftRecipeData = savedShipped
     assert(#ns.CraftAdvice("Tailoring") > 50, "tailoring rows")
+end)
+if GERMAN then
+step("German: gathering spell under an unknown ID, confirmed by the object", function()
+    player.x, player.y = 0.5, 0.5
+    fire("UNIT_SPELLCAST_SENT", "player", "Friedensblume", "castDE", 999001)
+    fire("UNIT_SPELLCAST_SUCCEEDED", "player", "castDE", 999001)
+    loot = { { guid = "GameObject-0-1-1-1-1618-DDDD11", item = 2447, qty = 2 } }
+    fire("LOOT_READY") advance(3)
+    assert(ns.db.gatherSpells and ns.db.gatherSpells[999001] == "herb", "unknown gather spell not learned")
+    -- a mob kill with a name must not become a node
+    fire("UNIT_SPELLCAST_SENT", "player", "Eber", "castDE2", 999002)
+    fire("UNIT_SPELLCAST_SUCCEEDED", "player", "castDE2", 999002)
+    loot = { { guid = "Creature-0-1-1-1-3099-EEEE", item = 769, qty = 1 } }
+    fire("LOOT_READY") advance(3)
+    assert(not ns.db.gatherSpells[999002], "mob spell learned as gathering")
+end)
+step("German: profession window, trainer and recipe names", function()
+    -- German profession window: Schneiderei, recipe in German, product 4307
+    local oldLine, oldNum, oldInfo, oldLink, oldNR, oldRI, oldRL, oldMade = GetTradeSkillLine, GetNumTradeSkills,
+        GetTradeSkillInfo, GetTradeSkillItemLink, GetTradeSkillNumReagents, GetTradeSkillReagentInfo, GetTradeSkillReagentItemLink, GetTradeSkillNumMade
+    GetTradeSkillLine = function() return "Schneiderei", 50, 75 end
+    GetNumTradeSkills = function() return 1 end
+    GetTradeSkillInfo = function() return "Schwere Leinenhandschuhe", "easy" end
+    GetTradeSkillItemLink = function() return "|Hitem:4307::|h" end
+    GetTradeSkillNumReagents = function() return 1 end
+    GetTradeSkillReagentInfo = function() return "Leinenstoffballen", nil, 2 end
+    GetTradeSkillReagentItemLink = function() return "|Hitem:2996::|h" end
+    GetTradeSkillNumMade = function() return 1, 1 end
+    fire("TRADE_SKILL_SHOW") advance(2)
+    local mine = ns.db.recipes[next(ns.db.recipes)]
+    local keys = {} for k, v in pairs(mine) do local ns_ = {} for n in pairs(v.list or {}) do ns_[#ns_ + 1] = n end keys[#keys + 1] = k .. "=" .. table.concat(ns_, "/") end
+    assert(mine.Tailoring and mine.Tailoring.list["Heavy Linen Gloves"], "German window not stored under English names: " .. table.concat(keys, "; "))
+    assert(not mine.Schneiderei, "German profession key left behind")
+    local rows = ns.CraftAdvice("Tailoring")
+    local found
+    for _, r in ipairs(rows) do if r.key == "Heavy Linen Gloves" then found = r end end
+    assert(found and found.learned and found.name == "Schwere Leinenhandschuhe", "learned row: " .. tostring(found and found.name))
+    -- German trainer: enchant with tooltip reagents
+    GetNumTrainerServices = function() return 1 end
+    GetTrainerServiceInfo = function() return "Brust - Schwache Ausdauer", nil, "available" end
+    GetTrainerServiceItemLink = function() return nil end
+    GetTrainerServiceSkillReq = function() return "Verzauberkunst", 15, true end
+    GetTrainerServiceNumReagents = nil
+    C_TooltipInfo = { GetTrainerService = function()
+        local lines = {}
+        for _, x in ipairs({ "Verzauberkunst: Brust - Schwache Ausdauer", "", "Reagenzien: |nSeltsamer Staub" }) do lines[#lines + 1] = { leftText = x } end
+        return { lines = lines }
+    end }
+    ns.NoteItemName("Seltsamer Staub", 10940)
+    fire("TRAINER_SHOW") advance(1)
+    local e = ns.db.recipeDB.Enchanting and ns.db.recipeDB.Enchanting["Enchant Chest - Inferior Stamina"]
+    assert(e and e:find("^0:1:1:15|10940:1"), "German trainer: " .. tostring(e))
+    assert(not ns.db.recipeDB.Verzauberkunst, "German profession key in recipe book")
+    C_TooltipInfo = nil
+    GetTradeSkillLine, GetNumTradeSkills, GetTradeSkillInfo, GetTradeSkillItemLink, GetTradeSkillNumReagents,
+        GetTradeSkillReagentInfo, GetTradeSkillReagentItemLink, GetTradeSkillNumMade = oldLine, oldNum, oldInfo, oldLink, oldNR, oldRI, oldRL, oldMade
+    ns.db.craftTab = "Enchanting" ns.ToggleMain("craft") advance(1) ns.HideMain()
+end)
+end
+step("Language: switch to German and back", function()
+    ns.db.language = "deDE" ns.ApplyLanguage()
+    local de
+    for _, n in ipairs(ns.db.nodes[1412]) do if n.id == "o1618" then de = n.name end end
+    assert(de == "Friedensblume", "node name in German: " .. tostring(de))
+    assert(ns.L["Overview"] == "Overview" and ns.L["Show route line"] == "Routenlinie zeigen", "German not active")
+    ns.ToggleMain("options") advance(1) ns.ToggleMain("craft") advance(1) ns.HideMain()
+    slash("stats")
+    ns.db.language = "auto" ns.ApplyLanguage()
+    assert(ns.L["Show route line"] == (GERMAN and "Routenlinie zeigen" or "Show route line"), "auto language")
 end)
 step("Rare alert (nameplate + test)", function()
     classification = "rare" fire("NAME_PLATE_UNIT_ADDED", "nameplate1") classification = "normal"

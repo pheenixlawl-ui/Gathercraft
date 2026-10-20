@@ -1,4 +1,5 @@
 local ADDON_NAME, ns = ...
+local L = ns.L or setmetatable({}, { __index = function(_, k) return k end })
 
 ---------------------------------------------------------------------------
 -- Skill data
@@ -10,11 +11,15 @@ local ADDON_NAME, ns = ...
 ---------------------------------------------------------------------------
 local SKILL_LINE = { herb = 182, ore = 186, fish = 356, cook = 185, aid = 129 } -- Herbalism, Mining, Fishing, Cooking, First Aid
 local SKILL_NAMES = {
-    herb = { ["herbalism"] = true, ["kräuterkunde"] = true, ["herboristerie"] = true, ["herboristería"] = true },
-    ore = { ["mining"] = true, ["bergbau"] = true, ["minage"] = true, ["minería"] = true },
-    fish = { ["fishing"] = true, ["angeln"] = true, ["pêche"] = true, ["pesca"] = true },
-    cook = { ["cooking"] = true, ["kochkunst"] = true, ["cuisine"] = true, ["cocina"] = true },
-    aid = { ["first aid"] = true, ["erste hilfe"] = true, ["secourisme"] = true, ["primeros auxilios"] = true },
+    herb = { ["herbalism"] = true, ["kräuterkunde"] = true, ["herboristerie"] = true, ["herboristería"] = true,
+        ["erbalismo"] = true, ["herborismo"] = true, ["травничество"] = true },
+    ore = { ["mining"] = true, ["bergbau"] = true, ["minage"] = true, ["minería"] = true,
+        ["estrazione"] = true, ["mineração"] = true, ["горное дело"] = true },
+    fish = { ["fishing"] = true, ["angeln"] = true, ["pêche"] = true, ["pesca"] = true, ["рыбная ловля"] = true },
+    cook = { ["cooking"] = true, ["kochkunst"] = true, ["cuisine"] = true, ["cocina"] = true, ["cucina"] = true,
+        ["culinária"] = true, ["кулинария"] = true },
+    aid = { ["first aid"] = true, ["erste hilfe"] = true, ["secourisme"] = true, ["primeros auxilios"] = true,
+        ["primo soccorso"] = true, ["primeiros socorros"] = true, ["первая помощь"] = true },
 }
 local PROFESSION_LABEL = { herb = "Herbalism", ore = "Mining" }
 local CHECK_DELAY = 1.5 -- seconds after the harvest before reading the new skill
@@ -114,21 +119,21 @@ end
 
 -- Returns sort rank (lower = better to farm) and a coloured text
 local function SkillVerdict(nodeType, name, id, key)
-    if nodeType == "chest" then return 5, "|cffaaaaaaChest|r" end
+    if nodeType == "chest" then return 5, L["|cffaaaaaaChest|r"] end
     local mine = GetSkill(nodeType)
-    if not mine then return 6, "|cffff5555Profession not learned|r" end
+    if not mine then return 6, L["|cffff5555Profession not learned|r"] end
     local req = Required(id, name)
     if req then
         local d = mine - req
-        if d < 0 then return 4, ("|cffff5555Needs skill %d|r"):format(req) end
-        if d < 25 then return 0, "|cffff8040Skill-up guaranteed|r" end
-        if d < 50 then return 1, "|cffffff00Skill-up likely|r" end
-        if d < 100 then return 2, "|cff40ff40Skill-up sometimes|r" end
-        return 3, "|cff999999No more skill-ups|r"
+        if d < 0 then return 4, (L["|cffff5555Needs skill %d|r"]):format(req) end
+        if d < 25 then return 0, L["|cffff8040Skill-up guaranteed|r"] end
+        if d < 50 then return 1, L["|cffffff00Skill-up likely|r"] end
+        if d < 100 then return 2, L["|cff40ff40Skill-up sometimes|r"] end
+        return 3, L["|cff999999No more skill-ups|r"]
     end
     local s = key and KindStats()[key]
-    if s and s.maxUp and mine <= s.maxUp then return 1, "|cff55ff55Skill-ups seen|r" end
-    return 2, "|cffffd060Skill-ups unknown|r"
+    if s and s.maxUp and mine <= s.maxUp then return 1, L["|cff55ff55Skill-ups seen|r"] end
+    return 2, L["|cffffd060Skill-ups unknown|r"]
 end
 
 local function Stats(key)
@@ -171,7 +176,7 @@ local function OnGathered(node, pending)
             s.minNoUp = math.min(s.minNoUp or before, before)
         end
         ns.Debug(("SKILL %s: %d -> %d (%s)"):format(node.name, before, after,
-            after > before and "skill-up" or "no point"))
+            after > before and L["skill-up"] or L["no point"]))
     end)
 end
 
@@ -184,14 +189,14 @@ local function AddTooltipLines(tooltip, node)
     local _, verdict = SkillVerdict(node.type, node.name, node.id, key)
     tooltip:AddLine(verdict)
     if mine then
-        tooltip:AddLine(("Your %s: %d"):format(PROFESSION_LABEL[node.type], mine), 0.8, 0.8, 0.8)
+        tooltip:AddLine((L["Your %s: %d"]):format(L[PROFESSION_LABEL[node.type]], mine), 0.8, 0.8, 0.8)
     end
     if s and s.minSkill then
-        tooltip:AddLine(("Gathered from skill %d (%d nodes)"):format(s.minSkill, s.n), 0.6, 0.6, 0.6)
+        tooltip:AddLine((L["Gathered from skill %d (%d nodes)"]):format(s.minSkill, s.n), 0.6, 0.6, 0.6)
         if s.maxUp then
             local r, g, b = 0.4, 1, 0.4
             if mine and mine > s.maxUp then r, g, b = 0.6, 0.6, 0.6 end
-            tooltip:AddLine(("Skill points seen up to %d"):format(s.maxUp), r, g, b)
+            tooltip:AddLine((L["Skill points seen up to %d"]):format(s.maxUp), r, g, b)
         end
     end
 end
@@ -200,7 +205,7 @@ end
 local function ShowSkills()
     for _, t in ipairs({ "herb", "ore" }) do
         local rank, maxRank = GetSkill(t)
-        ns.Print(("%s: %s"):format(PROFESSION_LABEL[t], rank and (rank .. "/" .. maxRank) or "not learned"))
+        ns.Print(("%s: %s"):format(L[PROFESSION_LABEL[t]], rank and (rank .. "/" .. maxRank) or L["not learned"]))
     end
     local list = {}
     for key, s in pairs(KindStats()) do
@@ -211,11 +216,11 @@ local function ShowSkills()
         return (a.minSkill or 0) < (b.minSkill or 0)
     end)
     if #list == 0 then
-        print("  No skill data yet. Gather something!")
+        print(L["  No skill data yet. Gather something!"])
         return
     end
     for _, s in ipairs(list) do
-        print(("  %s [%s]: from %s, points up to %s, %d nodes (%d skill-ups)"):format(
+        print((L["  %s [%s]: from %s, points up to %s, %d nodes (%d skill-ups)"]):format(
             s.name or "?", s.type or "?", tostring(s.minSkill or "?"), tostring(s.maxUp or "-"),
             s.n, s.ups))
     end

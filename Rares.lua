@@ -1,4 +1,5 @@
 local ADDON_NAME, ns = ...
+local L = ns.L or setmetatable({}, { __index = function(_, k) return k end })
 
 ---------------------------------------------------------------------------
 -- Rare alert (local only, nothing is sent to anyone)
@@ -40,7 +41,7 @@ local function Alert(unit)
     local elite = UnitClassification(unit) == "rareelite"
     local level = UnitLevel(unit)
     local tapped = UnitIsTapDenied and UnitIsTapDenied(unit)
-    local label = ("RARE%s: %s%s"):format(elite and " ELITE" or "", name,
+    local label = (L["RARE%s: %s%s"]):format(elite and L[" ELITE"] or "", name,
         (level and level > 0) and (" (" .. level .. ")") or "")
 
     Sound()
@@ -48,9 +49,9 @@ local function Alert(unit)
         RaidNotice_AddMessage(RaidWarningFrame, label, { r = 1, g = 0.55, b = 0.1 })
     end
     local mapID, x, y = ns.GetPlayerPos()
-    ns.Print(("|cffff8c1a%s|r%s%s"):format(label,
-        tapped and " |cff999999(already tagged)|r" or "",
-        mapID and (" near %.1f, %.1f"):format(x * 100, y * 100) or ""))
+    ns.Print((L["|cffff8c1a%s|r%s%s"]):format(label,
+        tapped and L[" |cff999999(already tagged)|r"] or "",
+        mapID and (L[" near %.1f, %.1f"]):format(x * 100, y * 100) or ""))
     if FlashClientIcon then FlashClientIcon() end
 end
 

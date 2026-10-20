@@ -1,4 +1,5 @@
 local ADDON_NAME, ns = ...
+local L = ns.L or setmetatable({}, { __index = function(_, k) return k end })
 
 ---------------------------------------------------------------------------
 -- Best place to farm
@@ -64,13 +65,13 @@ local function ExtraNodes(mapID)
     return out
 end
 
-local function KindKeyOf(t, name)
-    return t .. ":" .. (name or "?"):lower()
+local function KindKeyOf(t, name, id)
+    return t .. ":" .. ((ns.CanonicalName and ns.CanonicalName(id, name)) or name or "?"):lower()
 end
 
 -- What one gather of this kind is worth (copper)
-local function NodeValue(t, name, item)
-    local kv = ns.db.kindValue and ns.db.kindValue[KindKeyOf(t, name)]
+local function NodeValue(t, name, item, id)
+    local kv = ns.db.kindValue and ns.db.kindValue[KindKeyOf(t, name, id)]
     if kv and kv.n >= 3 then return kv.v / kv.n, true end
     local price = item and ns.GetPrice and ns.GetPrice(item)
     return (price or 0) * (YIELD[t] or 1), false
@@ -142,7 +143,7 @@ local function EvaluateZone(mapID, mode)
         local req = ns.RequiredSkill and ns.RequiredSkill(id, name) or 0
         if req > skill then return end
         points[#points + 1] = { x * w, y * h }
-        valueSum = valueSum + NodeValue(t, name, item)
+        valueSum = valueSum + NodeValue(t, name, item, id)
         if skill - req < 100 then ups = ups + 1 end
     end
     for _, s in ipairs(ZoneSpots(mapID)) do
@@ -219,7 +220,7 @@ end
 table.insert(ns.gatherListeners, function(node, p)
     if not (p and p.value and p.value > 0) or not (node.type == "herb" or node.type == "ore") then return end
     ns.db.kindValue = ns.db.kindValue or {}
-    local key = KindKeyOf(node.type, node.name)
+    local key = KindKeyOf(node.type, node.name, node.id)
     local kv = ns.db.kindValue[key] or { n = 0, v = 0 }
     kv.n, kv.v = kv.n + 1, kv.v + p.value
     ns.db.kindValue[key] = kv
@@ -314,7 +315,7 @@ ns.BuildFarmPage = function(page, style)
     Col("nodes", "Nodes / h", 396, 80, "RIGHT")
     local skillTitle = page:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     skillTitle:SetPoint("TOPLEFT", 500, -79)
-    skillTitle:SetText("Skill-ups")
+    ns.LText(skillTitle, "Skill-ups")
 
     local scroll = CreateFrame("ScrollFrame", "GathercraftFarmScroll", page, "UIPanelScrollFrameTemplate")
     scroll:SetPoint("TOPLEFT", 0, -96)
@@ -355,7 +356,7 @@ ns.BuildFarmPage = function(page, style)
         row.skill:SetPoint("LEFT", 496, 0)
         row.skill:SetWidth(80)
         row.skill:SetJustifyH("LEFT")
-        row.go = style.button(row, "Go", 50)
+        row.go = style.button(row, L["Go"], 50)
         row.go:SetHeight(20)
         row.go:SetPoint("RIGHT", -4, 0)
         row.go:SetScript("OnClick", function()
@@ -378,7 +379,7 @@ ns.BuildFarmPage = function(page, style)
             ns.db.advisorOpen[g.id] = not open
             Refresh()
         end)
-        row.title:SetText(("%s  |cff999999(%d zones)|r"):format(g.name, #g.rows))
+        row.title:SetText((L["%s  |cff999999(%d zones)|r"]):format(g.name, #g.rows))
         row.title:Show()
         row.bg:SetColorTexture(1, 0.8, 0.3, 0.10)
         for _, f in ipairs({ row.zone, row.gold, row.nodes, row.skill, row.go }) do f:Hide() end
@@ -390,23 +391,23 @@ ns.BuildFarmPage = function(page, style)
         row.title:Hide()
         row.bg:SetColorTexture(1, 0.8, 0.3, odd and 0.035 or 0)
         row.zone:SetText(ns.GetZoneName(r.mapID)
-            .. (r.mapID == here and "  |cff7bd35f(here)|r" or "")
-            .. (r.best and "  |cffffd700best|r" or ""))
+            .. (r.mapID == here and L["  |cff7bd35f(here)|r"] or "")
+            .. (r.best and L["  |cffffd700best|r"] or ""))
         if r.real then
             row.gold:SetText("|cff55ff55" .. (r.goldPerHour > 0 and ns.Money(r.goldPerHour, true) or "–") .. "|r")
-            row.nodes:SetText(("|cff55ff55%d|r"):format(r.nodesPerHour))
+            row.nodes:SetText((L["|cff55ff55%d|r"]):format(r.nodesPerHour))
         else
-            row.gold:SetText(r.goldPerHour > 0 and ("~" .. ns.Money(r.goldPerHour, true)) or "|cff777777–|r")
+            row.gold:SetText(r.goldPerHour > 0 and ("~" .. ns.Money(r.goldPerHour, true)) or L["|cff777777–|r"])
             row.nodes:SetText(("~%d"):format(r.nodesPerHour))
         end
         if r.skillShare >= 0.5 then
-            row.skill:SetText("|cffff8040lots|r")
+            ns.LText(row.skill, "|cffff8040lots|r")
         elseif r.skillShare > 0.1 then
-            row.skill:SetText("|cffffff00some|r")
+            ns.LText(row.skill, "|cffffff00some|r")
         elseif r.skillShare > 0 then
-            row.skill:SetText("|cff40ff40few|r")
+            ns.LText(row.skill, "|cff40ff40few|r")
         else
-            row.skill:SetText("|cff777777none|r")
+            ns.LText(row.skill, "|cff777777none|r")
         end
         for _, f in ipairs({ row.zone, row.gold, row.nodes, row.skill, row.go }) do f:Show() end
     end
@@ -420,8 +421,8 @@ ns.BuildFarmPage = function(page, style)
     hint:SetPoint("BOTTOMLEFT", 6, 6)
     hint:SetWidth(710)
     hint:SetJustifyH("LEFT")
-    hint:SetText("~ = estimate from known spawn points, your skill and prices. After 10 minutes of farm runs " ..
-        "in a zone your real numbers are shown instead (green). Click a column title to sort.")
+    hint:SetText(L["~ = estimate from known spawn points, your skill and prices. After 10 minutes of farm runs "] ..
+        L["in a zone your real numbers are shown instead (green). Click a column title to sort."])
 
     local SORTS = {
         zone = function(a, b) return ns.GetZoneName(a.mapID) < ns.GetZoneName(b.mapID) end,
@@ -445,23 +446,23 @@ ns.BuildFarmPage = function(page, style)
             b:SetAlpha(key == mode and 1 or 0.6)
         end
         for key, b in pairs(cols) do
-            b.text:SetText(key == sortKey and ("|cffffffff" .. b.label .. "|r") or b.label)
+            b.text:SetText(key == sortKey and ("|cffffffff" .. L[b.label] .. "|r") or L[b.label])
         end
 
         local skillText = {}
-        if herb then skillText[#skillText + 1] = "Herbalism " .. herb end
-        if ore then skillText[#skillText + 1] = "Mining " .. ore end
+        if herb then skillText[#skillText + 1] = L["Herbalism "] .. herb end
+        if ore then skillText[#skillText + 1] = L["Mining "] .. ore end
         sub:SetText(("%s  ·  %s"):format(
-            #skillText > 0 and table.concat(skillText, ", ") or "no gathering profession",
+            #skillText > 0 and table.concat(skillText, ", ") or L["no gathering profession"],
             ns.PriceSourceText and ns.PriceSourceText() or ""))
 
         local hotList = ns.HotItems and ns.HotItems() or {}
         if #hotList > 0 then
             local parts = {}
             for i = 1, math.min(3, #hotList) do
-                parts[#parts + 1] = ("%s |cff55ff55x%.1f|r"):format(ns.ItemName(hotList[i].id), hotList[i].ratio)
+                parts[#parts + 1] = (L["%s |cff55ff55x%.1f|r"]):format(ns.ItemName(hotList[i].id), hotList[i].ratio)
             end
-            hot:SetText("|cffffd060Hot right now:|r " .. table.concat(parts, ", "))
+            hot:SetText(L["|cffffd060Hot right now:|r "] .. table.concat(parts, ", "))
         else
             hot:SetText("")
         end
@@ -490,8 +491,8 @@ ns.BuildFarmPage = function(page, style)
         content:SetHeight(math.max(10, i * ROW_H))
 
         if #groups == 0 then
-            empty:SetText((herb or ore) and "No zones with nodes for your skill yet."
-                or "Learn Herbalism or Mining to see where farming pays best.")
+            empty:SetText((herb or ore) and L["No zones with nodes for your skill yet."]
+                or L["Learn Herbalism or Mining to see where farming pays best."])
             empty:Show()
         else
             empty:Hide()

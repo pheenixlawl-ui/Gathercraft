@@ -1,4 +1,5 @@
 local ADDON_NAME, ns = ...
+local L = ns.L or setmetatable({}, { __index = function(_, k) return k end })
 
 ---------------------------------------------------------------------------
 -- One-button fishing
@@ -111,7 +112,7 @@ end
 button:SetScript("PreClick", function()
     if not InCombatLockdown() then Prepare() end
     if not button.next and not InCombatLockdown() then
-        ns.Print("You don't know Fishing yet. Visit a fishing trainer first.")
+        ns.Print(L["You don't know Fishing yet. Visit a fishing trainer first."])
     end
 end)
 

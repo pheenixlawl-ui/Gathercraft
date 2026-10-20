@@ -1,4 +1,5 @@
 local ADDON_NAME, ns = ...
+local L = ns.L or setmetatable({}, { __index = function(_, k) return k end })
 
 ---------------------------------------------------------------------------
 -- Sync: share harvested nodes with other Gathercraft users
@@ -217,9 +218,9 @@ local function DisplayName(id, item, nodeType)
     -- Prefer a name we already know for this object (in our own language)
     local known = ns.KnownName(id)
     if known then return known end
-    if nodeType == "chest" then return "Unknown Chest" end -- loot says nothing about the name
+    if nodeType == "chest" then return L["Unknown Chest"] end -- loot says nothing about the name
     local name = item and item > 0 and C_Item and C_Item.GetItemNameByID and C_Item.GetItemNameByID(item)
-    return name or (nodeType == "herb" and "Unknown Herb" or "Unknown Ore")
+    return name or (nodeType == "herb" and L["Unknown Herb"] or L["Unknown Ore"])
 end
 
 local function Import(mapID, p)
@@ -494,17 +495,17 @@ local function Status()
     for _, t in pairs(stats.peers) do
         if now - t < 3600 then peers = peers + 1 end
     end
-    ns.Print(("Sync %s, public channel %s (%s), guild %s."):format(
-        DB().enabled and "|cff00ff00ON|r" or "|cffff0000OFF|r",
+    ns.Print((L["Sync %s, public channel %s (%s), guild %s."]):format(
+        DB().enabled and L["|cff00ff00ON|r"] or L["|cffff0000OFF|r"],
         DB().public and "on" or "off",
-        (channelID and channelID > 0) and ("#" .. channelID) or "not joined",
+        (channelID and channelID > 0) and ("#" .. channelID) or L["not joined"],
         IsInGuild() and "yes" or "no"))
-    print(("  Players seen (1h): %d   Messages received: %d   Incoming: %.1f/s"):format(
+    print((L["  Players seen (1h): %d   Messages received: %d   Incoming: %.1f/s"]):format(
         peers, stats.received, incomingRate))
-    print(("  Imported this session: %d   Waiting for confirmation: %d"):format(stats.imported, CountPending()))
-    print(("  Not sent (already known): %d   Not sent (busy): %d   Dropped (budget): %d"):format(
+    print((L["  Imported this session: %d   Waiting for confirmation: %d"]):format(stats.imported, CountPending()))
+    print((L["  Not sent (already known): %d   Not sent (busy): %d   Dropped (budget): %d"]):format(
         stats.skippedKnown, stats.skippedBusy, stats.dropped))
-    print(("  Confirmations needed: %d (guild and friends count instantly)"):format(CONFIRMATIONS))
+    print((L["  Confirmations needed: %d (guild and friends count instantly)"]):format(CONFIRMATIONS))
 end
 
 local function Command(rest)
@@ -514,25 +515,25 @@ local function Command(rest)
     if cmd == "on" then
         db.enabled = true
         JoinChannel()
-        ns.Print("Sync enabled.")
+        ns.Print(L["Sync enabled."])
     elseif cmd == "off" then
         db.enabled = false
         LeaveChannel()
-        ns.Print("Sync disabled.")
+        ns.Print(L["Sync disabled."])
     elseif cmd == "public" then
         db.public = not db.public
         if db.public then JoinChannel() else LeaveChannel() end
-        ns.Print("Public sync " .. (db.public and "on" or "off (guild and friends only)") .. ".")
+        ns.Print(L["Public sync "] .. (db.public and "on" or L["off (guild and friends only)"]) .. ".")
     elseif cmd == "block" and arg ~= "" then
         db.blocked[arg] = true
-        ns.Print("Ignoring sync data from " .. arg .. ".")
+        ns.Print(L["Ignoring sync data from "] .. arg .. ".")
     elseif cmd == "unblock" and arg ~= "" then
         db.blocked[arg] = nil
-        ns.Print("No longer ignoring " .. arg .. ".")
+        ns.Print(L["No longer ignoring "] .. arg .. ".")
     elseif cmd == "ask" then
         lastQuery = {}
         CurrentZoneQuery()
-        ns.Print("Asked other players for nodes in this zone.")
+        ns.Print(L["Asked other players for nodes in this zone."])
     elseif cmd == "stress" then
         local a, b = arg:match("^(%d*)%s*(%d*)$")
         StressTest(tonumber(a), tonumber(b))

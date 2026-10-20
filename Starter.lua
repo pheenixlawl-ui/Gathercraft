@@ -1,4 +1,5 @@
 local ADDON_NAME, ns = ...
+local L = ns.L or setmetatable({}, { __index = function(_, k) return k end })
 
 ---------------------------------------------------------------------------
 -- Starter data (beta nodes)
@@ -30,6 +31,54 @@ local function SpawnKey(id, x, y)
     return id .. ":" .. x .. ":" .. y -- packed coordinates from the data file
 end
 
+-- Name of a known node kind in the client's language: herbs are called
+-- like the herb they give; others keep the English name until gathered once
+-- shipped name in the chosen language (Data/NodeNames.lua, from Questie)
+local function ShippedNodeName(oid)
+    local lang = ns.Language and ns.Language() or "enUS"
+    if lang:sub(1, 2) == "en" then
+        local data = GathercraftQuestieData
+        local kind = data and data.kinds[oid]
+        return kind and kind[3]
+    end
+    local names = GathercraftNodeNames and (GathercraftNodeNames[lang] or GathercraftNodeNames[GetLocale()])
+    return names and names[tonumber(oid:sub(2))]
+end
+
+local function LocalKindName(oid, kind)
+    local lang = ns.Language and ns.Language() or "enUS"
+    if lang:sub(1, 2) ~= "en" then
+        local shipped = ShippedNodeName(oid)
+        if shipped then return shipped end
+    end
+    local known = ns.KnownName(oid)
+    if known then return known end
+    if lang:sub(1, 2) ~= "en" and kind[1] == "h" and kind[2] > 0 and C_Item and C_Item.GetItemNameByID then
+        local name = C_Item.GetItemNameByID(kind[2])
+        if name and name ~= "" then return name end
+    end
+    return kind[3]
+end
+
+-- Every stored node with a known object gets its name in the chosen
+-- language (own nodes keep the name they were gathered with otherwise)
+local function LocalizeNodeNames()
+    if not (ns.db and ns.db.nodes) then return end
+    local changed = 0
+    for _, list in pairs(ns.db.nodes) do
+        for _, n in ipairs(list) do
+            local name = n.id and n.id:match("^o%d+$") and ShippedNodeName(n.id)
+            if name and name ~= n.name then
+                n.name = name
+                changed = changed + 1
+            end
+        end
+    end
+    if changed > 0 and ns.NotifyNodesChanged then ns.NotifyNodesChanged() end
+end
+ns.LocalizeNodeNames = LocalizeNodeNames
+table.insert(ns.languageListeners, LocalizeNodeNames)
+
 local function ImportQuestieZone(mapID, quiet)
     local data = GathercraftQuestieData
     if not (data and mapID and ns.db) or loaded[mapID] then return 0 end
@@ -52,7 +101,7 @@ local function ImportQuestieZone(mapID, quiet)
             if not ns.FindNode(mapID, oid, x, y, MERGE_RADIUS) then
                 local key = SpawnKey(oid, xs, ys)
                 local n = {
-                    id = oid, type = TYPES[kind[1]], name = ns.KnownName(oid) or kind[3], x = x, y = y,
+                    id = oid, type = TYPES[kind[1]], name = LocalKindName(oid, kind), x = x, y = y,
                     count = 0, item = kind[2] > 0 and kind[2] or nil,
                     source = "questie", last = 0, sk = key,
                 }
@@ -71,7 +120,7 @@ local function ImportQuestieZone(mapID, quiet)
     if added > 0 then
         ns.NotifyNodesChanged()
         if not quiet and firstTime then
-            ns.Print(("Loaded %d known spawn points for %s."):format(added, ns.GetZoneName(mapID)))
+            ns.Print((L["Loaded %d known spawn points for %s."]):format(added, ns.GetZoneName(mapID)))
         end
     end
     return added
@@ -163,9 +212,9 @@ ns.LoadQuestieContinent = function()
         end
     end
     if added > 0 then
-        ns.Print(("Loaded %d known spawn points in %d more zones of this continent."):format(added, zones))
+        ns.Print((L["Loaded %d known spawn points in %d more zones of this continent."]):format(added, zones))
     else
-        ns.Print("All known spawn points of this continent are already loaded.")
+        ns.Print(L["All known spawn points of this continent are already loaded."])
     end
 end
 
@@ -192,7 +241,7 @@ local function ExpireOld()
         end
     end
     if removed > 0 then
-        ns.Print(("Removed %d old beta nodes nobody confirmed."):format(removed))
+        ns.Print((L["Removed %d old beta nodes nobody confirmed."]):format(removed))
         ns.NotifyNodesChanged()
     end
 end
@@ -220,7 +269,7 @@ local function Import(data)
         end
     end
     ns.db.starterVersion = data.version
-    ns.Print(("Beta data %s: %d nodes added, %d already known."):format(
+    ns.Print((L["Beta data %s: %d nodes added, %d already known."]):format(
         tostring(data.version), added, known))
 end
 
@@ -233,6 +282,7 @@ loader:SetScript("OnEvent", function(_, event)
         return
     end
     ReloadSpawnZones()
+    LocalizeNodeNames()
     local data = GathercraftStarterData
     if data and data.version and ns.db.starterVersion ~= data.version then
         Import(data)

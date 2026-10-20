@@ -1,4 +1,5 @@
 local ADDON_NAME, ns = ...
+local L = ns.L or setmetatable({}, { __index = function(_, k) return k end })
 
 ---------------------------------------------------------------------------
 -- Main window: forged frame, tabs on top (six per row; more tabs start a
@@ -95,7 +96,7 @@ local tagline = main:CreateFontString(nil, "OVERLAY")
 tagline:SetFont(TITLE_FONT, 13, "")
 tagline:SetTextColor(0.85, 0.78, 0.62)
 tagline:SetPoint("TOPLEFT", titleBig, "BOTTOMLEFT", 2, -1)
-tagline:SetText("Gather  ·  Route  ·  Profit")
+ns.LText(tagline, "Gather  ·  Route  ·  Profit")
 
 local version = main:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
 version:SetPoint("TOPRIGHT", -40, -22)
@@ -126,7 +127,7 @@ local function Header(parent, text, x, y)
     fs:SetShadowColor(0, 0, 0, 1)
     fs:SetShadowOffset(1, -1)
     fs:SetPoint("TOPLEFT", x, y)
-    fs:SetText(text)
+    ns.LText(fs, text)
     return fs
 end
 
@@ -142,7 +143,7 @@ end
 local function Button(parent, text, width)
     local b = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
     b:SetSize(width or 110, 24)
-    b:SetText(text)
+    ns.LText(b, text)
     return b
 end
 
@@ -209,7 +210,7 @@ local function AddTab(key, label, index, icon)
     })
     tab.text = tab:CreateFontString(nil, "OVERLAY")
     tab.text:SetFont(TITLE_FONT, 15, "")
-    tab.text:SetText(label)
+    ns.LText(tab.text, label)
     tab.icon = tab:CreateTexture(nil, "ARTWORK")
     tab.icon:SetSize(18, 18)
     tab.icon:SetTexture(icon)
@@ -289,7 +290,7 @@ local function CreateBar(type, label, x, y)
     name:SetPoint("LEFT", icon, "RIGHT", 6, 0)
     name:SetWidth(70)
     name:SetJustifyH("LEFT")
-    name:SetText(label)
+    ns.LText(name, label)
 
     local frame = CreateFrame("Frame", nil, overview, "BackdropTemplate")
     frame:SetPoint("TOPLEFT", x + 100, y + 2)
@@ -316,7 +317,7 @@ local function CreateBar(type, label, x, y)
     -- shown instead of the bar when the profession is not learned
     local missing = overview:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     missing:SetPoint("LEFT", frame, "LEFT", 4, 0)
-    missing:SetText("< not learned yet >")
+    ns.LText(missing, "< not learned yet >")
 
     bars[type] = { icon = icon, name = name, frame = frame, bar = bar, text = text, missing = missing }
 end
@@ -338,7 +339,7 @@ local function UpdateBars()
             b.name:SetTextColor(1, 1, 1)
             b.bar:SetMinMaxValues(0, maxRank > 0 and maxRank or 1)
             b.bar:SetValue(rank)
-            local tier = TIERS[maxRank]
+            local tier = TIERS[maxRank] and L[TIERS[maxRank]]
             b.text:SetText((tier and ("|cffffd27f" .. tier .. "|r  ") or "") .. ("%d / %d"):format(rank, maxRank))
         else
             b.name:SetTextColor(0.5, 0.5, 0.5)
@@ -357,7 +358,7 @@ local hereEmpty = overview:CreateFontString(nil, "OVERLAY", "GameFontDisable")
 hereEmpty:SetPoint("TOPLEFT", 6, -134)
 hereEmpty:SetWidth(430)
 hereEmpty:SetJustifyH("LEFT")
-hereEmpty:SetText("No nodes known in this zone yet.")
+ns.LText(hereEmpty, "No nodes known in this zone yet.")
 
 local hereRows = {}
 for i = 1, LIST_ROWS do
@@ -387,7 +388,7 @@ end
 
 local function UpdateHere()
     local mapID = ns.GetPlayerPos()
-    hereHeader:SetText("Gather here" .. (mapID and ("  |cffcccccc– " .. ns.GetZoneName(mapID) .. "|r") or ""))
+    hereHeader:SetText(L["Gather here"] .. (mapID and (L["  |cffcccccc– "] .. ns.GetZoneName(mapID) .. "|r") or ""))
     local kinds, byKey = {}, {}
     for _, n in ipairs(mapID and ns.db.nodes[mapID] or {}) do
         local key = n.type ~= "chest" and ns.KindKey(n) -- chests: map icons only
@@ -415,7 +416,7 @@ local function UpdateHere()
         if k then
             row.icon:SetTexture(KindIcon(k.type, k.item))
             row.name:SetText(((ns.TYPE_COLORS[k.type] or "|cffffffff") .. k.name .. "|r"))
-            row.info:SetText(("%d node%s  ·  %s"):format(k.count, k.count == 1 and "" or "s", k.verdict))
+            row.info:SetText((k.count == 1 and L["%d node  ·  %s"] or L["%d nodes  ·  %s"]):format(k.count, k.verdict))
             row:Show()
         else
             row:Hide()
@@ -456,7 +457,7 @@ local function UpdateStats()
     local value, _, source = 0, nil, nil
     if ns.SessionValue then value, _, source = ns.SessionValue() end
     local money = ns.Money and ns.Money(value) or "-"
-    sessText:SetText(("Gathered: |cffffffff%d|r\nPer hour: |cffffffff%d|r\nWorth: %s%s\nSkill points: |cff55ff55+%d|r"):format(
+    sessText:SetText((L["Gathered: |cffffffff%d|r\nPer hour: |cffffffff%d|r\nWorth: %s%s\nSkill points: |cff55ff55+%d|r"]):format(
         session.nodes, math.floor(session.nodes / hours + 0.5), money,
         source and ("  |cff999999(" .. source .. ")|r") or "", ups))
 
@@ -472,7 +473,7 @@ local function UpdateStats()
         end
         if any then zones = zones + 1 end
     end
-    dbText:SetText(("|cff66ff66Herbs|r: %d\n|cffffcc66Ores|r: %d\nZones: %d\n|cff999999%d known spawns / shared|r"):format(
+    dbText:SetText((L["|cff66ff66Herbs|r: %d\n|cffffcc66Ores|r: %d\nZones: %d\n|cff999999%d known spawns / shared|r"]):format(
         herbs, ores, zones, known))
 end
 
@@ -481,7 +482,7 @@ local runLabel = overview:CreateFontString(nil, "OVERLAY")
 runLabel:SetFont(TITLE_FONT, 15, "")
 runLabel:SetTextColor(unpack(GOLD))
 runLabel:SetPoint("BOTTOMLEFT", 6, 10)
-runLabel:SetText("Farm run:")
+ns.LText(runLabel, "Farm run:")
 
 local runButtons = {}
 local function RunButton(text, filter, width, anchor)
@@ -527,7 +528,7 @@ skillsScroll:SetScrollChild(skillsContent)
 
 local skillsEmpty = skillsContent:CreateFontString(nil, "OVERLAY", "GameFontDisable")
 skillsEmpty:SetPoint("TOPLEFT", 6, -6)
-skillsEmpty:SetText("No skill data yet. Gather a few nodes!")
+ns.LText(skillsEmpty, "No skill data yet. Gather a few nodes!")
 
 local skillRows = {}
 local function SkillRow(i)
@@ -571,7 +572,7 @@ local function UpdateSkills()
         local s, row = e.s, SkillRow(i)
         row.icon:SetTexture(KindIcon(s.type, items[e.key]))
         row.name:SetText(((ns.TYPE_COLORS[s.type] or "|cffffffff") .. (s.name or "?") .. "|r"))
-        row.info:SetText(("Gathered from %s  ·  skill points seen up to %s  ·  %d gathered, %d skill-ups"):format(
+        row.info:SetText((L["Gathered from %s  ·  skill points seen up to %s  ·  %d gathered, %d skill-ups"]):format(
             tostring(s.minSkill or "?"), tostring(s.maxUp or "–"), s.n or 0, s.ups or 0))
         local _, verdict = Verdict(s.type, e.key, s.name)
         row.verdict:SetText(verdict)

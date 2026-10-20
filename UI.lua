@@ -1,4 +1,5 @@
 local ADDON_NAME, ns = ...
+local L = ns.L or setmetatable({}, { __index = function(_, k) return k end })
 
 ---------------------------------------------------------------------------
 -- Farm panel (during a run) + Gathercraft arrow
@@ -111,7 +112,7 @@ for i, label in ipairs({ "gathered", "per hour", "gold / h", "skill" }) do
     value:SetPoint("TOP", panel, "TOPLEFT", 8 + (i - 0.5) * 81, -40)
     local text = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     text:SetPoint("TOP", value, "BOTTOM", 0, -1)
-    text:SetText(label)
+    ns.LText(text, label)
     cells[i], cellLabels[i] = value, text
 end
 
@@ -124,7 +125,7 @@ nextText:SetWordWrap(false)
 local stopButton = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
 stopButton:SetSize(52, 20)
 stopButton:SetPoint("BOTTOMRIGHT", -8, 8)
-stopButton:SetText("Stop")
+ns.LText(stopButton, "Stop")
 stopButton:SetScript("OnClick", function()
     if panel.fishing then
         ns.StopFishing()
@@ -137,7 +138,7 @@ end)
 local skipButton = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
 skipButton:SetSize(52, 20)
 skipButton:SetPoint("RIGHT", stopButton, "LEFT", -4, 0)
-skipButton:SetText("Skip")
+ns.LText(skipButton, "Skip")
 skipButton:SetScript("OnClick", function() ns.SkipNode() end)
 
 local function Clock(elapsed)
@@ -152,18 +153,18 @@ end
 local function UpdateFishingPanel(f)
     local elapsed = GetTime() - f.start
     local hours = math.max(elapsed / 3600, 1 / 60)
-    title:SetText("Fishing")
+    ns.LText(title, "Fishing")
     clock:SetText(Clock(elapsed))
     cells[1]:SetText(f.catches)
-    cellLabels[1]:SetText("caught")
+    cellLabels[1]:SetText(L["caught"])
     cells[2]:SetText(math.floor(f.catches / hours + 0.5))
     cells[3]:SetText(ns.Money and ns.Money(f.value / hours, true) or "-")
-    cellLabels[3]:SetText(f.source == "vendor" and "gold / h (vendor)" or "gold / h")
+    cellLabels[3]:SetText(f.source == "vendor" and L["gold / h (vendor)"] or L["gold / h"])
     local now = ns.GetSkill("fish") or 0
-    cells[4]:SetText(("|cff55ff55+%d|r"):format(math.max(0, now - (f.skillStart or now))))
+    cells[4]:SetText((L["|cff55ff55+%d|r"]):format(math.max(0, now - (f.skillStart or now))))
     local lure = ns.LureTimeLeft and ns.LureTimeLeft()
-    nextText:SetText(lure and ("|cffaaaaaaLure:|r %d min left  |cffaaaaaa· worth %s|r"):format(math.ceil(lure / 60), ns.Money(f.value))
-        or ("|cffaaaaaaNo lure  · worth|r %s"):format(ns.Money and ns.Money(f.value) or "-"))
+    nextText:SetText(lure and (L["|cffaaaaaaLure:|r %d min left  |cffaaaaaa· worth %s|r"]):format(math.ceil(lure / 60), ns.Money(f.value))
+        or (L["|cffaaaaaaNo lure  · worth|r %s"]):format(ns.Money and ns.Money(f.value) or "-"))
     skipButton:Hide()
     if not panel:IsShown() then panel:Show() end
 end
@@ -184,14 +185,14 @@ local function UpdatePanel()
     end
     panel.fishing = nil
     skipButton:Show()
-    cellLabels[1]:SetText("gathered")
+    cellLabels[1]:SetText(L["gathered"])
     local s = RunStats()
     local elapsed = GetTime() - s.start
     local hours = math.max(elapsed / 3600, 1 / 60)
 
-    local label = FILTER_LABELS[run.filter or ""] or run.filter
+    local label = FILTER_LABELS[run.filter or ""] and L[FILTER_LABELS[run.filter]] or run.filter
     if run.zone then label = (label and (label .. " · ") or "") .. ns.GetZoneName(run.zone) end
-    title:SetText("Farm run" .. (label and ("  |cffaaaaaa" .. label .. "|r") or ""))
+    title:SetText(L["Farm run"] .. (label and ("  |cffaaaaaa" .. label .. "|r") or ""))
     if elapsed >= 3600 then
         local e = math.floor(elapsed)
         clock:SetText(("%d:%02d:%02d"):format(math.floor(e / 3600), math.floor(e % 3600 / 60), e % 60))
@@ -202,18 +203,18 @@ local function UpdatePanel()
     cells[1]:SetText(s.nodes)
     cells[2]:SetText(math.floor(s.nodes / hours + 0.5))
     cells[3]:SetText(ns.Money and ns.Money(s.value / hours, true) or "-")
-    cellLabels[3]:SetText(s.source == "vendor" and "gold / h (vendor)" or "gold / h")
-    cells[4]:SetText(("|cff55ff55+%d|r"):format(math.max(0, TotalSkill() - s.skillStart)))
+    cellLabels[3]:SetText(s.source == "vendor" and L["gold / h (vendor)"] or L["gold / h"])
+    cells[4]:SetText((L["|cff55ff55+%d|r"]):format(math.max(0, TotalSkill() - s.skillStart)))
 
     local left = run.path and #run.path or 0
     local t = run.target
     if t then
         local dist = ns.DistanceToTarget()
-        nextText:SetText(("|cffaaaaaaNext:|r %s  |cffaaaaaa%s · %d left|r"):format(
-            t.name, dist and ("%d yd"):format(math.floor(dist)) or "?", left))
+        nextText:SetText((L["|cffaaaaaaNext:|r %s  |cffaaaaaa%s · %d left|r"]):format(
+            t.name, dist and (L["%d yd"]):format(math.floor(dist)) or "?", left))
         skipButton:Enable()
     else
-        nextText:SetText(("|cffaaaaaaWaiting for respawns · round %d|r"):format(run.round or 1))
+        nextText:SetText((L["|cffaaaaaaWaiting for respawns · round %d|r"]):format(run.round or 1))
         skipButton:Disable()
     end
     if not panel:IsShown() then panel:Show() end
@@ -266,10 +267,10 @@ arrowFrame:SetScript("OnUpdate", function(self, elapsed)
     arrow:SetRotation(rot)
     if dist <= ARRIVE_YARDS then
         arrow:SetVertexColor(0.55, 1, 0.55)
-        arrowDist:SetText("Here!")
+        ns.LText(arrowDist, "Here!")
     else
         arrow:SetVertexColor(1, 1, 1)
-        arrowDist:SetText(("%d yd"):format(math.floor(dist)))
+        arrowDist:SetText((L["%d yd"]):format(math.floor(dist)))
     end
     arrowName:SetText(node.name)
 end)

@@ -1,4 +1,5 @@
 local ADDON_NAME, ns = ...
+local L = ns.L or setmetatable({}, { __index = function(_, k) return k end })
 
 ---------------------------------------------------------------------------
 -- Live routing and farm runs
@@ -54,8 +55,10 @@ end
 ---------------------------------------------------------------------------
 -- Planning
 ---------------------------------------------------------------------------
-local TYPE_FILTERS = { herb = true, ore = true, chest = true }
+local TYPE_FILTERS = { herb = true, ore = true }
 local function MatchesFilter(n, filter)
+    -- chests are map icons only, never part of a route
+    if n.type == "chest" then return false end
     if not filter then return true end
     if filter == "both" then return n.type == "herb" or n.type == "ore" end
     if TYPE_FILTERS[filter] then return n.type == filter end -- no string work per node
@@ -256,7 +259,7 @@ local function StopRun(silent)
         ns.run = nil
         C_Map.ClearUserWaypoint()
         if not silent then
-            ns.Print("Run stopped.")
+            ns.Print(L["Run stopped."])
         end
     end
 end
@@ -284,8 +287,8 @@ Plan = function(quick)
     local points = run.points
     run.total = #points
     if #points == 0 then
-        ns.Print(run.zone and ("No matching nodes in " .. ns.GetZoneName(run.zone) .. ".")
-            or "No matching nodes on this continent (check /gcr zones).")
+        ns.Print(run.zone and (L["No matching nodes in "] .. ns.GetZoneName(run.zone) .. ".")
+            or L["No matching nodes on this continent (check /gcr zones)."])
         StopRun()
         return
     end
@@ -300,7 +303,7 @@ Plan = function(quick)
         for _, p in ipairs(points) do
             if not ns.IsOnCooldown(p.node) then
                 wipe(run.visited)
-                ns.Print(("Round %d complete, starting round %d."):format(run.round, run.round + 1))
+                ns.Print((L["Round %d complete, starting round %d."]):format(run.round, run.round + 1))
                 run.round = run.round + 1
                 return Plan(quick)
             end
@@ -312,7 +315,7 @@ Plan = function(quick)
         run.target, run.targetPoint, run.path = nil, nil, nil
         ClearLine()
         if not run.waiting then
-            ns.Print("All nodes on the route are on cooldown. Waiting for respawns...")
+            ns.Print(L["All nodes on the route are on cooldown. Waiting for respawns..."])
             C_Map.ClearUserWaypoint()
         end
         run.waiting = true
@@ -432,7 +435,7 @@ local function CheckArrival()
                     break
                 end
             end
-            if not found then MarkEmpty(c.node, "nothing harvested") end
+            if not found then MarkEmpty(c.node, L["nothing harvested"]) end
         end
     end
 
@@ -465,7 +468,7 @@ end
 
 local function StartRun(filter, zone)
     if not HBD then
-        ns.Print("HereBeDragons missing, routes are not available.")
+        ns.Print(L["HereBeDragons missing, routes are not available."])
         return
     end
     StopRun(true)
@@ -485,7 +488,7 @@ local function StartRun(filter, zone)
     local run = ns.run
     if not run then return end -- nothing to farm
     if run.path then
-        ns.Print(("Run started: %d nodes in %d zone(s), path %d yd."):format(
+        ns.Print((L["Run started: %d nodes in %d zone(s), path %d yd."]):format(
             #run.path, run.zones, run.length))
     end
     ticker = C_Timer.NewTicker(TICK, CheckArrival)
@@ -494,13 +497,13 @@ end
 local function SkipNode()
     local run = ns.run
     if not run or not run.target then
-        ns.Print("No run target right now. Start one with /gcr run.")
+        ns.Print(L["No run target right now. Start one with /gcr run."])
         return
     end
     local node = run.target
     node.emptyUntil = time() + SKIP_TIME
     run.visited[node] = true
-    ns.Print(("%s marked empty for %d min."):format(node.name, SKIP_TIME / 60))
+    ns.Print((L["%s marked empty for %d min."]):format(node.name, SKIP_TIME / 60))
     Plan(true)
 end
 
@@ -524,26 +527,26 @@ end
 ---------------------------------------------------------------------------
 local function PreviewRoute(filter)
     if not HBD then
-        ns.Print("HereBeDragons missing, routes are not available.")
+        ns.Print(L["HereBeDragons missing, routes are not available."])
         return
     end
     if ns.run then
         if ns.run.path then
-            ns.Print(("Current run: %d nodes left, path %d yd."):format(#ns.run.path, ns.run.length))
+            ns.Print((L["Current run: %d nodes left, path %d yd."]):format(#ns.run.path, ns.run.length))
         end
         return
     end
     if preview and (filter == nil or filter == "") then
         preview = nil
         ClearLine()
-        ns.Print("Route preview hidden.")
+        ns.Print(L["Route preview hidden."])
         return
     end
 
     filter = (filter and filter ~= "") and filter:lower() or nil
     local px, py, instance = PlayerWorld()
     if not px then
-        ns.Print("No position available here.")
+        ns.Print(L["No position available here."])
         return
     end
     local open = {}
@@ -551,19 +554,19 @@ local function PreviewRoute(filter)
         if not ns.IsOnCooldown(p.node) then open[#open + 1] = p end
     end
     if #open == 0 then
-        ns.Print("No available nodes on this continent (check /gcr zones).")
+        ns.Print(L["No available nodes on this continent (check /gcr zones)."])
         return
     end
     local path, length = PlanPath(open, px, py)
     preview = { path = path, length = length, instance = instance, px = px, py = py }
     DrawLine(path, length, instance, px, py)
-    ns.Print(("Route preview: %d nodes in %d zone(s), path %d yd. /gcr route again to hide."):format(
+    ns.Print((L["Route preview: %d nodes in %d zone(s), path %d yd. /gcr route again to hide."]):format(
         #path, CountZones(path), length))
 end
 
 local function ToggleRouteLine()
     ns.db.routeLineHidden = not ns.db.routeLineHidden
-    ns.Print("Route line " .. (ns.db.routeLineHidden and "|cffff0000hidden|r" or "|cff00ff00shown|r"))
+    ns.Print(L["Route line "] .. (ns.db.routeLineHidden and L["|cffff0000hidden|r"] or L["|cff00ff00shown|r"]))
     if ns.run then
         Plan()
     elseif preview then

@@ -1,4 +1,5 @@
 local ADDON_NAME, ns = ...
+local L = ns.L or setmetatable({}, { __index = function(_, k) return k end })
 
 ---------------------------------------------------------------------------
 -- Zones window (/gcr zones)
@@ -37,14 +38,14 @@ tinsert(UISpecialFrames, "GathercraftZones") -- close with ESC
 
 local title = window:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
 title:SetPoint("TOPLEFT", 14, -12)
-title:SetText("Gathercraft - Zones")
+ns.LText(title, "Gathercraft - Zones")
 
 local close = CreateFrame("Button", nil, window, "UIPanelCloseButton")
 close:SetPoint("TOPRIGHT", -2, -2)
 
 local hint = window:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 hint:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -6)
-hint:SetText("Unchecked zones and materials are hidden and not routed. Click + to pick single materials.")
+ns.LText(hint, "Unchecked zones and materials are hidden and not routed. Click + to pick single materials.")
 
 local scroll = CreateFrame("ScrollFrame", "GathercraftZonesScroll", window, "UIPanelScrollFrameTemplate")
 scroll:SetPoint("TOPLEFT", 12, -56)
@@ -56,7 +57,7 @@ scroll:SetScrollChild(content)
 
 local empty = content:CreateFontString(nil, "OVERLAY", "GameFontDisable")
 empty:SetPoint("TOPLEFT", 4, -4)
-empty:SetText("No nodes stored yet. Go gather something!")
+ns.LText(empty, "No nodes stored yet. Go gather something!")
 
 ---------------------------------------------------------------------------
 -- Data: continents -> materials + zones -> materials
@@ -201,6 +202,15 @@ end
 ---------------------------------------------------------------------------
 local Refresh
 
+-- A zone and all its materials on or off together
+local function SetZone(z, on)
+    local db = ns.db
+    db.disabledZones[z.mapID] = (not on) or nil
+    for _, k in ipairs(z.kinds) do
+        db.disabledKinds[z.mapID .. ":" .. k.key] = (not on) or nil
+    end
+end
+
 local function Changed()
     ns.NotifyNodesChanged() -- updates the pins and the route
     Refresh()               -- and this window right away
@@ -208,7 +218,7 @@ end
 
 local function KindText(k)
     local color = ns.TYPE_COLORS[k.type] or "|cffffffff"
-    return ("%s%s|r  |cff999999x%d|r"):format(color, k.name, k.count)
+    return (L["%s%s|r  |cff999999x%d|r"]):format(color, k.name, k.count)
 end
 
 Refresh = function()
@@ -217,9 +227,9 @@ Refresh = function()
     local playerMap = C_Map.GetBestMapForUnit("player")
     local currentContinent = playerMap and ns.GetContinent(playerMap)
     local tree = CollectTree(currentContinent)
-    if not db.zonesV2 then -- continent-wide material filters are gone from the UI
+    if db.zonesV ~= 3 then -- continent-wide material filters are gone from the UI
         wipe(db.disabledContinentKinds)
-        db.zonesV2 = true
+        db.zonesV = 3
     end
     local i, y = 0, 0
 
@@ -233,10 +243,12 @@ Refresh = function()
         Add({
             indent = 0,
             font = "GameFontNormalLarge",
-            text = ("%s  |cff999999(%d nodes)|r"):format(c.name, c.total),
+            text = (L["%s  |cff999999(%d nodes)|r"]):format(c.name, c.total),
             checked = not db.disabledContinents[c.id],
             onToggle = function(on)
+                -- the whole continent: every zone and material with it
                 db.disabledContinents[c.id] = (not on) or nil
+                for _, z in ipairs(c.zones) do SetZone(z, on) end
                 Changed()
             end,
         })
@@ -249,10 +261,12 @@ Refresh = function()
             Add({
                 indent = INDENT,
                 font = "GameFontNormal",
-                text = ("%s  |cff999999(%d nodes)|r%s"):format(z.name, z.total, here and "  |cff7bd35f< you are here >|r" or ""),
+                text = (L["%s  |cff999999(%d nodes)|r%s"]):format(z.name, z.total, here and L["  |cff7bd35f< you are here >|r"] or ""),
                 checked = not db.disabledZones[z.mapID],
                 onToggle = function(on)
-                    db.disabledZones[z.mapID] = (not on) or nil
+                    -- a zone ticks or unticks all its materials
+                    SetZone(z, on)
+                    if on then db.disabledContinents[c.id] = nil end
                     Changed()
                 end,
                 isExpanded = zOpen,
@@ -269,7 +283,21 @@ Refresh = function()
                         text = KindText(k),
                         checked = not db.disabledKinds[key],
                         onToggle = function(on)
+                            if on and db.disabledZones[z.mapID] then
+                                -- zone was off: turn it on with only this material
+                                SetZone(z, false)
+                                db.disabledZones[z.mapID] = nil
+                                db.disabledContinents[c.id] = nil
+                            end
                             db.disabledKinds[key] = (not on) or nil
+                            -- last material unticked: the zone is off too
+                            if not on then
+                                local any = false
+                                for _, other in ipairs(z.kinds) do
+                                    if not db.disabledKinds[z.mapID .. ":" .. other.key] then any = true end
+                                end
+                                if not any then db.disabledZones[z.mapID] = true end
+                            end
                             Changed()
                         end,
                     })
@@ -289,19 +317,23 @@ end
 ---------------------------------------------------------------------------
 -- Buttons
 ---------------------------------------------------------------------------
-local function SetAll(on)
+-- on: everything on (only one node type if onlyType is "herb" or "ore")
+local function SetAll(on, onlyType)
     local db = ns.db
     for _, c in ipairs(CollectTree()) do
-        db.disabledContinents[c.id] = (not on) or nil
-        for _, k in ipairs(c.kinds) do
-            db.disabledContinentKinds[c.id .. ":" .. k.key] = (not on) or nil
-        end
+        local anyZone = false
         for _, z in ipairs(c.zones) do
-            db.disabledZones[z.mapID] = (not on) or nil
+            local anyKind = false
             for _, k in ipairs(z.kinds) do
-                db.disabledKinds[z.mapID .. ":" .. k.key] = (not on) or nil
+                local use = on and (not onlyType or k.type == onlyType)
+                db.disabledKinds[z.mapID .. ":" .. k.key] = (not use) or nil
+                anyKind = anyKind or use
             end
+            local zoneOn = on and (anyKind or not onlyType)
+            db.disabledZones[z.mapID] = (not zoneOn) or nil
+            anyZone = anyZone or zoneOn
         end
+        db.disabledContinents[c.id] = (not anyZone) or nil
     end
     Changed()
 end
@@ -309,7 +341,7 @@ end
 local startButton = CreateFrame("Button", nil, window, "UIPanelButtonTemplate")
 startButton:SetSize(110, 24)
 startButton:SetPoint("BOTTOMLEFT", 12, 12)
-startButton:SetText("Start run")
+ns.LText(startButton, "Start run")
 startButton:SetScript("OnClick", function()
     ns.StartRun("")
     if ns.HideMain then ns.HideMain() else window:Hide() end
@@ -318,13 +350,25 @@ end)
 local noneButton = CreateFrame("Button", nil, window, "UIPanelButtonTemplate")
 noneButton:SetSize(70, 24)
 noneButton:SetPoint("BOTTOMRIGHT", -12, 12)
-noneButton:SetText("None")
+ns.LText(noneButton, "None")
 noneButton:SetScript("OnClick", function() SetAll(false) end)
+
+local oreButton = CreateFrame("Button", nil, window, "UIPanelButtonTemplate")
+oreButton:SetSize(96, 24)
+oreButton:SetPoint("RIGHT", noneButton, "LEFT", -6, 0)
+ns.LText(oreButton, "Only ores")
+oreButton:SetScript("OnClick", function() SetAll(true, "ore") end)
+
+local herbButton = CreateFrame("Button", nil, window, "UIPanelButtonTemplate")
+herbButton:SetSize(96, 24)
+herbButton:SetPoint("RIGHT", oreButton, "LEFT", -6, 0)
+ns.LText(herbButton, "Only herbs")
+herbButton:SetScript("OnClick", function() SetAll(true, "herb") end)
 
 local allButton = CreateFrame("Button", nil, window, "UIPanelButtonTemplate")
 allButton:SetSize(70, 24)
-allButton:SetPoint("RIGHT", noneButton, "LEFT", -6, 0)
-allButton:SetText("All")
+allButton:SetPoint("RIGHT", herbButton, "LEFT", -6, 0)
+ns.LText(allButton, "All")
 allButton:SetScript("OnClick", function() SetAll(true) end)
 
 window:SetScript("OnShow", Refresh)

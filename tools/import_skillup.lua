@@ -37,7 +37,7 @@ for line, list in pairs(ns.RecipeNames or {}) do
     end
 end
 
-local out, counts, skipped, guessed, nGuessed = {}, {}, 0, {}, 0
+local out, counts, skipped, guessed, nGuessed, spellOf = {}, {}, 0, {}, 0, {}
 for spell, r in pairs(ns.RecipeData) do
     local prof = WANT[r.skillLine]
     local name = spellName[spell]
@@ -62,6 +62,8 @@ for spell, r in pairs(ns.RecipeData) do
         out[prof] = out[prof] or {}
         if not out[prof][name] then
             out[prof][name] = packed
+            spellOf[prof] = spellOf[prof] or {}
+            spellOf[prof][name] = spell
             counts[prof] = (counts[prof] or 0) + 1
             if isGuess and req > 0 then
                 guessed[prof] = guessed[prof] or {}
@@ -95,6 +97,17 @@ for _, p in ipairs(profs) do
     table.sort(names)
     for _, n in ipairs(names) do print("            [" .. q(n) .. "] = " .. q(out[p][n]) .. ",") end
     print("        },")
+end
+print("    },")
+print("    -- recipe spell IDs: the game names them in the client's language")
+print("    spells = {")
+for _, p in ipairs(profs) do
+    local names = {}
+    for n in pairs(spellOf[p]) do names[#names + 1] = n end
+    table.sort(names)
+    local parts = {}
+    for _, n in ipairs(names) do parts[#parts + 1] = "[" .. q(n) .. "]=" .. spellOf[p][n] end
+    print("        [" .. q(p) .. "] = { " .. table.concat(parts, ", ") .. " },")
 end
 print("    },")
 print("    -- required skill estimated (Forever moved it from Classic's); a trainer visit confirms it")

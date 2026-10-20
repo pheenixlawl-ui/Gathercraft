@@ -1,4 +1,5 @@
 local ADDON_NAME, ns = ...
+local L = ns.L or setmetatable({}, { __index = function(_, k) return k end })
 
 ---------------------------------------------------------------------------
 -- What's best to craft?
@@ -44,6 +45,19 @@ local PROFESSIONS = {
     { name = "First Aid", short = "First Aid", icon = "Interface\\Icons\\Spell_Holy_SealOfSacrifice" },
     { name = "Mining", short = "Smelting", icon = "Interface\\Icons\\Trade_Mining" },
 }
+-- short profession names for the sub-tabs where the real ones are long
+local SHORT_LABELS = {
+    deDE = { Alchemy = "Alchemie", Blacksmithing = "Schmied", Enchanting = "Verzaubern", Engineering = "Ingenieur", Leatherworking = "Leder",
+        Tailoring = "Schneider", Cooking = "Kochen", ["First Aid"] = "Erste Hilfe", Mining = "Verhüttung" },
+    frFR = { Enchanting = "Enchant.", Engineering = "Ingénierie", Leatherworking = "Cuir", ["First Aid"] = "Secourisme",
+        Mining = "Fonte" },
+    esES = { Enchanting = "Encantam.", Leatherworking = "Peletería", ["First Aid"] = "Primeros aux.", Mining = "Fundición" },
+    esMX = { Enchanting = "Encantam.", Leatherworking = "Peletería", ["First Aid"] = "Primeros aux.", Mining = "Fundición" },
+}
+
+-- where the game's own name is a known mistranslation
+local FULL_LABELS = { deDE = { Alchemy = "Alchemie" } }
+
 local DIFF_COLORS = { [0] = "|cffff8040", [1] = "|cffffff00", [2] = "|cff40c040", [3] = "|cff808080" }
 
 local function ItemIDFromLink(link)
@@ -52,6 +66,116 @@ end
 
 local function CharKey()
     return (UnitName("player") or "?") .. "-" .. ((GetNormalizedRealmName and GetNormalizedRealmName()) or "?")
+end
+
+---------------------------------------------------------------------------
+-- Every client language: professions and recipes are stored under their
+-- English names (like the shipped data), shown in the client's language.
+---------------------------------------------------------------------------
+local englishClient = not GetLocale or GetLocale():sub(1, 2) == "en"
+
+local function SpellNameOf(id)
+    if not id then return end
+    if C_Spell and C_Spell.GetSpellName then return C_Spell.GetSpellName(id) end
+    if GetSpellInfo then return (GetSpellInfo(id)) end
+end
+
+-- profession spell IDs: their names are the professions in the client's language
+local PROF_SPELLS = {
+    Alchemy = 2259, Blacksmithing = 2018, Enchanting = 7411, Engineering = 4036, Leatherworking = 2108,
+    Tailoring = 3908, Cooking = 2550, ["First Aid"] = 3273, Mining = 2575,
+}
+local profAlias
+local function ProfKey(name)
+    if not name or name == "" then return name end
+    if not profAlias then
+        profAlias = { smelting = "Mining", alchemie = "Alchemy" }
+        for en, id in pairs(PROF_SPELLS) do
+            profAlias[en:lower()] = en
+            local loc = SpellNameOf(id)
+            if loc and loc ~= "" then profAlias[loc:lower()] = en end
+        end
+        local smelting = SpellNameOf(2656)
+        if smelting and smelting ~= "" then profAlias[smelting:lower()] = "Mining" end
+    end
+    return profAlias[name:lower()] or name
+end
+ns.ProfKey = ProfKey
+
+-- a profession's name to show: the game's own, with known slips fixed
+local function ProfLabel(prof)
+    if englishClient then return prof end
+    local fixed = FULL_LABELS and (FULL_LABELS[GetLocale()] or {})[prof]
+    if fixed then return fixed end
+    local loc = SpellNameOf(prof == "Mining" and 2656 or PROF_SPELLS[prof])
+    return (loc and loc ~= "") and loc or prof
+end
+
+-- shipped recipes by name in the client's language and by product
+local localIndex, productIndex = {}, {}
+local function ShippedSpells(prof)
+    local s = GathercraftRecipeData and GathercraftRecipeData.spells
+    return (s and s[prof]) or {}
+end
+local indexedData
+local function BuildIndex(prof)
+    if indexedData ~= GathercraftRecipeData then -- (only changes in tests)
+        indexedData, localIndex, productIndex = GathercraftRecipeData, {}, {}
+    end
+    if localIndex[prof] then return end
+    local li, pi = {}, {}
+    local shipped = GathercraftRecipeData and GathercraftRecipeData.professions
+    local spells = ShippedSpells(prof)
+    for en, packed in pairs((shipped and shipped[prof]) or {}) do
+        li[en:lower()] = li[en:lower()] or en
+        local product = tonumber(packed:match("^(%d+)"))
+        if product and product > 0 and not pi[product] then pi[product] = en end
+        if not englishClient and spells[en] then
+            local loc = SpellNameOf(spells[en])
+            if loc and loc ~= "" then li[loc:lower()] = li[loc:lower()] or en end
+        end
+    end
+    localIndex[prof], productIndex[prof] = li, pi
+end
+
+-- the name a recipe is stored under (English for every shipped recipe)
+local function Canon(prof, name, product)
+    if not name then return name end
+    BuildIndex(prof)
+    return localIndex[prof][name:lower()]
+        or (product and product > 0 and productIndex[prof][product])
+        or name
+end
+
+-- the name to show (the client's language)
+local function DisplayName(prof, name)
+    if englishClient then return name end
+    local loc = SpellNameOf(ShippedSpells(prof)[name])
+    return (loc and loc ~= "") and loc or name
+end
+
+-- Tooltip texts in the client's language, from the game's own strings
+local function Escape(text) return (text:gsub("([%^%$%(%)%.%[%]%*%+%-%?%%])", "%%%1")) end
+local function PatternFromFormat(fmt)
+    if type(fmt) ~= "string" or fmt == "" then return end
+    local p = fmt:gsub("%%%d%$", "%%")                -- "%1$s" -> "%s"
+    p = p:gsub("([%^%$%(%)%.%[%]%*%+%-%?])", "%%%1")  -- magic characters
+    p = p:gsub("%%s", "(.+)"):gsub("%%d", "(%%d+)")
+    return "^" .. p .. "$"
+end
+local REQUIRES_PATTERNS = { "^Requires (.+) %((%d+)%)$", PatternFromFormat(_G.ITEM_MIN_SKILL) }
+local USE_PREFIX = (type(_G.ITEM_SPELL_TRIGGER_ONUSE) == "string" and _G.ITEM_SPELL_TRIGGER_ONUSE ~= "") and _G.ITEM_SPELL_TRIGGER_ONUSE or "Use:"
+local REAGENT_PREFIXES = { "Reagents:" }
+if type(_G.SPELL_REAGENTS) == "string" then
+    local prefix = _G.SPELL_REAGENTS:gsub("%%s", ""):gsub("|n", ""):gsub("%s+$", "")
+    if prefix ~= "" and prefix ~= "Reagents:" then REAGENT_PREFIXES[#REAGENT_PREFIXES + 1] = prefix end
+end
+
+local function MatchRequires(text)
+    for _, pattern in ipairs(REQUIRES_PATTERNS) do
+        local p, r = text:match(pattern)
+        if p and tonumber(r) then return p, tonumber(r) end
+    end
 end
 
 -- Every recipe any character of this account has seen, per profession:
@@ -64,6 +188,8 @@ end
 -- Keep the best we know: amounts from the profession window, the required
 -- skill from the trainer
 local function MergeRecipe(prof, name, product, nMin, nMax, req, reagentText)
+    prof = ProfKey(prof)
+    name = Canon(prof, name, product)
     local db = RecipeDB()
     db[prof] = db[prof] or {}
     local old = db[prof][name]
@@ -75,8 +201,47 @@ local function MergeRecipe(prof, name, product, nMin, nMax, req, reagentText)
     db[prof][name] = ("%d:%d:%d:%d|%s"):format(product, nMin or 1, nMax or nMin or 1, req or 0, reagentText)
 end
 
+-- Saved data from older versions or other client languages: move it under
+-- the English names (once per session)
+local normalized = false
+local function Normalize()
+    if normalized or not ns.db then return end
+    normalized = true
+    local function ProductOf(packed) return tonumber(packed:match("^(%d+)")) end
+    -- account recipe book: prof -> name -> packed
+    local db = ns.db.recipeDB or {}
+    local profs = {}
+    for prof in pairs(db) do profs[#profs + 1] = prof end
+    for _, prof in ipairs(profs) do
+        local key, list = ProfKey(prof), db[prof]
+        local fixed = (key ~= prof and db[key]) or {}
+        for name, packed in pairs(list) do
+            local new = Canon(key, name, ProductOf(packed))
+            fixed[new] = fixed[new] or packed
+        end
+        db[prof] = nil
+        db[key] = fixed
+    end
+    -- each character: prof -> { list = name -> packed }
+    for _, char in pairs(ns.db.recipes or {}) do
+        local cprofs = {}
+        for prof in pairs(char) do cprofs[#cprofs + 1] = prof end
+        for _, prof in ipairs(cprofs) do
+            local key, info = ProfKey(prof), char[prof]
+            local fixed = {}
+            for name, packed in pairs(info.list or {}) do
+                fixed[Canon(key, name, ProductOf(packed))] = packed
+            end
+            info.list = fixed
+            char[prof] = nil
+            char[key] = info
+        end
+    end
+end
+
 local function CharRecipes()
     ns.db.recipes = ns.db.recipes or {}
+    Normalize()
     local key = CharKey()
     ns.db.recipes[key] = ns.db.recipes[key] or {}
     return ns.db.recipes[key]
@@ -189,8 +354,15 @@ local function Learn(reader)
         return
     end
     if not (prof and recipes) then return end
+    local shownProf = prof
+    prof = ProfKey(prof)
     local count = 0
-    for _ in pairs(recipes) do count = count + 1 end
+    local canon = {}
+    for name, packed in pairs(recipes) do
+        count = count + 1
+        canon[Canon(prof, name, tonumber(packed:match("^(%d+)")))] = packed
+    end
+    recipes = canon
     if count == 0 then return end
     local mine = CharRecipes()
     -- the window can hide recipes (collapsed groups, filters): keep what we knew
@@ -205,7 +377,7 @@ local function Learn(reader)
         told[prof] = true
         local total = 0
         for _ in pairs(old) do total = total + 1 end
-        ns.Print(("Learned %d %s recipes. See the Crafting tab for what's worth making."):format(total, prof))
+        ns.Print((L["Learned %d %s recipes. See the Crafting tab for what's worth making."]):format(total, ProfLabel(prof)))
     end
     if ns.RefreshCraftPage then ns.RefreshCraftPage() end
 end
@@ -275,7 +447,11 @@ end
 -- "Reagents: Linen Cloth (2), Coarse Thread" -> { {"Linen Cloth", 2}, {"Coarse Thread", 1} }
 local function ParseReagentLine(lines)
     for _, text in ipairs(lines or {}) do
-        local rest = text:gsub("|n", " "):gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""):match("^%s*Reagents:%s*(.+)$")
+        local clean = text:gsub("|n", " "):gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")
+        local rest
+        for _, prefix in ipairs(REAGENT_PREFIXES) do
+            rest = rest or clean:match("^%s*" .. Escape(prefix) .. "%s*(.+)$")
+        end
         if rest then
             local out = {}
             for part in rest:gmatch("[^,]+") do
@@ -356,24 +532,24 @@ local function ReadTrainer()
     local ok, count, profName, why = pcall(ReadTrainerServices)
     readingTrainer = false
     if not ok then
-        ns.Print("Could not read this trainer: " .. tostring(count))
+        ns.Print(L["Could not read this trainer: "] .. tostring(count))
         return
     end
     local waiting = why and why.waiting or 0
     if count + waiting > 0 then
         if count ~= lastTrainerCount then
             if waiting > 0 then
-                ns.Print(("Noted %d %s recipes from this trainer, %d more as soon as their items are known (AH scan or vendor visit)."):format(
-                    count, profName, waiting))
+                ns.Print((L["Noted %d %s recipes from this trainer, %d more as soon as their items are known (AH scan or vendor visit)."]):format(
+                    count, ProfLabel(ProfKey(profName)), waiting))
             else
-                ns.Print(("Noted %d %s recipes from this trainer."):format(count, profName))
+                ns.Print((L["Noted %d %s recipes from this trainer."]):format(count, ProfLabel(ProfKey(profName))))
             end
         end
         lastTrainerCount = count
         if ns.RefreshCraftPage then ns.RefreshCraftPage() end
     elseif why and why.total > why.header + why.noItem and not trainerToldEmpty then
         trainerToldEmpty = true
-        ns.Print(("Trainer: %d entries, none noted (headers %d, no item %d, no skill %d, no reagents %d). Please send this line."):format(
+        ns.Print((L["Trainer: %d entries, none noted (headers %d, no item %d, no skill %d, no reagents %d). Please send this line."]):format(
             why.total, why.header, why.noItem, why.noSkill, why.noReagents))
     end
 end
@@ -417,7 +593,8 @@ local function IsRecipeName(name)
     for _, p in ipairs(RECIPE_PREFIXES) do
         if name:sub(1, #p) == p then return true end
     end
-    return false
+    -- other languages: "Rezept: ...", "Recette : ..."; the tooltip decides
+    return not englishClient and name:find(":", 1, true) ~= nil
 end
 
 local function Trim(s) return (s:gsub("^%s+", ""):gsub("%s+$", "")) end
@@ -427,17 +604,20 @@ local function ParseRecipeLines(lines)
     if not (lines[1] and IsRecipeName(lines[1])) then return end
     local prof, req, reagentLine
     for i, text in ipairs(lines) do
-        local p, r = text:match("^Requires (.+) %((%d+)%)$")
-        if p and not prof then prof, req = p, tonumber(r) end
-        if text:find("Teaches you how to") then reagentLine = lines[i + 1] end
+        local p, r = MatchRequires(text)
+        if p and not prof then prof, req = p, r end
+        if text:find("Teaches you how to", 1, true) or text:sub(1, #USE_PREFIX) == USE_PREFIX then
+            reagentLine = reagentLine or lines[i + 1]
+        end
     end
     local product = lines[2] and Trim(lines[2])
     -- enchanting formulas make no item: line 2 is already the "Use:" text,
     -- the recipe is named after the formula ("Formula: Enchant Bracer - ...")
-    if not product or product == "" or product:find("^Use:") or product:find("Teaches you") then
+    if not product or product == "" or product:sub(1, #USE_PREFIX) == USE_PREFIX or product:find("Teaches you", 1, true) then
         product = Trim(lines[1]:gsub("^[^:]+:%s*", ""))
     end
     if not (prof and product and product ~= "" and reagentLine) then return end
+    if not PROF_SPELLS[ProfKey(prof)] then return end -- "Requires" something else (a reputation, a level, ...)
     local reagents = {}
     for part in reagentLine:gmatch("[^,]+") do
         local name, n = part:match("^%s*(.-)%s*%((%d+)%)%s*$")
@@ -501,6 +681,16 @@ local function CleanName(name)
     return Trim(name)
 end
 
+-- item ID -> (English) name from the shipped list, for items not loaded yet
+local shippedById
+ns.ShippedItemName = function(id)
+    if not shippedById then
+        shippedById = {}
+        for sid, name in (GathercraftItemNames or ""):gmatch("(%d+)\t([^\r\n]+)") do shippedById[tonumber(sid)] = name end
+    end
+    return shippedById[id]
+end
+
 -- name -> item ID: what we noted, the shipped list, else ask the game
 local function Lookup(idx, name)
     name = CleanName(name)
@@ -528,6 +718,13 @@ local function TryResolve(prof, product, req, reagents)
         local id = Lookup(idx, r[1])
         if not id then return false end
         parts[#parts + 1] = id .. ":" .. r[2]
+    end
+    -- a recipe we ship: its product is known (0 for enchants), in any language
+    if not productID then
+        local profKey = ProfKey(prof)
+        local shipped = GathercraftRecipeData and GathercraftRecipeData.professions
+        local packed = shipped and shipped[profKey] and shipped[profKey][Canon(profKey, product)]
+        if packed then productID = tonumber(packed:match("^(%d+)")) end
     end
     -- enchants make no item: product 0, we still know what the materials cost
     if not productID and product:find("^Enchant ") then productID = 0 end
@@ -645,7 +842,7 @@ local function ResolvePending()
         end
     end
     if added > 0 then
-        ns.Print(("Added %d waiting recipes, their items are known now."):format(added))
+        ns.Print((L["Added %d waiting recipes, their items are known now."]):format(added))
         if ns.RefreshCraftPage then ns.RefreshCraftPage() end
     end
 end
@@ -773,7 +970,7 @@ local function ReagentCost(itemID)
     if VENDOR_REAGENTS[itemID] then
         local _, sellSource = ns.GetPrice(itemID)
         local sell = sellSource == "vendor" and select(1, ns.GetPrice(itemID))
-        if sell then return sell * VENDOR_MARKUP, "vendor (est.)", true end
+        if sell then return sell * VENDOR_MARKUP, L["vendor (est.)"], true end
     end
     return nil
 end
@@ -855,7 +1052,7 @@ local function Evaluate(profFilter, mineOnly)
                         and GathercraftRecipeData.guessed[prof] and GathercraftRecipeData.guessed[prof][name]
                     local reqGuessed = shippedGuess and not (ownReq and ownReq:match("^%d+:%d+:%d+:(%d+)") ~= "0") or false
                     rows[#rows + 1] = {
-                        prof = prof, name = name, product = product, made = made, diff = diff, req = req, reqGuessed = reqGuessed,
+                        prof = prof, name = DisplayName(prof, name), key = name, product = product, made = made, diff = diff, req = req, reqGuessed = reqGuessed,
                         learned = learned, value = value, valueSource = source, cost = cost, enchant = enchant,
                         profit = value - cost, missing = missing, guessed = guessed,
                         canMake = canMake == math.huge and 0 or canMake, reagents = parts,
@@ -931,7 +1128,7 @@ ns.BuildCraftPage = function(page, style)
     local Refresh
 
     -- Sub tabs: my professions + every profession, with its icon
-    local function SubTab(i, key, label, icon)
+    local function SubTab(i, key, label, icon, full)
         local b = tabs[i]
         if not b then
             b = CreateFrame("Button", nil, page, "BackdropTemplate")
@@ -958,7 +1155,24 @@ ns.BuildCraftPage = function(page, style)
             tabs[i] = b
         end
         b.icon:SetTexture(icon)
-        b.text:SetText(label)
+        b.text:SetText(L[label])
+        -- long names: smaller letters, full name on hover
+        if not b.baseFont and b.text.GetFont then b.baseFont = { b.text:GetFont() } end
+        local font, size, flags = unpack(b.baseFont or {})
+        if font and size then
+            b.text:SetFont(font, size, flags)
+            while b.text:GetStringWidth() > 64 and size > 7 do
+                size = size - 1
+                b.text:SetFont(font, size, flags)
+            end
+        end
+        b.full = full or label
+        b:SetScript("OnEnter", function(self)
+            GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
+            GameTooltip:AddLine(self.full, 1, 1, 1)
+            GameTooltip:Show()
+        end)
+        b:SetScript("OnLeave", function() GameTooltip:Hide() end)
         b:SetScript("OnClick", function()
             filter = key
             ns.db.craftTab = key
@@ -982,7 +1196,7 @@ ns.BuildCraftPage = function(page, style)
     mineCheck:SetPoint("TOPRIGHT", -150, -22)
     local mineLabel = page:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     mineLabel:SetPoint("LEFT", mineCheck, "RIGHT", 2, 0)
-    mineLabel:SetText("Only recipes I know")
+    ns.LText(mineLabel, "Only recipes I know")
     mineCheck:SetScript("OnClick", function(self)
         mineOnly = self:GetChecked() and true or false
         ns.db.craftMineOnly = mineOnly
@@ -994,7 +1208,7 @@ ns.BuildCraftPage = function(page, style)
         fs:SetPoint("TOPLEFT", x, -94)
         fs:SetWidth(width)
         fs:SetJustifyH(justify or "LEFT")
-        fs:SetText(text)
+        ns.LText(fs, text)
     end
     Col("Item", 30, 330)
     Col("Profit", 364, 80, "RIGHT")
@@ -1014,35 +1228,35 @@ ns.BuildCraftPage = function(page, style)
         if not r then return end
         GameTooltip:SetOwner(row, "ANCHOR_RIGHT")
         GameTooltip:AddLine(r.name, 1, 1, 1)
-        GameTooltip:AddLine(("%s · makes %s"):format(r.prof, r.made % 1 == 0 and tostring(r.made) or ("%.1f"):format(r.made)), 0.7, 0.7, 0.7)
+        GameTooltip:AddLine((L["%s · makes %s"]):format(ProfLabel(r.prof), r.made % 1 == 0 and tostring(r.made) or ("%.1f"):format(r.made)), 0.7, 0.7, 0.7)
         if r.learned then
-            GameTooltip:AddLine("You know this recipe", 0.4, 1, 0.4)
+            GameTooltip:AddLine(L["You know this recipe"], 0.4, 1, 0.4)
         else
-            GameTooltip:AddLine("Not learned" .. ((r.req and r.req > 0) and (" · needs skill " .. (r.reqGuessed and "~" or "") .. r.req) or ""), 0.8, 0.8, 0.8)
+            GameTooltip:AddLine(L["Not learned"] .. ((r.req and r.req > 0) and (L[" · needs skill "] .. (r.reqGuessed and "~" or "") .. r.req) or ""), 0.8, 0.8, 0.8)
             if r.reqGuessed then
-                GameTooltip:AddLine("Estimated for Forever. Visit the trainer once and Gathercraft notes the real value.", 0.6, 0.6, 0.6, true)
+                GameTooltip:AddLine(L["Estimated for Forever. Visit the trainer once and Gathercraft notes the real value."], 0.6, 0.6, 0.6, true)
             end
         end
         if r.enchant then
-            GameTooltip:AddLine("Enchant: makes no item. Below is what the materials cost, handy for pricing your service.", 0.6, 0.8, 1, true)
+            GameTooltip:AddLine(L["Enchant: makes no item. Below is what the materials cost, handy for pricing your service."], 0.6, 0.8, 1, true)
         end
-        if not r.enchant then GameTooltip:AddDoubleLine("Sells for", ns.Money(r.value) .. "  |cff999999(" .. tostring(r.valueSource)
-            .. (r.valueSource ~= "vendor" and ", after 5% AH cut" or "") .. ")|r", 1, 0.82, 0, 1, 1, 1) end
+        if not r.enchant then GameTooltip:AddDoubleLine(L["Sells for"], ns.Money(r.value) .. "  |cff999999(" .. tostring(r.valueSource)
+            .. (r.valueSource ~= "vendor" and L[", after 5% AH cut"] or "") .. ")|r", 1, 0.82, 0, 1, 1, 1) end
         GameTooltip:AddLine(" ")
         for _, p in ipairs(r.reagents) do
-            local name = ns.ItemName and ns.ItemName(p.id) or ("item " .. p.id)
+            local name = ns.ItemName and ns.ItemName(p.id) or (L["item "] .. p.id)
             local haveColor = p.have >= p.n and "|cff55ff55" or "|cffff7070"
-            GameTooltip:AddDoubleLine(("%dx %s  %s(have %d)|r"):format(p.n, name, haveColor, p.have),
-                p.cost and (ns.Money(p.cost * p.n) .. "  |cff999999" .. p.from .. "|r") or "|cffff7070no price|r",
+            GameTooltip:AddDoubleLine((L["%dx %s  %s(have %d)|r"]):format(p.n, name, haveColor, p.have),
+                p.cost and (ns.Money(p.cost * p.n) .. "  |cff999999" .. p.from .. "|r") or L["|cffff7070no price|r"],
                 1, 1, 1, 1, 1, 1)
         end
         GameTooltip:AddLine(" ")
         if r.enchant then
-            GameTooltip:AddDoubleLine("Materials", ns.Money(r.cost), 1, 0.82, 0, 1, 1, 1)
-        else GameTooltip:AddDoubleLine("Profit per craft", (r.profit >= 0 and "|cff55ff55" or "|cffff7070") .. ns.Money(math.abs(r.profit))
-            .. (r.profit < 0 and " loss" or "") .. "|r", 1, 0.82, 0, 1, 1, 1) end
-        if r.guessed then GameTooltip:AddLine("Vendor price estimated: visit a vendor that sells it to learn the real one.", 0.6, 0.6, 0.6, true) end
-        if r.missing then GameTooltip:AddLine("Some reagents have no price yet: scan the auction house.", 1, 0.5, 0.5, true) end
+            GameTooltip:AddDoubleLine(L["Materials"], ns.Money(r.cost), 1, 0.82, 0, 1, 1, 1)
+        else GameTooltip:AddDoubleLine(L["Profit per craft"], (r.profit >= 0 and "|cff55ff55" or "|cffff7070") .. ns.Money(math.abs(r.profit))
+            .. (r.profit < 0 and L[" loss"] or "") .. "|r", 1, 0.82, 0, 1, 1, 1) end
+        if r.guessed then GameTooltip:AddLine(L["Vendor price estimated: visit a vendor that sells it to learn the real one."], 0.6, 0.6, 0.6, true) end
+        if r.missing then GameTooltip:AddLine(L["Some reagents have no price yet: scan the auction house."], 1, 0.5, 0.5, true) end
         GameTooltip:Show()
     end
 
@@ -1088,8 +1302,8 @@ ns.BuildCraftPage = function(page, style)
     hint:SetPoint("BOTTOMLEFT", 6, 6)
     hint:SetWidth(710)
     hint:SetJustifyH("LEFT")
-    hint:SetText("Colored names: recipes you know (color = skill-up chance). Grey: not learned yet, with the skill it needs. " ..
-        "Hover a line for the reagents. \"Can make\" counts bags and bank. Visit trainers to add their recipes.")
+    hint:SetText(L["Colored names: recipes you know (color = skill-up chance). Grey: not learned yet, with the skill it needs. "] ..
+        L["Hover a line for the reagents. \"Can make\" counts bags and bank. Visit trainers to add their recipes."])
 
     Refresh = function()
         filter = filter == "mine" and (ns.db.craftTab or "mine") or filter
@@ -1100,7 +1314,15 @@ ns.BuildCraftPage = function(page, style)
         local i, listed = 1, {}
         for _, p in ipairs(PROFESSIONS) do
             i = i + 1
-            SubTab(i, p.name, p.short, p.icon)
+            local full = p.name == "Mining" and L["Smelting"] or p.name
+            local label = p.short
+            if not englishClient then
+                local loc = SpellNameOf(p.name == "Mining" and 2656 or PROF_SPELLS[p.name])
+                if loc and loc ~= "" then full = loc end
+                label = (SHORT_LABELS[GetLocale()] or {})[p.name] or full
+            full = (FULL_LABELS[GetLocale()] or {})[p.name] or full
+            end
+            SubTab(i, p.name, label, p.icon, full)
             listed[p.name] = true
         end
         for prof in pairs(KnownProfessions()) do
@@ -1111,7 +1333,7 @@ ns.BuildCraftPage = function(page, style)
         end
         for j = i + 1, #tabs do tabs[j]:Hide() end
 
-        sub:SetText(("Profit after the 5%% auction cut  ·  %s"):format(ns.PriceSourceText and ns.PriceSourceText() or ""))
+        sub:SetText((L["Profit after the 5%% auction cut  ·  %s"]):format(ns.PriceSourceText and ns.PriceSourceText() or ""))
 
         local list = Evaluate(filter ~= "mine" and filter or nil, filter == "mine" or mineOnly)
         for i, r in ipairs(list) do
@@ -1125,17 +1347,17 @@ ns.BuildCraftPage = function(page, style)
                 row.name:SetText("|cffa0a0a0" .. r.name .. "|r" .. ((r.req and r.req > 0) and ("  |cff777777(" .. (r.reqGuessed and "~" or "") .. r.req .. ")|r") or ""))
             end
             if r.enchant then
-                row.profit:SetText(r.missing and "|cff777777?|r" or "|cff777777-|r")
+                row.profit:SetText(r.missing and L["|cff777777?|r"] or L["|cff777777-|r"])
             elseif r.missing then
-                row.profit:SetText("|cff777777?|r")
+                ns.LText(row.profit, "|cff777777?|r")
             elseif r.profit >= 0 then
                 row.profit:SetText("|cff55ff55" .. ns.Money(r.profit, true) .. "|r")
             else
-                row.profit:SetText("|cffff7070-" .. ns.Money(-r.profit, true) .. "|r")
+                row.profit:SetText(L["|cffff7070-"] .. ns.Money(-r.profit, true) .. "|r")
             end
-            row.value:SetText(r.enchant and "|cff99ccffEnchant|r" or ns.Money(r.value, true))
+            row.value:SetText(r.enchant and L["|cff99ccffEnchant|r"] or ns.Money(r.value, true))
             row.cost:SetText((r.guessed and "~" or "") .. ns.Money(r.cost, true))
-            row.can:SetText(r.canMake > 0 and ("|cffffffff%d|r"):format(r.canMake) or "|cff7777770|r")
+            row.can:SetText(r.canMake > 0 and (L["|cffffffff%d|r"]):format(r.canMake) or L["|cff7777770|r"])
             row:Show()
         end
         for i = #list + 1, #rows do rows[i]:Hide() end
@@ -1143,12 +1365,12 @@ ns.BuildCraftPage = function(page, style)
         if #list == 0 then
             local knowsHere = filter ~= "mine" and CharRecipes()[filter] and next(CharRecipes()[filter].list or {})
             empty:SetText(filter == "mine" and #Professions() == 0
-                and "Open a profession window (e.g. Alchemy) so Gathercraft can read your recipes."
+                and L["Open a profession window (e.g. Alchemy) so Gathercraft can read your recipes."]
                 or filter ~= "mine" and mineOnly and not knowsHere
-                and ("You don't know any %s recipes on this character yet. Untick \"Only recipes I know\" to see all of them."):format(filter)
+                and (L["You don't know any %s recipes on this character yet. Untick \"Only recipes I know\" to see all of them."]):format(filter)
                 or filter ~= "mine" and not next(AllRecipes(filter))
-                and "No recipes for this profession yet. Visit its trainer once (any character) to add them."
-                or "No recipe with a known price yet. Scan the auction house (Gathercraft tab there).")
+                and L["No recipes for this profession yet. Visit its trainer once (any character) to add them."]
+                or L["No recipe with a known price yet. Scan the auction house (Gathercraft tab there)."])
             empty:Show()
         else
             empty:Hide()

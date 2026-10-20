@@ -1,4 +1,5 @@
 local ADDON_NAME, ns = ...
+local L = ns.L or setmetatable({}, { __index = function(_, k) return k end })
 
 ---------------------------------------------------------------------------
 -- Node pins on the world map and minimap (HereBeDragons)
@@ -47,10 +48,10 @@ local function ShowTooltip(pin)
     GameTooltip:SetOwner(pin, "ANCHOR_RIGHT")
     GameTooltip:AddLine(n.name, 1, 1, 1)
     if n.type then
-        GameTooltip:AddLine(TYPE_LABELS[n.type] or n.type, 0.6, 0.6, 0.6)
+        GameTooltip:AddLine(L[TYPE_LABELS[n.type] or n.type], 0.6, 0.6, 0.6)
     end
     if (n.count or 1) > 0 then
-        GameTooltip:AddLine(("Seen %d times"):format(n.count or 1), 0.8, 0.8, 0.8)
+        GameTooltip:AddLine((L["Seen %d times"]):format(n.count or 1), 0.8, 0.8, 0.8)
     end
     if ns.SkillTooltip then
         ns.SkillTooltip(GameTooltip, n)
@@ -58,15 +59,15 @@ local function ShowTooltip(pin)
     if n.item and ns.GetPrice then
         local price, source = ns.GetPrice(n.item)
         if price then
-            GameTooltip:AddLine(("Worth: %s each  |cff999999(%s)|r"):format(ns.Money(price), source), 1, 1, 1)
+            GameTooltip:AddLine((L["Worth: %s each  |cff999999(%s)|r"]):format(ns.Money(price), source), 1, 1, 1)
         end
     end
     if n.source == "sync" then
-        GameTooltip:AddLine("Shared by other players", 0.4, 0.8, 1)
+        GameTooltip:AddLine(L["Shared by other players"], 0.4, 0.8, 1)
     elseif n.source == "questie" then
-        GameTooltip:AddLine("Known spawn point (Questie data)", 0.8, 0.7, 1)
+        GameTooltip:AddLine(L["Known spawn point (Questie data)"], 0.8, 0.7, 1)
     elseif n.source == "starter" then
-        GameTooltip:AddLine("From the beta database (not confirmed yet)", 0.8, 0.7, 1)
+        GameTooltip:AddLine(L["From the beta database (not confirmed yet)"], 0.8, 0.7, 1)
     end
     local others = pin.others or (pin.othersOf and pin.othersOf.others)
     if others and #others > 0 then
@@ -78,11 +79,11 @@ local function ShowTooltip(pin)
             end
         end
         if #names > 0 then
-            GameTooltip:AddLine("Shared spawn point, can also be: " .. table.concat(names, ", "), 1, 0.82, 0.3, true)
+            GameTooltip:AddLine(L["Shared spawn point, can also be: "] .. table.concat(names, ", "), 1, 0.82, 0.3, true)
         end
     end
     if ns.IsOnCooldown(n) then
-        GameTooltip:AddLine(("Harvested, respawn in ~%ds"):format(n.emptyUntil - time()), 1, 0.5, 0.5)
+        GameTooltip:AddLine((L["Harvested, respawn in ~%ds"]):format(n.emptyUntil - time()), 1, 0.5, 0.5)
     end
     GameTooltip:Show()
 end
@@ -286,7 +287,7 @@ if not (HBD and HBDPins) then
     local warn = CreateFrame("Frame")
     warn:RegisterEvent("PLAYER_LOGIN")
     warn:SetScript("OnEvent", function()
-        ns.Print("|cffff5555HereBeDragons not found, map pins are disabled.|r")
+        ns.Print(L["|cffff5555HereBeDragons not found, map pins are disabled.|r"])
     end)
     return
 end
@@ -295,7 +296,7 @@ table.insert(ns.nodeListeners, OnNodesChanged)
 
 ns.TogglePins = function()
     ns.db.pinsHidden = not ns.db.pinsHidden
-    ns.Print("Map pins " .. (ns.db.pinsHidden and "|cffff0000hidden|r" or "|cff00ff00shown|r"))
+    ns.Print(L["Map pins "] .. (ns.db.pinsHidden and L["|cffff0000hidden|r"] or L["|cff00ff00shown|r"]))
     Rebuild()
 end
 
@@ -319,3 +320,35 @@ loader:SetScript("OnEvent", function(_, event)
         end
     end)
 end)
+
+-- /gcr pintest : why nodes of this zone have (no) pins
+ns.PinTest = function()
+    local mapID = ns.GetPlayerPos and ns.GetPlayerPos()
+    ns.Print(("Pin check for %s (%s), pins hidden: %s"):format(tostring(mapID and ns.GetZoneName(mapID)), tostring(mapID),
+        tostring(ns.db.pinsHidden)))
+    local stats = {}
+    local sample = {}
+    for _, n in ipairs((mapID and ns.db.nodes[mapID]) or {}) do
+        local t = n.type or "?"
+        local s = stats[t] or { total = 0, enabled = 0, pinned = 0, shared = 0 }
+        stats[t] = s
+        s.total = s.total + 1
+        if ns.IsNodeEnabled(n, mapID) then s.enabled = s.enabled + 1 end
+        local p = pinsByNode[n]
+        if p and p.world then s.pinned = s.pinned + 1 end
+        if p and p.sharedWith then s.shared = s.shared + 1 end
+        if not sample[t] then sample[t] = n end
+    end
+    for t, s in pairs(stats) do
+        print(("  %s: %d nodes, %d enabled, %d with pin, %d shared"):format(t, s.total, s.enabled, s.pinned, s.shared))
+        local n = sample[t]
+        local p = pinsByNode[n]
+        local w = p and (p.world or (p.sharedWith))
+        print(("    e.g. %s id=%s key=%s item=%s icon=%s shown=%s"):format(tostring(n.name), tostring(n.id), tostring(ns.KindKey(n)),
+            tostring(n.item), tostring(NodeIcon(n)), tostring(w and w:IsShown())))
+    end
+    local nKinds, nCont = 0, 0
+    for _ in pairs(ns.db.disabledKinds or {}) do nKinds = nKinds + 1 end
+    for _ in pairs(ns.db.disabledContinentKinds or {}) do nCont = nCont + 1 end
+    print(("  unticked materials: %d in zones, %d on continents"):format(nKinds, nCont))
+end

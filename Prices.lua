@@ -1,4 +1,5 @@
 local ADDON_NAME, ns = ...
+local L = ns.L or setmetatable({}, { __index = function(_, k) return k end })
 
 ---------------------------------------------------------------------------
 -- Prices: what the things you gather (and craft) are worth
@@ -106,8 +107,8 @@ local function GetPrice(itemID)
 end
 
 -- "12g 34s", "34s 5c", "5c"
-local G, S, C = "|cffffd700g|r", "|cffc7c7cfs|r", "|cffeda55fc|r"
 local function Money(copper, short)
+    local G, S, C = L["|cffffd700g|r"], L["|cffc7c7cfs|r"], L["|cffeda55fc|r"]
     copper = math.floor((copper or 0) + 0.5)
     if copper < 0 then return "-" .. Money(-copper, short) end
     local g, s, c = math.floor(copper / 10000), math.floor(copper / 100) % 100, copper % 100
@@ -213,9 +214,9 @@ local function UpdateButton()
     if not scanButton then return end
     local left = Cooldown()
     if scan then
-        SetButton("Scanning...", false)
+        SetButton(L["Scanning..."], false)
     elseif left > 0 then
-        SetButton(("Gathercraft %d:%02d"):format(math.floor(left / 60), left % 60), false)
+        SetButton((L["Gathercraft %d:%02d"]):format(math.floor(left / 60), left % 60), false)
     else
         SetButton("Gathercraft Scan", true)
     end
@@ -285,7 +286,7 @@ local function FinishScan()
     end
     -- a full scan shows everything: items no longer listed have no price now
     p.items, p.qty, p.seen, p.scanned = items, qty, seen, now
-    ns.Print(("Auction house scanned: %d auctions, prices for %d items."):format(scan.total, count))
+    ns.Print((L["Auction house scanned: %d auctions, prices for %d items."]):format(scan.total, count))
     scan = nil
     UpdateButton()
     if CheckAlerts then CheckAlerts() end
@@ -329,7 +330,7 @@ local function OnReplicateReady()
     scan.index = 0
     ns.Debug(("SCAN %d auctions ready, first index %d"):format(scan.total, scan.base))
     if scan.total == 0 then
-        ns.Print("The auction house sent no auctions. Try again in a moment.")
+        ns.Print(L["The auction house sent no auctions. Try again in a moment."])
         scan = nil
         UpdateButton()
         return
@@ -339,35 +340,35 @@ end
 
 local function StartScan()
     if not (AH and AH.ReplicateItems) then
-        ns.Print("This client has no full auction house scan.")
+        ns.Print(L["This client has no full auction house scan."])
         return
     end
     if not ahOpen then
-        ns.Print("Open the auction house first.")
+        ns.Print(L["Open the auction house first."])
         return
     end
     if scan then
-        ns.Print("Scan is already running...")
+        ns.Print(L["Scan is already running..."])
         return
     end
     local left = Cooldown()
     if left > 0 then
-        ns.Print(("The server allows one full scan every 15 minutes. Next scan in %d:%02d."):format(math.floor(left / 60), left % 60))
+        ns.Print((L["The server allows one full scan every 15 minutes. Next scan in %d:%02d."]):format(math.floor(left / 60), left % 60))
         return
     end
     local ok, err = pcall(AH.ReplicateItems)
     if not ok then
-        ns.Print("Scan failed: " .. tostring(err))
+        ns.Print(L["Scan failed: "] .. tostring(err))
         return
     end
     PriceDB().lastScanStart = time()
     scan = { state = "waiting", started = GetTime(), acc = {} }
-    ns.Print("Scanning the auction house... (this takes a few seconds)")
+    ns.Print(L["Scanning the auction house... (this takes a few seconds)"])
     UpdateButton()
     C_Timer.After(SCAN_TIMEOUT, function()
         if scan and scan.state == "waiting" then
             scan = nil
-            ns.Print("The auction house didn't answer. Try again later.")
+            ns.Print(L["The auction house didn't answer. Try again later."])
             UpdateButton()
         end
     end)
@@ -440,15 +441,15 @@ local function CreateScanButton()
     scanButton:SetScript("OnClick", StartScan)
     scanButton:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_TOP")
-        GameTooltip:AddLine("Gathercraft price scan")
-        GameTooltip:AddLine("Reads every auction once and keeps a market price per item for gold per hour and profit.", 1, 1, 1, true)
+        GameTooltip:AddLine(L["Gathercraft price scan"])
+        GameTooltip:AddLine(L["Reads every auction once and keeps a market price per item for gold per hour and profit."], 1, 1, 1, true)
         local p = PriceDB()
         if p and (p.scanned or 0) > 0 then
-            GameTooltip:AddLine(("Last scan: %d min ago"):format(math.floor((time() - p.scanned) / 60)), 0.7, 0.7, 0.7)
+            GameTooltip:AddLine((L["Last scan: %d min ago"]):format(math.floor((time() - p.scanned) / 60)), 0.7, 0.7, 0.7)
         end
         local left = Cooldown()
         if left > 0 then
-            GameTooltip:AddLine("The server allows one full scan every 15 minutes.", 1, 0.5, 0.5, true)
+            GameTooltip:AddLine(L["The server allows one full scan every 15 minutes."], 1, 0.5, 0.5, true)
         end
         GameTooltip:Show()
     end)
@@ -555,7 +556,7 @@ ahEvents:SetScript("OnEvent", function(_, event, arg)
         ahOpen = false
         if scan and scan.state == "waiting" then
             scan = nil
-            ns.Print("Auction house closed, scan cancelled.")
+            ns.Print(L["Auction house closed, scan cancelled."])
         end
     elseif event == "REPLICATE_ITEM_LIST_UPDATE" then
         OnReplicateReady()
@@ -582,16 +583,16 @@ local function AddTooltipPrice(tooltip, itemID)
     local price = p and p.items[itemID]
     if not price then return end
     local mins = math.floor(PriceAge(p, itemID) / 60)
-    local age = mins < 1 and "just now" or mins < 60 and (mins .. " min ago")
-        or mins < 2880 and (math.floor(mins / 60) .. " h ago") or (math.floor(mins / 1440) .. " days ago")
-    local extra = ("%d listed, %s"):format(p.qty[itemID] or 0, age)
-    tooltip:AddDoubleLine("|cffffd060Gathercraft|r AH", Money(price) .. "  |cff999999(" .. extra .. ")|r", 1, 1, 1, 1, 1, 1)
+    local age = mins < 1 and L["just now"] or mins < 60 and (mins .. L[" min ago"])
+        or mins < 2880 and (math.floor(mins / 60) .. L[" h ago"]) or (math.floor(mins / 1440) .. L[" days ago"])
+    local extra = (L["%d listed, %s"]):format(p.qty[itemID] or 0, age)
+    tooltip:AddDoubleLine(L["|cffffd060Gathercraft|r AH"], Money(price) .. "  |cff999999(" .. extra .. ")|r", 1, 1, 1, 1, 1, 1)
     local usual = ns.UsualPrice and ns.UsualPrice(itemID)
     if usual and usual > 0 then
         local ratio = price / usual
         if ratio >= 1.2 or ratio <= 0.8 then
             local color = ratio > 1 and "|cff55ff55" or "|cffff7070"
-            tooltip:AddDoubleLine("    usually", ("%s  %s%+d%%|r"):format(Money(usual), color, math.floor((ratio - 1) * 100 + 0.5)),
+            tooltip:AddDoubleLine(L["    usually"], ("%s  %s%+d%%|r"):format(Money(usual), color, math.floor((ratio - 1) * 100 + 0.5)),
                 0.7, 0.7, 0.7, 1, 1, 1)
         end
     end
@@ -678,7 +679,11 @@ local function HotItems()
 end
 
 local function ItemName(itemID)
-    return (C_Item and C_Item.GetItemNameByID and C_Item.GetItemNameByID(itemID)) or GatherItems()[itemID] or ("item " .. itemID)
+    local name = C_Item and C_Item.GetItemNameByID and C_Item.GetItemNameByID(itemID)
+    if name then return name end
+    -- not loaded yet: ask for it (next time it's there), meanwhile the shipped list
+    if C_Item and C_Item.RequestLoadItemDataByID then pcall(C_Item.RequestLoadItemDataByID, itemID) end
+    return GatherItems()[itemID] or (ns.ShippedItemName and ns.ShippedItemName(itemID)) or (L["item "] .. itemID)
 end
 
 CheckAlerts = function()
@@ -696,11 +701,11 @@ CheckAlerts = function()
     local parts = {}
     for i = 1, math.min(3, #fresh) do
         local h = fresh[i]
-        parts[#parts + 1] = ("%s %s (usually %s, x%.1f)"):format(ItemName(h.id), Money(h.price), Money(h.usual), h.ratio)
+        parts[#parts + 1] = (L["%s %s (usually %s, x%.1f)"]):format(ItemName(h.id), Money(h.price), Money(h.usual), h.ratio)
     end
-    ns.Print("|cffffd060Price alert:|r " .. table.concat(parts, " · ")
-        .. (#fresh > 3 and (" and %d more"):format(#fresh - 3) or "")
-        .. "  |cff999999Farm Spots shows where to farm it.|r")
+    ns.Print(L["|cffffd060Price alert:|r "] .. table.concat(parts, " · ")
+        .. (#fresh > 3 and (L[" and %d more"]):format(#fresh - 3) or "")
+        .. L["  |cff999999Farm Spots shows where to farm it.|r"])
     if PlaySound and SOUNDKIT and SOUNDKIT.AUCTION_WINDOW_OPEN then PlaySound(SOUNDKIT.AUCTION_WINDOW_OPEN) end
 end
 
@@ -762,12 +767,12 @@ ns.PriceSourceText = function()
     end
     if last > 0 and time() - last < MAX_PRICE_AGE then
         local mins = math.floor((time() - last) / 60)
-        local age = mins < 60 and (mins .. " min") or mins < 2880 and (math.floor(mins / 60) .. " h") or (math.floor(mins / 1440) .. " days")
-        return "prices: auction house, updated " .. age .. " ago"
+        local age = mins < 60 and (mins .. L[" min"]) or mins < 2880 and (math.floor(mins / 60) .. " h") or (math.floor(mins / 1440) .. L[" days"])
+        return L["prices: auction house, updated "] .. age .. L[" ago"]
     end
     local api = Auctionator and Auctionator.API and Auctionator.API.v1
-    if api then return "prices: Auctionator (scan at the auction house for our own)" end
-    return "prices: vendor (scan at the auction house for real prices)"
+    if api then return L["prices: Auctionator (scan at the auction house for our own)"] end
+    return L["prices: vendor (scan at the auction house for real prices)"]
 end
 ns.StartScan = StartScan
 ns.PriceHistory = PriceHistory
