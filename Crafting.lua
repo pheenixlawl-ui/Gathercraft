@@ -567,11 +567,26 @@ ns.ReadTrainer = ReadTrainer
 ---------------------------------------------------------------------------
 -- Real vendor prices (learned at any vendor)
 ---------------------------------------------------------------------------
+-- One merchant slot: name, price, stack size, stock (-1 = unlimited), extra cost?
+-- (newer clients have C_MerchantFrame.GetItemInfo, older ones GetMerchantItemInfo)
+local function MerchantItem(i)
+    if C_MerchantFrame and C_MerchantFrame.GetItemInfo then
+        local ok, info = pcall(C_MerchantFrame.GetItemInfo, i)
+        if ok and type(info) == "table" then
+            return info.name, info.price, info.stackCount, info.numAvailable, info.hasExtendedCost
+        end
+    end
+    if GetMerchantItemInfo then
+        local name, _, price, quantity, numAvailable, _, _, extendedCost = GetMerchantItemInfo(i)
+        return name, price, quantity, numAvailable, extendedCost
+    end
+end
+
 local function LearnMerchant()
-    if not (GetMerchantNumItems and GetMerchantItemInfo) then return end
+    if not GetMerchantNumItems then return end
     ns.db.vendorPrices = ns.db.vendorPrices or {}
     for i = 1, GetMerchantNumItems() or 0 do
-        local itemName, _, price, quantity, numAvailable, _, _, extendedCost = GetMerchantItemInfo(i)
+        local itemName, price, quantity, numAvailable, extendedCost = MerchantItem(i)
         local id = ItemIDFromLink(GetMerchantItemLink and GetMerchantItemLink(i))
         if id and itemName and ns.NoteItemName then ns.NoteItemName(itemName, id) end
         -- unlimited stock, paid in gold: that's a reagent anyone can buy
@@ -926,7 +941,7 @@ events:SetScript("OnEvent", function(_, event, arg1)
         LearnMerchant()
         -- recipe items this vendor sells
         for i = 1, (GetMerchantNumItems and GetMerchantNumItems()) or 0 do
-            local name = GetMerchantItemInfo(i)
+            local name = MerchantItem(i)
             local id = ItemIDFromLink(GetMerchantItemLink and GetMerchantItemLink(i))
             if id and IsRecipeName(name) then ReadRecipeItem(id) end
         end

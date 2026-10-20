@@ -291,6 +291,15 @@ for line in toc:gmatch("[^\r\n]+") do
     end
 end
 
+-- tools/route_sim.lua uses this file only for the mini WoW: hand it the pieces
+if HARNESS_ONLY then
+    return {
+        ns = ns, fire = fire, advance = advance, player = player, errors = errors, note = note, log = log,
+        now = function() return NOW end, setLoot = function(l) loot = l end, profs = PROFS,
+        slash = function(cmd) SlashCmdList.GATHERCRAFT(cmd) end,
+    }
+end
+
 local function step(name, fn)
     local before = #errors
     local ok, err = pcall(fn)
@@ -776,6 +785,19 @@ step("Language: every language, every page", function()
         if ns.Money then ns.Money(123456) ns.Money(-77) end
     end
     ns.db.language = "auto" ns.ApplyLanguage()
+end)
+step("Merchant with the newer API only (C_MerchantFrame)", function()
+    local old = GetMerchantItemInfo
+    GetMerchantItemInfo = nil
+    C_MerchantFrame = { GetItemInfo = function(i)
+        return { name = "Coarse Thread", price = 10, stackCount = 1, numAvailable = -1, hasExtendedCost = false }
+    end }
+    GetMerchantNumItems = function() return 1 end
+    GetMerchantItemLink = function() return "|Hitem:2320::|h" end
+    ns.db.vendorPrices[2320] = nil
+    fire("MERCHANT_SHOW") advance(2)
+    assert(ns.db.vendorPrices[2320] == 10, "vendor price via C_MerchantFrame: " .. tostring(ns.db.vendorPrices[2320]))
+    GetMerchantItemInfo, C_MerchantFrame = old, nil
 end)
 step("Rare alert (nameplate + test)", function()
     classification = "rare" fire("NAME_PLATE_UNIT_ADDED", "nameplate1") classification = "normal"
