@@ -171,6 +171,18 @@ local function IsFishingCast(spellID)
     return name and fishing and name == SpellName(fishing)
 end
 
+-- Fishing session (see further down)
+local SESSION_IDLE = 300 -- seconds without casting: the session is over
+local fishing = { active = false }
+
+local function StartFishingSession()
+    fishing.active = true
+    fishing.start = GetTime()
+    fishing.catches, fishing.items, fishing.value = 0, 0, 0
+    fishing.skillStart = ns.GetSkill and ns.GetSkill("fish") or 0
+    fishing.source = nil
+end
+
 local events = CreateFrame("Frame")
 events:RegisterEvent("PLAYER_LOGIN")
 events:RegisterEvent("PLAYER_REGEN_ENABLED")
@@ -181,6 +193,8 @@ events:RegisterUnitEvent("UNIT_SPELLCAST_CHANNEL_STOP", "player")
 events:SetScript("OnEvent", function(_, event, _, _, spellID)
     if event == "UNIT_SPELLCAST_CHANNEL_START" then
         if IsFishingCast(spellID) then
+            if not fishing.active or GetTime() - (fishing.last or 0) > SESSION_IDLE then StartFishingSession() end
+            fishing.last = GetTime()
             lineOut = true
             SetReelBinding(true)
             WidenInteract()
@@ -191,6 +205,7 @@ events:SetScript("OnEvent", function(_, event, _, _, spellID)
     elseif event == "UNIT_SPELLCAST_CHANNEL_STOP" then
         if lineOut then
             lineOut = false
+            fishing.reeledAt = GetTime()
             SetReelBinding(false)
             RestoreInteract()
             C_Timer.After(0.3, Prepare)
@@ -202,6 +217,61 @@ events:SetScript("OnEvent", function(_, event, _, _, spellID)
         Prepare()
     end
 end)
+
+---------------------------------------------------------------------------
+-- Fishing session: catches, catches per hour, gold per hour, skill points
+--   Starts with your first cast, ends after a few idle minutes (or Stop on
+--   the panel). The farm panel shows it while no farm run is going.
+---------------------------------------------------------------------------
+
+local function ReadLoot()
+    local items = {}
+    for slot = 1, (GetNumLootItems and GetNumLootItems() or 0) do
+        local link = GetLootSlotLink and GetLootSlotLink(slot)
+        local id = link and tonumber(link:match("item:(%d+)"))
+        if id then
+            local qty = GetLootSlotInfo and select(3, GetLootSlotInfo(slot))
+            items[#items + 1] = { id = id, qty = tonumber(qty) or 1 }
+        end
+    end
+    return items
+end
+
+local function OnFishingLoot()
+    local isFish = IsFishingLoot and IsFishingLoot()
+    if not isFish and not (fishing.reeledAt and GetTime() - fishing.reeledAt < 4) then return end
+    fishing.reeledAt = nil
+    if not fishing.active then StartFishingSession() end
+    local items = ReadLoot()
+    if #items == 0 then return end
+    local value, source = 0, nil
+    if ns.LootValue then value, source = ns.LootValue(items) end
+    fishing.catches = fishing.catches + 1
+    for _, it in ipairs(items) do fishing.items = fishing.items + it.qty end
+    fishing.value = fishing.value + value
+    fishing.source = fishing.source or source
+    fishing.last = GetTime()
+    if ns.AddSessionValue then ns.AddSessionValue(value, source) end
+    ns.Debug(("FISH catch %d: %d item(s), worth %s"):format(fishing.catches, #items, ns.Money and ns.Money(value) or value))
+end
+
+local lootEvents = CreateFrame("Frame")
+lootEvents:RegisterEvent("LOOT_READY")
+lootEvents:SetScript("OnEvent", OnFishingLoot)
+
+-- Current session or nil (ended or idle too long)
+ns.FishingSession = function()
+    if fishing.active and GetTime() - (fishing.last or fishing.start) > SESSION_IDLE and not lineOut then
+        fishing.active = false
+    end
+    return fishing.active and fishing or nil
+end
+ns.StopFishing = function() fishing.active = false end
+-- Seconds left on the lure, or nil
+ns.LureTimeLeft = function()
+    local has, expiration = GetWeaponEnchantInfo()
+    if has and expiration then return math.floor(expiration / 1000) end
+end
 
 _G["BINDING_NAME_" .. BINDING] = "Fish (pole, lure, cast, reel in)"
 ns.FishBinding = BINDING

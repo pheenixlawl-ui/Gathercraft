@@ -506,6 +506,161 @@ step("Best place to farm", function()
     advance(30)
     slash("stop")
 end)
+step("Crafting: learn recipes, profit, can make", function()
+    -- classic profession window: Alchemy with two potions
+    local skills = {
+        { "Alchemy", "header" },
+        { "Minor Healing Potion", "optimal", 118, { { 2447, 1 }, { 765, 1 }, { 3371, 1 } } },
+        { "Elixir of Lion's Strength", "easy", 2454, { { 2449, 1 }, { 765, 1 }, { 3371, 1 } } },
+    }
+    GetTradeSkillLine = function() return "Alchemy", 60, 150 end
+    GetNumTradeSkills = function() return #skills end
+    GetTradeSkillInfo = function(i) return skills[i][1], skills[i][2] end
+    GetTradeSkillItemLink = function(i) return skills[i][3] and ("|Hitem:" .. skills[i][3] .. "::|h") end
+    GetTradeSkillNumMade = function() return 1, 1 end
+    GetTradeSkillNumReagents = function(i) return #skills[i][4] end
+    GetTradeSkillReagentInfo = function(i, r) return "Reagent", 134400, skills[i][4][r][2], 0 end
+    GetTradeSkillReagentItemLink = function(i, r) return "|Hitem:" .. skills[i][4][r][1] .. "::|h" end
+    fire("TRADE_SKILL_SHOW") advance(1)
+    -- a vendor sells Empty Vials for 4c
+    GetMerchantNumItems = function() return 1 end
+    GetMerchantItemInfo = function() return "Empty Vial", 134400, 20, 5, -1, true, false, nil end
+    GetMerchantItemLink = function() return "|Hitem:3371::|h" end
+    fire("MERCHANT_SHOW")
+    -- auction prices for the products
+    local realm = next(ns.db.prices)
+    ns.db.prices[realm].items[118] = 300
+    ns.db.prices[realm].items[2454] = 50
+    ns.db.prices[realm].seen[118] = time() ns.db.prices[realm].seen[2454] = time()
+    -- a Tailoring trainer (we don't have Tailoring): Linen Bag needs skill 45
+    GetNumTrainerServices = function() return 2 end
+    GetTrainerServiceInfo = function(i) return ({ "Tailoring", "Linen Bag" })[i], nil, i == 1 and "header" or "unavailable" end
+    GetTrainerServiceItemLink = function(i) return i == 2 and "|Hitem:4238::|h" or nil end
+    GetTrainerServiceSkillReq = function() return "Tailoring", 45, false end
+    GetTrainerServiceNumReagents = function() return 2 end
+    GetTrainerServiceReagentInfo = function(i, r) return "R", 1, r == 1 and 3 or 1 end
+    GetTrainerServiceReagentLink = function(i, r) return "|Hitem:" .. (r == 1 and 2589 or 2320) .. "::|h" end
+    GetTrainerServiceTypeFilter = function() return 1 end
+    IsTradeskillTrainer = function() return true end
+    fire("TRAINER_SHOW") advance(1)
+    ns.TrainerTest()
+    ns.db.prices[next(ns.db.prices)].items[4238] = 900
+    local tailor = ns.CraftAdvice("Tailoring")
+    assert(#tailor == 1 and not tailor[1].learned and tailor[1].req == 45, "trainer recipe")
+    note("craft trainer", tailor[1].name, "req", tailor[1].req, "profit", math.floor(tailor[1].profit))
+    -- a vendor sells "Pattern: Linen Reagent Bag": read it from the tooltip
+    local oldName = C_Item.GetItemNameByID
+    local names = { [253664] = "Pattern: Linen Reagent Bag", [2996] = "Bolt of Linen Cloth", [2320] = "Coarse Thread", [999001] = "Linen Reagent Bag" }
+    C_Item.GetItemNameByID = function(id) return names[id] or oldName(id) end
+    C_TooltipInfo = { GetItemByID = function(id)
+        if id ~= 253664 then return nil end
+        local t = { "Pattern: Linen Reagent Bag", "\nLinen Reagent Bag", "Binds when equipped", "6 Slot Reagent Bag",
+            "Use: Teaches you how to craft Linen Reagent Bag.", "Bolt of Linen Cloth (6), Coarse Thread (6)", "Requires Tailoring (5)" }
+        local lines = {}
+        for _, x in ipairs(t) do lines[#lines + 1] = { leftText = x } end
+        return { lines = lines }
+    end }
+    GetMerchantNumItems = function() return 1 end
+    GetMerchantItemInfo = function() return "Pattern: Linen Reagent Bag", 134400, 500, 1, 1, true, false, nil end
+    GetMerchantItemLink = function() return "|Hitem:253664::|h" end
+    fire("MERCHANT_SHOW") advance(2)
+    local pend = ns.db.recipePending and ns.db.recipePending.Tailoring and ns.db.recipePending.Tailoring["Linen Reagent Bag"]
+    note("recipe item pending (names unknown yet):", tostring(pend))
+    ns.db.prices[next(ns.db.prices)].items[2996] = 80
+    ns.db.prices[next(ns.db.prices)].items[999001] = 2500
+    fire("MERCHANT_SHOW") advance(2)
+    local got = ns.db.recipeDB.Tailoring and ns.db.recipeDB.Tailoring["Linen Reagent Bag"]
+    note("recipe item stored:", tostring(got))
+    assert(got == "999001:1:1:5|2996:6,2320:6", "recipe item not resolved: " .. tostring(got))
+    C_Item.GetItemNameByID = oldName C_TooltipInfo = nil
+    local rows = ns.CraftAdvice()
+    for _, r in ipairs(rows) do
+        note("craft", r.name, "profit", math.floor(r.profit), "value", math.floor(r.value), "cost", math.floor(r.cost), "can", r.canMake, "missing", tostring(r.missing))
+    end
+    assert(#rows == 2 and rows[1].name == "Minor Healing Potion", "craft ranking")
+    ns.ToggleMain("craft") advance(1)
+    ns.db.craftTab = "Tailoring" ns.ToggleMain("overview") ns.ToggleMain("craft") advance(1)
+    ns.db.craftTab = "mine"
+    slash("crafttest")
+    ns.HideMain()
+end)
+step("Crafting: trainer without links (Forever), tooltip reagents", function()
+    local oldName = C_Item.GetItemNameByID
+    local names = { [2996] = "Bolt of Linen Cloth", [2320] = "Coarse Thread", [4307] = "Heavy Linen Gloves" }
+    ns.NoteItemName("Strange Dust", 10940) -- seen in an auction house scan, not loaded now
+    ns.db.prices[next(ns.db.prices)].items[10940] = 40
+    C_Item.GetItemNameByID = function(id) return names[id] or oldName(id) end
+    local realm = next(ns.db.prices)
+    ns.db.prices[realm].items[4307] = 700 ns.db.prices[realm].items[2320] = 10 ns.db.prices[realm].items[2996] = 80
+    GetNumTrainerServices = function() return 4 end
+    GetTrainerServiceInfo = function(i) return ({ "Tailoring", "Heavy Linen Gloves", "Journeyman Tailoring", "Enchant Chest - Inferior Stamina" })[i], nil, i == 1 and "header" or "available" end
+    GetTrainerServiceItemLink = function() return nil end
+    GetTrainerServiceSkillReq = function() return "Tailoring", 35, true end
+    GetTrainerServiceNumReagents = function() return 0 end
+    C_TooltipInfo = { GetTrainerService = function(i)
+        local t = i == 2 and { "Heavy Linen Gloves", "Requires Tailoring (35)", "Reagents: |cffff2020Bolt of Linen Cloth|r (2), Coarse Thread" }
+            or i == 4 and { "Enchanting: Enchant Chest - Inferior Stamina", "", "Tools: Runed Copper Rod", "Reagents: \nStrange Dust" }
+            or { "Journeyman Tailoring", "Allows you to learn more." }
+        local lines = {}
+        for _, x in ipairs(t) do lines[#lines + 1] = { leftText = x } end
+        return { lines = lines }
+    end }
+    fire("TRAINER_SHOW") advance(1)
+    ns.TrainerTest()
+    local got = ns.db.recipeDB.Tailoring["Heavy Linen Gloves"]
+    note("forever trainer stored:", tostring(got))
+    note("PENDING", ns.db.recipePending and ns.db.recipePending.Tailoring and ns.db.recipePending.Tailoring["Heavy Linen Gloves"])
+    assert(got == "4307:1:1:35|2996:2,2320:1", "forever trainer: " .. tostring(got) .. " pending " .. tostring(ns.db.recipePending and ns.db.recipePending.Tailoring and ns.db.recipePending.Tailoring["Heavy Linen Gloves"]))
+    local ench = ns.db.recipeDB.Tailoring["Enchant Chest - Inferior Stamina"]
+    assert(ench == "0:1:1:35|10940:1", "enchant: " .. tostring(ench))
+    local erows = ns.CraftAdvice("Tailoring")
+    local e
+    for _, r in ipairs(erows) do if r.enchant then e = r end end
+    assert(e and not e.missing and e.cost == 40, "enchant row")
+    ns.db.craftTab = "Tailoring" ns.ToggleMain("craft") advance(1) ns.HideMain()
+    C_Item.GetItemNameByID = oldName C_TooltipInfo = nil
+end)
+step("Crafting: item names load later (not cached)", function()
+    local oldName, oldReq = C_Item.GetItemNameByID, C_Item.RequestLoadItemDataByID
+    local loaded, asked = {}, 0
+    C_Item.GetItemNameByID = function(id) return loaded[id] and ("Thing" .. id) or nil end
+    C_Item.RequestLoadItemDataByID = function(id) asked = asked + 1 end
+    ns.db.itemNames = {}
+    local realm = next(ns.db.prices)
+    ns.db.prices[realm].items[55501] = 100
+    ns.db.recipePending = { Alchemy = { ["Thing55502"] = "1|Thing55501:2" } }
+    ns.db.prices[realm].items[55502] = 900
+    ns.LearnPriceNames() advance(5)
+    assert(asked > 0, "no load requests")
+    loaded[55501], loaded[55502] = true, true
+    fire("GET_ITEM_INFO_RECEIVED", 55501, true) fire("GET_ITEM_INFO_RECEIVED", 55502, true) advance(5)
+    note("names loaded later:", tostring(ns.db.itemNames["thing55501"]), "recipe", tostring(ns.db.recipeDB.Alchemy and ns.db.recipeDB.Alchemy["Thing55502"]))
+    assert(ns.db.recipeDB.Alchemy["Thing55502"] == "55502:1:1:1|55501:2", "late names " .. tostring(ns.db.itemNames["thing55501"]) .. " " .. tostring(ns.db.recipePending.Alchemy["Thing55502"]))
+    -- an enchanting formula: no item, line 2 is already the "Use:" text
+    loaded[10940] = true ns.NoteItemName("Strange Dust", 10940)
+    C_TooltipInfo = { GetItemByID = function(id)
+        if id ~= 6342 then return nil end
+        local lines = {}
+        for _, x in ipairs({ "Formula: Enchant Chest - Minor Mana", "Use: Teaches you how to permanently enchant a piece of chest armor to grant +20 mana.",
+            "Strange Dust (2)", "Requires Enchanting (20)" }) do lines[#lines + 1] = { leftText = x } end
+        return { lines = lines }
+    end }
+    GetMerchantNumItems = function() return 1 end
+    GetMerchantItemInfo = function() return "Formula: Enchant Chest - Minor Mana", 134400, 300, 1, 1, true, false, nil end
+    GetMerchantItemLink = function() return "|Hitem:6342::|h" end
+    fire("MERCHANT_SHOW") advance(2)
+    local f = ns.db.recipeDB.Enchanting and ns.db.recipeDB.Enchanting["Enchant Chest - Minor Mana"]
+    assert(f == "0:1:1:20|10940:2", "formula: " .. tostring(f))
+    C_TooltipInfo = nil
+    C_Item.GetItemNameByID, C_Item.RequestLoadItemDataByID = oldName, oldReq
+end)
+step("Crafting: names from the shipped item list", function()
+    assert(GathercraftItemNames and GathercraftItemNames:find("10940\tStrange Dust"), "ItemNames.lua not loaded")
+    ns.db.itemNames = {}
+    ns.db.recipePending = { Enchanting = { ["Enchant Bracer - Minor Health"] = "1|Strange Dust:1" } }
+    ns.ResolvePending()
+    assert(ns.db.recipeDB.Enchanting["Enchant Bracer - Minor Health"] == "0:1:1:1|10940:1", "shipped names")
+end)
 step("Rare alert (nameplate + test)", function()
     classification = "rare" fire("NAME_PLATE_UNIT_ADDED", "nameplate1") classification = "normal"
     fire("NAME_PLATE_UNIT_ADDED", "nameplate2")
@@ -518,7 +673,17 @@ step("Fishing: equip, lure, cast, reel", function()
     GetWeaponEnchantInfo = function() return true end
     b.__scripts.PreClick(b) note("fish next", b.next)
     fire("UNIT_SPELLCAST_CHANNEL_START", "player", "c9", 7620)
-    fire("UNIT_SPELLCAST_CHANNEL_STOP", "player", "c9", 7620) advance(1)
+    fire("UNIT_SPELLCAST_CHANNEL_STOP", "player", "c9", 7620)
+    IsFishingLoot = function() return true end
+    loot = { { guid = "GameObject-0-1-1-1-35591-FFFF01", item = 6303, qty = 2 } }
+    fire("LOOT_READY") loot = {}
+    IsFishingLoot = nil
+    advance(1)
+    local f = ns.FishingSession()
+    assert(f and f.catches == 1 and f.items == 2, "fishing catch not counted")
+    note("fishing session catches", f.catches, "value", f.value, "panel", tostring(_G.GathercraftPanel:IsShown()))
+    assert(_G.GathercraftPanel:IsShown(), "fishing panel not shown")
+    _G.GathercraftPanel.__scripts.OnUpdate = _G.GathercraftPanel.__scripts.OnUpdate
 end)
 step("Pin tooltip", function()
     for _, f in ipairs(allFrames) do
@@ -603,7 +768,7 @@ io.write("\n--- errors: " .. #errors .. "\n")
 for _, e in ipairs(errors) do io.write("  " .. e .. "\n") end
 io.write("\n--- notable log lines:\n")
 for _, l in ipairs(log) do
-    if l:find("questie nodes") or l:find("fish next") or l:find("SOUNDFILE") or l:find("RAIDWARN") or l:find("sync sent") or l:find("empty test") or l:find("prices ok") or l:find("scan price") or l:find("TTPRICE") or l:find("advisor") or l:find("target changes") or l:find("JUMP") or l:find("harvest cost") or l:find("slim:") or l:find("learned prices") or l:find("Price alert") or l:find("scanned") or l:find("Own scan") or l:find("15 minutes") or l:find("shared spawn") or l:find("Shared spawn") or l:find("Loaded") or l:find("took over") or l:find("RECORD") or l:find("No ") or l:find("rror") then
+    if l:find("questie nodes") or l:find("fish next") or l:find("SOUNDFILE") or l:find("RAIDWARN") or l:find("sync sent") or l:find("empty test") or l:find("prices ok") or l:find("scan price") or l:find("TTPRICE") or l:find("advisor") or l:find("target changes") or l:find("JUMP") or l:find("harvest cost") or l:find("slim:") or l:find("learned prices") or l:find("fishing session") or l:find("recipe item") or l:find("craft ") or l:find("recipes") or l:find("profit") or l:find("Price alert") or l:find("scanned") or l:find("Own scan") or l:find("15 minutes") or l:find("shared spawn") or l:find("Shared spawn") or l:find("Loaded") or l:find("took over") or l:find("RECORD") or l:find("No ") or l:find("rror") then
         io.write("  " .. l:sub(1, 160) .. "\n")
     end
 end

@@ -125,7 +125,14 @@ local stopButton = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
 stopButton:SetSize(52, 20)
 stopButton:SetPoint("BOTTOMRIGHT", -8, 8)
 stopButton:SetText("Stop")
-stopButton:SetScript("OnClick", function() ns.StopRun() end)
+stopButton:SetScript("OnClick", function()
+    if panel.fishing then
+        ns.StopFishing()
+        panel:Hide()
+    else
+        ns.StopRun()
+    end
+end)
 
 local skipButton = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
 skipButton:SetSize(52, 20)
@@ -133,13 +140,51 @@ skipButton:SetPoint("RIGHT", stopButton, "LEFT", -4, 0)
 skipButton:SetText("Skip")
 skipButton:SetScript("OnClick", function() ns.SkipNode() end)
 
+local function Clock(elapsed)
+    local e = math.floor(elapsed)
+    if e >= 3600 then
+        return ("%d:%02d:%02d"):format(math.floor(e / 3600), math.floor(e % 3600 / 60), e % 60)
+    end
+    return ("%d:%02d"):format(math.floor(e / 60), e % 60)
+end
+
+-- No farm run but fishing: the same panel shows the fishing session
+local function UpdateFishingPanel(f)
+    local elapsed = GetTime() - f.start
+    local hours = math.max(elapsed / 3600, 1 / 60)
+    title:SetText("Fishing")
+    clock:SetText(Clock(elapsed))
+    cells[1]:SetText(f.catches)
+    cellLabels[1]:SetText("caught")
+    cells[2]:SetText(math.floor(f.catches / hours + 0.5))
+    cells[3]:SetText(ns.Money and ns.Money(f.value / hours, true) or "-")
+    cellLabels[3]:SetText(f.source == "vendor" and "gold / h (vendor)" or "gold / h")
+    local now = ns.GetSkill("fish") or 0
+    cells[4]:SetText(("|cff55ff55+%d|r"):format(math.max(0, now - (f.skillStart or now))))
+    local lure = ns.LureTimeLeft and ns.LureTimeLeft()
+    nextText:SetText(lure and ("|cffaaaaaaLure:|r %d min left  |cffaaaaaa· worth %s|r"):format(math.ceil(lure / 60), ns.Money(f.value))
+        or ("|cffaaaaaaNo lure  · worth|r %s"):format(ns.Money and ns.Money(f.value) or "-"))
+    skipButton:Hide()
+    if not panel:IsShown() then panel:Show() end
+end
+
 local function UpdatePanel()
     local run = ns.run
     if not run then
         RunStats()
+        local f = ns.FishingSession and ns.FishingSession()
+        if f then
+            panel.fishing = true
+            UpdateFishingPanel(f)
+            return
+        end
+        panel.fishing = nil
         if panel:IsShown() then panel:Hide() end
         return
     end
+    panel.fishing = nil
+    skipButton:Show()
+    cellLabels[1]:SetText("gathered")
     local s = RunStats()
     local elapsed = GetTime() - s.start
     local hours = math.max(elapsed / 3600, 1 / 60)

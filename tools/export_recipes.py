@@ -1,0 +1,164 @@
+#!/usr/bin/env python3
+"""
+Builds Data/RecipeData.lua from the recipes Gathercraft collected in game
+(trainers and profession windows) and saved in your SavedVariables.
+
+Usage:
+    python export_recipes.py <path to WTF/Account/<ACCOUNT>/SavedVariables/Gathercraft.lua> [more files ...]
+        -o ../Data/RecipeData.lua
+
+Several SavedVariables files (other accounts, friends) can be merged.
+Only recipe facts are written: name, product item, amount, required skill
+and reagents. Nothing about characters or players.
+"""
+import argparse, datetime, re, sys
+
+
+def parse_lua(text):
+    """Tiny parser for the SavedVariables format (tables, strings, numbers, booleans, nil)."""
+    pos = 0
+    n = len(text)
+
+    def skip():
+        nonlocal pos
+        while pos < n:
+            if text[pos] in " \t\r\n,;":
+                pos += 1
+            elif text.startswith("--", pos):
+                end = text.find("\n", pos)
+                pos = n if end < 0 else end + 1
+            else:
+                break
+
+    def value():
+        nonlocal pos
+        skip()
+        c = text[pos]
+        if c == "{":
+            pos += 1
+            out, idx = {}, 1
+            while True:
+                skip()
+                if text[pos] == "}":
+                    pos += 1
+                    return out
+                if text[pos] == "[":
+                    pos += 1
+                    key = value()
+                    skip()
+                    assert text[pos] == "]", text[pos - 20:pos + 20]
+                    pos += 1
+                    skip()
+                    assert text[pos] == "="
+                    pos += 1
+                    out[key] = value()
+                else:
+                    m = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\s*=").match(text, pos)
+                    if m:
+                        key = m.group(0).rstrip("= \t")
+                        pos = m.end()
+                        out[key] = value()
+                    else:
+                        out[idx] = value()
+                        idx += 1
+        if c == '"':
+            pos += 1
+            buf = []
+            while text[pos] != '"':
+                if text[pos] == "\\":
+                    pos += 1
+                    esc = text[pos]
+                    buf.append({"n": "\n", "t": "\t", "\\": "\\", '"': '"'}.get(esc, esc))
+                else:
+                    buf.append(text[pos])
+                pos += 1
+            pos += 1
+            return "".join(buf)
+        m = re.compile(r"-?\d+(\.\d+)?([eE][-+]?\d+)?").match(text, pos)
+        if m:
+            pos = m.end()
+            s = m.group(0)
+            return float(s) if ("." in s or "e" in s.lower()) else int(s)
+        for word, val in (("true", True), ("false", False), ("nil", None)):
+            if text.startswith(word, pos):
+                pos += len(word)
+                return val
+        raise ValueError("unexpected %r at %d" % (text[pos:pos + 30], pos))
+
+    result = {}
+    while True:
+        skip()
+        m = re.compile(r"([A-Za-z_][A-Za-z0-9_]*)\s*=").match(text, pos)
+        if not m:
+            break
+        pos = m.end()
+        result[m.group(1)] = value()
+    return result
+
+
+PACKED = re.compile(r"^(\d+):(\d+):(\d+):(\d+)\|((?:\d+:\d+,?)*)$")
+
+
+def merge(dst, prof, name, packed):
+    m = PACKED.match(packed)
+    if not m:
+        return
+    old = dst.setdefault(prof, {}).get(name)
+    if old:
+        om = PACKED.match(old)
+        # keep a known required skill and real amounts
+        req = m.group(4) if m.group(4) != "0" else om.group(4)
+        nmin, nmax = (m.group(2), m.group(3)) if (m.group(2), m.group(3)) != ("1", "1") else (om.group(2), om.group(3))
+        packed = "%s:%s:%s:%s|%s" % (m.group(1), nmin, nmax, req, m.group(5) or om.group(5))
+    dst[prof][name] = packed
+
+
+def lua_str(s):
+    return '"' + s.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("savedvariables", nargs="+")
+    ap.add_argument("-o", "--out", default="RecipeData.lua")
+    args = ap.parse_args()
+
+    recipes = {}
+    for path in args.savedvariables:
+        data = parse_lua(open(path, encoding="utf-8").read()).get("GathercraftDB") or {}
+        for prof, lst in (data.get("recipeDB") or {}).items():
+            for name, packed in lst.items():
+                merge(recipes, prof, name, packed)
+        # recipes characters know (profession window): amounts, no required skill
+        for char in (data.get("recipes") or {}).values():
+            for prof, info in char.items():
+                for name, packed in ((info or {}).get("list") or {}).items():
+                    m = PACKED.match(packed)
+                    if m:
+                        merge(recipes, prof, name, "%s:%s:%s:0|%s" % (m.group(1), m.group(2), m.group(3), m.group(5)))
+
+    version = "recipes-" + datetime.date.today().isoformat()
+    lines = [
+        "-- Generated by tools/export_recipes.py from recipes collected in game",
+        "-- (trainers and profession windows), do not edit by hand.",
+        '-- profession -> recipe name -> "product:min:max:requiredSkill|reagent:count,..."',
+        "GathercraftRecipeData = {",
+        "    version = %s," % lua_str(version),
+        "    professions = {",
+    ]
+    total = 0
+    for prof in sorted(recipes):
+        lines.append("        [%s] = {" % lua_str(prof))
+        for name in sorted(recipes[prof]):
+            lines.append("            [%s] = %s," % (lua_str(name), lua_str(recipes[prof][name])))
+            total += 1
+        lines.append("        },")
+    lines += ["    },", "}", ""]
+    with open(args.out, "w", encoding="utf-8", newline="\n") as f:
+        f.write("\n".join(lines))
+    counts = ", ".join("%s %d" % (p, len(recipes[p])) for p in sorted(recipes))
+    print("wrote %d recipes (%s) -> %s" % (total, counts, args.out), file=sys.stderr)
+
+
+if __name__ == "__main__":
+    main()

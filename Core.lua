@@ -815,6 +815,12 @@ SlashCmdList.GATHERCRAFT = function(msg)
         ApiTest()
     elseif cmd == "ahtest" or cmd == "prices" then
         if ns.PriceTest then ns.PriceTest() end
+    elseif cmd == "recipetest" then
+        if ns.RecipeTest then ns.RecipeTest() end
+    elseif cmd == "trainertest" then
+        if ns.TrainerTest then ns.TrainerTest() end
+    elseif cmd == "crafttest" then
+        if ns.CraftTest then ns.CraftTest() end
     elseif cmd == "scan" then
         if ns.StartScan then ns.StartScan() end
     else

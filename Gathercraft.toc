@@ -3,8 +3,9 @@
 ## Notes: Gather. Route. Profit. Every node on your map, live farm routes, one-key fishing and rare alerts.
 ## Author: pheenixlawl
 ## IconTexture: Interface\AddOns\Gathercraft\Media\Icon
-## Version: 0.1.4
-## X-Credits: Node data from Questie (github.com/Questie/Questie). Map pins via HereBeDragons.
+## Version: 0.1.5
+## X-Credits: Spawn data from Questie (github.com/Questie/Questie), GPLv3. Map pins via HereBeDragons.
+## X-License: GPL-3.0-or-later
 ## X-Curse-Project-ID: 1754991
 ## X-Wago-ID: aNerwj62
 ## X-Website: https://github.com/pheenixlawl-ui/Gathercraft
@@ -29,7 +30,10 @@ Fishing.lua
 Rares.lua
 Options.lua
 Advisor.lua
+Crafting.lua
 Main.lua
 Data\StarterData.lua
 Data\QuestieNodes.lua
+Data\ItemNames.lua
+Data\RecipeData.lua
 Starter.lua

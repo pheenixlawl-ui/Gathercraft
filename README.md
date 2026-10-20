@@ -4,6 +4,7 @@
 
 <h3 align="center"><i>Peacebloom fears you now.</i></h3>
 
+<p align="center"><a href="https://ko-fi.com/gathercraft"><img src="https://ko-fi.com/img/githubbutton_sm.svg" alt="Support Gathercraft on Ko-fi"></a></p>
 
 <p align="center">
   The free gathering companion for <b>World of Warcraft: Forever</b>.<br>
@@ -122,13 +123,13 @@ But every route needs a smith – and every smith needs coffee.
 
 ## 📜 License
 
-Gathercraft's own code is released under the [MIT License](LICENSE).
-The node data in `Data/QuestieNodes.lua` comes from [Questie](https://github.com/Questie/Questie) and is used with permission of the Questie team; it is **not** covered by the MIT license. Libraries in `Libs/` keep their own licenses.
+Gathercraft is free software under the [GNU General Public License v3](LICENSE) (GPLv3): you may use, change and share it, as long as what you share stays under the GPLv3 with its source available.
+The spawn data in `Data/QuestieNodes.lua` and the item names in `Data/ItemNames.lua` come from [Questie](https://github.com/Questie/Questie) (GPLv3) and were converted for Gathercraft by `tools/import_questie.py` and `tools/import_item_names.py`. "Questie" and its logo belong to the Questie team and are not part of this license. Libraries in `Libs/` keep their own licenses (see [NOTICE.md](NOTICE.md)).
 
 ## ❤️ Credits
 
 - Made by **pheenixlawl**
-- Node data from [Questie](https://github.com/Questie/Questie), used with permission
+- Spawn data from [Questie](https://github.com/Questie/Questie) (QuestieDB), GPLv3 – thanks to the Questie team for the OK
 - [HereBeDragons](https://github.com/Nevcairiel/HereBeDragons), [LibDataBroker](https://github.com/tekkub/libdatabroker-1-1) and LibDBIcon
 
 <p align="center"><img src="docs/icon.png" width="80" alt="Gathercraft emblem"><br><b>Gather. Route. Profit.</b></p>

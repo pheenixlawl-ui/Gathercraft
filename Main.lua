@@ -1,13 +1,19 @@
 local ADDON_NAME, ns = ...
 
 ---------------------------------------------------------------------------
--- Main window: forged frame with tabs
+-- Main window: forged frame, tabs on top (six per row; more tabs start a
+-- new row and the window grows with them), the selected section below
 --   Overview : profession bars, what to gather in this zone, session stats
+--   Farm Spots / Crafting : Advisor.lua / Crafting.lua
 --   Zones    : the zones/materials tree (Zones.lua)
 --   Skills   : what we learned about skill-ups per node kind
 --   Options  : the options (Options.lua)
 ---------------------------------------------------------------------------
-local WIDTH, HEIGHT = 580, 620
+local WIDTH, HEIGHT = 780, 640  -- height with one row of tabs
+local TABS_PER_ROW = 6
+local TAB_W, TAB_H, TAB_GAP, ROW_GAP = 117, 30, 6, 6
+local TAB_TOP = -76              -- first row of tabs, below the title
+local PAGE_WIDTH = WIDTH - 36 - 16 -- usable width of a section
 local ICON = "Interface\\AddOns\\" .. ADDON_NAME .. "\\Media\\Icon"
 local TITLE_FONT = "Fonts\\MORPHEUS.TTF"
 local BAR_TEXTURE = "Interface\\TargetingFrame\\UI-StatusBar"
@@ -99,7 +105,7 @@ close:SetPoint("TOPRIGHT", -6, -6)
 
 -- Content area, slightly darker than the frame
 local body = CreateFrame("Frame", nil, main, "BackdropTemplate")
-body:SetPoint("TOPLEFT", 18, -104)
+body:SetPoint("TOPLEFT", 18, TAB_TOP - TAB_H - 6)
 body:SetPoint("BOTTOMRIGHT", -18, 18)
 body:SetBackdrop({
     bgFile = "Interface\\Buttons\\WHITE8X8",
@@ -174,10 +180,27 @@ local function SelectTab(name)
     end
 end
 
-local function AddTab(key, label, index)
+local tabOrder = {}
+
+-- Six tabs per row; a 7th starts a second row and the window grows
+local function LayoutTabs()
+    for i, tab in ipairs(tabOrder) do
+        local row, col = math.floor((i - 1) / TABS_PER_ROW), (i - 1) % TABS_PER_ROW
+        tab:ClearAllPoints()
+        tab:SetPoint("TOPLEFT", main, "TOPLEFT", 22 + col * (TAB_W + TAB_GAP), TAB_TOP - row * (TAB_H + ROW_GAP))
+    end
+    local rows = math.max(1, math.ceil(#tabOrder / TABS_PER_ROW))
+    local extra = (rows - 1) * (TAB_H + ROW_GAP)
+    main:SetHeight(HEIGHT + extra)
+    body:ClearAllPoints()
+    body:SetPoint("TOPLEFT", 18, TAB_TOP - extra - TAB_H - 6)
+    body:SetPoint("BOTTOMRIGHT", -18, 18)
+end
+
+local function AddTab(key, label, index, icon)
     local tab = CreateFrame("Button", nil, main, "BackdropTemplate")
-    tab:SetSize(100, 26)
-    tab:SetPoint("TOPLEFT", 22 + (index - 1) * 106, -72)
+    tab:SetSize(TAB_W, TAB_H)
+    tabOrder[index] = tab
     tab:SetBackdrop({
         bgFile = "Interface\\Buttons\\WHITE8X8",
         edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
@@ -185,9 +208,22 @@ local function AddTab(key, label, index)
         insets = { left = 2, right = 2, top = 2, bottom = 2 },
     })
     tab.text = tab:CreateFontString(nil, "OVERLAY")
-    tab.text:SetFont(TITLE_FONT, 14, "")
-    tab.text:SetPoint("CENTER", 0, -1)
+    tab.text:SetFont(TITLE_FONT, 15, "")
     tab.text:SetText(label)
+    tab.icon = tab:CreateTexture(nil, "ARTWORK")
+    tab.icon:SetSize(18, 18)
+    tab.icon:SetTexture(icon)
+    tab.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+    -- icon + label centered together (text width is known once shown)
+    local function Center()
+        local sw = tab.text:GetStringWidth()
+        if not sw or sw <= 0 then sw = #label * 8 end
+        tab.icon:ClearAllPoints()
+        tab.icon:SetPoint("LEFT", tab, "CENTER", -(18 + 6 + sw) / 2, 0)
+    end
+    tab.text:SetPoint("LEFT", tab.icon, "RIGHT", 6, -1)
+    Center()
+    tab:SetScript("OnShow", Center)
     local hl = tab:CreateTexture(nil, "HIGHLIGHT")
     hl:SetPoint("TOPLEFT", 3, -3)
     hl:SetPoint("BOTTOMRIGHT", -3, 3)
@@ -203,23 +239,25 @@ local function AddTab(key, label, index)
     return page
 end
 
-local overview = AddTab("overview", "Overview", 1)
-local farmPage = AddTab("farm", "Farm Spots", 2)
-local zonesPage = AddTab("zones", "Zones", 3)
-local skillsPage = AddTab("skills", "Skills", 4)
-local optionsPage = AddTab("options", "Options", 5)
+local overview = AddTab("overview", "Overview", 1, "Interface\\Icons\\INV_Misc_Book_09")
+local farmPage = AddTab("farm", "Farm Spots", 2, "Interface\\Icons\\INV_Misc_Coin_02")
+local craftPage = AddTab("craft", "Crafting", 3, "Interface\\Icons\\Trade_BlackSmithing")
+local zonesPage = AddTab("zones", "Zones", 4, "Interface\\Icons\\INV_Misc_Map_01")
+local skillsPage = AddTab("skills", "Skills", 5, "Interface\\Icons\\INV_Misc_Note_01")
+local optionsPage = AddTab("options", "Options", 6, "Interface\\Icons\\INV_Misc_Gear_01")
+LayoutTabs()
 
 -- "Where to farm" page (Advisor.lua) uses the same look
-if ns.BuildFarmPage then
-    ns.BuildFarmPage(farmPage, { gold = GOLD, header = Header, divider = Divider, button = Button })
-end
+local pageStyle = { gold = GOLD, header = Header, divider = Divider, button = Button, width = PAGE_WIDTH }
+if ns.BuildFarmPage then ns.BuildFarmPage(farmPage, pageStyle) end
+if ns.BuildCraftPage then ns.BuildCraftPage(craftPage, pageStyle) end
 
 
 ---------------------------------------------------------------------------
 -- Overview: profession bars
 ---------------------------------------------------------------------------
 -- Two columns: gathering professions left, secondary professions right
-local COL_LEFT, COL_RIGHT, COL_WIDTH = 4, 270, 254
+local COL_LEFT, COL_RIGHT, COL_WIDTH = 4, 370, 340
 local PROF_ICONS = {
     herb = "Interface\\Icons\\Trade_Herbalism",
     ore = "Interface\\Icons\\Trade_Mining",
@@ -313,18 +351,18 @@ end
 ---------------------------------------------------------------------------
 local hereHeader = Header(overview, "Gather here", 4, -108)
 local hereLine = Divider(overview, hereHeader)
-hereLine:SetPoint("RIGHT", overview, "LEFT", 330, 0)
+hereLine:SetPoint("RIGHT", overview, "LEFT", 440, 0)
 
 local hereEmpty = overview:CreateFontString(nil, "OVERLAY", "GameFontDisable")
 hereEmpty:SetPoint("TOPLEFT", 6, -134)
-hereEmpty:SetWidth(320)
+hereEmpty:SetWidth(430)
 hereEmpty:SetJustifyH("LEFT")
 hereEmpty:SetText("No nodes known in this zone yet.")
 
 local hereRows = {}
 for i = 1, LIST_ROWS do
     local row = CreateFrame("Frame", nil, overview)
-    row:SetSize(326, 26)
+    row:SetSize(436, 26)
     row:SetPoint("TOPLEFT", 4, -130 - (i - 1) * 28)
     row.icon = row:CreateTexture(nil, "ARTWORK")
     row.icon:SetSize(22, 22)
@@ -332,7 +370,7 @@ for i = 1, LIST_ROWS do
     row.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
     row.name = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     row.name:SetPoint("TOPLEFT", row.icon, "TOPRIGHT", 6, 1)
-    row.name:SetWidth(170)
+    row.name:SetWidth(260)
     row.name:SetJustifyH("LEFT")
     row.info = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     row.info:SetPoint("BOTTOMLEFT", row.icon, "BOTTOMRIGHT", 6, -1)
@@ -390,18 +428,18 @@ end
 ---------------------------------------------------------------------------
 local session = { start = GetTime(), nodes = 0, skillStart = {} }
 
-local sessHeader = Header(overview, "This session", 346, -108)
+local sessHeader = Header(overview, "This session", 470, -108)
 Divider(overview, sessHeader)
 local sessText = overview:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-sessText:SetPoint("TOPLEFT", 350, -134)
+sessText:SetPoint("TOPLEFT", 474, -134)
 sessText:SetWidth(200)
 sessText:SetJustifyH("LEFT")
 sessText:SetSpacing(4)
 
-local dbHeader = Header(overview, "Your map", 346, -234)
+local dbHeader = Header(overview, "Your map", 470, -234)
 Divider(overview, dbHeader)
 local dbText = overview:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-dbText:SetPoint("TOPLEFT", 350, -260)
+dbText:SetPoint("TOPLEFT", 474, -260)
 dbText:SetWidth(160)
 dbText:SetJustifyH("LEFT")
 dbText:SetSpacing(4)
@@ -484,7 +522,7 @@ local skillsScroll = CreateFrame("ScrollFrame", "GathercraftSkillsScroll", skill
 skillsScroll:SetPoint("TOPLEFT", 0, -28)
 skillsScroll:SetPoint("BOTTOMRIGHT", -24, 0)
 local skillsContent = CreateFrame("Frame", nil, skillsScroll)
-skillsContent:SetSize(WIDTH - 90, 10)
+skillsContent:SetSize(PAGE_WIDTH - 30, 10)
 skillsScroll:SetScrollChild(skillsContent)
 
 local skillsEmpty = skillsContent:CreateFontString(nil, "OVERLAY", "GameFontDisable")
@@ -496,7 +534,7 @@ local function SkillRow(i)
     local row = skillRows[i]
     if row then return row end
     row = CreateFrame("Frame", nil, skillsContent)
-    row:SetSize(WIDTH - 90, 30)
+    row:SetSize(PAGE_WIDTH - 30, 30)
     row:SetPoint("TOPLEFT", 4, -4 - (i - 1) * 32)
     row.icon = row:CreateTexture(nil, "ARTWORK")
     row.icon:SetSize(24, 24)

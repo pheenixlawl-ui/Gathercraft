@@ -109,6 +109,7 @@ end
 local G, S, C = "|cffffd700g|r", "|cffc7c7cfs|r", "|cffeda55fc|r"
 local function Money(copper, short)
     copper = math.floor((copper or 0) + 0.5)
+    if copper < 0 then return "-" .. Money(-copper, short) end
     local g, s, c = math.floor(copper / 10000), math.floor(copper / 100) % 100, copper % 100
     if g > 0 then
         if short or g >= 100 or s == 0 then return g .. G end
@@ -140,6 +141,25 @@ table.insert(ns.gatherListeners, function(node, p)
     session.value = session.value + value
     if source then session.sources[source] = true end
 end)
+
+-- Value of a list of loot { {id, qty}, ... } -> copper, best source
+local function LootValue(items)
+    local value, source = 0, nil
+    for _, it in ipairs(items or {}) do
+        local price, from = GetPrice(it.id)
+        if price then
+            value = value + price * (it.qty or 1)
+            source = source or from
+        end
+    end
+    return value, source
+end
+
+-- Other income of this session (fishing) counts into "Worth" too
+local function AddSessionValue(value, source)
+    session.value = session.value + (value or 0)
+    if source then session.sources[source] = true end
+end
 
 -- Best source used this session (for the labels)
 local function SessionSource()
@@ -272,20 +292,21 @@ local function FinishScan()
 end
 
 local function ReadInfo(index)
-    local ok, _, _, count, _, _, _, _, _, _, buyout, _, _, _, _, _, _, itemID = pcall(AH.GetReplicateItemInfo, index)
-    if ok then return itemID, count, buyout end
+    local ok, name, _, count, _, _, _, _, _, _, buyout, _, _, _, _, _, _, itemID = pcall(AH.GetReplicateItemInfo, index)
+    if ok then return itemID, count, buyout, name end
 end
 
 local function ReadStep()
     if not scan then return end
     local last = math.min(scan.index + SCAN_CHUNK, scan.total) - 1
     for i = scan.index, last do
-        local itemID, count, buyout = ReadInfo(i + scan.base)
+        local itemID, count, buyout, name = ReadInfo(i + scan.base)
         if itemID and count and count > 0 and buyout and buyout > 0 then
             local list = scan.acc[itemID]
             if not list then
                 list = {}
                 scan.acc[itemID] = list
+                if name and ns.NoteReagentName then ns.NoteReagentName(name, itemID) end
             end
             list[#list + 1] = buyout / count
             list[#list + 1] = count
@@ -750,4 +771,6 @@ ns.PriceSourceText = function()
 end
 ns.StartScan = StartScan
 ns.PriceHistory = PriceHistory
+ns.LootValue = LootValue
+ns.AddSessionValue = AddSessionValue
 ns.SessionValue = function() return session.value, session.start, SessionSource() end
