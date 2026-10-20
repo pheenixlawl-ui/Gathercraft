@@ -764,7 +764,18 @@ step("Language: switch to German and back", function()
     ns.ToggleMain("options") advance(1) ns.ToggleMain("craft") advance(1) ns.HideMain()
     slash("stats")
     ns.db.language = "auto" ns.ApplyLanguage()
-    assert(ns.L["Show route line"] == (GERMAN and "Routenlinie zeigen" or "Show route line"), "auto language")
+    local loc = ({ esMX = "esES", enGB = "enUS" })[LOCALE] or LOCALE
+    assert(ns.L["Show route line"] == ((ns.Locales[loc] or {})["Show route line"] or "Show route line"), "auto language")
+end)
+step("Language: every language, every page", function()
+    for _, lang in ipairs(ns.LANGUAGES) do
+        ns.db.language = lang.code ns.ApplyLanguage()
+        for _, tab in ipairs({ "overview", "farm", "craft", "zones", "skills", "options" }) do ns.ToggleMain(tab) advance(1) end
+        ns.HideMain()
+        slash("stats") slash("list") slash("sync") slash("skills")
+        if ns.Money then ns.Money(123456) ns.Money(-77) end
+    end
+    ns.db.language = "auto" ns.ApplyLanguage()
 end)
 step("Rare alert (nameplate + test)", function()
     classification = "rare" fire("NAME_PLATE_UNIT_ADDED", "nameplate1") classification = "normal"

@@ -18,11 +18,13 @@ ns.LANGUAGES = {
     { code = "esES", name = "Español" },
     { code = "ptBR", name = "Português" },
     { code = "itIT", name = "Italiano" },
-    { code = "ruRU", name = "Русский" },
-    { code = "koKR", name = "한국어" },
-    { code = "zhCN", name = "简体中文" },
-    { code = "zhTW", name = "繁體中文" },
+    -- these need the game's own fonts: only offered in a client of that language
+    { code = "ruRU", name = "Русский", ownFont = true },
+    { code = "koKR", name = "한국어", ownFont = true },
+    { code = "zhCN", name = "简体中文", ownFont = true },
+    { code = "zhTW", name = "繁體中文", ownFont = true },
 }
+
 local ALIASES = { enGB = "enUS", esMX = "esES" }
 
 local function GameLanguage()
@@ -30,10 +32,25 @@ local function GameLanguage()
     return ALIASES[loc] or loc
 end
 
+-- the languages this client can show
+function ns.UsableLanguages()
+    local out, game = {}, GameLanguage()
+    for _, lang in ipairs(ns.LANGUAGES) do
+        if not lang.ownFont or lang.code == game then out[#out + 1] = lang end
+    end
+    return out
+end
+
 -- the language in use: the saved choice, else the game's
 function ns.Language()
     local choice = ns.db and ns.db.language
-    if choice and choice ~= "auto" then return choice end
+    if choice and choice ~= "auto" then
+        for _, lang in ipairs(ns.LANGUAGES) do
+            -- a language this client has no letters for: stay with the game's
+            if lang.code == choice and lang.ownFont and choice ~= GameLanguage() then return GameLanguage() end
+        end
+        return choice
+    end
     return GameLanguage()
 end
 

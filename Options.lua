@@ -171,7 +171,7 @@ local function AddLanguage()
     ns.LText(hint, "Most texts change at once, all of them after a reload")
 
     local function Change(delta)
-        local list, index = ns.LANGUAGES, 1
+        local list, index = ns.UsableLanguages and ns.UsableLanguages() or ns.LANGUAGES, 1
         for i, lang in ipairs(list) do
             if lang.code == (ns.db.language or "auto") then index = i end
         end
