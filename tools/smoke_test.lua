@@ -234,6 +234,8 @@ local loot = {}
 GetNumLootItems = function() return #loot end
 GetLootSourceInfo = function(i) return loot[i] and loot[i].guid end
 GetLootSlotLink = function(i) return loot[i] and ("|Hitem:" .. loot[i].item .. "::|h") end
+GetLootSlotInfo = function(i) return 134400, "Item", loot[i] and (loot[i].qty or 1) or 0 end
+GetItemInfo = function(id) return "Item" .. id, nil, 1, 1, 1, "Trade Goods", "Herb", 20, "", 134400, 10 end
 
 -- ---------------------------------------------------------------- libraries (stubs)
 local libs = {}
@@ -293,7 +295,7 @@ end)
 step("Gather herb (Herbalism + loot)", function()
     fire("UNIT_SPELLCAST_SENT", "player", "Peacebloom", "cast1", 2366)
     fire("UNIT_SPELLCAST_SUCCEEDED", "player", "cast1", 2366)
-    loot = { { guid = "GameObject-0-1-1-1-1618-AAAA11", item = 2447 } }
+    loot = { { guid = "GameObject-0-1-1-1-1618-AAAA11", item = 2447, qty = 3 } }
     fire("LOOT_READY") fire("LOOT_OPENED")
     PROFS[1][2] = 53
     advance(3)
@@ -375,6 +377,52 @@ step("Sync: share + receive", function()
     note("sync sent", #sentMessages)
 end)
 step("Sync stress test (dry)", function() slash("sync stress 50 2") advance(5) end)
+step("Prices: vendor value, Auctionator, ahtest", function()
+    local v = ns.SessionValue()
+    assert(v >= 30, "session value " .. tostring(v))
+    Auctionator = { API = { v1 = { GetAuctionPriceByItemID = function(caller, id) return id == 2447 and 1234 or nil end } } }
+    local p, src = ns.GetPrice(2447)
+    assert(p == 1234 and src == "Auctionator", "auctionator price " .. tostring(p) .. " " .. tostring(src))
+    slash("ahtest")
+    Auctionator = nil
+    note("prices ok", v, ns.Money(123456), ns.Money(1234), ns.Money(5))
+end)
+step("Own auction house scan", function()
+    local auctions = {}
+    for i = 1, 5000 do
+        local id = ({ 2447, 765, 2449, 2770, 2771 })[i % 5 + 1]
+        local count = (i % 20) + 1
+        local unit = (id == 2447 and 20 or 100) + (i % 7) * 3
+        if i == 7 then unit = 1 end -- one silly cheap auction must not set the price
+        auctions[i] = { id = id, count = count, buyout = unit * count }
+    end
+    C_AuctionHouse = {
+        ReplicateItems = function() end,
+        GetNumReplicateItems = function() return #auctions end,
+        GetReplicateItemInfo = function(i)
+            local a = auctions[i + 1]
+            if not a then return nil end
+            return "Item", 1, a.count, 1, true, 1, 0, 0, 0, a.buyout, 0, false, nil, "Seller", nil, 0, a.id, true
+        end,
+    }
+    AuctionHouseFrame = CreateFrame("Frame", "AuctionHouseFrame", UIParent)
+    -- Prices.lua captured C_AuctionHouse at load time: reload just that file
+    local chunk = assert(loadfile(ROOT .. "/Prices.lua"))
+    chunk("Gathercraft", ns)
+    fire("AUCTION_HOUSE_SHOW")
+    slash("scan") advance(1)
+    fire("REPLICATE_ITEM_LIST_UPDATE") advance(2)
+    local p, src = ns.GetPrice(2447)
+    note("scan price peacebloom", p, src, ns.Money(p))
+    assert(src == "AH scan" and p >= 20 and p <= 40, "scan price " .. tostring(p) .. " " .. tostring(src))
+    GameTooltip.GetItem = function() return "Peacebloom", "|cffffffff|Hitem:2447::::::::12:::::|h[Peacebloom]|h|r" end
+    GameTooltip.AddDoubleLine = function(_, l, r) note("TTPRICE", l, r) end
+    GameTooltip.__scripts.OnTooltipSetItem(GameTooltip)
+    slash("scan") -- cooldown message
+    slash("ahtest")
+    fire("AUCTION_HOUSE_CLOSED")
+    assert(#ns.PriceHistory(2447) == 1, "history")
+end)
 step("Rare alert (nameplate + test)", function()
     classification = "rare" fire("NAME_PLATE_UNIT_ADDED", "nameplate1") classification = "normal"
     fire("NAME_PLATE_UNIT_ADDED", "nameplate2")
@@ -399,6 +447,13 @@ step("Zone change to Durotar + world map look", function()
     WorldMapFrame:OnMapChanged() advance(1)
 end)
 step("loadall continent", function() slash("loadall") advance(3) note("questie nodes after loadall, pins", pinCount)
+    local shared, sample = 0, nil
+    for _, f in ipairs(allFrames) do
+        if f.others and #f.others > 0 and f.node then shared = shared + 1 sample = sample or f end
+    end
+    note("shared spawn pins", shared)
+    assert(shared > 0, "no shared spawn pins (Copper/Tin in the Barrens)")
+    sample.__scripts.OnEnter(sample) sample.__scripts.OnLeave(sample)
     local t0 = os.clock() slash("run herb") advance(2) note("questie nodes: plan time ms", math.floor((os.clock() - t0) * 1000)) slash("stop") end)
 step("Delete + wipe zone", function() slash("del") slash("wipe zone") advance(1) end)
 step("Long run (10 min) for leaks", function() slash("run herb") advance(600) slash("stop") end)
@@ -407,7 +462,7 @@ io.write("\n--- errors: " .. #errors .. "\n")
 for _, e in ipairs(errors) do io.write("  " .. e .. "\n") end
 io.write("\n--- notable log lines:\n")
 for _, l in ipairs(log) do
-    if l:find("questie nodes") or l:find("fish next") or l:find("SOUNDFILE") or l:find("RAIDWARN") or l:find("sync sent") or l:find("empty test") or l:find("Loaded") or l:find("took over") or l:find("RECORD") or l:find("No ") or l:find("rror") then
+    if l:find("questie nodes") or l:find("fish next") or l:find("SOUNDFILE") or l:find("RAIDWARN") or l:find("sync sent") or l:find("empty test") or l:find("prices ok") or l:find("scan price") or l:find("TTPRICE") or l:find("scanned") or l:find("Own scan") or l:find("15 minutes") or l:find("shared spawn") or l:find("Shared spawn") or l:find("Loaded") or l:find("took over") or l:find("RECORD") or l:find("No ") or l:find("rror") then
         io.write("  " .. l:sub(1, 160) .. "\n")
     end
 end

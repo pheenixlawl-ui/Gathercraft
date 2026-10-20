@@ -159,6 +159,9 @@ local function Build()
         function(on) ns.db.fishLure = on end)
 
     AddHeader("Other")
+    AddCheck("Auction prices in item tooltips",
+        function() return ns.db.tooltipPrices ~= false end,
+        function(on) ns.db.tooltipPrices = on end)
     AddCheck("Minimap button",
         function() return not ns.db.minimapHidden end,
         function(on)

@@ -3,7 +3,7 @@ local ADDON_NAME, ns = ...
 ---------------------------------------------------------------------------
 -- Farm panel (during a run) + Gathercraft arrow
 --   Panel: what matters while farming: time, nodes gathered, nodes per
---   hour, skill points; the next node is the small print.
+--   hour, gold per hour, skill points; the next node is the small print.
 --   Arrow: our own navigation arrow pointing at the next node.
 ---------------------------------------------------------------------------
 local HBD = LibStub and LibStub("HereBeDragons-2.0", true)
@@ -48,7 +48,7 @@ end
 ---------------------------------------------------------------------------
 -- Run stats
 ---------------------------------------------------------------------------
-local stats -- { run = <run table>, start, nodes, skillStart }
+local stats -- { run = <run table>, start, nodes, value, skillStart }
 
 local function TotalSkill()
     local sum = 0
@@ -65,21 +65,25 @@ local function RunStats()
         return
     end
     if not stats or stats.run ~= run then
-        stats = { run = run, start = GetTime(), nodes = 0, skillStart = TotalSkill() }
+        stats = { run = run, start = GetTime(), nodes = 0, value = 0, skillStart = TotalSkill() }
     end
     return stats
 end
 
-table.insert(ns.gatherListeners, function()
+table.insert(ns.gatherListeners, function(node, p)
     local s = RunStats()
-    if s then s.nodes = s.nodes + 1 end
+    if s then
+        s.nodes = s.nodes + 1
+        s.value = s.value + (p and p.value or 0)
+        s.source = s.source or (p and p.valueSource)
+    end
 end)
 
 ---------------------------------------------------------------------------
 -- Farm panel
 ---------------------------------------------------------------------------
 local panel = CreateFrame("Frame", "GathercraftPanel", UIParent, "BackdropTemplate")
-panel:SetSize(268, 120)
+panel:SetSize(340, 120)
 panel:SetPoint("CENTER", UIParent, "CENTER", 0, 200)
 Skin(panel)
 Movable(panel, "ui")
@@ -100,20 +104,20 @@ clock:SetFont(TITLE_FONT, 16, "")
 clock:SetTextColor(1, 0.95, 0.85)
 clock:SetPoint("TOPRIGHT", -10, -11)
 
--- Three big numbers: gathered, per hour, skill points
-local cells = {}
-for i, label in ipairs({ "gathered", "per hour", "skill" }) do
+-- Four big numbers: gathered, per hour, gold per hour, skill points
+local cells, cellLabels = {}, {}
+for i, label in ipairs({ "gathered", "per hour", "gold / h", "skill" }) do
     local value = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightLarge")
-    value:SetPoint("TOP", panel, "TOPLEFT", 8 + (i - 0.5) * 84, -40)
+    value:SetPoint("TOP", panel, "TOPLEFT", 8 + (i - 0.5) * 81, -40)
     local text = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     text:SetPoint("TOP", value, "BOTTOM", 0, -1)
     text:SetText(label)
-    cells[i] = value
+    cells[i], cellLabels[i] = value, text
 end
 
 local nextText = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 nextText:SetPoint("BOTTOMLEFT", 10, 12)
-nextText:SetWidth(140)
+nextText:SetWidth(212)
 nextText:SetJustifyH("LEFT")
 nextText:SetWordWrap(false)
 
@@ -151,7 +155,9 @@ local function UpdatePanel()
     end
     cells[1]:SetText(s.nodes)
     cells[2]:SetText(math.floor(s.nodes / hours + 0.5))
-    cells[3]:SetText(("|cff55ff55+%d|r"):format(math.max(0, TotalSkill() - s.skillStart)))
+    cells[3]:SetText(ns.Money and ns.Money(s.value / hours, true) or "-")
+    cellLabels[3]:SetText(s.source == "vendor" and "gold / h (vendor)" or "gold / h")
+    cells[4]:SetText(("|cff55ff55+%d|r"):format(math.max(0, TotalSkill() - s.skillStart)))
 
     local left = run.path and #run.path or 0
     local t = run.target

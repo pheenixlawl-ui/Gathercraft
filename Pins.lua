@@ -55,12 +55,31 @@ local function ShowTooltip(pin)
     if ns.SkillTooltip then
         ns.SkillTooltip(GameTooltip, n)
     end
+    if n.item and ns.GetPrice then
+        local price, source = ns.GetPrice(n.item)
+        if price then
+            GameTooltip:AddLine(("Worth: %s each  |cff999999(%s)|r"):format(ns.Money(price), source), 1, 1, 1)
+        end
+    end
     if n.source == "sync" then
         GameTooltip:AddLine("Shared by other players", 0.4, 0.8, 1)
     elseif n.source == "questie" then
         GameTooltip:AddLine("Known spawn point (Questie data)", 0.8, 0.7, 1)
     elseif n.source == "starter" then
         GameTooltip:AddLine("From the beta database (not confirmed yet)", 0.8, 0.7, 1)
+    end
+    local others = pin.others or (pin.othersOf and pin.othersOf.others)
+    if others and #others > 0 then
+        local names, seen = {}, { [n.name] = true }
+        for _, o in ipairs(others) do
+            if not seen[o.name] then
+                seen[o.name] = true
+                names[#names + 1] = o.name
+            end
+        end
+        if #names > 0 then
+            GameTooltip:AddLine("Shared spawn point, can also be: " .. table.concat(names, ", "), 1, 0.82, 0.3, true)
+        end
     end
     if ns.IsOnCooldown(n) then
         GameTooltip:AddLine(("Harvested, respawn in ~%ds"):format(n.emptyUntil - time()), 1, 0.5, 0.5)
@@ -104,8 +123,49 @@ end
 -- while moving. The world map still shows every zone.
 local playerMap
 
+-- Known spawn points that share a spot (e.g. Copper OR Tin Vein can spawn
+-- there) get one pin instead of icons stacked on top of each other.
+-- Grid of known-spawn pins per zone: mapID -> "cx:cy" -> { pins }
+local SHARED_YARDS = 10
+local grid = {}
+local function Cell(x, y) return math.floor(x * 200), math.floor(y * 200) end
+
+local function FindSharedPin(mapID, n)
+    local g = grid[mapID]
+    if not g then return end
+    local cx, cy = Cell(n.x, n.y)
+    for dx = -1, 1 do
+        for dy = -1, 1 do
+            for _, pin in ipairs(g[(cx + dx) .. ":" .. (cy + dy)] or {}) do
+                local p = pin.node
+                if p and p.type == n.type and p.name ~= n.name
+                    and ns.Distance(mapID, n.x, n.y, p.x, p.y) <= SHARED_YARDS then
+                    return pin
+                end
+            end
+        end
+    end
+end
+
+local function AddToGrid(mapID, pin)
+    local cx, cy = Cell(pin.node.x, pin.node.y)
+    grid[mapID] = grid[mapID] or {}
+    local key = cx .. ":" .. cy
+    grid[mapID][key] = grid[mapID][key] or {}
+    table.insert(grid[mapID][key], pin)
+end
+
 local function AddNodePins(mapID, n)
     if ns.db.pinsHidden or not ns.IsNodeEnabled(n, mapID) then return end
+    if n.source == "questie" then
+        local shared = FindSharedPin(mapID, n)
+        if shared then
+            shared.others = shared.others or {}
+            table.insert(shared.others, n)
+            pinsByNode[n] = { sharedWith = shared }
+            return
+        end
+    end
     local icon = NodeIcon(n)
     local worldSize, miniSize = Sizes(n)
 
@@ -114,7 +174,9 @@ local function AddNodePins(mapID, n)
     w:SetSize(worldSize, worldSize)
     w.icon:SetTexture(icon)
     SetAlpha(w)
+    w.others = nil
     HBDPins:AddWorldMapIconMap(REF, w, mapID, n.x, n.y, HBD_PINS_WORLDMAP_SHOW_PARENT or 1)
+    if n.source == "questie" then AddToGrid(mapID, w) end
 
     local m
     if mapID == playerMap then
@@ -122,17 +184,33 @@ local function AddNodePins(mapID, n)
         m.node, m.mapID = n, mapID
         m:SetSize(miniSize, miniSize)
         m.icon:SetTexture(icon)
+        m.others = nil
         SetAlpha(m)
         HBDPins:AddMinimapIconMap(REF, m, mapID, n.x, n.y, false, false)
     end
 
     pinsByNode[n] = { world = w, mini = m }
+    if m then m.othersOf = w end
 end
 
 -- Removes the pins of one node
+local RequestRebuild -- forward declaration
+local rebuilding = false
+
 local function RemoveNodePins(n)
     local pins = pinsByNode[n]
     if not pins then return end
+    if pins.sharedWith then
+        local others = pins.sharedWith.others or {}
+        for i = #others, 1, -1 do
+            if others[i] == n then table.remove(others, i) end
+        end
+        pinsByNode[n] = nil
+        return
+    end
+    if pins.world.others and #pins.world.others > 0 and RequestRebuild and not rebuilding then
+        RequestRebuild() -- another kind takes over this spot
+    end
     HBDPins:RemoveWorldMapIcon(REF, pins.world)
     if pins.mini then HBDPins:RemoveMinimapIcon(REF, pins.mini) end
     for key, pin in pairs(pins) do
@@ -148,16 +226,19 @@ end
 ---------------------------------------------------------------------------
 local function UpdateAlpha()
     for _, pins in pairs(pinsByNode) do
-        SetAlpha(pins.world)
+        if pins.world then SetAlpha(pins.world) end
         if pins.mini then SetAlpha(pins.mini) end
     end
 end
 
 local function Rebuild()
     if not ns.db or not HBDPins then return end
+    rebuilding = true
     for n in pairs(pinsByNode) do
         RemoveNodePins(n)
     end
+    rebuilding = false
+    wipe(grid)
     if ns.db.pinsHidden then return end
     for mapID, list in pairs(ns.db.nodes) do
         for _, n in ipairs(list) do
@@ -167,7 +248,7 @@ local function Rebuild()
 end
 
 local rebuildPending = false
-local function RequestRebuild()
+RequestRebuild = function()
     if rebuildPending then return end
     rebuildPending = true
     C_Timer.After(REBUILD_DELAY, function()

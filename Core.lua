@@ -480,6 +480,21 @@ local function ReadLoot()
     return objectID, spawn, itemID, firstGUID, count
 end
 
+-- Every item in the loot window with its amount (for the gold value)
+local function ReadLootItems()
+    local items = {}
+    local count = GetNumLootItems and GetNumLootItems() or 0
+    for slot = 1, count do
+        local link = GetLootSlotLink and GetLootSlotLink(slot)
+        local id = link and tonumber(link:match("item:(%d+)"))
+        if id then
+            local qty = GetLootSlotInfo and select(3, GetLootSlotInfo(slot))
+            items[#items + 1] = { id = id, qty = tonumber(qty) or 1 }
+        end
+    end
+    return items
+end
+
 local function TryRecord()
     local p = ns.pending
     if not p or not p.succeeded or p.done then return end
@@ -567,6 +582,7 @@ local function OnLoot()
     local p = ns.pending
     if not p or p.lootSeen or GetTime() - p.sentAt > 10 then return end
     p.lootSeen = true
+    p.items = ReadLootItems()
     p.objectID = objectID
     p.spawn = spawn
     p.itemID = itemID
@@ -702,8 +718,8 @@ end)
 local function Help()
     Print("commands:")
     print("  /gcr zones        - choose zones and node kinds")
-    print("  /gcr run [herb|ore|chest|name] - farm run along the best route")
-    print("  /gcr route [herb|ore|chest|name] - preview the route on the map")
+    print("  /gcr run [herb|ore|both|name] - farm run along the best route")
+    print("  /gcr route [herb|ore|both|name] - preview the route on the map")
     print("  /gcr line         - show/hide the route line")
     print("  /gcr skip         - current node is empty, go to next")
     print("  /gcr stop         - stop the farm run")
@@ -722,6 +738,8 @@ local function Help()
     print("  /gcr rare         - test the rare alert")
     print("  /gcr debug        - toggle debug output")
     print("  /gcr test         - API check")
+    print("  /gcr scan         - scan auction house prices (at the auction house)")
+    print("  /gcr ahtest       - price sources and auction house check")
 end
 
 SLASH_GATHERCRAFT1 = "/gcr"
@@ -793,6 +811,10 @@ SlashCmdList.GATHERCRAFT = function(msg)
         ToggleDebug()
     elseif cmd == "test" then
         ApiTest()
+    elseif cmd == "ahtest" or cmd == "prices" then
+        if ns.PriceTest then ns.PriceTest() end
+    elseif cmd == "scan" then
+        if ns.StartScan then ns.StartScan() end
     else
         Help()
     end

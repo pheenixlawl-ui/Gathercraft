@@ -387,14 +387,14 @@ local sessHeader = Header(overview, "This session", 346, -108)
 Divider(overview, sessHeader)
 local sessText = overview:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
 sessText:SetPoint("TOPLEFT", 350, -134)
-sessText:SetWidth(160)
+sessText:SetWidth(200)
 sessText:SetJustifyH("LEFT")
 sessText:SetSpacing(4)
 
-local dbHeader = Header(overview, "Your map", 346, -214)
+local dbHeader = Header(overview, "Your map", 346, -234)
 Divider(overview, dbHeader)
 local dbText = overview:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-dbText:SetPoint("TOPLEFT", 350, -240)
+dbText:SetPoint("TOPLEFT", 350, -260)
 dbText:SetWidth(160)
 dbText:SetJustifyH("LEFT")
 dbText:SetSpacing(4)
@@ -408,8 +408,12 @@ local function UpdateStats()
             ups = ups + math.max(0, now - session.skillStart[t])
         end
     end
-    sessText:SetText(("Gathered: |cffffffff%d|r\nPer hour: |cffffffff%d|r\nSkill points: |cff55ff55+%d|r"):format(
-        session.nodes, math.floor(session.nodes / hours + 0.5), ups))
+    local value, _, source = 0, nil, nil
+    if ns.SessionValue then value, _, source = ns.SessionValue() end
+    local money = ns.Money and ns.Money(value) or "-"
+    sessText:SetText(("Gathered: |cffffffff%d|r\nPer hour: |cffffffff%d|r\nWorth: %s%s\nSkill points: |cff55ff55+%d|r"):format(
+        session.nodes, math.floor(session.nodes / hours + 0.5), money,
+        source and ("  |cff999999(" .. source .. ")|r") or "", ups))
 
     local herbs, ores, zones, known = 0, 0, 0, 0
     for _, list in pairs(ns.db.nodes) do

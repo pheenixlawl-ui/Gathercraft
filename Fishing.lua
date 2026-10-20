@@ -127,6 +127,41 @@ local function SetReelBinding(on)
     end
 end
 
+-- While the line is out, the interact key must be able to reach the bobber:
+-- by default "interact" only finds things about 10 yards in front of you,
+-- the bobber lands further away. We widen it for the cast and put your
+-- settings back afterwards.
+local BOBBER_CVARS = { SoftTargetInteractRange = 30, SoftTargetInteractArc = 2 }
+local savedCVars
+
+local function WidenInteract()
+    if not (GetCVar and SetCVar) then return end
+    if savedCVars then return end
+    savedCVars = {}
+    -- 0 = off, 1 = gamepad only, 2 = keyboard/mouse only, 3 = both:
+    -- the keyboard needs 2 or 3
+    local mode = GetCVar("SoftTargetInteract")
+    if mode ~= "2" and mode ~= "3" then
+        savedCVars.SoftTargetInteract = mode
+        pcall(SetCVar, "SoftTargetInteract", "3")
+    end
+    for name, value in pairs(BOBBER_CVARS) do
+        local current = GetCVar(name)
+        if current and tonumber(current) and tonumber(current) < value then
+            savedCVars[name] = current
+            pcall(SetCVar, name, tostring(value))
+        end
+    end
+end
+
+local function RestoreInteract()
+    if not savedCVars then return end
+    for name, value in pairs(savedCVars) do
+        pcall(SetCVar, name, value)
+    end
+    savedCVars = nil
+end
+
 local function IsFishingCast(spellID)
     for _, id in ipairs(FISHING_SPELLS) do
         if id == spellID then return true end
@@ -148,17 +183,16 @@ events:SetScript("OnEvent", function(_, event, _, _, spellID)
         if IsFishingCast(spellID) then
             lineOut = true
             SetReelBinding(true)
-            -- The bobber can only be reached with the interact key if soft
-            -- targeting for interactions is on
-            if GetCVar and GetCVar("SoftTargetInteract") == "0" then
-                SetCVar("SoftTargetInteract", "3")
-                ns.Print("Turned on interact targeting so your fish key can reel in the bobber.")
-            end
+            WidenInteract()
+            ns.Debug(("FISH line out (spell %s), reel key: %s, interact %s range %s arc %s"):format(
+                tostring(spellID), tostring(GetBindingKey(BINDING)), tostring(GetCVar("SoftTargetInteract")),
+                tostring(GetCVar("SoftTargetInteractRange")), tostring(GetCVar("SoftTargetInteractArc"))))
         end
     elseif event == "UNIT_SPELLCAST_CHANNEL_STOP" then
         if lineOut then
             lineOut = false
             SetReelBinding(false)
+            RestoreInteract()
             C_Timer.After(0.3, Prepare)
         end
     elseif event == "PLAYER_REGEN_ENABLED" then
