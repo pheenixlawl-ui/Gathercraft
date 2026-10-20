@@ -223,6 +223,7 @@ end
 
 ns.GetSkill = GetSkill
 ns.SkillVerdict = SkillVerdict
+ns.RequiredSkill = function(id, name) return Required(id, name) or 0 end
 ns.KindStats = KindStats
 ns.OnGatherStart = OnGatherStart
 ns.OnGathered = OnGathered

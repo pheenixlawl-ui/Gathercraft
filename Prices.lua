@@ -503,6 +503,18 @@ end
 ns.GetPrice = GetPrice
 ns.Money = Money
 ns.PriceTest = PriceTest
+-- "prices: AH scan, 25 min ago" for labels
+ns.PriceSourceText = function()
+    local p = PriceDB()
+    if p and (p.scanned or 0) > 0 and time() - p.scanned < MAX_PRICE_AGE then
+        local mins = math.floor((time() - p.scanned) / 60)
+        local age = mins < 60 and (mins .. " min") or mins < 2880 and (math.floor(mins / 60) .. " h") or (math.floor(mins / 1440) .. " days")
+        return "prices: AH scan, " .. age .. " ago"
+    end
+    local api = Auctionator and Auctionator.API and Auctionator.API.v1
+    if api then return "prices: Auctionator (scan at the auction house for our own)" end
+    return "prices: vendor (scan at the auction house for real prices)"
+end
 ns.StartScan = StartScan
 ns.PriceHistory = PriceHistory
 ns.SessionValue = function() return session.value, session.start, SessionSource() end

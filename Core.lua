@@ -237,10 +237,12 @@ end
 local function IsNodeEnabled(n, mapID)
     local db = ns.db
     if db.disabledZones[mapID] then return false end
-    local kind = KindKey(n)
-    if db.disabledKinds[mapID .. ":" .. kind] then return false end
     local continent = GetContinent(mapID)
     if db.disabledContinents[continent] then return false end
+    -- nothing unticked on material level: skip the string work (runs per node)
+    if not next(db.disabledKinds) and not next(db.disabledContinentKinds) then return true end
+    local kind = KindKey(n)
+    if db.disabledKinds[mapID .. ":" .. kind] then return false end
     if db.disabledContinentKinds[continent .. ":" .. kind] then return false end
     return true
 end
@@ -695,7 +697,7 @@ frame:SetScript("OnEvent", function(self, event, ...)
         if ns.db.activeRun then
             C_Timer.After(2, function()
                 if ns.db.activeRun then
-                    ns.StartRun(ns.db.activeRun.filter)
+                    ns.StartRun(ns.db.activeRun.filter, ns.db.activeRun.zone)
                 end
             end)
         end

@@ -79,6 +79,8 @@ ns.IsKnownSpawn = function(mapID, id, x, y)
     return false
 end
 
+ns.ImportQuestieZone = function(mapID, quiet) return ImportQuestieZone(mapID, quiet) end
+
 -- /gcr loadall : every zone of the current continent at once (for long routes)
 ns.LoadQuestieContinent = function()
     local data = GathercraftQuestieData

@@ -126,6 +126,9 @@ local function Build()
             ns.db.arrowHidden = not on
             if ns.UpdateArrow then ns.UpdateArrow() end
         end)
+    AddCheck("Skip empty nodes as soon as you can see them",
+        function() return ns.db.lookAhead ~= false end,
+        function(on) ns.db.lookAhead = on end)
     AddCheck("Show route line",
         function() return not ns.db.routeLineHidden end,
         function(on)

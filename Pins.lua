@@ -197,7 +197,7 @@ end
 local RequestRebuild -- forward declaration
 local rebuilding = false
 
-local function RemoveNodePins(n)
+local function RemoveNodePins(n, quiet)
     local pins = pinsByNode[n]
     if not pins then return end
     if pins.sharedWith then
@@ -208,7 +208,7 @@ local function RemoveNodePins(n)
         pinsByNode[n] = nil
         return
     end
-    if pins.world.others and #pins.world.others > 0 and RequestRebuild and not rebuilding then
+    if pins.world.others and #pins.world.others > 0 and RequestRebuild and not rebuilding and not quiet then
         RequestRebuild() -- another kind takes over this spot
     end
     HBDPins:RemoveWorldMapIcon(REF, pins.world)
@@ -261,8 +261,18 @@ end
 local function OnNodesChanged(kind, mapID, node)
     if not ns.db then return end
     if (kind == "add" or kind == "update") and mapID and node then
-        RemoveNodePins(node)       -- "update": the position may have moved a bit
+        -- "update": the position may have moved a bit. Only this node's pins
+        -- are redrawn (never all of them: that would stutter while looting);
+        -- other kinds sharing its spot stay attached to the new pin.
+        local old = pinsByNode[node]
+        local others = old and old.world and old.world.others
+        RemoveNodePins(node, true)
         AddNodePins(mapID, node)
+        local new = pinsByNode[node]
+        if others and #others > 0 and new and new.world then
+            new.world.others = others
+            for _, o in ipairs(others) do pinsByNode[o] = { sharedWith = new.world } end
+        end
     else
         RequestRebuild()
     end

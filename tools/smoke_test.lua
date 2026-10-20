@@ -247,7 +247,7 @@ libs["HereBeDragons-2.0"] = {
 }
 local pinCount = 0
 libs["HereBeDragons-Pins-2.0"] = {
-    AddWorldMapIconMap = function() pinCount = pinCount + 1 end, AddMinimapIconMap = function() pinCount = pinCount + 1 end,
+    AddWorldMapIconMap = function() pinCount = pinCount + 1 PIN_ADDS = (PIN_ADDS or 0) + 1 end, AddMinimapIconMap = function() pinCount = pinCount + 1 end,
     AddWorldMapIconWorld = function() end, AddMinimapIconWorld = function() end,
     RemoveWorldMapIcon = function() pinCount = pinCount - 1 end, RemoveMinimapIcon = function() pinCount = pinCount - 1 end,
     RemoveAllWorldMapIcons = function() end, RemoveAllMinimapIcons = function() end,
@@ -333,6 +333,60 @@ step("Farm run herbs: plan, move, skip, stop", function()
     for i = 1, 6 do player.x = player.x - 0.01 advance(1) end
     slash("skip") advance(2)
     slash("stop") advance(1)
+end)
+step("Farm run: target stays while walking to it", function()
+    math.randomseed(7)
+    local changed, trials = 0, 0
+    for trial = 1, 15 do
+        player.map, player.x, player.y = 1412, 0.25 + math.random() * 0.5, 0.25 + math.random() * 0.5
+        slash("run herb") advance(1)
+        local t = ns.run and ns.run.target
+        if t then
+            trials = trials + 1
+            -- walk at 7 yd/s straight to the target (map is 5000 x 3333 yd here)
+            for step = 1, 400 do
+                local dx, dy = (t.x - player.x) * 5000, (t.y - player.y) * 3333
+                local d = math.sqrt(dx * dx + dy * dy)
+                if d < 16 then break end
+                local k = math.min(1, 3.5 / d)
+                player.x, player.y = player.x + dx * k / 5000, player.y + dy * k / 3333
+                advance(0.5)
+                if ns.run.target ~= t then
+                    note("JUMP", t.name, "visited", tostring(ns.run.visited[t]), "cd", tostring(ns.IsOnCooldown(t)), "dist", math.floor(d), "new", ns.run.target and ns.run.target.name)
+                    changed = changed + 1
+                    break
+                end
+            end
+        end
+        slash("stop")
+    end
+    note("target changes while walking", changed, "of", trials)
+    assert(changed == 0, "target jumped in " .. changed .. " runs")
+    player.map, player.x, player.y = 1412, 0.45, 0.72
+end)
+step("Farm run: empty node skipped from afar (soft target)", function()
+    local soft = nil
+    local oldGUID = UnitGUID
+    UnitGUID = function(u) if u == "softinteract" then return soft end return oldGUID(u) end
+    slash("run herb") advance(1)
+    -- interact targeting works: we once saw a mailbox
+    soft = "GameObject-0-1-1-1-143984-000011" advance(1) soft = nil
+    local t = ns.run.target
+    -- stand 18 yards away from the node, nothing to interact with
+    player.map, player.x, player.y = ns.run.mapID, t.x + 18 / 5000, t.y
+    advance(3)
+    assert(ns.run.target ~= t, "empty node not skipped from afar")
+    assert(t.emptyUntil and t.emptyUntil > time(), "not marked empty")
+    -- next node is there: soft target shows a herb, must not be skipped
+    local t2 = ns.run.target
+    player.x, player.y = t2.x + 18 / 5000, t2.y
+    soft = "GameObject-0-1-1-1-" .. t2.id:sub(2) .. "-000022"
+    advance(3)
+    assert(ns.run.target == t2, "node that is there was skipped")
+    soft = nil
+    UnitGUID = oldGUID
+    slash("stop")
+    player.map, player.x, player.y = 1412, 0.45, 0.72
 end)
 step("Farm run: empty node gets skipped", function()
     slash("run herb") advance(2)
@@ -423,6 +477,27 @@ step("Own auction house scan", function()
     fire("AUCTION_HOUSE_CLOSED")
     assert(#ns.PriceHistory(2447) == 1, "history")
 end)
+step("Best place to farm", function()
+    for _, mode in ipairs({ "herb", "ore", "both" }) do
+        local groups = ns.FarmAdvice(mode)
+        assert(#groups > 0, "no continents for " .. mode)
+        for _, g in ipairs(groups) do
+            local best
+            for _, r in ipairs(g.rows) do if r.best then best = r end end
+            note("advisor", mode, g.name, #g.rows, "best", best and best.mapID, best and math.floor(best.goldPerHour), best and math.floor(best.nodesPerHour))
+        end
+    end
+    ns.ToggleMain("farm") advance(1)
+    ns.db.advisorOpen = { [1415] = true } ns.db.advisorSort = "gold"
+    ns.ToggleMain("overview") ns.ToggleMain("farm") advance(1)
+    ns.HideMain()
+    slash("run both")  -- placeholder run to make sure zone runs still work
+    slash("stop")
+    ns.StartRun("herb", 1413) advance(2)
+    assert(ns.run and ns.run.zone == 1413 and ns.run.target, "zone run")
+    advance(30)
+    slash("stop")
+end)
 step("Rare alert (nameplate + test)", function()
     classification = "rare" fire("NAME_PLATE_UNIT_ADDED", "nameplate1") classification = "normal"
     fire("NAME_PLATE_UNIT_ADDED", "nameplate2")
@@ -455,6 +530,27 @@ step("loadall continent", function() slash("loadall") advance(3) note("questie n
     assert(shared > 0, "no shared spawn pins (Copper/Tin in the Barrens)")
     sample.__scripts.OnEnter(sample) sample.__scripts.OnLeave(sample)
     local t0 = os.clock() slash("run herb") advance(2) note("questie nodes: plan time ms", math.floor((os.clock() - t0) * 1000)) slash("stop") end)
+step("Harvest cost during a run (after loadall)", function()
+    player.map, player.x, player.y = 1412, 0.45, 0.72
+    slash("run herb") advance(2)
+    -- harvest at shared spawn spots in the Barrens (Copper/Tin), the worst case for pins
+    local worst, total = 0, 0
+    PIN_ADDS = 0
+    for i = 1, 5 do
+        local t = ns.run.target
+        player.map, player.x, player.y = ns.run.mapID, t.x, t.y
+        local t0 = os.clock()
+        fire("UNIT_SPELLCAST_SENT", "player", t.name, "lag" .. i, 2366)
+        fire("UNIT_SPELLCAST_SUCCEEDED", "player", "lag" .. i, 2366)
+        loot = { { guid = "GameObject-0-1-1-1-" .. t.id:sub(2) .. "-LAG" .. i, item = 2447, qty = 2 } }
+        fire("LOOT_READY")
+        advance(1) -- planning and pin updates happen right after
+        local ms = (os.clock() - t0) * 1000
+        worst, total = math.max(worst, ms), total + ms
+    end
+    note("harvest cost ms: worst", math.floor(worst), "avg", math.floor(total / 5), "pins redrawn", PIN_ADDS)
+    slash("stop")
+end)
 step("Delete + wipe zone", function() slash("del") slash("wipe zone") advance(1) end)
 step("Long run (10 min) for leaks", function() slash("run herb") advance(600) slash("stop") end)
 
@@ -462,7 +558,7 @@ io.write("\n--- errors: " .. #errors .. "\n")
 for _, e in ipairs(errors) do io.write("  " .. e .. "\n") end
 io.write("\n--- notable log lines:\n")
 for _, l in ipairs(log) do
-    if l:find("questie nodes") or l:find("fish next") or l:find("SOUNDFILE") or l:find("RAIDWARN") or l:find("sync sent") or l:find("empty test") or l:find("prices ok") or l:find("scan price") or l:find("TTPRICE") or l:find("scanned") or l:find("Own scan") or l:find("15 minutes") or l:find("shared spawn") or l:find("Shared spawn") or l:find("Loaded") or l:find("took over") or l:find("RECORD") or l:find("No ") or l:find("rror") then
+    if l:find("questie nodes") or l:find("fish next") or l:find("SOUNDFILE") or l:find("RAIDWARN") or l:find("sync sent") or l:find("empty test") or l:find("prices ok") or l:find("scan price") or l:find("TTPRICE") or l:find("advisor") or l:find("target changes") or l:find("JUMP") or l:find("harvest cost") or l:find("scanned") or l:find("Own scan") or l:find("15 minutes") or l:find("shared spawn") or l:find("Shared spawn") or l:find("Loaded") or l:find("took over") or l:find("RECORD") or l:find("No ") or l:find("rror") then
         io.write("  " .. l:sub(1, 160) .. "\n")
     end
 end

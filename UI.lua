@@ -145,6 +145,7 @@ local function UpdatePanel()
     local hours = math.max(elapsed / 3600, 1 / 60)
 
     local label = FILTER_LABELS[run.filter or ""] or run.filter
+    if run.zone then label = (label and (label .. " · ") or "") .. ns.GetZoneName(run.zone) end
     title:SetText("Farm run" .. (label and ("  |cffaaaaaa" .. label .. "|r") or ""))
     if elapsed >= 3600 then
         local e = math.floor(elapsed)

@@ -176,8 +176,8 @@ end
 
 local function AddTab(key, label, index)
     local tab = CreateFrame("Button", nil, main, "BackdropTemplate")
-    tab:SetSize(118, 26)
-    tab:SetPoint("TOPLEFT", 22 + (index - 1) * 124, -72)
+    tab:SetSize(100, 26)
+    tab:SetPoint("TOPLEFT", 22 + (index - 1) * 106, -72)
     tab:SetBackdrop({
         bgFile = "Interface\\Buttons\\WHITE8X8",
         edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
@@ -204,9 +204,16 @@ local function AddTab(key, label, index)
 end
 
 local overview = AddTab("overview", "Overview", 1)
-local zonesPage = AddTab("zones", "Zones", 2)
-local skillsPage = AddTab("skills", "Skills", 3)
-local optionsPage = AddTab("options", "Options", 4)
+local farmPage = AddTab("farm", "Farm Spots", 2)
+local zonesPage = AddTab("zones", "Zones", 3)
+local skillsPage = AddTab("skills", "Skills", 4)
+local optionsPage = AddTab("options", "Options", 5)
+
+-- "Where to farm" page (Advisor.lua) uses the same look
+if ns.BuildFarmPage then
+    ns.BuildFarmPage(farmPage, { gold = GOLD, header = Header, divider = Divider, button = Button })
+end
+
 
 ---------------------------------------------------------------------------
 -- Overview: profession bars
