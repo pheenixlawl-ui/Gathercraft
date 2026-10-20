@@ -289,7 +289,7 @@ local function AddNodeAt(mapID, x, y, name, nodeType, id, spawn, item)
         n.item = n.item or item
         n.lastSpawn = spawn or n.lastSpawn
         if spawn then n.source = nil end -- harvested ourselves: our own node now
-        Print(("Merged %s%s (seen %d times)."):format(n.name, TypeTag(n.type), n.count))
+        Debug(("Merged %s%s (seen %d times)."):format(n.name, TypeTag(n.type), n.count))
         NodesChanged("update", mapID, n)
         return n
     end
@@ -299,7 +299,7 @@ local function AddNodeAt(mapID, x, y, name, nodeType, id, spawn, item)
         count = 1, last = time(), lastSpawn = spawn, item = item,
     }
     table.insert(list, node)
-    Print(("Added %s%s at %.1f / %.1f (%d nodes in %s)."):format(
+    Debug(("Added %s%s at %.1f / %.1f (%d nodes in %s)."):format(
         name, TypeTag(nodeType), x * 100, y * 100, #list, GetZoneName(mapID)))
     NodesChanged("add", mapID, node)
     return node

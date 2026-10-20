@@ -13,6 +13,9 @@ local HBDPins = LibStub and LibStub("HereBeDragons-Pins-2.0", true)
 
 local ARRIVE_DIST = 10       -- yards: counts as "arrived"
 local SKIP_TIME = 300        -- seconds a skipped (empty) node stays out of runs
+local EMPTY_GRACE = 25       -- seconds after arriving: no harvest by then = the node wasn't there
+local EMPTY_NEAR = 30        -- yards: a harvest this close counts for the node we arrived at
+local EMPTY_MAX = 1800       -- seconds: longest rest for a spawn point that is empty again and again
 local WAIT_RETRY = 5         -- seconds between retries while all nodes are on cooldown
 local TICK = 0.5             -- seconds between arrival checks
 local MAX_ROUTE_NODES = 800  -- more nodes: only the nearest ones are planned
@@ -339,12 +342,38 @@ local function CheckArrival()
     local px, py, instance = PlayerWorld()
     if not px or instance ~= run.instance or not run.path then return end
 
+    -- Nodes we reached a moment ago: no harvest close by = nothing was there.
+    -- Mark them empty so later rounds don't send you back right away.
+    for i = #run.checking, 1, -1 do
+        local c = run.checking[i]
+        if time() - c.at >= EMPTY_GRACE then
+            table.remove(run.checking, i)
+            local found = false
+            for _, h in ipairs(run.harvests) do
+                if h.t >= c.at - 2 and WDist(h.wx, h.wy, c.wx, c.wy) <= EMPTY_NEAR then
+                    found = true
+                    break
+                end
+            end
+            if not found and not ns.IsOnCooldown(c.node) then
+                -- Empty again and again: rest it longer (5, 10, 20, 30 min), so the
+                -- route keeps to the spawn points that actually have something
+                local n = c.node
+                n.emptyStreak = (n.emptyStreak or 0) + 1
+                local rest = math.min(SKIP_TIME * 2 ^ (n.emptyStreak - 1), EMPTY_MAX)
+                n.emptyUntil = time() + rest
+                ns.Debug(("%s was empty (%dx in a row), rested for %d min"):format(n.name, n.emptyStreak, rest / 60))
+            end
+        end
+    end
+
     -- Every node of the plan you walk past counts as visited, not only the target
     local reached = false
     for _, p in ipairs(run.path) do
         if not run.visited[p.node] and WDist(px, py, p.wx, p.wy) <= ARRIVE_DIST then
             run.visited[p.node] = true
             run.done = run.done + 1
+            run.checking[#run.checking + 1] = { node = p.node, wx = p.wx, wy = p.wy, at = time() }
             reached = true
         end
     end
@@ -374,6 +403,8 @@ local function StartRun(filter)
     ns.run = {
         filter = filter,
         visited = {},
+        checking = {}, -- nodes reached, waiting to see if they get harvested
+        harvests = {}, -- where we harvested during this run (recent ones)
         round = 1,
         done = 0,
     }
@@ -403,9 +434,15 @@ end
 
 -- Called by the recorder after a node was harvested (it is on cooldown now)
 local function OnHarvested(node)
+    node.emptyStreak = nil -- it had something: back to normal
     local run = ns.run
     if run then
         run.visited[node] = true
+        local px, py = PlayerWorld()
+        if px then
+            table.insert(run.harvests, { wx = px, wy = py, t = time() })
+            if #run.harvests > 20 then table.remove(run.harvests, 1) end
+        end
         RequestPlan()
     end
 end

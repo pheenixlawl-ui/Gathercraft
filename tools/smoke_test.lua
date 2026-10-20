@@ -332,6 +332,28 @@ step("Farm run herbs: plan, move, skip, stop", function()
     slash("skip") advance(2)
     slash("stop") advance(1)
 end)
+step("Farm run: empty node gets skipped", function()
+    slash("run herb") advance(2)
+    local t = ns.run.target
+    player.map, player.x, player.y = ns.run.mapID, t.x, t.y   -- arrive, harvest nothing
+    advance(1)
+    assert(ns.run.target ~= t, "still pointing at the node we reached")
+    assert(not t.emptyUntil or t.emptyUntil <= time(), "marked empty too early")
+    advance(30)
+    assert(t.emptyUntil and t.emptyUntil > time(), "empty node not marked")
+    -- arrive at the next one and harvest it: must not be marked empty
+    local t2 = ns.run.target
+    player.map, player.x, player.y = ns.run.mapID, t2.x, t2.y
+    advance(1)
+    fire("UNIT_SPELLCAST_SENT", "player", t2.name, "castE", 2366)
+    fire("UNIT_SPELLCAST_SUCCEEDED", "player", "castE", 2366)
+    loot = { { guid = "GameObject-0-1-1-1-" .. t2.id:sub(2) .. "-EEEE99", item = 2447 } }
+    fire("LOOT_READY") advance(30)
+    note("empty test", t.name, t.emptyStreak, t2.name, t2.emptyStreak)
+    assert(not t2.emptyStreak, "harvested node was marked empty")
+    slash("stop")
+    player.map, player.x, player.y = 1412, 0.45, 0.72
+end)
 step("Farm run both + ore + by name", function()
     slash("run both") advance(2) slash("stop")
     slash("run ore") advance(2) slash("stop")
@@ -385,7 +407,7 @@ io.write("\n--- errors: " .. #errors .. "\n")
 for _, e in ipairs(errors) do io.write("  " .. e .. "\n") end
 io.write("\n--- notable log lines:\n")
 for _, l in ipairs(log) do
-    if l:find("questie nodes") or l:find("fish next") or l:find("SOUNDFILE") or l:find("RAIDWARN") or l:find("sync sent") or l:find("Loaded") or l:find("took over") or l:find("RECORD") or l:find("No ") or l:find("rror") then
+    if l:find("questie nodes") or l:find("fish next") or l:find("SOUNDFILE") or l:find("RAIDWARN") or l:find("sync sent") or l:find("empty test") or l:find("Loaded") or l:find("took over") or l:find("RECORD") or l:find("No ") or l:find("rror") then
         io.write("  " .. l:sub(1, 160) .. "\n")
     end
 end
