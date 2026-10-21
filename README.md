@@ -4,8 +4,6 @@
 
 <h3 align="center"><i>Peacebloom fears you now.</i></h3>
 
-<p align="center"><a href="https://ko-fi.com/gathercraft"><img src="https://ko-fi.com/img/githubbutton_sm.svg" alt="Support Gathercraft on Ko-fi"></a></p>
-
 <p align="center">
   The free gathering companion for <b>World of Warcraft: Forever</b>.<br>
   Every node on your map. A live route through all of them. What it's worth, and what's worth crafting.<br>
