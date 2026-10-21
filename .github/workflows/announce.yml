@@ -1,0 +1,21 @@
+# Posts a release announcement to Discord by hand
+# (Actions > Announce on Discord > Run workflow). Uses CHANGELOG.md from main.
+name: Announce on Discord
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to announce, e.g. v0.1.10"
+        required: true
+
+jobs:
+  announce:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Announce on Discord
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+          VERSION: ${{ inputs.version }}
+        run: python3 tools/announce_discord.py

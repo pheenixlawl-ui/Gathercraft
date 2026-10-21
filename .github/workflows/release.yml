@@ -1,8 +1,10 @@
 # Builds the addon ZIP and uploads it to CurseForge, Wago and GitHub
-# whenever a version tag like v0.1.0 is pushed.
-# Needs two repository secrets (Settings > Secrets and variables > Actions):
+# whenever a version tag like v0.1.0 is pushed, then announces it on Discord.
+# Repository secrets (Settings > Secrets and variables > Actions):
 #   CF_API_KEY      - CurseForge API token
 #   WAGO_API_TOKEN  - Wago Addons API token
+#   DISCORD_WEBHOOK - Discord webhook URL of #announcements (optional)
+# The changelog comes from CHANGELOG.md (see .pkgmeta).
 name: Release
 
 on:
@@ -20,8 +22,13 @@ jobs:
       CF_API_KEY: ${{ secrets.CF_API_KEY }}
       WAGO_API_TOKEN: ${{ secrets.WAGO_API_TOKEN }}
       GITHUB_OAUTH: ${{ secrets.GITHUB_TOKEN }}
+      DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
       - uses: BigWigsMods/packager@v2
+      - name: Announce on Discord
+        if: env.DISCORD_WEBHOOK != ''
+        continue-on-error: true
+        run: python3 tools/announce_discord.py
