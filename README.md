@@ -4,7 +4,7 @@
 
 <h3 align="center"><i>Peacebloom fears you now.</i></h3>
 
-<p align="center"><a href="https://ko-fi.com/gathercraft"><img src="https://ko-fi.com/img/githubbutton_sm.svg" alt="Support Gathercraft on Ko-fi"></a></p>
+<p align="center"><a href="https://discord.gg/Q6kH368qGC"><img src="docs/discord.png" width="390" alt="Join the Gathercraft Discord"></a></p>
 
 <p align="center">
   The free gathering companion for <b>World of Warcraft: Forever</b>.<br>
@@ -48,9 +48,13 @@ Hit *Herbs*, *Ores* or *Herbs + Ores* and go. Gathercraft plans the shortest pat
 
 Every zone of your continent – or any other, one click away – ranked by **gold per hour**, nodes per hour and skill-ups for *your* skill. Estimates from spawn points and prices to start with, your own numbers once you've farmed there. Plus what sells above its usual price right now. *Go* starts a run right there.
 
+<p align="center"><img src="docs/farmspots.jpg" width="70%" alt="Farm Spots – the best zone for your skill"></p>
+
 **⚒️ Crafting – what's worth making?**
 
 **2,000+ recipes of all professions** – Alchemy, Blacksmithing, Enchanting, Engineering, Leatherworking, Tailoring, Cooking, First Aid and Smelting. For each one: profit after the auction cut, what it sells for, what the materials cost, and how many you can make from your bags and bank. Enchants show their material cost, handy for pricing your service. Recipes you don't know yet show the skill they need and where to learn them: trainer, vendor (with zone) or drop.
+
+<p align="center"><img src="docs/crafting.jpg" width="70%" alt="Crafting – what's worth making"></p>
 
 **🏷️ Your own auction house scan**
 
@@ -163,7 +167,7 @@ Gathercraft is **actively developed** – during the Forever launch weeks expect
 
 ## 🐛 Bugs & ideas
 
-Open an [issue](../../issues) – please add your Gathercraft version and what you were doing.
+Come to our **[Discord](https://discord.gg/Q6kH368qGC)** (#bug-reports and #ideas), or open an [issue](../../issues) here – please add your Gathercraft version and what you were doing.
 
 ## ☕ Fuel the Forge
 Gathercraft is free and always will be. No paid features, no ads, no pop-ups.

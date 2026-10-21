@@ -333,4 +333,5 @@ ns.Locales.ruRU = {
     ["Reported by %d player(s), not confirmed yet"] = "Сообщили игроков: %d, ещё не подтверждено",
     ["Not part of routes until you or other players confirm it."] = "Попадёт в маршрут, только когда вы или другие игроки подтвердите.",
     ["Sold only by vendors of the other faction"] = "Продаётся только у торговцев другой фракции",
+    ["Join the Gathercraft Discord – press Ctrl+C to copy the link:"] = "Присоединяйтесь к Discord Gathercraft – нажмите Ctrl+C, чтобы скопировать ссылку:",
 }

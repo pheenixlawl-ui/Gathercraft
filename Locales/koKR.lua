@@ -333,4 +333,5 @@ ns.Locales.koKR = {
     ["Reported by %d player(s), not confirmed yet"] = "%d명이 알림, 아직 확인되지 않음",
     ["Not part of routes until you or other players confirm it."] = "본인이나 다른 플레이어가 확인해야 경로에 들어갑니다.",
     ["Sold only by vendors of the other faction"] = "상대 진영 상인만 판매",
+    ["Join the Gathercraft Discord – press Ctrl+C to copy the link:"] = "Gathercraft 디스코드에 참여하세요 – Ctrl+C로 링크를 복사하세요:",
 }

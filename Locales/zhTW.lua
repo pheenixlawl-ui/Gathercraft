@@ -333,4 +333,5 @@ ns.Locales.zhTW = {
     ["Reported by %d player(s), not confirmed yet"] = "%d名玩家回報，尚未確認",
     ["Not part of routes until you or other players confirm it."] = "在你或其他玩家確認之前不會加入路線。",
     ["Sold only by vendors of the other faction"] = "只有另一陣營的商人出售",
+    ["Join the Gathercraft Discord – press Ctrl+C to copy the link:"] = "加入 Gathercraft 的 Discord – 按 Ctrl+C 複製連結：",
 }

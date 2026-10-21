@@ -445,6 +445,43 @@ local function Build()
     credits:SetPoint("BOTTOMRIGHT", -16, 14)
     credits:SetJustifyH("LEFT")
     ns.LText(credits, "Gathercraft by pheenixlawl · GPLv3  ·  Data: Questie, SkillUp Forever (cjber)  ·  Map pins: HereBeDragons")
+
+    local discord = CreateFrame("Button", nil, options, "UIPanelButtonTemplate")
+    discord:SetSize(110, 22)
+    discord:SetPoint("BOTTOMRIGHT", -16, 26)
+    discord:SetText("Discord")
+    discord:SetScript("OnClick", function() ns.ShowDiscord() end)
+end
+
+-- Discord invite: a small popup with the link ready to copy (Ctrl+C)
+local DISCORD = "https://discord.gg/Q6kH368qGC"
+ns.DISCORD = DISCORD
+function ns.ShowDiscord()
+    if StaticPopupDialogs and StaticPopup_Show then
+        StaticPopupDialogs.GATHERCRAFT_DISCORD = StaticPopupDialogs.GATHERCRAFT_DISCORD or {
+            text = "",
+            button1 = OKAY or "OK",
+            hasEditBox = true,
+            editBoxWidth = 260,
+            timeout = 0,
+            whileDead = true,
+            hideOnEscape = true,
+            preferredIndex = 3,
+            OnShow = function(self)
+                local eb = self.editBox or self.EditBox or (self.GetEditBox and self:GetEditBox())
+                if eb then
+                    eb:SetText(DISCORD)
+                    eb:SetFocus()
+                    eb:HighlightText()
+                end
+            end,
+            EditBoxOnEnterPressed = function(self) self:GetParent():Hide() end,
+            EditBoxOnEscapePressed = function(self) self:GetParent():Hide() end,
+        }
+        StaticPopupDialogs.GATHERCRAFT_DISCORD.text = L["Join the Gathercraft Discord – press Ctrl+C to copy the link:"]
+        StaticPopup_Show("GATHERCRAFT_DISCORD")
+    end
+    if ns.Print then ns.Print("Discord: " .. DISCORD) end
 end
 
 -- Puts the options into a tab of the main window

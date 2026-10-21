@@ -362,4 +362,5 @@ ns.Locales.deDE = {
     ["Reported by %d player(s), not confirmed yet"] = "Von %d Spieler(n) gemeldet, noch nicht bestätigt",
     ["Not part of routes until you or other players confirm it."] = "Kommt erst in Routen, wenn du oder andere Spieler es bestätigen.",
     ["Sold only by vendors of the other faction"] = "Nur bei Händlern der anderen Fraktion",
+    ["Join the Gathercraft Discord – press Ctrl+C to copy the link:"] = "Tritt dem Gathercraft-Discord bei – mit Strg+C kopierst du den Link:",
 }
