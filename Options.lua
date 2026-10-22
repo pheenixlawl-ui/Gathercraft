@@ -18,7 +18,7 @@ end
 -- Options window
 ---------------------------------------------------------------------------
 local options = CreateFrame("Frame", "GathercraftOptions", UIParent, "BackdropTemplate")
-options:SetSize(740, 480) -- standalone; in the main window it fills the Options tab
+options:SetSize(740, 530) -- standalone; in the main window it fills the Options tab
 options:SetPoint("CENTER")
 options:SetBackdrop({
     bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
@@ -255,6 +255,99 @@ local function AddRouteGoal()
     nextY = nextY - 30
 end
 
+-- Minimap pin style: < Normal | Subtle >, explained in the tooltip
+local MINI_STYLES = {
+    { code = "normal", name = "Normal" },
+    { code = "subtle", name = "Subtle" },
+}
+local miniStyleText
+local function AddMiniStyle()
+    local label = options:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    label:SetPoint("TOPLEFT", colX + 6, nextY - 4)
+    ns.LText(label, "Minimap style")
+    fitLabels[#fitLabels + 1] = label
+
+    local minus = CreateFrame("Button", nil, options, "UIPanelButtonTemplate")
+    minus:SetSize(24, 20)
+    minus:SetPoint("TOPLEFT", colX + 106, nextY)
+    minus:SetText("<")
+
+    miniStyleText = options:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    miniStyleText:SetPoint("LEFT", minus, "RIGHT", 6, 0)
+    miniStyleText:SetWidth(90)
+
+    local plus = CreateFrame("Button", nil, options, "UIPanelButtonTemplate")
+    plus:SetSize(24, 20)
+    plus:SetPoint("LEFT", miniStyleText, "RIGHT", 6, 0)
+    plus:SetText(">")
+
+    local function Tip(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:AddLine(L["Minimap style"], 1, 0.82, 0)
+        GameTooltip:AddLine(L["Subtle: a silver ring around a smaller, see-through icon. What the game's herb and mineral tracking shows right now stands out."], 1, 1, 1, true)
+        GameTooltip:AddLine(L["The next node of a farm run is always shown with a gold ring."], 0.7, 0.7, 0.7, true)
+        GameTooltip:Show()
+    end
+    local function Change()
+        ns.db.miniPinStyle = (ns.db.miniPinStyle == "subtle") and "normal" or "subtle"
+        ns.NotifyNodesChanged() -- rebuilds the pins
+        options:Refresh()
+        if GameTooltip:IsOwned(minus) or GameTooltip:IsOwned(plus) then Tip(GameTooltip:IsOwned(minus) and minus or plus) end
+    end
+    minus:SetScript("OnClick", Change)
+    plus:SetScript("OnClick", Change)
+    for _, b in ipairs({ minus, plus }) do
+        b:SetScript("OnEnter", Tip)
+        b:SetScript("OnLeave", GameTooltip_Hide)
+    end
+    nextY = nextY - 30
+end
+
+-- Minimap opacity: - 60% +  (steps of 10%, 20% .. 100%)
+local miniAlphaText
+local function AddMiniAlpha()
+    local label = options:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    label:SetPoint("TOPLEFT", colX + 6, nextY - 4)
+    ns.LText(label, "Minimap opacity")
+    fitLabels[#fitLabels + 1] = label
+
+    local minus = CreateFrame("Button", nil, options, "UIPanelButtonTemplate")
+    minus:SetSize(24, 20)
+    minus:SetPoint("TOPLEFT", colX + 106, nextY)
+    minus:SetText("-")
+
+    miniAlphaText = options:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    miniAlphaText:SetPoint("LEFT", minus, "RIGHT", 6, 0)
+    miniAlphaText:SetWidth(40)
+
+    local plus = CreateFrame("Button", nil, options, "UIPanelButtonTemplate")
+    plus:SetSize(24, 20)
+    plus:SetPoint("LEFT", miniAlphaText, "RIGHT", 6, 0)
+    plus:SetText("+")
+
+    local function Tip(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:AddLine(L["Minimap opacity"], 1, 0.82, 0)
+        GameTooltip:AddLine(L["How visible Gathercraft's pins on the minimap are. Lower: what the game's tracking shows right now stands out more."], 1, 1, 1, true)
+        GameTooltip:AddLine(L["The next node of a farm run is always shown with a gold ring."], 0.7, 0.7, 0.7, true)
+        GameTooltip:Show()
+    end
+    local function Change(delta)
+        local pct = math.floor((ns.db.miniPinAlpha or 1) * 100 + 0.5) + delta
+        pct = math.max(20, math.min(100, pct))
+        ns.db.miniPinAlpha = pct < 100 and pct / 100 or nil
+        ns.NotifyNodesChanged() -- rebuilds the pins
+        options:Refresh()
+    end
+    minus:SetScript("OnClick", function() Change(-10) end)
+    plus:SetScript("OnClick", function() Change(10) end)
+    for _, b in ipairs({ minus, plus }) do
+        b:SetScript("OnEnter", Tip)
+        b:SetScript("OnLeave", GameTooltip_Hide)
+    end
+    nextY = nextY - 30
+end
+
 -- Route line look: a color swatch (click: next, right-click: back) and < style >
 local lineSwatch, lineStyleText
 local function Cycle(list, code, delta)
@@ -337,6 +430,12 @@ function options:Refresh()
     if goalText then
         goalText:SetText(L[CurrentGoal().name])
     end
+    if miniStyleText then
+        miniStyleText:SetText(L[ns.db.miniPinStyle == "subtle" and MINI_STYLES[2].name or MINI_STYLES[1].name])
+    end
+    if miniAlphaText then
+        miniAlphaText:SetText(("%d%%"):format(math.floor((ns.db.miniPinAlpha or 1) * 100 + 0.5)))
+    end
     if pinSizeText then
         pinSizeText:SetText(tostring(ns.db.pinSize or PIN_SIZE_DEFAULT))
     end
@@ -353,18 +452,30 @@ options:SetScript("OnShow", options.Refresh)
 local function Build()
     Column(1)
     AddHeader("Map")
-    AddCheck("Show nodes on map and minimap",
-        function() return not ns.db.pinsHidden end,
+    AddCheck("Show nodes on the world map",
+        function() return not ns.db.worldPinsHidden end,
         function(on)
-            ns.db.pinsHidden = not on
+            ns.db.worldPinsHidden = not on or nil
             ns.NotifyNodesChanged()
         end)
+    AddCheck("Show nodes on the minimap",
+        function() return not ns.db.miniPinsHidden end,
+        function(on)
+            ns.db.miniPinsHidden = not on or nil
+            ns.NotifyNodesChanged()
+        end)
+    AddMiniStyle()
+    AddMiniAlpha()
     AddPinSize()
+    AddCheck("Learn nodes you point at on the minimap",
+        function() return not ns.db.minimapLearnOff end,
+        function(on) ns.db.minimapLearnOff = not on or nil end)
     AddCheck("Show Gathercraft arrow during farm runs",
         function() return not ns.db.arrowHidden end,
         function(on)
             ns.db.arrowHidden = not on
             if ns.UpdateArrow then ns.UpdateArrow() end
+            if ns.RouteArrowChanged then ns.RouteArrowChanged() end
         end)
     AddArrive()
     AddCheck("Show route line",
@@ -427,7 +538,10 @@ local function Build()
         end)
     AddCheck("Debug output (chat tab \"Gathercraft\")",
         function() return ns.db.debug end,
-        function(on) ns.db.debug = on end)
+        function(on)
+            ns.db.debug = on
+            if ns.ShowDebugTab then ns.ShowDebugTab() end
+        end)
 
     -- footer: key bindings and credits, below a thin line
     local line = options:CreateTexture(nil, "ARTWORK")

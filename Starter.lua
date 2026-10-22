@@ -242,7 +242,7 @@ local function ImportCurrentZone()
 end
 
 local function Confirmed(n)
-    return n.source ~= "starter" or (n.heard or 0) >= 1
+    return n.source ~= "starter" or (n.heard or 0) >= 1 or n.seenAt ~= nil
 end
 
 -- Removes starter nodes that nobody confirmed in time

@@ -214,7 +214,13 @@ local function UpdatePanel()
             t.name, dist and (L["%d yd"]):format(math.floor(dist)) or "?", left))
         skipButton:Enable()
     else
-        nextText:SetText((L["|cffaaaaaaWaiting for respawns · round %d|r"]):format(run.round or 1))
+        local wait = run.nextRespawn and run.nextRespawn - time()
+        if wait and wait > 0 then
+            local s = math.ceil(wait)
+            nextText:SetText((L["|cffaaaaaaWaiting for respawns · next in ~%s|r"]):format(("%d:%02d"):format(math.floor(s / 60), s % 60)))
+        else
+            nextText:SetText((L["|cffaaaaaaWaiting for respawns · round %d|r"]):format(run.round or 1))
+        end
         skipButton:Disable()
     end
     if not panel:IsShown() then panel:Show() end

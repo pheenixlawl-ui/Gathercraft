@@ -45,8 +45,25 @@ CreateColor = function(r, g, b, a) return { r = r, g = g, b = b, a = a } end
 Enum = {}
 UiMapPoint = { CreateFromCoordinates = function(m, x, y) return { m = m, x = x, y = y } end }
 NUM_CHAT_WINDOWS = 10
-GetChatWindowInfo = function(i) return "General" end
-FCF_OpenNewWindow = function() return _G.ChatFrame1 end
+-- chat windows: CHAT_WIN[i] = { name, shown, docked }; closed tabs keep their name
+CHAT_WIN = { { "General", true, true }, { "Combat Log", true, true } }
+GetChatWindowInfo = function(i)
+    local w = CHAT_WIN[i]
+    if not w then return "" end
+    return w[1], 14, 1, 1, 1, 1, w[2], false, w[3]
+end
+FCF_OPENED = 0
+FCF_OpenNewWindow = function(name)
+    for i = 3, NUM_CHAT_WINDOWS do
+        local w = CHAT_WIN[i]
+        if not w or (not w[2] and not w[3]) then
+            CHAT_WIN[i] = { name, true, true }
+            FCF_OPENED = FCF_OPENED + 1
+            _G["ChatFrame" .. i]:Show()
+            return _G["ChatFrame" .. i]
+        end
+    end
+end
 GetChannelName = function() return 5, "GathercraftSync" end
 JoinTemporaryChannel = function() end
 LeaveChannelByName = function() end
@@ -71,12 +88,12 @@ GetItemCount = function() return 0 end
 GetItemIcon = function() return 134400 end
 GetSpellInfo = function(id) return "Spell" .. tostring(id) end
 
--- professions: herbalism 52/75, mining 30/75, fishing 1/75
-local PROFS = { { "Herbalism", 52, 75, 182 }, { "Mining", 30, 75, 186 }, nil, { "Fishing", 1, 75, 356 }, nil, nil }
+-- professions: herbalism 52/75, mining 30/75, fishing 1/75; [5] = bonus from gear/buffs
+local PROFS = { { "Herbalism", 52, 75, 182, 0 }, { "Mining", 30, 75, 186, 0 }, nil, { "Fishing", 1, 75, 356, 0 }, nil, nil }
 GetProfessions = function() return 1, 2, nil, 4, nil, nil end
 GetProfessionInfo = function(i)
     local p = PROFS[i]
-    return p[1], 0, p[2], p[3], 0, 0, p[4]
+    return p[1], 0, p[2], p[3], 0, 0, p[4], p[5]
 end
 GetNumSkillLines = function() return 0 end
 GetSkillLineInfo = function() end
@@ -132,6 +149,16 @@ function methods:GetMapID() return 1412 end
 function methods:SetRotation(r) self.__rot = r end
 function methods:IsMouseOver() return false end
 function methods:GetNumPoints() return 1 end
+function methods:GetFrameLevel() return self.__level or 1 end
+function methods:SetFrameLevel(l) self.__level = l end
+function methods:CreateMaskTexture() return newObject("MaskTexture", nil, self) end
+function methods:AddMaskTexture(m) self.__masks = (self.__masks or 0) + 1 end
+function methods:RemoveMaskTexture(m) self.__masks = (self.__masks or 0) - 1 end
+function methods:CreateAnimationGroup() return newObject("AnimationGroup", nil, self) end
+function methods:CreateAnimation() return newObject("Animation", nil, self) end
+function methods:SetTexture(t) self.__tex = t end
+function methods:SetAlpha(a) self.__alpha = a end
+function methods:GetAlpha() return self.__alpha or 1 end
 FrameMT.__index = function(t, k)
     if methods[k] then return methods[k] end
     if type(k) == "string" and k:match("^%u") then
@@ -150,6 +177,10 @@ GameTooltip.AddDoubleLine = function(self, a, b) note("TT2", a, "=", b) end
 DEFAULT_CHAT_FRAME = newObject("Frame", "DEFAULT_CHAT_FRAME")
 DEFAULT_CHAT_FRAME.AddMessage = function(_, m) note("CHAT", m) end
 _G.ChatFrame1 = DEFAULT_CHAT_FRAME
+for i = 2, NUM_CHAT_WINDOWS do
+    local f = newObject("Frame", "ChatFrame" .. i)
+    f.AddMessage = function(self, m) self.__lines = (self.__lines or 0) + 1 note("CHAT" .. i, m) end
+end
 RaidWarningFrame = newObject("Frame", "RaidWarningFrame")
 UISpecialFrames = {}
 SlashCmdList = {}
@@ -208,8 +239,11 @@ C_Map = {
     end,
     GetMapWorldSize = function() return 5000, 3333 end,
     CanSetUserWaypointOnMap = function() return true end,
-    SetUserWaypoint = function() end,
-    ClearUserWaypoint = function() end,
+    SetUserWaypoint = function(p) USER_WP = p WP_SETS = (WP_SETS or 0) + 1 end,
+    ClearUserWaypoint = function() USER_WP = nil WP_CLEARS = (WP_CLEARS or 0) + 1 end,
+    GetUserWaypoint = function()
+        return USER_WP and { uiMapID = USER_WP.m, position = { x = USER_WP.x, y = USER_WP.y } }
+    end,
 }
 C_SuperTrack = { SetSuperTrackedUserWaypoint = function() end }
 -- GC_LOCALE=deDE runs everything as a German client
@@ -266,11 +300,22 @@ libs["HereBeDragons-2.0"] = {
     GetWorldCoordinatesFromZone = function(_, x, y, map) return x * 5000 + (map - 1400) * 6000, y * 3333, 1 end,
     GetPlayerWorldPosition = function() return player.x * 5000 + (player.map - 1400) * 6000, player.y * 3333, 1 end,
     GetWorldVector = function(_, inst, ox, oy, dx, dy) local d = math.sqrt((dx - ox) ^ 2 + (dy - oy) ^ 2) return 1.0, d end,
+    GetZoneCoordinatesFromWorld = function(_, wx, wy, map) return (wx - (map - 1400) * 6000) / 5000, wy / 3333 end,
+    GetZoneDistance = function(_, m1, x1, y1, m2, x2, y2)
+        local ax, ay = x1 * 5000 + (m1 - 1400) * 6000, y1 * 3333
+        local bx, by = x2 * 5000 + (m2 - 1400) * 6000, y2 * 3333
+        return math.sqrt((ax - bx) ^ 2 + (ay - by) ^ 2)
+    end,
 }
 local pinCount = 0
+HBD_ADDS, HBD_FLOAT, MINI_ICONS, LINE_PTS = {}, {}, {}, {}
 libs["HereBeDragons-Pins-2.0"] = {
-    AddWorldMapIconMap = function() pinCount = pinCount + 1 PIN_ADDS = (PIN_ADDS or 0) + 1 end, AddMinimapIconMap = function() pinCount = pinCount + 1 end,
-    AddWorldMapIconWorld = function() LINE_DOTS = (LINE_DOTS or 0) + 1 end, AddMinimapIconWorld = function() end,
+    AddWorldMapIconMap = function(_, ref) pinCount = pinCount + 1 PIN_ADDS = (PIN_ADDS or 0) + 1
+        HBD_ADDS[ref] = HBD_ADDS[ref] or { world = 0, mini = 0 } HBD_ADDS[ref].world = HBD_ADDS[ref].world + 1 end,
+    AddMinimapIconMap = function(_, ref, icon, map, x, y, parent, float) pinCount = pinCount + 1
+        HBD_ADDS[ref] = HBD_ADDS[ref] or { world = 0, mini = 0 } HBD_ADDS[ref].mini = HBD_ADDS[ref].mini + 1
+        HBD_FLOAT[ref] = float if ref == "Gathercraft" then MINI_ICONS[#MINI_ICONS + 1] = icon end end,
+    AddWorldMapIconWorld = function(_, ref, icon, inst, x, y) LINE_DOTS = (LINE_DOTS or 0) + 1 LINE_PTS[#LINE_PTS + 1] = { x, y } end, AddMinimapIconWorld = function() end,
     RemoveWorldMapIcon = function() pinCount = pinCount - 1 end, RemoveMinimapIcon = function() pinCount = pinCount - 1 end,
     RemoveAllWorldMapIcons = function() end, RemoveAllMinimapIcons = function() end,
 }
@@ -534,6 +579,620 @@ step("Route: maxed skill goes for gold, a vein mined 3x is one hit", function()
     local vein = ns.FindNode(1412, "o1731", 0.6, 0.3, 10)
     assert(vein and vein.hits == 1, "vein hits " .. tostring(vein and vein.hits))
     player.map, player.x, player.y = 1412, 0.45, 0.7
+end)
+step("Skill bonus (gloves, tea) counts for gathering", function()
+    ns.ImportQuestieZone(1413, true)
+    player.map, player.x, player.y = 1413, 0.5, 0.5
+    -- by requirement, node names differ per client language
+    local function onRoute(name)
+        local req = ns.RequiredSkill(nil, name)
+        for _, p in ipairs(ns.run.path) do if ns.RequiredSkill(p.node.id, p.node.name) == req then return true end end
+    end
+    local function highest()
+        local h = 0
+        for _, p in ipairs(ns.run.path) do h = math.max(h, ns.RequiredSkill(p.node.id, p.node.name)) end
+        return h
+    end
+    PROFS[1][2], PROFS[1][5] = 40, 0 -- Herbalism 40: Mageroyal (50) out of reach
+    ns.StartRun("herb", 1413) advance(2)
+    assert(ns.run and not onRoute("Mageroyal"), "Mageroyal on the route without a bonus")
+    -- Goldthorn Tea +15 during the run: noticed within a few seconds
+    PROFS[1][5] = 15
+    advance(6)
+    assert(ns.run and onRoute("Mageroyal"), "bonus not noticed during the run")
+    assert(highest() <= 55, "node above 40+15 on the route: " .. highest())
+    local rank, maxRank, eff = ns.GetSkill("herb")
+    assert(rank == 40 and maxRank == 75 and eff == 55, ("GetSkill %s %s %s"):format(tostring(rank), tostring(maxRank), tostring(eff)))
+    local order, text = ns.SkillVerdict("herb", "Mageroyal")
+    assert(order == 0, "verdict for Mageroyal with bonus: " .. tostring(text))
+    order = ns.SkillVerdict("herb", "Briarthorn")
+    assert(order == 4, "Briarthorn (70) should need more skill")
+    ns.StopRun()
+    -- old skill list API (no GetProfessions): bonus = 6th value
+    local gp, gn, gi = GetProfessions, GetNumSkillLines, GetSkillLineInfo
+    GetProfessions = nil
+    GetNumSkillLines = function() return 2 end
+    GetSkillLineInfo = function(i)
+        if i == 1 then return "Professions", true end
+        return "Herbalism", false, false, 40, 0, 5, 75
+    end
+    rank, maxRank, eff = ns.GetSkill("herb")
+    GetProfessions, GetNumSkillLines, GetSkillLineInfo = gp, gn, gi
+    assert(rank == 40 and maxRank == 75 and eff == 45, ("skill line API %s %s %s"):format(tostring(rank), tostring(maxRank), tostring(eff)))
+    -- a new kind gathered with a bonus: "gathered from" is what you could reach
+    PROFS[1][2], PROFS[1][5] = 40, 15
+    player.map, player.x, player.y = 1412, 0.3, 0.3
+    fire("UNIT_SPELLCAST_SENT", "player", "Testbloom", "bonus1", 2366)
+    fire("UNIT_SPELLCAST_SUCCEEDED", "player", "bonus1", 2366)
+    loot = { { guid = "GameObject-0-1-1-1-999001-CCCC01", item = 2447, qty = 1 } }
+    fire("LOOT_READY") fire("LOOT_OPENED")
+    advance(3)
+    local seen
+    for _, st in pairs(ns.KindStats()) do
+        if st.name == "Testbloom" then seen = st end
+    end
+    assert(seen and seen.minSkill == 55, "minSkill with bonus: " .. tostring(seen and seen.minSkill))
+    -- Overview bar shows the bonus
+    PROFS[1][5] = 15
+    slash("") advance(1) slash("")
+    PROFS[1][2], PROFS[1][5] = 52, 0
+    player.map, player.x, player.y = 1412, 0.45, 0.72
+end)
+step("Pins: map and minimap apart, subtle style", function()
+    local REF = "Gathercraft"
+    player.map, player.x, player.y = 1412, 0.45, 0.72
+    local function rebuild()
+        HBD_ADDS[REF] = { world = 0, mini = 0 }
+        MINI_ICONS = {}
+        ns.NotifyNodesChanged() advance(1)
+        return HBD_ADDS[REF]
+    end
+    local all = rebuild()
+    assert(all.world > 0 and all.mini > 0, ("both on: %d world, %d mini"):format(all.world, all.mini))
+    ns.db.worldPinsHidden = true
+    local a = rebuild()
+    assert(a.world == 0 and a.mini == all.mini, ("world off: %d world, %d mini (was %d)"):format(a.world, a.mini, all.mini))
+    ns.db.worldPinsHidden, ns.db.miniPinsHidden = nil, true
+    a = rebuild()
+    assert(a.world == all.world and a.mini == 0, ("mini off: %d world, %d mini"):format(a.world, a.mini))
+    ns.db.worldPinsHidden = true
+    a = rebuild()
+    assert(a.world == 0 and a.mini == 0, "both off still adds pins")
+    slash("pins") -- one command turns both on again
+    assert(not ns.db.worldPinsHidden and not ns.db.miniPinsHidden, "/gcr pins did not show both")
+    slash("pins")
+    assert(ns.db.worldPinsHidden and ns.db.miniPinsHidden, "/gcr pins did not hide both")
+    ns.db.worldPinsHidden, ns.db.miniPinsHidden = nil, nil
+    -- old single switch is taken over
+    ns.db.pinsHidden = true
+    ns.MigratePinSwitches()
+    assert(ns.db.worldPinsHidden and ns.db.miniPinsHidden and ns.db.pinsHidden == nil, "old switch not migrated")
+    ns.db.pinsHidden = false
+    ns.MigratePinSwitches()
+    assert(not ns.db.worldPinsHidden and not ns.db.miniPinsHidden, "old 'shown' not migrated")
+    -- subtle: silver ring, round see-through icon; world map pins stay plain
+    ns.db.miniPinStyle = "subtle"
+    rebuild()
+    local subtle, plainPending = 0, 0
+    for _, pin in ipairs(MINI_ICONS) do
+        if pin.subtle then
+            subtle = subtle + 1
+            assert(pin.ring and pin.ring:IsShown() and tostring(pin.ring.__tex):find("RingSilver"), "no silver ring")
+            assert((pin.icon.__masks or 0) == 1, "icon not round")
+            assert(pin.icon.__alpha and pin.icon.__alpha < 1, "icon not see-through")
+        end
+    end
+    assert(subtle > 0, "no subtle minimap pins")
+    ns.db.miniPinStyle = nil
+    rebuild()
+    for _, pin in ipairs(MINI_ICONS) do
+        assert(not pin.subtle and not (pin.ring and pin.ring:IsShown()), "normal style still has a ring")
+        assert((pin.icon.__masks or 0) == 0, "normal style icon still round")
+        assert(pin.icon.__alpha == 1, "normal style icon still see-through")
+    end
+    -- and back: reused pins get their ring again
+    ns.db.miniPinStyle = "subtle"
+    rebuild()
+    for _, pin in ipairs(MINI_ICONS) do
+        if pin.subtle then
+            assert(pin.ring:IsShown() and (pin.icon.__masks or 0) == 1, "reused pin without ring")
+        end
+    end
+    ns.db.miniPinStyle = nil
+    rebuild()
+    -- minimap opacity: minimap pins only, world map pins unchanged
+    local function alphas()
+        local mini, world = nil, nil
+        for _, pin in ipairs(MINI_ICONS) do if pin.node and not pin.node.pendingReport then mini = pin.__alpha break end end
+        for _, f in ipairs(allFrames) do
+            if f.node and not f.isMini and f.__alpha and f.__alpha > 0 and not f.node.pendingReport and f.node.source == "questie" then world = f.__alpha break end
+        end
+        return mini, world
+    end
+    local mini1, world1 = alphas()
+    ns.db.miniPinAlpha = 0.5
+    rebuild()
+    local mini2, world2 = alphas()
+    assert(mini1 and mini2 and math.abs(mini2 - mini1 * 0.5) < 1e-6, ("minimap opacity not applied: %s -> %s"):format(tostring(mini1), tostring(mini2)))
+    assert(world1 and world2 == world1, "world map pins changed with minimap opacity")
+    ns.db.miniPinAlpha = nil
+    rebuild()
+    -- options: both switches, the style selector and its tooltip
+    slash("options") advance(1)
+    for _, f in ipairs(allFrames) do
+        if f.__kind == "CheckButton" and f.get then f:SetChecked(not f.get()) f.__scripts.OnClick(f) f:SetChecked(not f.get()) f.__scripts.OnClick(f) end
+    end
+    local before = ns.db.miniPinStyle
+    for _, f in ipairs(allFrames) do
+        if f.__kind == "Button" and f.__text == ">" and f.__scripts.OnEnter then
+            local ok, err = pcall(f.__scripts.OnEnter, f)
+            assert(ok, "tooltip: " .. tostring(err))
+        end
+    end
+    -- opacity: - / + in steps of 10%, never below 20%, 100% is the default
+    local down, up
+    for _, f in ipairs(allFrames) do
+        if f.__kind == "Button" and f.__scripts.OnEnter and f.__text == "-" then down = f end
+        if f.__kind == "Button" and f.__scripts.OnEnter and f.__text == "+" then up = f end
+    end
+    assert(down and up, "no opacity buttons")
+    assert(pcall(down.__scripts.OnEnter, down), "opacity tooltip")
+    down.__scripts.OnClick(down)
+    assert(math.abs((ns.db.miniPinAlpha or 1) - 0.9) < 1e-6, "minus did not lower opacity")
+    for i = 1, 12 do down.__scripts.OnClick(down) end
+    assert(math.abs(ns.db.miniPinAlpha - 0.2) < 1e-6, "opacity below 20%")
+    for i = 1, 12 do up.__scripts.OnClick(up) end
+    assert(ns.db.miniPinAlpha == nil, "100% not back to default")
+    slash("options")
+    assert(ns.db.miniPinStyle == before, "tooltips changed the style")
+    assert(not ns.db.worldPinsHidden and not ns.db.miniPinsHidden, "switches not back on")
+end)
+step("Farm run target: own marker, game waypoint only without arrow", function()
+    local T = "GathercraftTarget"
+    player.map, player.x, player.y = 1412, 0.45, 0.72
+    USER_WP, WP_SETS, WP_CLEARS = nil, 0, 0
+    HBD_ADDS[T] = { world = 0, mini = 0 }
+    ns.db.arrowHidden = nil
+    slash("run herb") advance(2)
+    assert(ns.run and ns.run.target, "no target")
+    assert(HBD_ADDS[T].world >= 1 and HBD_ADDS[T].mini >= 1, "no target marker")
+    assert(HBD_FLOAT[T] == true, "target marker does not stick to the minimap edge")
+    assert(WP_SETS == 0, "game waypoint set although our arrow is on")
+    -- the marker stays when node pins are off
+    ns.db.worldPinsHidden, ns.db.miniPinsHidden = true, true
+    HBD_ADDS[T] = { world = 0, mini = 0 }
+    ns.NotifyNodesChanged() advance(1)
+    assert(HBD_ADDS[T].world >= 1 and HBD_ADDS[T].mini >= 1, "target marker gone with the pins")
+    ns.db.worldPinsHidden, ns.db.miniPinsHidden = nil, nil
+    -- arrow off: the game's waypoint stands in, and goes at the end
+    ns.db.arrowHidden = true
+    ns.RouteArrowChanged()
+    assert(WP_SETS == 1 and USER_WP, "no game waypoint with the arrow off")
+    slash("skip") advance(2)
+    assert(WP_SETS == 2, "waypoint did not follow the next target")
+    slash("stop") advance(1)
+    assert(USER_WP == nil and WP_CLEARS == 1, "our waypoint stayed after the run")
+    -- your own waypoint survives a run with the arrow on
+    ns.db.arrowHidden = nil
+    USER_WP, WP_SETS, WP_CLEARS = { m = 1412, x = 0.9, y = 0.9 }, 0, 0
+    slash("run herb") advance(2)
+    slash("skip") advance(2)
+    slash("stop") advance(1)
+    assert(USER_WP and USER_WP.x == 0.9 and WP_CLEARS == 0, "own waypoint touched")
+    -- ... and one you set during a run with the arrow off, also at the next target
+    ns.db.arrowHidden = true
+    slash("run herb") advance(2)
+    USER_WP = { m = 1412, x = 0.1, y = 0.1 }
+    slash("skip") advance(2)
+    assert(USER_WP and USER_WP.x == 0.1, "own waypoint replaced at the next target")
+    slash("stop") advance(1)
+    assert(USER_WP and USER_WP.x == 0.1, "waypoint set during the run was cleared")
+    -- the target's normal pins step aside for the gold one, and come back
+    ns.db.arrowHidden = nil
+    slash("run herb") advance(2)
+    local t = ns.run.target
+    MINI_ICONS = {}
+    ns.NotifyNodesChanged() advance(1)
+    local hidden = 0
+    for _, pin in ipairs(MINI_ICONS) do
+        if pin.node == t then
+            hidden = hidden + 1
+            assert(pin.__alpha == 0, "normal pin of the target still visible")
+        end
+    end
+    slash("stop") advance(1)
+    for _, pin in ipairs(MINI_ICONS) do
+        if pin.node == t then assert(pin.__alpha > 0, "pin of the old target stays hidden") end
+    end
+    assert(hidden > 0, "target node has no minimap pin to hide")
+    ns.db.arrowHidden = nil
+    USER_WP = nil
+end)
+step("Route line: dense all around you, also where the route bends back", function()
+    local Z = 1461
+    ns.db.nodes[Z] = {}
+    -- out 900 yd east, then back west past you, then far away: zone is 5000 x 3333 yd
+    local xs = { 0.56, 0.62, 0.68, 0.62, 0.53, 0.47, 0.41, 0.35, 0.25, 0.15 }
+    for i, x in ipairs(xs) do
+        table.insert(ns.db.nodes[Z], { id = "o1618", name = "Peacebloom", type = "herb", x = x, y = 0.5 + (i % 2) * 0.01, count = 1, last = 1 })
+    end
+    player.map, player.x, player.y = Z, 0.5, 0.5
+    ns.db.routeLineStyle = "line"
+    ns.StartRun("herb", Z) advance(1)
+    assert(ns.run and ns.run.path and #ns.run.path >= 8, "no route")
+    LINE_PTS, LINE_DOTS = {}, 0
+    ns.RedrawRouteLine()
+    local pxw, pyw = player.x * 5000 + (Z - 1400) * 6000, player.y * 3333
+    local near, worst = 0, 0
+    for i, a in ipairs(LINE_PTS) do
+        if math.sqrt((a[1] - pxw) ^ 2 + (a[2] - pyw) ^ 2) < 450 then
+            near = near + 1
+            local best = math.huge
+            for j, b in ipairs(LINE_PTS) do
+                if i ~= j then best = math.min(best, math.sqrt((a[1] - b[1]) ^ 2 + (a[2] - b[2]) ^ 2)) end
+            end
+            worst = math.max(worst, best)
+        end
+    end
+    note("route line near dots", near, "worst gap", worst, "all", LINE_DOTS)
+    assert(near > 50 and worst <= 8, ("line not dense around you: %d dots, gap %.1f yd"):format(near, worst))
+    assert(LINE_DOTS <= 620, "too many dots: " .. LINE_DOTS)
+    ns.StopRun()
+    ns.db.routeLineStyle = nil
+    ns.db.nodes[Z] = nil
+    player.map, player.x, player.y = 1412, 0.45, 0.72
+end)
+step("Debug: chat tab opens, also a closed one of an old client", function()
+    local was = ns.db.debug
+    -- closed tab named Gathercraft (e.g. chat settings from the beta)
+    CHAT_WIN[3] = { "Gathercraft", false, false }
+    _G.ChatFrame3:Hide()
+    _G.ChatFrame3.__lines = 0
+    FCF_OPENED = 0
+    ns.db.debug = false
+    slash("debug") -- on
+    assert(ns.db.debug, "debug not on")
+    assert(FCF_OPENED == 1 and CHAT_WIN[3][2], "closed Gathercraft tab not opened again")
+    assert(_G.ChatFrame3.__lines >= 1, "no line in the Gathercraft tab")
+    -- now it is open: no new window for later lines
+    ns.Debug("second line")
+    assert(FCF_OPENED == 1 and _G.ChatFrame3.__lines >= 2, "second line went elsewhere")
+    -- no tab at all: one is made
+    CHAT_WIN[3] = nil
+    _G.ChatFrame3:Hide()
+    ns.db.debug = false
+    slash("debug")
+    assert(FCF_OPENED == 2 and CHAT_WIN[3] and CHAT_WIN[3][1] == "Gathercraft", "no new tab made")
+    ns.db.debug = was
+    CHAT_WIN[3] = nil
+end)
+step("Farm run: waiting counts down, gives up after 10 minutes", function()
+    local Z = 1462
+    ns.db.nodes[Z] = { { id = "o1731", name = "Copper Vein", type = "ore", x = 0.52, y = 0.5, count = 1, last = 1 } }
+    player.map, player.x, player.y = Z, 0.5, 0.5
+    local vein = ns.db.nodes[Z][1]
+    vein.emptyUntil = time() + 150 -- just mined
+    ns.StartRun("ore", Z) advance(1)
+    assert(ns.run and not ns.run.target and ns.run.waiting, "run should wait")
+    assert(ns.run.nextRespawn == vein.emptyUntil, "no respawn time: " .. tostring(ns.run.nextRespawn))
+    advance(1)
+    local panelText
+    for _, f in ipairs(allFrames) do
+        if f.__kind == "FontString" and type(f.__text) == "string" and f.__text:find("2:%d%d") and f.__text:find("|cffaaaaaa") then panelText = f.__text end
+    end
+    assert(panelText, "farm panel shows no countdown")
+    -- respawned: the run goes on by itself
+    advance(160)
+    assert(ns.run and ns.run.target == vein, "run did not pick the vein up again")
+    assert(ns.run.waitingSince == nil, "waiting time not reset")
+    -- mined again, and nothing comes back for a long time: stops after 10 minutes
+    vein.emptyUntil = time() + 3600
+    ns.run.target = nil
+    ns.RouteGoalChanged() advance(1)
+    assert(ns.run and ns.run.waiting, "not waiting again")
+    advance(590)
+    assert(ns.run, "stopped too early")
+    advance(20)
+    assert(not ns.run, "run still waiting after 10 minutes")
+    ns.db.nodes[Z] = nil
+    player.map, player.x, player.y = 1412, 0.45, 0.72
+end)
+step("Sync self-healing: parked only after many empty visits over a long time", function()
+    local Z = 1463
+    local function sync(x, extra)
+        local n = { id = "o1731", name = "Copper Vein", type = "ore", x = x, y = 0.5, count = 3, last = 1,
+            source = "sync", heard = 3, heardBy = { ["Alt One"] = true, ["Alt Two"] = true, ["Alt Three"] = true } }
+        for k, v in pairs(extra or {}) do n[k] = v end
+        return n
+    end
+    ns.db.nodes[Z] = {
+        sync(0.55),                    -- fake: three alts, never there
+        sync(0.45, { hits = 1 }),      -- harvested once: real
+        sync(0.40, { heard = 5 }),     -- more players than the first three know it
+        sync(0.35, { seenAt = 1 }),    -- seen with your own eyes
+        { id = "o1731", name = "Copper Vein", type = "ore", x = 0.50, y = 0.55, count = 3, last = 1 }, -- own
+    }
+    local list = ns.db.nodes[Z]
+    -- the clock jumps (no timers run in between: hours would take minutes)
+    local function jump(sec)
+        NOW = NOW + sec
+        for _, t in ipairs(timers) do t.at = t.at + sec end -- running timers move along
+    end
+    local fake, safe = list[1], { list[2], list[3], list[4], list[5] }
+    -- visits only 5 minutes apart: one counts per 10 minutes
+    for i = 1, 6 do ns.SyncSelfHeal(fake) jump(300) end
+    assert(fake.healMisses == 3, "spacing: " .. tostring(fake.healMisses))
+    -- many counted visits within a few hours: real spawn points are often empty
+    for i = 1, 8 do jump(620) ns.SyncSelfHeal(fake) end
+    assert(fake.healMisses >= 5 and not ns.IsParked(fake), "parked within a few hours")
+    -- still never there half a day later: parked, not deleted
+    jump(12 * 3600)
+    assert(ns.SyncSelfHeal(fake) and ns.IsParked(fake), "fake not parked")
+    assert(ns.FindNode(Z, "o1731", 0.55, 0.5, 5) == fake, "parked node was deleted")
+    for _, n in ipairs(safe) do
+        for i = 1, 30 do ns.SyncSelfHeal(n) jump(1800) end
+        assert(not ns.IsParked(n), "a safe node got parked: x=" .. n.x)
+    end
+    -- parked: not in routes
+    player.map, player.x, player.y = Z, 0.56, 0.5
+    for _, n in ipairs(list) do n.emptyUntil = nil end
+    ns.StartRun("ore", Z) advance(1)
+    assert(ns.run and ns.run.path, "no run")
+    for _, p in ipairs(ns.run.path) do assert(p.node ~= fake, "parked node in the route") end
+    ns.StopRun()
+    -- the alts again: still parked; someone new: back
+    fire("CHAT_MSG_ADDON", "Gathercraft", "N:" .. Z .. ";o1731,o,5500,5000,2770", "CHANNEL", "Alt Two", nil, nil, nil, "GathercraftSync")
+    advance(1)
+    assert(ns.IsParked(fake), "an old reporter brought it back")
+    fire("CHAT_MSG_ADDON", "Gathercraft", "N:" .. Z .. ";o1731,o,5500,5000,2770", "CHANNEL", "Someone New", nil, nil, nil, "GathercraftSync")
+    advance(1)
+    assert(not ns.IsParked(fake) and not fake.healMisses, "a new reporter did not bring it back")
+    local heard = fake.heard
+    fire("CHAT_MSG_ADDON", "Gathercraft", "N:" .. Z .. ";o1731,o,5500,5000,2770", "CHANNEL", "Someone New", nil, nil, nil, "GathercraftSync")
+    advance(1)
+    assert(fake.heard == heard, "the same player counted twice")
+    -- harvesting a parked node: yours now, not parked
+    fake.parked, fake.heard = time(), 3
+    assert(ns.IsParked(fake), "test setup")
+    fake.hits = 1
+    assert(not ns.IsParked(fake), "harvested node still parked")
+    -- an imported node remembers who reported it
+    for _, who in ipairs({ "Rep One", "Rep Two", "Rep Three" }) do
+        fire("CHAT_MSG_ADDON", "Gathercraft", "N:" .. Z .. ";o1732,h,3000,3000,2447", "CHANNEL", who, nil, nil, nil, "GathercraftSync")
+    end
+    advance(1)
+    local imp = ns.FindNode(Z, "o1732", 0.3, 0.3, 5)
+    assert(imp and imp.heardBy and imp.heardBy["Rep One"] and imp.heardBy["Rep Three"] and imp.heard == 3, "reporters not kept on import")
+    ns.db.nodes[Z] = nil
+    player.map, player.x, player.y = 1412, 0.45, 0.72
+end)
+step("Farm run: only the target counts as empty, not passing by or fighting", function()
+    local Z = 1464
+    local function own(x, y) return { id = "o1731", name = "Copper Vein", type = "ore", x = x, y = y, count = 3, last = 1 } end
+    ns.db.nodes[Z] = { own(0.50, 0.50), own(0.53, 0.50), own(0.60, 0.50), own(0.50, 0.60) }
+    local A, P, C, D = unpack(ns.db.nodes[Z])
+    local heals = 0
+    local realHeal = ns.SyncSelfHeal
+    ns.SyncSelfHeal = function(n) heals = heals + 1 return realHeal(n) end
+    local function aim(node)
+        for _, p in ipairs(ns.run.path) do
+            if p.node == node then ns.run.target, ns.run.targetPoint, ns.run.targetBest = node, p, nil return end
+        end
+        error("node not in the path")
+    end
+    player.map, player.x, player.y = Z, 0.51, 0.505
+    ns.StartRun("ore", Z) advance(1)
+    -- the target, found empty: learns (and could count for self-healing)
+    aim(A)
+    player.x, player.y = 0.50, 0.50
+    advance(30)
+    assert((A.misses or 0) == 1 and heals == 1, "empty target not counted")
+    -- passing a node on the way to another one: short rest only
+    aim(C)
+    player.x, player.y = 0.53, 0.50
+    advance(30)
+    assert(not P.misses and P.emptyUntil and heals == 1, "passing by counted as empty")
+    -- the target, but you were fighting: short rest only
+    aim(D)
+    UnitAffectingCombat = function() return true end
+    player.x, player.y = 0.50, 0.60
+    advance(30)
+    UnitAffectingCombat = nil
+    assert(not D.misses and D.emptyUntil and heals == 1, "empty while fighting counted")
+    -- skipped: learns, no self-healing
+    aim(C)
+    slash("skip") advance(1)
+    assert((C.misses or 0) == 1 and heals == 1, "skip counted for self-healing")
+    ns.StopRun()
+    ns.SyncSelfHeal = realHeal
+    ns.db.nodes[Z] = nil
+    player.map, player.x, player.y = 1412, 0.45, 0.72
+end)
+step("Farm run: walking away from the target picks a new one", function()
+    local Z = 1465
+    local function own(x) return { id = "o1731", name = "Copper Vein", type = "ore", x = x, y = 0.50, count = 3, last = 1 } end
+    -- the old target stays the nearest node after you walked off: without the
+    -- detour rule the arrow would point straight back at it
+    ns.db.nodes[Z] = { own(0.40), own(0.70), own(0.72) }
+    player.map, player.x, player.y = Z, 0.47, 0.50
+    ns.StartRun("ore", Z) advance(1)
+    local old = ns.run and ns.run.target
+    assert(old, "no target")
+    -- a few steps away: the target stays (no jumping arrow)
+    local dir = old.x < 0.47 and 1 or -1
+    player.x = 0.47 + dir * 0.01 advance(11)
+    assert(ns.run.target == old, "target changed after a few steps")
+    -- far away from it (a quest): a new target, the old one comes later
+    player.x = 0.47 + dir * 0.05 advance(1)
+    assert(ns.run.target and ns.run.target ~= old, "still pointing back at the old target")
+    local later = false
+    for i, p in ipairs(ns.run.path) do if p.node == old and i > 1 then later = true end end
+    assert(later, "old target dropped from the path")
+    ns.StopRun()
+    ns.db.nodes[Z] = nil
+    player.map, player.x, player.y = 1412, 0.45, 0.72
+end)
+step("Minimap tooltip: pointing at a tracked node learns it", function()
+    local Z = 1466
+    local names = GathercraftNodeNames and GathercraftNodeNames[GetLocale()]
+    local veinName = names and names[1731] or "Copper Vein"
+    local herbName = names and names[1618] or "Peacebloom"
+    -- the minimap: 140 px wide, centre at 500/400, zoom 0 outdoors (radius 233 yd)
+    local owner, lines, over, cursor = Minimap, {}, true, { 535, 400 }
+    local savedCursor, savedCVar = GetCursorPosition, GetCVar
+    Minimap.IsMouseOver = function() return over end
+    Minimap.GetCenter = function() return 500, 400 end
+    Minimap.GetWidth = function() return 140 end
+    Minimap.GetHeight = function() return 140 end
+    Minimap.GetZoom = function() return 0 end
+    Minimap.GetEffectiveScale = function() return 1 end
+    GameTooltip.IsShown = function() return #lines > 0 end
+    GameTooltip.GetOwner = function() return owner end
+    GameTooltip.NumLines = function() return #lines end
+    for i = 1, 3 do
+        local fs = _G["GameTooltipTextLeft" .. i] or newObject("FontString", "GameTooltipTextLeft" .. i)
+        _G["GameTooltipTextLeft" .. i] = fs
+        fs.GetText = function() return lines[i] end
+    end
+    GetCursorPosition = function() return cursor[1], cursor[2] end
+    local rotate = "0"
+    GetCVar = function(k) if k == "rotateMinimap" then return rotate end return "0" end
+    player.map, player.x, player.y = Z, 0.5, 0.5
+    -- 35 px right of the centre = half the radius = 116.7 yd (the mock world runs the other way round)
+    local ex, ey = 0.5 - (35 / 70 * (466 + 2 / 3) / 2) / 5000, 0.5
+    local mapID, cx, cy = ns.CursorOnMap()
+    assert(mapID == Z and math.abs(cx - ex) < 1e-6 and math.abs(cy - ey) < 1e-6, ("cursor position %s %s"):format(tostring(cx), tostring(cy)))
+    -- rotating minimap, facing west (90°): the same pixel is somewhere else
+    rotate = "1"
+    local realFacing = GetPlayerFacing
+    GetPlayerFacing = function() return math.pi / 2 end
+    local _, rx, ry = ns.CursorOnMap()
+    assert(math.abs(rx - 0.5) < 1e-6 and math.abs(ry - (0.5 + 116.6667 / 3333)) < 1e-4, ("rotated %s %s"):format(tostring(rx), tostring(ry)))
+    rotate, GetPlayerFacing = "0", realFacing
+    -- a known spawn point next to it: that one is up now
+    ns.db.nodes[Z] = { { id = "o1731", name = veinName, type = "ore", x = ex + 0.001, y = ey, count = 1, last = 1, source = "questie", emptyUntil = time() + 600 } }
+    local vein = ns.db.nodes[Z][1]
+    lines = { "|cffffffff" .. veinName .. "|r" }
+    advance(1)
+    assert(vein.seenAt and vein.upAt and not vein.emptyUntil, "known vein not marked as up")
+    assert(ns.NodeChance(vein) == 1, "a node seen up is not certain for the route")
+    assert(#ns.db.nodes[Z] == 1, "a known node was added again")
+    -- a herb nobody knew: learned at the cursor, rough position
+    lines = { herbName }
+    cursor = { 500, 435 } -- above the centre
+    advance(1)
+    local herb
+    for _, n in ipairs(ns.db.nodes[Z]) do if n.id == "o1618" then herb = n end end
+    assert(herb and herb.seenOnly and herb.type == "herb" and herb.item == 2447, "new herb not learned")
+    local count = #ns.db.nodes[Z]
+    local wasDebug = ns.db.debug
+    ns.db.debug = true
+    local function seenLines()
+        local c = 0
+        for _, l in ipairs(log) do if l:find("SEEN", 1, true) then c = c + 1 end end
+        return c
+    end
+    local before = seenLines()
+    advance(3) -- still pointing at it: not every look counts again
+    assert(seenLines() == before, "the same node counted again while pointing at it")
+    advance(3) -- a while later it may count again, but never as a second node
+    assert(#ns.db.nodes[Z] == count, "pointing longer made a duplicate")
+    -- pointing again a bit to the side: the guess moves towards the average
+    local oldY = herb.y
+    cursor = { 500, 438 } -- 10 yd further
+    local _, _, newY = ns.CursorOnMap()
+    advance(6)
+    assert(#ns.db.nodes[Z] == count and (herb.seenLooks or 1) >= 2, "second look not used")
+    assert(herb.y > math.min(oldY, newY) + 1e-9 and herb.y < math.max(oldY, newY) - 1e-9,
+        ("position not averaged: %.5f between %.5f and %.5f?"):format(herb.y, oldY, newY))
+    cursor = { 500, 435 }
+    ns.db.debug = wasDebug
+    -- not shared while its position is a guess
+    local sent = #sentMessages
+    ns.SyncShare(Z, herb) advance(3)
+    assert(#sentMessages == sent, "a node only seen on the minimap was shared")
+    -- another addon's pin tooltip, our own pins, or the option off: nothing
+    lines = { herbName }
+    cursor = { 500, 365 }
+    owner = newObject("Frame", "SomeAddonPin")
+    advance(1)
+    assert(#ns.db.nodes[Z] == count, "learned from someone else's tooltip")
+    owner = setmetatable({ node = herb }, { __index = owner }) -- one of our own pins
+    advance(1)
+    assert(#ns.db.nodes[Z] == count, "learned from our own pin's tooltip")
+    -- WoW Forever: the tooltip belongs to UIParent, the minimap is under the mouse
+    owner = UIParent
+    GetMouseFoci = function() return { Minimap } end
+    cursor = { 465, 400 }
+    advance(1)
+    assert(#ns.db.nodes[Z] == count + 1, "tooltip owned by UIParent over the minimap not read")
+    table.remove(ns.db.nodes[Z]) -- (keeps one herb for the harvest check below)
+    ns.NotifyNodesChanged()
+    -- the same owner, but a pin is under the mouse (another addon's): not ours to read
+    GetMouseFoci = function() return { newObject("Button", "OtherAddonPin") } end
+    cursor = { 500, 470 }
+    advance(6)
+    assert(#ns.db.nodes[Z] == count, "read a tooltip while a pin was under the mouse")
+    GetMouseFoci = nil
+    owner, ns.db.minimapLearnOff = Minimap, true
+    advance(1)
+    assert(#ns.db.nodes[Z] == count, "learned with the option off")
+    ns.db.minimapLearnOff = nil
+    lines = {}
+    advance(1)
+    -- harvested 20 yd from the guess: the same node, real position now
+    player.x, player.y = herb.x + 20 / 5000, herb.y
+    fire("UNIT_SPELLCAST_SENT", "player", herbName, "seen1", 2366)
+    fire("UNIT_SPELLCAST_SUCCEEDED", "player", "seen1", 2366)
+    loot = { { guid = "GameObject-0-1-1-1-1618-SEEN01", item = 2447, qty = 2 } }
+    fire("LOOT_READY") fire("LOOT_OPENED")
+    advance(3)
+    local herbs = 0
+    for _, n in ipairs(ns.db.nodes[Z]) do if n.id == "o1618" then herbs = herbs + 1 end end
+    assert(herbs == 1, "harvest next to the guess made a second node: " .. herbs)
+    assert(not herb.seenOnly and math.abs(herb.x - player.x) < 1e-6, "position not taken from the harvest")
+    -- the diagnosis command runs through without errors
+    lines = { herbName }
+    slash("mmtest") advance(21)
+    lines = {}
+    advance(1)
+    -- back to the plain mocks (instance fields hide the shared methods)
+    for _, k in ipairs({ "IsMouseOver", "GetCenter", "GetWidth", "GetHeight", "GetZoom", "GetEffectiveScale" }) do Minimap[k] = nil end
+    for _, k in ipairs({ "IsShown", "GetOwner", "NumLines" }) do GameTooltip[k] = nil end
+    GetCursorPosition, GetCVar = savedCursor, savedCVar
+    ns.db.nodes[Z] = nil
+    player.map, player.x, player.y = 1412, 0.45, 0.72
+end)
+step("Sync: own messages with a two-part name are ours", function()
+    local realName = UnitName
+    UnitName = function(u) if u == "player" then return "Gather" end return realName(u) end
+    local wasDebug = ns.db.debug
+    ns.db.debug = true
+    local node = { id = "o1619", name = "Silverleaf", type = "herb", x = 0.31, y = 0.62, count = 1, last = time() }
+    table.insert(ns.db.nodes[1412], node)
+    local n0 = #sentMessages
+    ns.SyncShare(1412, node) advance(3)
+    assert(#sentMessages > n0, "nothing sent")
+    local text = sentMessages[#sentMessages]
+    local function recvLines(who)
+        local c = 0
+        for _, l in ipairs(log) do if l:find("recv %[CHANNEL%] " .. who, 1) then c = c + 1 end end
+        return c
+    end
+    -- our own message comes back under the full name: learned, not processed
+    fire("CHAT_MSG_ADDON", "Gathercraft", text, "CHANNEL", "Gather Craft-Realm", nil, nil, nil, "GathercraftSync")
+    -- later messages from that name are ours too
+    fire("CHAT_MSG_ADDON", "Gathercraft", "Q:1412:7", "CHANNEL", "Gather Craft-Realm", nil, nil, nil, "GathercraftSync")
+    assert(recvLines("Gather Craft") == 0, "own message processed")
+    -- someone else is still heard
+    fire("CHAT_MSG_ADDON", "Gathercraft", "Q:1412:7", "CHANNEL", "Other Person-Realm", nil, nil, nil, "GathercraftSync")
+    assert(recvLines("Other Person") == 1, "other player not heard")
+    -- the same text right away from someone with another first name is not us
+    fire("CHAT_MSG_ADDON", "Gathercraft", text, "CHANNEL", "Gatherer Two-Realm", nil, nil, nil, "GathercraftSync")
+    assert(recvLines("Gatherer Two") == 1, "stranger taken for us")
+    for i, n in ipairs(ns.db.nodes[1412]) do if n == node then table.remove(ns.db.nodes[1412], i) break end end
+    UnitName = realName
+    ns.db.debug = wasDebug
 end)
 step("Route preview + line toggle", function() slash("route") advance(1) slash("route") slash("line") slash("line") end)
 step("Slash commands", function()

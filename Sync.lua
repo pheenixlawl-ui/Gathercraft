@@ -28,6 +28,17 @@ local CHANNEL = "GathercraftSync"
 local CONFIRMATIONS = 3       -- different players needed for a public node
 local PUSH_KNOWN_LIMIT = 3    -- stop live-sending a node once this many others reported it
 local MERGE_RADIUS = 10       -- yards: same kind closer than this = same node
+-- Self-healing: a node that only came from other players, that you found
+-- empty again and again over a long time and never harvested, was most likely
+-- wrong (or a fake: several characters of one player can confirm anything).
+-- It is parked, not deleted: out of routes, faded on the map, not shared.
+-- Real spawn points are often empty (spawn pools, other players), so this is
+-- slow on purpose. A parked node comes back when a player who didn't report
+-- it before reports it, or when you harvest it.
+local HEAL_MISSES = 5              -- empty visits (on the run target, not in combat) ...
+local HEAL_SPACING = 600           -- ... at least this many seconds apart ...
+local HEAL_SPAN = 12 * 3600        -- ... spread over at least this long
+local HEARD_KEEP = 8               -- reporter names remembered per node
 local SEND_INTERVAL = 1.2     -- seconds between outgoing messages
 local MAX_MSG_LEN = 240
 local RECV_BUDGET = 40        -- max incoming messages processed per second
@@ -73,8 +84,26 @@ local function ShortName(sender)
     return Ambiguate and Ambiguate(sender, "none") or sender
 end
 
+-- Forever names can have two parts ("Syndra Earthroot"): the sender of a
+-- message then has the full name, UnitName("player") may only give the first
+-- part. Such a name is learned from our own messages coming back: same text
+-- moments after we sent it, from a name that starts with ours.
+local selfNames, sentAt = {}, {}
+
 local function IsSelf(sender)
-    return sender == playerName or ShortName(sender) == UnitName("player")
+    local short = ShortName(sender)
+    return sender == playerName or short == UnitName("player") or selfNames[short] == true
+end
+
+local function LearnSelf(sender, text)
+    local t = sentAt[text]
+    if not t or time() - t > 10 then return false end
+    local short, me = ShortName(sender), UnitName("player")
+    if me and short:sub(1, #me + 1) == me .. " " then
+        selfNames[short] = true
+        return true
+    end
+    return false
 end
 
 local function IsFriend(sender)
@@ -107,6 +136,12 @@ local function SendNext()
         end
     elseif channelID and channelID > 0 then
         ok = C_ChatInfo.SendAddonMessage(PREFIX, item.text, "CHANNEL", channelID)
+    end
+    if item.target ~= "GUILD" then
+        sentAt[item.text] = time()
+        for text, t in pairs(sentAt) do
+            if time() - t > 60 then sentAt[text] = nil end
+        end
     end
     Debug(("sent [%s] %s -> %s"):format(item.target, item.text:sub(1, 60), tostring(ok)))
 end
@@ -148,7 +183,8 @@ local function Shareable(n, mapID)
     -- Only nodes we harvested ourselves (real game object), never re-share
     -- imports from other players or from the beta starter data, and never
     -- known spawn points: every Gathercraft user has those already
-    return n.id and n.id:match("^o%d+$") and n.type and not n.source
+    -- (only seen on the minimap: rough position, not shared until harvested)
+    return n.id and n.id:match("^o%d+$") and n.type and not n.source and not n.seenOnly
         and not (ns.IsKnownSpawn and ns.IsKnownSpawn(mapID, n.id, n.x, n.y))
 end
 
@@ -231,11 +267,45 @@ local function Import(mapID, p)
         id = p.id, name = DisplayName(p.id, p.item, p.type), type = p.type,
         x = p.x, y = p.y, count = p.rc or 1, last = time(),
         item = p.item > 0 and p.item or nil, source = "sync",
-        heard = p.rc or 1,
+        heard = p.rc or 1, heardBy = {},
     }
+    for who in pairs(p.reporters or {}) do node.heardBy[who] = true end
     table.insert(ns.db.nodes[mapID], node)
     stats.imported = stats.imported + 1
     ns.NotifyNodesChanged("add", mapID, node) -- adds just this pin, keeps the index current
+end
+
+-- Parked by self-healing (Route.lua leaves it out, Pins.lua fades it).
+-- Harvesting it makes it your own node (source cleared, hits > 0): not parked.
+local function IsParked(n)
+    return (n and n.parked and n.source == "sync" and (n.hits or 0) == 0) and true or false
+end
+
+local function Unpark(n, why)
+    if not n.parked then return end
+    n.parked, n.healMisses, n.healAt, n.healFirst = nil, nil, nil, nil
+    Debug(("%s is back (%s)"):format(tostring(n.name), why))
+    ns.NotifyNodesChanged()
+end
+
+-- Route.lua calls this when the run target was found empty (not skipped,
+-- not in combat). Returns true when the node was parked just now.
+local function SelfHeal(n)
+    if not n or n.parked or n.source ~= "sync" or (n.hits or 0) > 0 then return end
+    -- seen with your own eyes (tooltip), or more players than the first
+    -- confirmations know it: real
+    if n.seenAt or (n.heard or 0) > CONFIRMATIONS then return end
+    local now = time()
+    if n.healAt and now - n.healAt < HEAL_SPACING then return end
+    n.healAt = now
+    n.healFirst = n.healFirst or now
+    n.healMisses = (n.healMisses or 0) + 1
+    if n.healMisses < HEAL_MISSES or now - n.healFirst < HEAL_SPAN then return end
+    n.parked = now
+    ns.Print((L["%s was always empty and only came from other players: left out of routes until someone new reports it."]):format(n.name))
+    Debug(("parked %s"):format(tostring(n.id)))
+    ns.NotifyNodesChanged()
+    return true
 end
 
 local function TotalPending(root)
@@ -260,11 +330,19 @@ local function HandleNode(mapID, entry, sender, trusted, dry)
     -- Already known: just remember that others know it too (for push suppression)
     local known = ns.FindNode(mapID, id, x, y, MERGE_RADIUS)
     if known then
-        if not dry and (known.heard or 0) < PUSH_KNOWN_LIMIT then
+        if not dry then
             known.heardBy = known.heardBy or {}
             if not known.heardBy[who] then
-                known.heardBy[who] = true
-                known.heard = (known.heard or 0) + 1
+                local names = 0
+                for _ in pairs(known.heardBy) do names = names + 1 end
+                -- enough names known: more of them change nothing (and one
+                -- player repeating himself can't push the count up)
+                if names < HEARD_KEEP then
+                    known.heardBy[who] = true
+                    known.heard = (known.heard or 0) + 1
+                    -- someone new has it: it is real after all
+                    if known.parked then Unpark(known, "reported by " .. who) end
+                end
             end
         end
         return
@@ -337,7 +415,7 @@ end
 local function OwnNodes(mapID)
     local own = {}
     for _, n in ipairs(ns.db.nodes[mapID] or {}) do
-        local ok = Shareable(n, mapID) or (n.source == "sync" and n.id and n.id:match("^o%d+$") and n.type
+        local ok = Shareable(n, mapID) or (n.source == "sync" and not IsParked(n) and n.id and n.id:match("^o%d+$") and n.type
             and not (ns.IsKnownSpawn and ns.IsKnownSpawn(mapID, n.id, n.x, n.y)))
         if ok then own[#own + 1] = n end
     end
@@ -388,7 +466,7 @@ local function Receive(prefix, text, distribution, sender, dry)
     msgMap = tonumber(msgMap)
     if not dry then
         -- our own messages come back from the channel: not worth a debug line
-        if IsSelf(sender) then return end
+        if IsSelf(sender) or LearnSelf(sender, text) then return end
         if ns.db.debug then
             local zone = msgMap and ns.GetZoneName and ns.GetZoneName(msgMap)
             Debug(("recv [%s] %s: %s%s"):format(distribution, sender, text:sub(1, 60),
@@ -651,6 +729,8 @@ end)
 
 ns.SyncShare = ShareHarvest
 -- unconfirmed reports of one zone (grey pins in zones without known spawn points)
+ns.SyncSelfHeal = SelfHeal
+ns.IsParked = IsParked
 ns.SyncPending = function(mapID)
     local db = ns.db and ns.db.sync
     return db and db.pending and db.pending[mapID]

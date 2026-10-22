@@ -29,7 +29,15 @@ local STATS_VERSION = 3 -- v2: only the first gather of each spawn counts; v3: k
 -- skill point. Later gathers of the same spawn are not counted.
 local countedSpawns = {}
 
--- Current skill for "herb" / "ore", or nil if the profession is not learned
+-- Current skill for "herb" / "ore", or nil if the profession is not learned.
+-- Returns rank, maxRank, effective: effective adds bonuses from gear and buffs
+-- (gloves, enchants, Goldthorn Tea...). Bonuses let you gather higher nodes,
+-- skill-ups still go by your own rank.
+local function Bonus(modifier)
+    modifier = tonumber(modifier) or 0
+    return modifier > 0 and modifier or 0
+end
+
 local function GetSkill(nodeType)
     if GetProfessions and GetProfessionInfo then
         -- prof1, prof2, archaeology, fishing, cooking, first aid (some may be nil)
@@ -37,18 +45,18 @@ local function GetSkill(nodeType)
         for i = 1, 6 do
             local index = profs[i]
             if index then
-                local _, _, rank, maxRank, _, _, skillLine = GetProfessionInfo(index)
+                local _, _, rank, maxRank, _, _, skillLine, modifier = GetProfessionInfo(index)
                 if skillLine == SKILL_LINE[nodeType] then
-                    return rank, maxRank
+                    return rank, maxRank, rank + Bonus(modifier)
                 end
             end
         end
     end
     if GetNumSkillLines and GetSkillLineInfo then
         for i = 1, GetNumSkillLines() do
-            local name, isHeader, _, rank, _, _, maxRank = GetSkillLineInfo(i)
+            local name, isHeader, _, rank, _, modifier, maxRank = GetSkillLineInfo(i)
             if not isHeader and name and SKILL_NAMES[nodeType] and SKILL_NAMES[nodeType][name:lower()] then
-                return rank, maxRank
+                return rank, maxRank, rank + Bonus(modifier)
             end
         end
     end
@@ -120,12 +128,16 @@ end
 -- Returns sort rank (lower = better to farm) and a coloured text
 local function SkillVerdict(nodeType, name, id, key)
     if nodeType == "chest" then return 5, L["|cffaaaaaaChest|r"] end
-    local mine = GetSkill(nodeType)
+    local mine, _, effective = GetSkill(nodeType)
     if not mine then return 6, L["|cffff5555Profession not learned|r"] end
     local req = Required(id, name)
     if req then
         local d = mine - req
-        if d < 0 then return 4, (L["|cffff5555Needs skill %d|r"]):format(req) end
+        if d < 0 then
+            -- above your own skill, but your bonus (gloves, tea...) reaches it
+            if effective and effective >= req then return 0, L["|cffff8040Skill-up guaranteed|r"] end
+            return 4, (L["|cffff5555Needs skill %d|r"]):format(req)
+        end
         if d < 25 then return 0, L["|cffff8040Skill-up guaranteed|r"] end
         if d < 50 then return 1, L["|cffffff00Skill-up likely|r"] end
         if d < 100 then return 2, L["|cff40ff40Skill-up sometimes|r"] end
@@ -146,8 +158,11 @@ local function Stats(key)
 end
 
 -- Called by the recorder when a gather cast starts
+-- skillBefore = own rank (skill-ups), reachBefore = with bonus (what you
+-- could gather: the upper bound of a node's requirement)
 local function OnGatherStart(pending)
-    pending.skillBefore = GetSkill(pending.type)
+    local rank, _, effective = GetSkill(pending.type)
+    pending.skillBefore, pending.reachBefore = rank, effective or rank
 end
 
 -- Called by the recorder after a node was recorded
@@ -167,8 +182,9 @@ local function OnGathered(node, pending)
         local s = Stats(key)
         s.name, s.type = node.name, node.type
         s.n = s.n + 1
-        s.minSkill = math.min(s.minSkill or before, before)
-        s.maxSkill = math.max(s.maxSkill or before, before)
+        local reach = pending.reachBefore or before
+        s.minSkill = math.min(s.minSkill or reach, reach)
+        s.maxSkill = math.max(s.maxSkill or reach, reach)
         if after > before then
             s.ups = s.ups + 1
             s.maxUp = math.max(s.maxUp or before, before)
@@ -185,11 +201,12 @@ local function AddTooltipLines(tooltip, node)
     if not node.type then return end
     local key = ns.KindKey(node)
     local s = KindStats()[key]
-    local mine = GetSkill(node.type)
+    local mine, _, effective = GetSkill(node.type)
     local _, verdict = SkillVerdict(node.type, node.name, node.id, key)
     tooltip:AddLine(verdict)
     if mine then
-        tooltip:AddLine((L["Your %s: %d"]):format(L[PROFESSION_LABEL[node.type]], mine), 0.8, 0.8, 0.8)
+        local bonus = (effective and effective > mine) and (" |cff7bd35f(+%d)|r"):format(effective - mine) or ""
+        tooltip:AddLine((L["Your %s: %d"]):format(L[PROFESSION_LABEL[node.type]], mine) .. bonus, 0.8, 0.8, 0.8)
     end
     if s and s.minSkill then
         tooltip:AddLine((L["Gathered from skill %d (%d nodes)"]):format(s.minSkill, s.n), 0.6, 0.6, 0.6)
@@ -204,8 +221,9 @@ end
 -- /gcr skills : what we learned so far
 local function ShowSkills()
     for _, t in ipairs({ "herb", "ore" }) do
-        local rank, maxRank = GetSkill(t)
-        ns.Print(("%s: %s"):format(L[PROFESSION_LABEL[t]], rank and (rank .. "/" .. maxRank) or L["not learned"]))
+        local rank, maxRank, effective = GetSkill(t)
+        local bonus = (rank and effective and effective > rank) and (" (+%d)"):format(effective - rank) or ""
+        ns.Print(("%s: %s"):format(L[PROFESSION_LABEL[t]], rank and (rank .. "/" .. maxRank .. bonus) or L["not learned"]))
     end
     local list = {}
     for key, s in pairs(KindStats()) do

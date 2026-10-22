@@ -131,8 +131,11 @@ end
 -- One zone, one mode -> result row or nil
 local function EvaluateZone(mapID, mode)
     local types = MODES[mode]
-    local skills = {}
-    for _, t in ipairs(types) do skills[t] = ns.GetSkill(t) end
+    local skills, effective = {}, {}
+    for _, t in ipairs(types) do
+        local rank, _, eff = ns.GetSkill(t)
+        skills[t], effective[t] = rank, eff or rank
+    end
     local w, h = ZoneYards(mapID)
     if not w then return end
 
@@ -141,7 +144,7 @@ local function EvaluateZone(mapID, mode)
         local skill = skills[t]
         if not skill then return end
         local req = ns.RequiredSkill and ns.RequiredSkill(id, name) or 0
-        if req > skill then return end
+        if req > effective[t] then return end -- a bonus (gloves, tea) counts here
         points[#points + 1] = { x * w, y * h }
         valueSum = valueSum + NodeValue(t, name, item, id)
         if skill - req < 100 then ups = ups + 1 end

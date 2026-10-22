@@ -16,6 +16,7 @@ end
 
 local PREFIX = "|cff33ff99Gathercraft|r: "
 local MERGE_RADIUS = 10   -- yards: same node kind closer than this can be the same node
+local SEEN_MERGE = 30     -- yards: a harvest this close to a node only seen on the minimap is that node
 local NEXT_MIN_DIST = 10  -- yards: /gcr next skips nodes you are standing on
 local RESPAWN_TIME = 300  -- seconds a harvested node stays out of runs
 local RESPAWN_BY_TYPE = { chest = 900 } -- chests take longer
@@ -80,17 +81,27 @@ local function Print(text)
     print(PREFIX .. text)
 end
 
--- Finds the chat window named "Gathercraft" or creates it
+-- Finds the chat window named "Gathercraft" or creates it. A window of that
+-- name can exist but be closed (closed tabs keep their name, and chat
+-- settings can come from another client): then it is opened again.
+local triedOpen = false
 local function GetDebugFrame()
     for i = 1, NUM_CHAT_WINDOWS do
-        local name = GetChatWindowInfo(i)
-        if name == DEBUG_WINDOW and _G["ChatFrame" .. i] then
-            return _G["ChatFrame" .. i]
+        local name, _, _, _, _, _, shown, _, docked = GetChatWindowInfo(i)
+        local frame = _G["ChatFrame" .. i]
+        if name == DEBUG_WINDOW and frame and (shown or docked or frame:IsShown()) then
+            return frame
         end
     end
-    if FCF_OpenNewWindow then
+    -- open a tab (reuses a closed window, also our own old one); only once a
+    -- session, so a full chat (no free window) doesn't try on every line
+    if FCF_OpenNewWindow and not triedOpen then
+        triedOpen = true
         local f = FCF_OpenNewWindow(DEBUG_WINDOW)
         if f then return f end
+        for i = 1, NUM_CHAT_WINDOWS do
+            if GetChatWindowInfo(i) == DEBUG_WINDOW and _G["ChatFrame" .. i] then return _G["ChatFrame" .. i] end
+        end
     end
     return DEFAULT_CHAT_FRAME
 end
@@ -339,8 +350,9 @@ local function AddNodeAt(mapID, x, y, name, nodeType, id, spawn, item)
     local best, bestDist
     for _, n in ipairs(list) do
         if SameKind(n, id, nameKey) then
-            local d = Distance(mapID, x, y, n.x, n.y)
-            if d <= MERGE_RADIUS then
+            local d = n.seenOnly and ns.Yards(mapID, x, y, n.x, n.y) or Distance(mapID, x, y, n.x, n.y)
+            -- only seen on the minimap so far: its position is a rough guess
+            if d <= (n.seenOnly and SEEN_MERGE or MERGE_RADIUS) then
                 if spawn and n.lastSpawn == spawn then
                     -- Same spawn gathered again (e.g. a vein mined twice): don't count it again
                     n.last = time()
@@ -359,6 +371,10 @@ local function AddNodeAt(mapID, x, y, name, nodeType, id, spawn, item)
 
     if best then
         local n = best
+        if n.seenOnly then
+            -- harvested now: the real spot replaces the guess from the minimap
+            n.x, n.y, n.count, n.seenOnly = x, y, 0, nil
+        end
         n.x = (n.x * n.count + x) / (n.count + 1)
         n.y = (n.y * n.count + y) / (n.count + 1)
         n.count = n.count + 1
@@ -741,9 +757,19 @@ local function WipeNodes(scope)
     NodesChanged()
 end
 
+-- The "Gathercraft" chat tab is made with the first debug line: write one
+-- right away, so you see where the output goes (a fresh client has no tab yet)
+local function ShowDebugTab()
+    if ns.db.debug then
+        triedOpen = false -- turned on by hand: try to open the tab again
+        Debug("debug output goes to this tab")
+    end
+end
+
 local function ToggleDebug()
     ns.db.debug = not ns.db.debug
     Print(L["Debug mode "] .. (ns.db.debug and L["|cff00ff00ON|r"] or L["|cffff0000OFF|r"]))
+    ShowDebugTab()
 end
 
 ---------------------------------------------------------------------------
@@ -819,6 +845,7 @@ frame:SetScript("OnEvent", function(self, event, ...)
         end
         if ns.db.debug then
             Print(L["Debug mode is ON (/gcr debug to turn off)."])
+            ShowDebugTab()
         end
         -- Resume a run that was active before reload/logout
         if ns.db.activeRun then
@@ -940,6 +967,8 @@ SlashCmdList.GATHERCRAFT = function(msg)
         if ns.TestRareAlert then ns.TestRareAlert() end
     elseif cmd == "debug" then
         ToggleDebug()
+    elseif cmd == "mmtest" then
+        ns.MinimapTest()
     elseif cmd == "test" then
         ApiTest()
     elseif cmd == "ahtest" or cmd == "prices" then
@@ -958,11 +987,261 @@ SlashCmdList.GATHERCRAFT = function(msg)
 end
 
 ---------------------------------------------------------------------------
+-- Seen on the minimap
+--   Pointing at a tracked herb or vein on the minimap shows its name in a
+--   tooltip. Only what the player points at himself is read (no scanning).
+--   From the cursor position we work out where it is: the node is up right
+--   now, and a spawn point we didn't know yet is learned without walking
+--   there ("seenOnly": rough position until it is harvested).
+---------------------------------------------------------------------------
+local HBD = LibStub and LibStub("HereBeDragons-2.0", true)
+local SEEN_SNAP = 25      -- yards: a node of that kind this close is the one we see
+local SEEN_POLL = 0.2     -- seconds between looks at the tooltip
+local SEEN_AGAIN = 5      -- seconds before the same name at the same place counts again
+local SEEN_LOOKS_MAX = 10 -- a rough position is the average of at most this many looks (newer ones count more after that)
+local MINIMAP_DIAMETER = { -- yards across the minimap per zoom level (as HereBeDragons)
+    indoor = { [0] = 300, 240, 180, 120, 80, 50 },
+    outdoor = { [0] = 466 + 2 / 3, 400, 333 + 1 / 3, 266 + 2 / 6, 200, 133 + 1 / 3 },
+}
+
+-- Real yards between two points of a zone (Distance() guesses the map size
+-- on clients without C_Map.GetMapWorldSize)
+local function Yards(mapID, x1, y1, x2, y2)
+    if HBD and HBD.GetZoneDistance then
+        local d = HBD:GetZoneDistance(mapID, x1, y1, mapID, x2, y2)
+        if d then return d end
+    end
+    return Distance(mapID, x1, y1, x2, y2)
+end
+ns.Yards = Yards
+
+-- name (lower case, client language) -> { id, type, item }: shipped kinds,
+-- their names in this language, and kinds we met ourselves (new Forever ones)
+local seenKinds
+local function SeenKinds()
+    if seenKinds then return seenKinds end
+    seenKinds = {}
+    local function add(name, id, t, item)
+        if name and (t == "herb" or t == "ore") then
+            local key = name:lower()
+            seenKinds[key] = seenKinds[key] or {}
+            for _, k in ipairs(seenKinds[key]) do if k.id == id then return end end
+            table.insert(seenKinds[key], { id = id, type = t, item = item })
+        end
+    end
+    for _, list in pairs(ns.db.nodes) do
+        for _, n in ipairs(list) do add(n.name, n.id, n.type, n.item) end
+    end
+    local kinds = GathercraftQuestieData and GathercraftQuestieData.kinds
+    local names = GathercraftNodeNames and GathercraftNodeNames[GetLocale()]
+    for id, k in pairs(kinds or {}) do
+        local t = k[1] == "h" and "herb" or k[1] == "o" and "ore" or nil
+        local num = tonumber(id:match("^o(%d+)$"))
+        add(names and num and names[num] or k[3], id, t, k[2])
+    end
+    return seenKinds
+end
+
+local function CleanLine(text)
+    text = text:gsub("|T.-|t", ""):gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")
+    return (text:gsub("^%s+", ""):gsub("%s+$", ""))
+end
+
+-- Where on the map the cursor points (minimap -> zone coordinates)
+local function CursorOnMap()
+    if not (HBD and HBD.GetPlayerWorldPosition and HBD.GetZoneCoordinatesFromWorld) then return end
+    local px, py, instance = HBD:GetPlayerWorldPosition()
+    local mapID = C_Map.GetBestMapForUnit("player")
+    if not (px and mapID) then return end
+    local scale = Minimap:GetEffectiveScale()
+    local cx, cy = GetCursorPosition()
+    local mx, my = Minimap:GetCenter()
+    if not (cx and mx) then return end
+    local ox, oy = cx / scale - mx, cy / scale - my
+    local halfW, halfH = Minimap:GetWidth() / 2, Minimap:GetHeight() / 2
+    if halfW <= 0 or halfH <= 0 then return end
+    local radius
+    if C_Minimap and C_Minimap.GetViewRadius then
+        radius = C_Minimap.GetViewRadius()
+    else
+        local indoors = (tonumber(GetCVar("minimapZoom")) or 0) ~= Minimap:GetZoom() and "indoor" or "outdoor"
+        radius = (MINIMAP_DIAMETER[indoors][Minimap:GetZoom() or 0] or 466) / 2
+    end
+    -- the reverse of how HereBeDragons places minimap pins
+    local xDist, yDist = ox / halfW * radius, -oy / halfH * radius
+    if GetCVar("rotateMinimap") == "1" and GetPlayerFacing then
+        local f = GetPlayerFacing()
+        if not f then return end
+        local s, c = math.sin(f), math.cos(f)
+        xDist, yDist = xDist * c + yDist * s, -xDist * s + yDist * c
+    end
+    local x, y = HBD:GetZoneCoordinatesFromWorld(px - xDist, py - yDist, mapID)
+    if not x or x < 0 or x > 1 or y < 0 or y > 1 then return end
+    return mapID, x, y, math.sqrt(xDist * xDist + yDist * yDist)
+end
+
+local lastSeen = {} -- name -> { t, x, y }
+local kindsBuiltAt = 0
+local function OnSeen(mapID, x, y, name)
+    local candidates = SeenKinds()[name:lower()]
+    if not candidates and time() - kindsBuiltAt > 30 then
+        -- maybe a kind we only met a moment ago: look again (not too often)
+        seenKinds, kindsBuiltAt = nil, time()
+        candidates = SeenKinds()[name:lower()]
+    end
+    if not candidates then return end
+    local last = lastSeen[name]
+    if last and time() - last.t < SEEN_AGAIN and Yards(mapID, x, y, last.x, last.y) < SEEN_SNAP then return end
+    lastSeen[name] = { t = time(), x = x, y = y }
+
+    -- a node of that kind close by: that's the one, it is up right now
+    local best, bestDist
+    for _, n in ipairs(GetZoneNodes(mapID) or {}) do
+        for _, k in ipairs(candidates) do
+            if n.id == k.id or (not n.id and n.name:lower() == name:lower()) then
+                local d = Yards(mapID, x, y, n.x, n.y)
+                if d <= SEEN_SNAP and (not bestDist or d < bestDist) then best, bestDist = n, d end
+            end
+        end
+    end
+    if best then
+        best.seenAt, best.upAt = time(), time()
+        best.emptyUntil, best.emptyAt = nil, nil -- there it is: respawned
+        if best.seenOnly then
+            -- every look is a guess: the average of several gets closer
+            local looks = math.min(best.seenLooks or 1, SEEN_LOOKS_MAX)
+            best.x = (best.x * looks + x) / (looks + 1)
+            best.y = (best.y * looks + y) / (looks + 1)
+            best.seenLooks = (best.seenLooks or 1) + 1
+        end
+        Debug(("SEEN %s up (%d yd from the known spot%s)"):format(best.name, bestDist,
+            best.seenOnly and (", position from %d looks"):format(best.seenLooks) or ""))
+        NodesChanged("update", mapID, best)
+        return
+    end
+
+    -- new spawn point: learned from the minimap
+    local k = candidates[1]
+    local list = GetZoneNodes(mapID, true)
+    local node = {
+        id = k.id, name = name, type = k.type, x = x, y = y, count = 1, last = time(),
+        item = k.item, seenOnly = true, seenAt = time(), upAt = time(),
+    }
+    table.insert(list, node)
+    nameCache = nil
+    Debug(("SEEN new %s at %.1f / %.1f"):format(name, x * 100, y * 100))
+    Print((L["%s learned from the minimap (position is a rough guess until you harvest it)."]):format(name))
+    NodesChanged("add", mapID, node)
+end
+
+local function FrameName(f)
+    if not f then return "none" end
+    return (f.GetName and f:GetName()) or (f.GetDebugName and f:GetDebugName()) or "unnamed"
+end
+
+-- What is under the mouse (newer clients: a list, older ones: one frame)
+local function MouseFocus()
+    if GetMouseFoci then
+        local foci = GetMouseFoci()
+        return foci and foci[1]
+    end
+    return GetMouseFocus and GetMouseFocus()
+end
+
+-- The game's own minimap tooltip, not a pin of ours or of another addon:
+-- the minimap itself is under the mouse (a pin would be), and the tooltip
+-- belongs to the minimap or to the screen (WoW Forever: UIParent)
+local function IsMinimapTooltip()
+    local owner = GameTooltip:GetOwner()
+    if owner and owner.node then return false end -- one of our pins
+    local focus = MouseFocus()
+    if focus ~= nil and focus ~= Minimap then return false end
+    if owner == nil or owner == Minimap or owner == MinimapCluster or owner == MinimapBackdrop
+        or owner == UIParent then
+        return true
+    end
+    if MinimapCluster and owner == MinimapCluster.MinimapContainer then return true end
+    local name = owner.GetName and owner:GetName()
+    return name and name:match("^Minimap") and true or false
+end
+
+local function TooltipLines()
+    local lines = {}
+    for i = 1, GameTooltip:NumLines() or 0 do
+        local fs = _G["GameTooltipTextLeft" .. i]
+        local text = fs and fs:GetText()
+        if text then
+            for part in text:gmatch("[^\n]+") do
+                part = CleanLine(part)
+                if part ~= "" then lines[#lines + 1] = part end
+            end
+        end
+    end
+    return lines
+end
+
+local seenFrame = CreateFrame("Frame")
+local seenElapsed, lastTooltip = 0, nil
+seenFrame:SetScript("OnUpdate", function(_, elapsed)
+    seenElapsed = seenElapsed + elapsed
+    if seenElapsed < SEEN_POLL then return end
+    seenElapsed = 0
+    if not ns.db or ns.db.minimapLearnOff then return end
+    if not (GameTooltip:IsShown() and Minimap:IsMouseOver()) then lastTooltip = nil return end
+    local lines = TooltipLines()
+    local mine = IsMinimapTooltip()
+    local joined = table.concat(lines, "|")
+    if ns.db.debug and joined ~= lastTooltip and joined ~= "" then
+        Debug(("minimap tooltip [%s%s]: %s"):format(FrameName(GameTooltip:GetOwner()), mine and "" or ", ignored", joined))
+    end
+    lastTooltip = joined
+    if not mine or #lines == 0 then return end
+    local mapID, x, y = CursorOnMap()
+    if not mapID then return end
+    for _, name in ipairs(lines) do OnSeen(mapID, x, y, name) end
+end)
+-- new kinds (harvested, language switched): look the names up again
+table.insert(ns.languageListeners or {}, function() seenKinds = nil end)
+ns.ForgetSeenKinds = function() seenKinds = nil end
+ns.SeenOnMinimap = OnSeen -- tests
+
+-- /gcr mmtest: 20 seconds of what the minimap and its tooltip look like to us
+local function MinimapTest()
+    Print("minimap test: point at a tracked herb or vein on the minimap for 20 seconds")
+    local last, ticks = nil, 0
+    local ticker
+    ticker = C_Timer.NewTicker(0.5, function()
+        ticks = ticks + 1
+        local foci = GetMouseFoci and GetMouseFoci() or (GetMouseFocus and { GetMouseFocus() }) or {}
+        local names = {}
+        for _, f in ipairs(foci) do names[#names + 1] = FrameName(f) end
+        local tips = {}
+        for _, tip in ipairs({ "GameTooltip", "ItemRefTooltip", "EmbeddedItemTooltip", "MinimapTooltip" }) do
+            local t = _G[tip]
+            if t and t.IsShown and t:IsShown() then tips[#tips + 1] = tip end
+        end
+        local mapID, x, y, dist = CursorOnMap()
+        local line = ("over=%s tips=%s owner=%s mine=%s text=%s focus=%s pos=%s"):format(
+            tostring(Minimap:IsMouseOver()), table.concat(tips, ","), FrameName(GameTooltip:GetOwner()),
+            tostring(IsMinimapTooltip()), table.concat(TooltipLines(), "|"), table.concat(names, ","),
+            mapID and ("%.1f/%.1f %dyd"):format(x * 100, y * 100, dist) or "-")
+        if line ~= last then print("|cff33ff99GC|r " .. line) last = line end
+        if ticks >= 40 then
+            ticker:Cancel()
+            Print("minimap test done")
+        end
+    end)
+end
+ns.MinimapTest = MinimapTest
+ns.CursorOnMap = CursorOnMap
+
+---------------------------------------------------------------------------
 -- Shared with other files
 ---------------------------------------------------------------------------
 ns.TYPE_COLORS = TYPE_COLORS
 ns.Print = Print
 ns.Debug = Debug
+ns.ShowDebugTab = ShowDebugTab
 ns.GetPlayerPos = GetPlayerPos
 ns.Distance = Distance
 ns.GetZoneName = GetZoneName

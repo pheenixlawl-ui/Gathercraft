@@ -18,6 +18,7 @@ local SKIP_TIME = 300        -- seconds a skipped (empty) node stays out of runs
 local EMPTY_GRACE = 25       -- seconds after arriving: no harvest by then = the node wasn't there
 local EMPTY_NEAR = 30        -- yards: a harvest this close counts for the node we arrived at
 local WAIT_RETRY = 5         -- seconds between retries while all nodes are on cooldown
+local WAIT_GIVE_UP = 600     -- nothing to ride to for this long: the run stops
 local TICK = 0.5             -- seconds between arrival checks
 local MAX_ROUTE_NODES = 800  -- more nodes: only the nearest ones are planned
 local OPT_BUDGET_MS = 150    -- max time spent improving a plan
@@ -25,6 +26,8 @@ local QUICK_BUDGET_MS = 10   -- same for automatic re-plans while moving (keeps 
 local REPLAN_MOVE = 50       -- yards moved since the last plan before re-planning
 local QUICK_MAX_NODES = 100  -- automatic re-plans only look at the nearest nodes
 local REPLAN_INTERVAL = 10   -- seconds between automatic re-plans while moving
+local DETOUR_YARDS = 150     -- this much further from the target than you already were: new target
+local DETOUR_AVOID = 60      -- seconds the old target isn't picked first again after a detour
 local MAX_DOTS = 600          -- per map; long routes get wider spacing
 local NEAR_YARDS = 500       -- the first part of the line (around you) can be drawn denser
 local LINE_REF = ADDON_NAME .. "Route"
@@ -127,7 +130,8 @@ local function CollectPoints(filter, instance, zone)
     for mapID, nodes in pairs(ns.db.nodes) do
         if (not zone or mapID == zone) and (zone or not ns.db.disabledZones[mapID]) then
             for _, n in ipairs(nodes) do
-                if MatchesFilter(n, filter) and ns.IsNodeEnabled(n, mapID) then
+                if MatchesFilter(n, filter) and ns.IsNodeEnabled(n, mapID)
+                    and not (ns.IsParked and ns.IsParked(n)) then
                     local wx, wy, inst = WorldPos(n, mapID)
                     if wx and inst == instance then
                         points[#points + 1] = { node = n, mapID = mapID, wx = wx, wy = wy }
@@ -207,10 +211,16 @@ local function Goal()
     return GOALS[g] and g or "auto"
 end
 
-local function SkillChance(mine, req)
+-- mine = your own skill (skill-ups go by it), effective = with gear/buff bonuses
+-- (decides what you can gather at all)
+local function SkillChance(mine, req, effective)
     if not req then return 0.5 end
     local d = mine - req
-    if d < 0 then return nil end -- can't gather
+    if d < 0 then
+        -- above your own skill: only with a bonus, and then it's orange
+        if effective and effective >= req then return 1 end
+        return nil -- can't gather
+    end
     if d < 25 then return 1 end
     if d < 50 then return 0.75 end
     if d < 100 then return 0.25 end
@@ -219,11 +229,12 @@ end
 
 -- Weights per kind for the given points: weights[kindKey] = 0 (skip) or > 0
 local function KindWeights(points)
-    local skills, maxed = {}, {}
+    local skills, maxed, effective = {}, {}, {}
     for _, t in ipairs({ "herb", "ore" }) do
-        local rank, maxRank
-        if ns.GetSkill then rank, maxRank = ns.GetSkill(t) end
+        local rank, maxRank, eff
+        if ns.GetSkill then rank, maxRank, eff = ns.GetSkill(t) end
         skills[t] = rank
+        effective[t] = eff or rank
         -- at the cap (until you train): nodes still pay, but give no skill-ups
         maxed[t] = rank and maxRank and maxRank > 0 and rank >= maxRank
     end
@@ -243,7 +254,7 @@ local function KindWeights(points)
                 -- 0 = requirement unknown (new Forever nodes): don't treat them as grey
                 local req = ns.RequiredSkill and ns.RequiredSkill(n.id, n.name)
                 if req == 0 then req = nil end
-                k.skill = SkillChance(mine, req)
+                k.skill = SkillChance(mine, req, effective[n.type])
                 if k.skill and maxed[n.type] then k.skill = 0 end
             end
             if k.skill and n.item and ns.GetPrice then k.price = ns.GetPrice(n.item) end
@@ -283,7 +294,9 @@ end
 
 -- Chance (0..1) that a spawn point has a node right now
 local LEARN_WINDOW = 20 -- only the latest ~20 visits count: spawn points can change
+local UP_FRESH = 180 -- seconds: seen up on the minimap this recently = it is there
 local function Chance(n, now)
+    if n.upAt and now - n.upAt < UP_FRESH then return 1 end
     local hits, misses = n.hits or 0, n.misses or 0
     if not TUNE.learn then hits, misses = 0, 0 end
     if hits + misses > LEARN_WINDOW then
@@ -424,36 +437,121 @@ local function ClearLine()
     wipe(usedDots)
 end
 
--- Draws the path: player position -> first node -> ... -> last node
+-- Length of the part of segment a-b that lies within r of the point o
+local function LengthInside(ax, ay, bx, by, ox, oy, r)
+    local dx, dy = bx - ax, by - ay
+    local len2 = dx * dx + dy * dy
+    if len2 == 0 then return 0 end
+    local fx, fy = ax - ox, ay - oy
+    local b = 2 * (fx * dx + fy * dy)
+    local c = fx * fx + fy * fy - r * r
+    local disc = b * b - 4 * len2 * c
+    if disc <= 0 then return 0 end
+    local sq = math.sqrt(disc)
+    local t1 = math.max(0, (-b - sq) / (2 * len2))
+    local t2 = math.min(1, (-b + sq) / (2 * len2))
+    if t2 <= t1 then return 0 end
+    return (t2 - t1) * math.sqrt(len2)
+end
+
+-- Draws the path: player position -> first node -> ... -> last node.
+-- Dense around you (what the minimap shows), wider further away, never more
+-- than MAX_DOTS. "Around you" is the distance from you, not along the path:
+-- a route that bends back close to you is drawn dense there too.
 local function DrawLine(path, length, instance, px, py)
     ClearLine()
     if not path or #path == 0 or ns.db.routeLineHidden then return end
     local style, rgb = LineStyle(), LineColor().rgb
-    -- dense around you, wider further away; never more than MAX_DOTS
-    local nearLen = math.min(length or 0, NEAR_YARDS)
-    local nearDots = math.min(nearLen / style.near, MAX_DOTS / 2)
+    local nearLen, cx, cy = 0, px, py
+    for _, p in ipairs(path) do
+        nearLen = nearLen + LengthInside(cx, cy, p.wx, p.wy, px, py, NEAR_YARDS)
+        cx, cy = p.wx, p.wy
+    end
+    local farLen = math.max(0, (length or 0) - nearLen)
+    local nearDots = math.min(nearLen / style.near, MAX_DOTS * 0.75)
     local nearSpacing = nearLen > 0 and nearLen / math.max(nearDots, 1) or style.near
-    local farSpacing = math.max(style.far, ((length or 0) - nearLen) / math.max(MAX_DOTS - nearDots, 1))
+    local farSpacing = math.max(style.far, farLen / math.max(MAX_DOTS - nearDots, 1))
     local showFlag = HBD_PINS_WORLDMAP_SHOW_PARENT or 1
-    local cx, cy, along, nextAt = px, py, 0, nearSpacing
+    local near2 = NEAR_YARDS * NEAR_YARDS
+    local along, nextAt = 0, nearSpacing
+    cx, cy = px, py
     for _, p in ipairs(path) do
         local seg = WDist(cx, cy, p.wx, p.wy)
         -- dots at fixed distances along the whole path (not per segment)
         while nextAt < along + seg do
             local d = nextAt - along
+            local t = seg > 0 and d / seg or 0
+            local x = cx + (p.wx - cx) * t
+            local y = cy + (p.wy - cy) * t
             -- keep the node pins themselves clear
             if d > 6 and seg - d > 6 then
-                local t = d / seg
-                local x = cx + (p.wx - cx) * t
-                local y = cy + (p.wy - cy) * t
                 HBDPins:AddWorldMapIconWorld(LINE_REF, GetDot(style.map, rgb), instance, x, y, showFlag)
                 HBDPins:AddMinimapIconWorld(LINE_REF, GetDot(style.mini, rgb), instance, x, y, false)
             end
-            nextAt = nextAt + (nextAt < nearLen and nearSpacing or farSpacing)
+            local ox, oy = x - px, y - py
+            nextAt = nextAt + ((ox * ox + oy * oy <= near2) and nearSpacing or farSpacing)
         end
         along = along + seg
         cx, cy = p.wx, p.wy
     end
+end
+
+---------------------------------------------------------------------------
+-- Target marks: our gold-ringed pin on map and minimap (Pins.lua) always;
+-- the game's own waypoint only when our arrow is off. Otherwise it would
+-- replace (and at the end clear) a waypoint the player set himself.
+---------------------------------------------------------------------------
+local ourWaypoint -- { mapID, x, y } of the waypoint we set, or nil
+
+local function IsOurWaypoint()
+    if not ourWaypoint then return false end
+    local p = C_Map.GetUserWaypoint and C_Map.GetUserWaypoint()
+    if not C_Map.GetUserWaypoint then return true end -- can't check: assume ours
+    local pos = p and p.position
+    return pos ~= nil and p.uiMapID == ourWaypoint.mapID
+        and math.abs(pos.x - ourWaypoint.x) < 0.001 and math.abs(pos.y - ourWaypoint.y) < 0.001
+end
+
+local function ClearOurWaypoint()
+    if IsOurWaypoint() then C_Map.ClearUserWaypoint() end
+    ourWaypoint = nil
+end
+
+local function SetGameWaypoint(mapID, node)
+    if not (ns.db.arrowHidden and ns.SetWaypoint) then return end
+    local run = ns.run
+    if ourWaypoint and not IsOurWaypoint() and run then
+        -- you set a waypoint of your own during the run: leave it alone
+        run.ownWaypoint = true
+    end
+    ourWaypoint = nil
+    if run and run.ownWaypoint then return end
+    if ns.SetWaypoint(mapID, node.x, node.y) then
+        ourWaypoint = { mapID = mapID, x = node.x, y = node.y }
+    end
+end
+
+local function MarkTarget(mapID, node)
+    if ns.SetRouteTarget then ns.SetRouteTarget(mapID, node) end
+    SetGameWaypoint(mapID, node)
+end
+
+local function ClearTargetMarks()
+    if ns.ClearRouteTarget then ns.ClearRouteTarget() end
+    ClearOurWaypoint()
+end
+
+-- Bonuses from gear and buffs (gloves, Goldthorn Tea...) change what you can
+-- gather: notice them during a run
+local SKILL_CHECK = 5 -- seconds
+local function BonusSignature()
+    local parts = {}
+    for _, t in ipairs({ "herb", "ore" }) do
+        local rank, eff
+        if ns.GetSkill then rank, _, eff = ns.GetSkill(t) end
+        parts[#parts + 1] = tostring((eff or 0) - (rank or 0))
+    end
+    return table.concat(parts, ":")
 end
 
 ---------------------------------------------------------------------------
@@ -469,7 +567,7 @@ local function StopRun(silent)
     preview = nil
     if ns.run then
         ns.run = nil
-        C_Map.ClearUserWaypoint()
+        ClearTargetMarks()
         if not silent then
             ns.Print(L["Run stopped."])
         end
@@ -551,18 +649,28 @@ Plan = function(quick)
         end
     end
 
-    -- Everything on cooldown: wait (CheckArrival retries)
+    -- Everything on cooldown: wait (CheckArrival retries, and gives up after
+    -- WAIT_GIVE_UP). The farm panel counts down to the next expected respawn.
     if #open == 0 then
         run.target, run.targetPoint, run.path = nil, nil, nil
         ClearLine()
         if not run.waiting then
             ns.Print(L["All nodes on the route are on cooldown. Waiting for respawns..."])
-            C_Map.ClearUserWaypoint()
+            ClearTargetMarks()
         end
         run.waiting = true
+        run.waitingSince = run.waitingSince or now
+        local soonest
+        for _, p in ipairs(points) do
+            local untilT = p.node.emptyUntil
+            if untilT and untilT > now and (run.weights[p.kind] or 1) > 0 then
+                soonest = math.min(soonest or untilT, untilT)
+            end
+        end
+        run.nextRespawn = soonest
         return
     end
-    run.waiting = nil
+    run.waiting, run.waitingSince, run.nextRespawn = nil, nil, nil
 
     -- Keep the node we are heading to: re-plans only reorder what comes after
     -- it. Otherwise a slightly shorter total route can make the arrow jump to
@@ -607,10 +715,24 @@ Plan = function(quick)
             length = length + nd
         end
     end
+    -- walked off for something else (a quest...): don't point back at the
+    -- node you just left behind; it comes later in the path
+    if not keep and #path > 1 and run.avoidFirst and path[1].node == run.avoidFirst
+        and time() < (run.avoidUntil or 0) then
+        table.insert(path, table.remove(path, 1))
+        length = 0
+        local cx, cy = px, py
+        for _, p in ipairs(path) do
+            length = length + WDist(cx, cy, p.wx, p.wy)
+            cx, cy = p.wx, p.wy
+        end
+    end
     if #path == 0 then
         -- nothing to ride to right now: wait (CheckArrival retries)
         run.target, run.targetPoint, run.path = nil, nil, nil
+        run.waitingSince = run.waitingSince or time()
         ClearLine()
+        ClearTargetMarks()
         return
     end
     run.path, run.length, run.instance = path, length, instance
@@ -620,7 +742,8 @@ Plan = function(quick)
     local first = path[1]
     if run.target ~= first.node then
         run.target, run.targetPoint = first.node, first
-        ns.SetWaypoint(first.mapID, first.node.x, first.node.y)
+        run.targetBest = WDist(px, py, first.wx, first.wy)
+        MarkTarget(first.mapID, first.node)
     else
         run.targetPoint = first
     end
@@ -641,9 +764,20 @@ local function RequestPlan(kind)
 end
 
 -- Found empty: out for a short while, then its chance comes back slowly.
--- The point also learns that it was empty (see Chance).
-MarkEmpty = function(n, why)
+-- mode "full": the point also learns that it was empty (see Chance), and a
+--   node only others reported counts towards self-healing (Sync.lua)
+-- mode "learn": learns, no self-healing (skipped by you: says little)
+-- mode "rest": only the short rest (passed by on the way, or in combat:
+--   you may simply not have stopped for it)
+MarkEmpty = function(n, why, mode)
+    n.upAt = nil -- seen on the minimap, but gone by now
     if ns.IsOnCooldown(n) then return end
+    mode = mode or "full"
+    if mode == "rest" then
+        n.emptyUntil = time() + TUNE.emptyRest
+        ns.Debug(("%s passed without harvest (%s): short rest only"):format(n.name, why))
+        return
+    end
     n.emptyStreak = (n.emptyStreak or 0) + 1
     n.misses = (n.misses or 0) + 1
     if (n.hits or 0) + n.misses > LEARN_WINDOW then
@@ -651,6 +785,8 @@ MarkEmpty = function(n, why)
     end
     n.emptyAt = time()
     n.emptyUntil = time() + TUNE.emptyRest
+    -- only shared by others and never there: it is parked (Sync.lua)
+    if mode == "full" and ns.SyncSelfHeal and ns.SyncSelfHeal(n) then return end
     ns.Debug(("%s was empty (%s, %dx in a row, chance in 10 min %d%%)"):format(n.name, why, n.emptyStreak,
         Chance(n, time() + 600) * 100))
 end
@@ -659,7 +795,25 @@ local function CheckArrival()
     local run = ns.run
     if not run then return end
 
+    -- put on gloves or drank Goldthorn Tea: other nodes are in reach now
+    if time() - (run.skillCheckAt or 0) >= SKILL_CHECK then
+        run.skillCheckAt = time()
+        local sig = BonusSignature()
+        if run.bonusSig and sig ~= run.bonusSig then
+            run.bonusSig = sig
+            run.weights = nil
+            Plan(true)
+            return
+        end
+        run.bonusSig = sig
+    end
+
     if not run.target then
+        if run.waitingSince and time() - run.waitingSince >= WAIT_GIVE_UP then
+            ns.Print(L["Nothing to farm for 10 minutes: run stopped. Start it again any time."])
+            StopRun(true)
+            return
+        end
         if time() - (run.lastTry or 0) >= WAIT_RETRY then
             Plan(true)
         end
@@ -674,10 +828,27 @@ local function CheckArrival()
     local px, py, instance = PlayerWorld()
     if not px or instance ~= run.instance or not run.path then return end
 
+    -- Walking away from the target (questing, a detour): pick a new one
+    -- instead of pointing back all the time
+    local tp = run.targetPoint
+    if tp and run.target then
+        local d = WDist(px, py, tp.wx, tp.wy)
+        run.targetBest = math.min(run.targetBest or d, d)
+        if d > run.targetBest + DETOUR_YARDS then
+            ns.Debug(("left %s behind (%d yd): new target"):format(run.target.name, d))
+            run.avoidFirst, run.avoidUntil = run.target, time() + DETOUR_AVOID
+            run.target, run.targetPoint, run.targetBest = nil, nil, nil
+            Plan(true)
+            return
+        end
+    end
+
     -- Nodes we reached a moment ago: no harvest close by = nothing was there.
     -- Mark them empty so later rounds don't send you back right away.
+    local fighting = UnitAffectingCombat and UnitAffectingCombat("player")
     for i = #run.checking, 1, -1 do
         local c = run.checking[i]
+        if fighting then c.combat = true end
         if time() - c.at >= EMPTY_GRACE then
             table.remove(run.checking, i)
             local found = false
@@ -687,7 +858,9 @@ local function CheckArrival()
                     break
                 end
             end
-            if not found then MarkEmpty(c.node, L["nothing harvested"]) end
+            if not found then
+                MarkEmpty(c.node, L["nothing harvested"], (c.target and not c.combat) and "full" or "rest")
+            end
         end
     end
 
@@ -699,7 +872,8 @@ local function CheckArrival()
         if not run.visited[p.node] and WDist(px, py, p.wx, p.wy) <= arrive then
             run.visited[p.node] = true
             run.done = run.done + 1
-            run.checking[#run.checking + 1] = { node = p.node, wx = p.wx, wy = p.wy, at = time() }
+            run.checking[#run.checking + 1] = { node = p.node, wx = p.wx, wy = p.wy, at = time(),
+                target = p.node == run.target, combat = fighting or nil }
             reached = true
         end
     end
@@ -736,6 +910,7 @@ local function StartRun(filter, zone)
         done = 0,
     }
     ns.db.activeRun = { filter = filter, zone = zone }
+    ns.run.bonusSig = BonusSignature()
     Plan()
     local run = ns.run
     if not run then return end -- nothing to farm
@@ -753,7 +928,7 @@ local function SkipNode()
         return
     end
     local node = run.target
-    MarkEmpty(node, "skipped")
+    MarkEmpty(node, "skipped", "learn")
     node.emptyUntil = math.max(node.emptyUntil or 0, time() + SKIP_TIME)
     run.visited[node] = true
     ns.Print((L["%s marked empty for %d min."]):format(node.name, SKIP_TIME / 60))
@@ -762,6 +937,7 @@ end
 
 -- Called by the recorder after a node was harvested (it is on cooldown now)
 local function OnHarvested(node, spawn)
+    node.upAt = nil
     node.emptyStreak, node.emptyAt = nil, nil -- it had something: back to normal
     -- the same vein mined two or three times counts once
     if not spawn or node.lastHitSpawn ~= spawn then
@@ -871,7 +1047,18 @@ end
 ---------------------------------------------------------------------------
 -- Shared
 ---------------------------------------------------------------------------
--- Distance at which a node counts as reached and the arrow moves on
+-- Options: our arrow on or off. The game's waypoint stands in when it's off
+-- (switching it off again also takes the run's waypoint over from yours).
+ns.RouteArrowChanged = function()
+    local run = ns.run
+    if ns.db.arrowHidden then
+        if run then run.ownWaypoint = nil end
+        if run and run.target and run.targetPoint then SetGameWaypoint(run.targetPoint.mapID, run.target) end
+    else
+        ClearOurWaypoint()
+    end
+end
+
 -- Options: the route goal changed, plan again with the new weights
 ns.RouteGoalChanged = function()
     if ns.run then
@@ -880,6 +1067,7 @@ ns.RouteGoalChanged = function()
     end
 end
 
+-- Distance at which a node counts as reached and the arrow moves on
 ns.ArriveDistance = function()
     local d = ns.db and ns.db.arriveDist or ARRIVE_DEFAULT
     return math.max(ARRIVE_MIN, math.min(ARRIVE_MAX, d))

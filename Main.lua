@@ -329,7 +329,7 @@ CreateBar("aid", "First Aid", COL_RIGHT, -76)
 
 local function UpdateBars()
     for type, b in pairs(bars) do
-        local rank, maxRank = ns.GetSkill(type)
+        local rank, maxRank, effective = ns.GetSkill(type)
         local learned = rank ~= nil
         b.frame:SetShown(learned)
         b.missing:SetShown(not learned)
@@ -340,7 +340,8 @@ local function UpdateBars()
             b.bar:SetMinMaxValues(0, maxRank > 0 and maxRank or 1)
             b.bar:SetValue(rank)
             local tier = TIERS[maxRank] and L[TIERS[maxRank]]
-            b.text:SetText((tier and ("|cffffd27f" .. tier .. "|r  ") or "") .. ("%d / %d"):format(rank, maxRank))
+            local bonus = (effective and effective > rank) and ("  |cff7bd35f+%d|r"):format(effective - rank) or ""
+            b.text:SetText((tier and ("|cffffd27f" .. tier .. "|r  ") or "") .. ("%d / %d"):format(rank, maxRank) .. bonus)
         else
             b.name:SetTextColor(0.5, 0.5, 0.5)
         end
