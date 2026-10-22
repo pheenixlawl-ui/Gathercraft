@@ -12,6 +12,18 @@ PARTICULAR PURPOSE. See LICENSE for the full text.
 
 Source code: https://github.com/pheenixlawl-ui/Gathercraft
 
+## Name and logo (additional term under GPLv3 section 7(e))
+
+The GPLv3 lets you copy, change and share the code. It does not give you the
+right to use the name "Gathercraft", the slogan "Gather. Route. Profit." or the
+Gathercraft emblem, logo and banner (Media/Icon.tga, Media/IconRound.tga,
+docs/icon.png, docs/banner.png) as the name or branding of your own version.
+
+- Sharing an unchanged copy of Gathercraft: fine, name and logo included.
+- Sharing a changed version (a fork): give it a different name and its own
+  icon, and do not present it as the official Gathercraft or as made by
+  pheenixlawl. Saying "based on Gathercraft" with a link is welcome.
+
 ## Third-party content
 
 - **Data/QuestieNodes.lua** - herb, ore and chest spawn coordinates from the
