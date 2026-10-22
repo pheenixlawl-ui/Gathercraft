@@ -6,6 +6,7 @@ every release and by announce.yml to post one by hand.
 """
 import json
 import os
+import re
 import sys
 import urllib.error
 import urllib.request
@@ -26,8 +27,18 @@ if lines and lines[0].startswith("#"):
     title = "Gathercraft " + lines[0].lstrip("#").strip()
     lines = lines[1:]
 notes = "\n".join(lines).strip()
-if len(notes) > 3500:
-    notes = notes[:3500].rsplit("\n", 1)[0] + "\n…"
+LIMIT = 3300  # Discord allows 4096 in an embed; keep room for the note below
+if len(notes) > LIMIT:
+    # cut at a "### section" boundary, never in the middle of a sentence
+    parts = re.split(r"(?m)^(?=### )", notes)
+    short = ""
+    for part in parts:
+        if len(short) + len(part) > LIMIT:
+            break
+        short += part
+    if not short:
+        short = notes[:LIMIT].rsplit("\n", 1)[0]
+    notes = short.rstrip() + "\n\n*More in the full changelog – links below.*"
 
 release = "https://github.com/%s/releases/tag/%s" % (repo, version)
 icon = "https://raw.githubusercontent.com/%s/main/docs/icon.png" % repo

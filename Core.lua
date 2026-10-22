@@ -16,7 +16,13 @@ end
 
 local PREFIX = "|cff33ff99Gathercraft|r: "
 local MERGE_RADIUS = 10   -- yards: same node kind closer than this can be the same node
-local SEEN_MERGE = 30     -- yards: a harvest this close to a node only seen on the minimap is that node
+local SEEN_MERGE = 30     -- yards: a harvest this close to a node only seen on the minimap is that node ...
+local SEEN_MERGE_MAX = 70 -- ... or further, when the guess was rough (minimap zoomed out): 2.5 x its error
+-- (lookErr: how far off a single look at it could be, the worst of its looks;
+-- the average is closer, but may still sit on one side of the real spot)
+local function SeenMergeRadius(n)
+    return math.max(SEEN_MERGE, math.min(SEEN_MERGE_MAX, 2 * (n.lookErr or n.seenErr or 24)))
+end
 local NEXT_MIN_DIST = 10  -- yards: /gcr next skips nodes you are standing on
 local RESPAWN_TIME = 300  -- seconds a harvested node stays out of runs
 local RESPAWN_BY_TYPE = { chest = 900 } -- chests take longer
@@ -352,7 +358,7 @@ local function AddNodeAt(mapID, x, y, name, nodeType, id, spawn, item)
         if SameKind(n, id, nameKey) then
             local d = n.seenOnly and ns.Yards(mapID, x, y, n.x, n.y) or Distance(mapID, x, y, n.x, n.y)
             -- only seen on the minimap so far: its position is a rough guess
-            if d <= (n.seenOnly and SEEN_MERGE or MERGE_RADIUS) then
+            if d <= (n.seenOnly and SeenMergeRadius(n) or MERGE_RADIUS) then
                 if spawn and n.lastSpawn == spawn then
                     -- Same spawn gathered again (e.g. a vein mined twice): don't count it again
                     n.last = time()
@@ -373,6 +379,13 @@ local function AddNodeAt(mapID, x, y, name, nodeType, id, spawn, item)
         local n = best
         if n.seenOnly then
             -- harvested now: the real spot replaces the guess from the minimap
+            if ns.db.debug then
+                local east = ns.Yards(mapID, n.x, y, x, y) * (n.x > x and 1 or -1)
+                local south = ns.Yards(mapID, x, n.y, x, y) * (n.y > y and 1 or -1)
+                Debug(("SEEN guess of %s was %d yd off: %d yd %s, %d yd %s (%d looks)"):format(n.name,
+                    ns.Yards(mapID, n.x, n.y, x, y), math.abs(east), east >= 0 and "east" or "west",
+                    math.abs(south), south >= 0 and "south" or "north", n.seenLooks or 1))
+            end
             n.x, n.y, n.count, n.seenOnly = x, y, 0, nil
         end
         n.x = (n.x * n.count + x) / (n.count + 1)
@@ -839,6 +852,14 @@ frame:SetScript("OnEvent", function(self, event, ...)
             ns.db = GathercraftDB
         end
     elseif event == "PLAYER_LOGIN" then
+        if ns.ConsolidateSeen then
+            local n = 0
+            for mapID in pairs(ns.db.nodes) do n = n + ns.ConsolidateSeen(mapID) end
+            if n > 0 then
+                Debug(("%d rough minimap guesses merged into nodes seen before"):format(n))
+                NodesChanged()
+            end
+        end
         Print(L["by pheenixlawl loaded. Type /gcr help for commands."])
         if ns.migratedOld then
             Print(L["Your WoWFFarm data was taken over. Welcome to Gathercraft!"])
@@ -878,6 +899,7 @@ local function Help()
     print(L["  /gcr route [herb|ore|both|name] - preview the route on the map"])
     print(L["  /gcr line         - show/hide the route line"])
     print(L["  /gcr skip         - current node is empty, go to next"])
+    print(L["  /gcr unreachable  - can't get to the current node: leave it out for a while"])
     print(L["  /gcr stop         - stop the farm run"])
     print(L["  /gcr pins         - show/hide map and minimap pins"])
     print(L["  /gcr list [filter] - list nodes in this zone"])
@@ -933,6 +955,8 @@ SlashCmdList.GATHERCRAFT = function(msg)
         ns.PreviewRoute(rest)
     elseif cmd == "line" then
         ns.ToggleRouteLine()
+    elseif cmd == "unreachable" or cmd == "cantreach" then
+        if ns.UnreachableNode then ns.UnreachableNode() end
     elseif cmd == "skip" then
         ns.SkipNode()
     elseif cmd == "stop" then
@@ -995,8 +1019,13 @@ end
 --   there ("seenOnly": rough position until it is harvested).
 ---------------------------------------------------------------------------
 local HBD = LibStub and LibStub("HereBeDragons-2.0", true)
-local SEEN_SNAP = 25      -- yards: a node of that kind this close is the one we see
+local SEEN_SNAP = 25      -- yards: a node of that kind this close is the one we see ...
+local SEEN_SNAP_MAX = 60  -- ... up to this far when the minimap is zoomed out (2 x the error of the look)
+local SEEN_BLIP_PX = 10   -- pixels: how far off the cursor can be while the tooltip of a blip shows (measured in Forever)
+local SEEN_ERR_MIN = 4    -- yards: a position never counts as more exact than this
 local SEEN_POLL = 0.2     -- seconds between looks at the tooltip
+local SEEN_SAMPLE = 0.03  -- seconds between cursor samples while a blip's tooltip shows
+local SEEN_HOVER_MAX = 0.6 -- a hover longer than this counts as one look, then a new one starts
 local SEEN_AGAIN = 5      -- seconds before the same name at the same place counts again
 local SEEN_LOOKS_MAX = 10 -- a rough position is the average of at most this many looks (newer ones count more after that)
 local MINIMAP_DIAMETER = { -- yards across the minimap per zoom level (as HereBeDragons)
@@ -1060,13 +1089,15 @@ local function CursorOnMap()
     local ox, oy = cx / scale - mx, cy / scale - my
     local halfW, halfH = Minimap:GetWidth() / 2, Minimap:GetHeight() / 2
     if halfW <= 0 or halfH <= 0 then return end
-    local radius
+    local radius, source
+    local zoom = Minimap:GetZoom() or 0
     if C_Minimap and C_Minimap.GetViewRadius then
-        radius = C_Minimap.GetViewRadius()
+        radius, source = C_Minimap.GetViewRadius(), "api"
     else
-        local indoors = (tonumber(GetCVar("minimapZoom")) or 0) ~= Minimap:GetZoom() and "indoor" or "outdoor"
-        radius = (MINIMAP_DIAMETER[indoors][Minimap:GetZoom() or 0] or 466) / 2
+        local indoors = (tonumber(GetCVar("minimapZoom")) or 0) ~= zoom and "indoor" or "outdoor"
+        radius, source = (MINIMAP_DIAMETER[indoors][zoom] or 466) / 2, indoors
     end
+    if not radius or radius <= 0 then return end
     -- the reverse of how HereBeDragons places minimap pins
     local xDist, yDist = ox / halfW * radius, -oy / halfH * radius
     if GetCVar("rotateMinimap") == "1" and GetPlayerFacing then
@@ -1077,12 +1108,21 @@ local function CursorOnMap()
     end
     local x, y = HBD:GetZoneCoordinatesFromWorld(px - xDist, py - yDist, mapID)
     if not x or x < 0 or x > 1 or y < 0 or y > 1 then return end
-    return mapID, x, y, math.sqrt(xDist * xDist + yDist * yDist)
+    local ypp = radius / halfW -- yards per pixel
+    return mapID, x, y, math.sqrt(xDist * xDist + yDist * yDist), ypp,
+        ("zoom %d, %s, %.1f yd/px"):format(zoom, source, ypp)
+end
+
+-- How far off a look can be: a few pixels of the blip, in yards
+local function LookError(ypp)
+    return math.max(SEEN_ERR_MIN, (ypp or 3.3) * SEEN_BLIP_PX)
 end
 
 local lastSeen = {} -- name -> { t, x, y }
 local kindsBuiltAt = 0
-local function OnSeen(mapID, x, y, name)
+local Calibrate -- below
+local function OnSeen(mapID, x, y, name, err)
+    err = err or 20
     local candidates = SeenKinds()[name:lower()]
     if not candidates and time() - kindsBuiltAt > 30 then
         -- maybe a kind we only met a moment ago: look again (not too often)
@@ -1091,7 +1131,8 @@ local function OnSeen(mapID, x, y, name)
     end
     if not candidates then return end
     local last = lastSeen[name]
-    if last and time() - last.t < SEEN_AGAIN and Yards(mapID, x, y, last.x, last.y) < SEEN_SNAP then return end
+    local snap = math.max(SEEN_SNAP, math.min(SEEN_SNAP_MAX, 2 * err))
+    if last and time() - last.t < SEEN_AGAIN and Yards(mapID, x, y, last.x, last.y) < snap then return end
     lastSeen[name] = { t = time(), x = x, y = y }
 
     -- a node of that kind close by: that's the one, it is up right now
@@ -1100,7 +1141,9 @@ local function OnSeen(mapID, x, y, name)
         for _, k in ipairs(candidates) do
             if n.id == k.id or (not n.id and n.name:lower() == name:lower()) then
                 local d = Yards(mapID, x, y, n.x, n.y)
-                if d <= SEEN_SNAP and (not bestDist or d < bestDist) then best, bestDist = n, d end
+                -- a rough guess of our own may be further off too
+                local r = n.seenOnly and math.max(snap, math.min(SEEN_SNAP_MAX, 2 * (n.lookErr or n.seenErr or err))) or snap
+                if d <= r and (not bestDist or d < bestDist) then best, bestDist = n, d end
             end
         end
     end
@@ -1108,14 +1151,20 @@ local function OnSeen(mapID, x, y, name)
         best.seenAt, best.upAt = time(), time()
         best.emptyUntil, best.emptyAt = nil, nil -- there it is: respawned
         if best.seenOnly then
-            -- every look is a guess: the average of several gets closer
-            local looks = math.min(best.seenLooks or 1, SEEN_LOOKS_MAX)
-            best.x = (best.x * looks + x) / (looks + 1)
-            best.y = (best.y * looks + y) / (looks + 1)
+            -- every look is a guess: the average gets closer. Looks with the
+            -- minimap zoomed in are more exact and count more (1 / error²).
+            local wNew = 1 / (err * err)
+            local w = best.seenW or 1 / ((best.seenErr or err) ^ 2)
+            w = math.min(w, SEEN_LOOKS_MAX * wNew) -- newer looks keep a say
+            best.x = (best.x * w + x * wNew) / (w + wNew)
+            best.y = (best.y * w + y * wNew) / (w + wNew)
+            best.seenW = w + wNew
+            best.seenErr = math.max(SEEN_ERR_MIN, 1 / math.sqrt(best.seenW))
             best.seenLooks = (best.seenLooks or 1) + 1
+            best.lookErr = math.max(best.lookErr or best.seenErr or err, err)
         end
         Debug(("SEEN %s up (%d yd from the known spot%s)"):format(best.name, bestDist,
-            best.seenOnly and (", position from %d looks"):format(best.seenLooks) or ""))
+            best.seenOnly and (", position from %d looks, ~%d yd exact"):format(best.seenLooks, best.seenErr) or ""))
         NodesChanged("update", mapID, best)
         return
     end
@@ -1126,13 +1175,54 @@ local function OnSeen(mapID, x, y, name)
     local node = {
         id = k.id, name = name, type = k.type, x = x, y = y, count = 1, last = time(),
         item = k.item, seenOnly = true, seenAt = time(), upAt = time(),
+        seenErr = err, seenW = 1 / (err * err), lookErr = err,
     }
     table.insert(list, node)
     nameCache = nil
-    Debug(("SEEN new %s at %.1f / %.1f"):format(name, x * 100, y * 100))
+    Debug(("SEEN new %s at %.1f / %.1f (~%d yd exact)"):format(name, x * 100, y * 100, err))
     Print((L["%s learned from the minimap (position is a rough guess until you harvest it)."]):format(name))
     NodesChanged("add", mapID, node)
 end
+
+-- Rough guesses of the same kind that lie within their errors of each other
+-- are one node seen several times (older versions made a new one each time
+-- the guess was more than 25 yd off). Merged into their weighted average.
+local function ConsolidateSeen(mapID)
+    local list = GetZoneNodes(mapID)
+    if not list then return 0 end
+    local merged = 0
+    local i = 1
+    while i <= #list do
+        local a = list[i]
+        local removed = false
+        if a.seenOnly then
+            for j = #list, i + 1, -1 do
+                local b = list[j]
+                if b.seenOnly and SameKind(b, a.id, a.name:lower()) then
+                    local ea, eb = a.seenErr or 24, b.seenErr or 24
+                    local la, lb = a.lookErr or math.max(ea, 24), b.lookErr or math.max(eb, 24)
+                    local r = math.max(SEEN_SNAP, math.min(SEEN_SNAP_MAX, 2 * math.max(la, lb)))
+                    if Yards(mapID, a.x, a.y, b.x, b.y) <= r then
+                        local wa, wb = a.seenW or 1 / (ea * ea), b.seenW or 1 / (eb * eb)
+                        a.x = (a.x * wa + b.x * wb) / (wa + wb)
+                        a.y = (a.y * wa + b.y * wb) / (wa + wb)
+                        a.seenW = wa + wb
+                        a.seenErr = math.max(SEEN_ERR_MIN, 1 / math.sqrt(a.seenW))
+                        a.seenLooks = (a.seenLooks or 1) + (b.seenLooks or 1)
+                        a.lookErr = math.max(la, lb)
+                        a.seenAt = math.max(a.seenAt or 0, b.seenAt or 0)
+                        a.upAt = math.max(a.upAt or 0, b.upAt or 0)
+                        table.remove(list, j)
+                        merged = merged + 1
+                    end
+                end
+            end
+        end
+        if not removed then i = i + 1 end
+    end
+    return merged
+end
+ns.ConsolidateSeen = ConsolidateSeen
 
 local function FrameName(f)
     if not f then return "none" end
@@ -1180,10 +1270,66 @@ local function TooltipLines()
     return lines
 end
 
+-- Debug: pointing at one of OUR minimap pins whose real spot we know shows
+-- how far the minimap maths is off (radius/zoom right in this client?)
+local calibrated
+Calibrate = function()
+    local owner = GameTooltip:GetOwner()
+    local n = owner and owner.node
+    if not (n and owner.isMini and not n.seenOnly and not n.pendingReport) or calibrated == n then return end
+    calibrated = n
+    local mapID, x, y, dist, _, info = CursorOnMap()
+    local pm, px, py = GetPlayerPos()
+    if not (mapID and pm == mapID and owner.mapID == mapID) then return end
+    local off = Yards(mapID, x, y, n.x, n.y)
+    local real = Yards(mapID, px, py, n.x, n.y)
+    local tip = ""
+    local pcx, pcy = owner:GetCenter()
+    local cx, cy = GetCursorPosition()
+    local es = owner:GetEffectiveScale()
+    if pcx and cx and es and es > 0 then
+        local dx, dy = cx / es - pcx, cy / es - pcy
+        tip = (" – cursor tip %d px %s, %d px %s of the pin's centre"):format(math.abs(dx), dx >= 0 and "right" or "left",
+            math.abs(dy), dy >= 0 and "above" or "below")
+    end
+    Debug(("CALIB %s: guess %d yd off, distance %d yd vs real %d yd (x%.2f) – %s%s"):format(
+        n.name, off, dist, real, real > 0 and dist / real or 0, info, tip))
+end
+
 local seenFrame = CreateFrame("Frame")
 local seenElapsed, lastTooltip = 0, nil
+-- While the tooltip of a blip shows, the cursor is somewhere on the blip:
+-- all positions of one hover are averaged (nearer the middle of the blip than
+-- the edge you came in from), then counted as one look.
+local hover -- { text, names, mapID, x, y, n, ypp, age }
+local function EndHover()
+    local h = hover
+    hover = nil
+    if not h or h.n == 0 then return end
+    local x, y = h.x / h.n, h.y / h.n
+    for _, name in ipairs(h.names) do OnSeen(h.mapID, x, y, name, LookError(h.ypp)) end
+end
+local function Sample(h)
+    local mapID, x, y, _, ypp = CursorOnMap()
+    if not mapID or (h.mapID and mapID ~= h.mapID) then return end
+    h.mapID, h.ypp = mapID, ypp
+    h.x, h.y, h.n = h.x + x, h.y + y, h.n + 1
+end
 seenFrame:SetScript("OnUpdate", function(_, elapsed)
     seenElapsed = seenElapsed + elapsed
+    if hover then
+        hover.age = hover.age + elapsed
+        if seenElapsed < SEEN_SAMPLE then return end
+        seenElapsed = 0
+        if ns.db.minimapLearnOff or not (GameTooltip:IsShown() and Minimap:IsMouseOver())
+            or table.concat(TooltipLines(), "|") ~= hover.text or not IsMinimapTooltip() then
+            EndHover()
+            return
+        end
+        Sample(hover)
+        if hover.age >= SEEN_HOVER_MAX then EndHover() end -- a long hover: count it, start again
+        return
+    end
     if seenElapsed < SEEN_POLL then return end
     seenElapsed = 0
     if not ns.db or ns.db.minimapLearnOff then return end
@@ -1195,10 +1341,14 @@ seenFrame:SetScript("OnUpdate", function(_, elapsed)
         Debug(("minimap tooltip [%s%s]: %s"):format(FrameName(GameTooltip:GetOwner()), mine and "" or ", ignored", joined))
     end
     lastTooltip = joined
-    if not mine or #lines == 0 then return end
-    local mapID, x, y = CursorOnMap()
-    if not mapID then return end
-    for _, name in ipairs(lines) do OnSeen(mapID, x, y, name) end
+    if not mine then
+        if ns.db.debug then Calibrate() end
+        return
+    end
+    if #lines == 0 then return end
+    hover = { text = joined, names = lines, x = 0, y = 0, n = 0, age = 0 }
+    Sample(hover)
+    if hover.n == 0 then hover = nil end
 end)
 -- new kinds (harvested, language switched): look the names up again
 table.insert(ns.languageListeners or {}, function() seenKinds = nil end)
@@ -1220,11 +1370,11 @@ local function MinimapTest()
             local t = _G[tip]
             if t and t.IsShown and t:IsShown() then tips[#tips + 1] = tip end
         end
-        local mapID, x, y, dist = CursorOnMap()
+        local mapID, x, y, dist, _, info = CursorOnMap()
         local line = ("over=%s tips=%s owner=%s mine=%s text=%s focus=%s pos=%s"):format(
             tostring(Minimap:IsMouseOver()), table.concat(tips, ","), FrameName(GameTooltip:GetOwner()),
             tostring(IsMinimapTooltip()), table.concat(TooltipLines(), "|"), table.concat(names, ","),
-            mapID and ("%.1f/%.1f %dyd"):format(x * 100, y * 100, dist) or "-")
+            mapID and ("%.1f/%.1f %dyd (%s)"):format(x * 100, y * 100, dist, info) or "-")
         if line ~= last then print("|cff33ff99GC|r " .. line) last = line end
         if ticks >= 40 then
             ticker:Cancel()

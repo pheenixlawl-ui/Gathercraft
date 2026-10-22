@@ -44,38 +44,168 @@ ns.LText(title, "Gathercraft - Options")
 local close = CreateFrame("Button", nil, options, "UIPanelCloseButton")
 close:SetPoint("TOPRIGHT", -2, -2)
 
+---------------------------------------------------------------------------
+-- Layout: a list of sections on the left, the chosen section on the right
+-- (one column, a title and a short line on what it is about)
+---------------------------------------------------------------------------
+local TITLE_FONT = "Fonts\\MORPHEUS.TTF"
+local GOLD = { 1, 0.82, 0.30 }
+local EMBER = { 0.42, 0.10, 0.04 }
+local NAV_W, NAV_H, NAV_GAP = 160, 30, 4
+local FOOTER_H = 60
+local SECTIONS = {
+    { key = "map", name = "Map & minimap", icon = "Interface\\Icons\\INV_Misc_Spyglass_02",
+      desc = "How Gathercraft shows nodes on the world map and the minimap." },
+    { key = "runs", name = "Farm runs", icon = "Interface\\Icons\\Ability_Tracking",
+      desc = "What a farm run goes for and how it shows you the way." },
+    { key = "sync", name = "Sharing", icon = "Interface\\Icons\\INV_Letter_15",
+      desc = "Share the spots you find with other Gathercraft players – and get theirs." },
+    { key = "alerts", name = "Rares & prices", icon = "Interface\\Icons\\Ability_Warrior_BattleShout",
+      desc = "Warnings for rare mobs, and auction prices where you need them." },
+    { key = "general", name = "General", icon = "Interface\\Icons\\INV_Misc_Gear_01",
+      desc = "Language, minimap button and the rest." },
+}
+
+local nav = CreateFrame("Frame", nil, options)
+nav:SetWidth(NAV_W)
+local content = CreateFrame("Frame", nil, options)
+local navLine = options:CreateTexture(nil, "ARTWORK")
+navLine:SetWidth(1)
+navLine:SetColorTexture(GOLD[1], GOLD[2], GOLD[3], 0.25)
+
+-- top: below the title when standalone, right at the top inside the main window
+local function Layout(top)
+    nav:ClearAllPoints()
+    nav:SetPoint("TOPLEFT", options, "TOPLEFT", 14, top)
+    nav:SetPoint("BOTTOMLEFT", options, "BOTTOMLEFT", 14, FOOTER_H + 6)
+    navLine:ClearAllPoints()
+    navLine:SetPoint("TOPLEFT", nav, "TOPRIGHT", 12, 0)
+    navLine:SetPoint("BOTTOMLEFT", nav, "BOTTOMRIGHT", 12, 0)
+    content:ClearAllPoints()
+    content:SetPoint("TOPLEFT", nav, "TOPRIGHT", 28, 0)
+    content:SetPoint("BOTTOMRIGHT", options, "BOTTOMRIGHT", -16, FOOTER_H + 6)
+end
+Layout(-44)
+
+local navButtons, sectionPages = {}, {}
+local function StyleNav(b, selected)
+    if selected then
+        b:SetBackdropColor(EMBER[1], EMBER[2], EMBER[3], 1)
+        b:SetBackdropBorderColor(GOLD[1], GOLD[2], GOLD[3], 1)
+        b.text:SetTextColor(1, 0.95, 0.8)
+    else
+        b:SetBackdropColor(0.10, 0.09, 0.08, 1)
+        b:SetBackdropBorderColor(0.40, 0.38, 0.35, 1)
+        b.text:SetTextColor(GOLD[1], GOLD[2], GOLD[3])
+    end
+end
+
+local function ShowSection(key)
+    if not sectionPages[key] then key = SECTIONS[1].key end
+    if ns.db then ns.db.optionsSection = key ~= SECTIONS[1].key and key or nil end
+    for k, page in pairs(sectionPages) do
+        page:SetShown(k == key)
+        StyleNav(navButtons[k], k == key)
+    end
+end
+ns.ShowOptionsSection = ShowSection
+
 local controls = {}
--- Labels in front of +/- and < > controls have ~100 px; long translations
--- get the smaller font instead of running into the buttons
+-- Labels in front of +/- and < > controls; long translations get the
+-- smaller font instead of running into the buttons
 local fitLabels = {}
-local LABEL_WIDTH = 98
+local LABEL_WIDTH = 150
+local CONTROL_X = 160
+local VALUE_W = 100 -- the value between < > or - +, the same everywhere so the buttons line up
 local function FitLabels()
     for _, fs in ipairs(fitLabels) do
         fs:SetFontObject(GameFontHighlight)
         if (fs:GetStringWidth() or 0) > LABEL_WIDTH then fs:SetFontObject(GameFontHighlightSmall) end
     end
 end
-local TOP_Y = -44
-local COLUMN_X = { 14, 380 } -- two columns, the main window is wide
-local colX, nextY = COLUMN_X[1], TOP_Y
 
-local function Column(n)
-    colX, nextY = COLUMN_X[n], TOP_Y
+local page -- the section the Add* functions below fill
+local colX, nextY = 0, 0
+
+local function Section(index)
+    local info = SECTIONS[index]
+    page = CreateFrame("Frame", nil, content)
+    page:SetAllPoints(content)
+    page:Hide()
+    sectionPages[info.key] = page
+
+    local head = page:CreateFontString(nil, "OVERLAY")
+    head:SetFont(TITLE_FONT, 18, "")
+    head:SetTextColor(GOLD[1], GOLD[2], GOLD[3])
+    head:SetShadowColor(0, 0, 0, 1)
+    head:SetShadowOffset(1, -1)
+    head:SetPoint("TOPLEFT", 0, -2)
+    ns.LText(head, info.name)
+    local line = page:CreateTexture(nil, "ARTWORK")
+    line:SetHeight(1)
+    line:SetPoint("TOPLEFT", 0, -26)
+    line:SetPoint("TOPRIGHT", 0, -26)
+    line:SetColorTexture(GOLD[1], GOLD[2], GOLD[3], 0.35)
+    local desc = page:CreateFontString(nil, "OVERLAY", "GameFontDisable")
+    desc:SetPoint("TOPLEFT", 0, -34)
+    desc:SetPoint("RIGHT", page, "RIGHT", 0, 0)
+    desc:SetJustifyH("LEFT")
+    ns.LText(desc, info.desc)
+
+    local b = CreateFrame("Button", nil, nav, "BackdropTemplate")
+    b:SetSize(NAV_W, NAV_H)
+    b:SetPoint("TOPLEFT", 0, -(index - 1) * (NAV_H + NAV_GAP))
+    b:SetBackdrop({
+        bgFile = "Interface\\Buttons\\WHITE8X8",
+        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+        edgeSize = 10,
+        insets = { left = 2, right = 2, top = 2, bottom = 2 },
+    })
+    b.icon = b:CreateTexture(nil, "ARTWORK")
+    b.icon:SetSize(18, 18)
+    b.icon:SetPoint("LEFT", 8, 0)
+    b.icon:SetTexture(info.icon)
+    b.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+    b.text = b:CreateFontString(nil, "OVERLAY")
+    b.text:SetFont(TITLE_FONT, 14, "")
+    b.text:SetPoint("LEFT", b.icon, "RIGHT", 7, -1)
+    b.text:SetPoint("RIGHT", b, "RIGHT", -4, -1)
+    b.text:SetJustifyH("LEFT")
+    ns.LText(b.text, info.name)
+    local hl = b:CreateTexture(nil, "HIGHLIGHT")
+    hl:SetPoint("TOPLEFT", 3, -3)
+    hl:SetPoint("BOTTOMRIGHT", -3, 3)
+    hl:SetColorTexture(1, 0.8, 0.3, 0.12)
+    b:SetScript("OnClick", function() ShowSection(info.key) end)
+    navButtons[info.key] = b
+
+    colX, nextY = 0, -62
 end
 
 local function AddHeader(text)
-    local fs = options:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    nextY = nextY - 6
+    local fs = page:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     fs:SetPoint("TOPLEFT", colX + 2, nextY)
     ns.LText(fs, text)
     nextY = nextY - 20
 end
 
+-- a grey line under the control above it
+local function AddHint(text)
+    local fs = page:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    fs:SetPoint("TOPLEFT", colX + 30, nextY + 2)
+    fs:SetPoint("RIGHT", page, "RIGHT", 0, 0)
+    fs:SetJustifyH("LEFT")
+    ns.LText(fs, text)
+    nextY = nextY - 16
+end
+
 -- get() returns the current state, set(on) changes it
 local function AddCheck(label, get, set)
-    local cb = CreateFrame("CheckButton", nil, options, "UICheckButtonTemplate")
+    local cb = CreateFrame("CheckButton", nil, page, "UICheckButtonTemplate")
     cb:SetSize(24, 24)
     cb:SetPoint("TOPLEFT", colX, nextY)
-    local fs = options:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    local fs = page:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     fs:SetPoint("LEFT", cb, "RIGHT", 4, 0)
     ns.LText(fs, label)
     cb:SetScript("OnClick", function(self)
@@ -84,32 +214,32 @@ local function AddCheck(label, get, set)
     end)
     cb.get = get
     controls[#controls + 1] = cb
-    nextY = nextY - 24
+    nextY = nextY - 26
 end
 
 -- Farm runs: how close you must get before the arrow moves to the next node
 local arriveText
 local function AddArrive()
-    local label = options:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    local label = page:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     label:SetPoint("TOPLEFT", colX + 6, nextY - 4)
     ns.LText(label, "Next node at")
     fitLabels[#fitLabels + 1] = label
 
-    local minus = CreateFrame("Button", nil, options, "UIPanelButtonTemplate")
+    local minus = CreateFrame("Button", nil, page, "UIPanelButtonTemplate")
     minus:SetSize(24, 20)
-    minus:SetPoint("TOPLEFT", colX + 106, nextY)
+    minus:SetPoint("TOPLEFT", colX + CONTROL_X, nextY)
     minus:SetText("-")
 
-    arriveText = options:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    arriveText = page:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     arriveText:SetPoint("LEFT", minus, "RIGHT", 6, 0)
-    arriveText:SetWidth(40)
+    arriveText:SetWidth(VALUE_W)
 
-    local plus = CreateFrame("Button", nil, options, "UIPanelButtonTemplate")
+    local plus = CreateFrame("Button", nil, page, "UIPanelButtonTemplate")
     plus:SetSize(24, 20)
     plus:SetPoint("LEFT", arriveText, "RIGHT", 6, 0)
     plus:SetText("+")
 
-    local hint = options:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    local hint = page:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     hint:SetPoint("TOPLEFT", colX + 6, nextY - 24)
     ns.LText(hint, "Close enough to see whether the node is there")
 
@@ -125,23 +255,23 @@ end
 
 local pinSizeText
 local function AddPinSize()
-    local label = options:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    local label = page:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     label:SetPoint("TOPLEFT", colX + 6, nextY - 4)
     ns.LText(label, "Pin size")
     fitLabels[#fitLabels + 1] = label
 
-    local minus = CreateFrame("Button", nil, options, "UIPanelButtonTemplate")
+    local minus = CreateFrame("Button", nil, page, "UIPanelButtonTemplate")
     minus:SetSize(24, 20)
-    minus:SetPoint("TOPLEFT", colX + 106, nextY)
+    minus:SetPoint("TOPLEFT", colX + CONTROL_X, nextY)
     minus:SetText("-")
 
-    pinSizeText = options:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    pinSizeText:SetPoint("LEFT", minus, "RIGHT", 10, 0)
-    pinSizeText:SetWidth(24)
+    pinSizeText = page:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    pinSizeText:SetPoint("LEFT", minus, "RIGHT", 6, 0)
+    pinSizeText:SetWidth(VALUE_W)
 
-    local plus = CreateFrame("Button", nil, options, "UIPanelButtonTemplate")
+    local plus = CreateFrame("Button", nil, page, "UIPanelButtonTemplate")
     plus:SetSize(24, 20)
-    plus:SetPoint("LEFT", pinSizeText, "RIGHT", 10, 0)
+    plus:SetPoint("LEFT", pinSizeText, "RIGHT", 6, 0)
     plus:SetText("+")
 
     local function Change(delta)
@@ -158,27 +288,27 @@ end
 -- Language: < name >, applies at once (a few texts after a reload)
 local languageText
 local function AddLanguage()
-    local minus = CreateFrame("Button", nil, options, "UIPanelButtonTemplate")
+    local minus = CreateFrame("Button", nil, page, "UIPanelButtonTemplate")
     minus:SetSize(24, 20)
     minus:SetPoint("TOPLEFT", colX + 6, nextY)
     minus:SetText("<")
 
-    languageText = options:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    languageText = page:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     languageText:SetPoint("LEFT", minus, "RIGHT", 6, 0)
     languageText:SetWidth(170)
 
-    local plus = CreateFrame("Button", nil, options, "UIPanelButtonTemplate")
+    local plus = CreateFrame("Button", nil, page, "UIPanelButtonTemplate")
     plus:SetSize(24, 20)
     plus:SetPoint("LEFT", languageText, "RIGHT", 6, 0)
     plus:SetText(">")
 
-    local reload = CreateFrame("Button", nil, options, "UIPanelButtonTemplate")
+    local reload = CreateFrame("Button", nil, page, "UIPanelButtonTemplate")
     reload:SetSize(90, 20)
     reload:SetPoint("LEFT", plus, "RIGHT", 10, 0)
     ns.LText(reload, "Reload UI")
     reload:SetScript("OnClick", function() ReloadUI() end)
 
-    local hint = options:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    local hint = page:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     hint:SetPoint("TOPLEFT", colX + 6, nextY - 24)
     ns.LText(hint, "Most texts change at once, all of them after a reload")
 
@@ -212,21 +342,21 @@ local function CurrentGoal()
     return GOALS[1], 1
 end
 local function AddRouteGoal()
-    local label = options:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    local label = page:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     label:SetPoint("TOPLEFT", colX + 6, nextY - 4)
     ns.LText(label, "Route goal")
     fitLabels[#fitLabels + 1] = label
 
-    local minus = CreateFrame("Button", nil, options, "UIPanelButtonTemplate")
+    local minus = CreateFrame("Button", nil, page, "UIPanelButtonTemplate")
     minus:SetSize(24, 20)
-    minus:SetPoint("TOPLEFT", colX + 106, nextY)
+    minus:SetPoint("TOPLEFT", colX + CONTROL_X, nextY)
     minus:SetText("<")
 
-    goalText = options:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    goalText = page:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     goalText:SetPoint("LEFT", minus, "RIGHT", 6, 0)
-    goalText:SetWidth(130)
+    goalText:SetWidth(VALUE_W)
 
-    local plus = CreateFrame("Button", nil, options, "UIPanelButtonTemplate")
+    local plus = CreateFrame("Button", nil, page, "UIPanelButtonTemplate")
     plus:SetSize(24, 20)
     plus:SetPoint("LEFT", goalText, "RIGHT", 6, 0)
     plus:SetText(">")
@@ -262,21 +392,21 @@ local MINI_STYLES = {
 }
 local miniStyleText
 local function AddMiniStyle()
-    local label = options:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    local label = page:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     label:SetPoint("TOPLEFT", colX + 6, nextY - 4)
     ns.LText(label, "Minimap style")
     fitLabels[#fitLabels + 1] = label
 
-    local minus = CreateFrame("Button", nil, options, "UIPanelButtonTemplate")
+    local minus = CreateFrame("Button", nil, page, "UIPanelButtonTemplate")
     minus:SetSize(24, 20)
-    minus:SetPoint("TOPLEFT", colX + 106, nextY)
+    minus:SetPoint("TOPLEFT", colX + CONTROL_X, nextY)
     minus:SetText("<")
 
-    miniStyleText = options:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    miniStyleText = page:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     miniStyleText:SetPoint("LEFT", minus, "RIGHT", 6, 0)
-    miniStyleText:SetWidth(90)
+    miniStyleText:SetWidth(VALUE_W)
 
-    local plus = CreateFrame("Button", nil, options, "UIPanelButtonTemplate")
+    local plus = CreateFrame("Button", nil, page, "UIPanelButtonTemplate")
     plus:SetSize(24, 20)
     plus:SetPoint("LEFT", miniStyleText, "RIGHT", 6, 0)
     plus:SetText(">")
@@ -289,7 +419,8 @@ local function AddMiniStyle()
         GameTooltip:Show()
     end
     local function Change()
-        ns.db.miniPinStyle = (ns.db.miniPinStyle == "subtle") and "normal" or "subtle"
+        -- subtle is the default (nil); "normal" has to be chosen
+        ns.db.miniPinStyle = ns.SubtleMinimap() and "normal" or nil
         ns.NotifyNodesChanged() -- rebuilds the pins
         options:Refresh()
         if GameTooltip:IsOwned(minus) or GameTooltip:IsOwned(plus) then Tip(GameTooltip:IsOwned(minus) and minus or plus) end
@@ -306,21 +437,21 @@ end
 -- Minimap opacity: - 60% +  (steps of 10%, 20% .. 100%)
 local miniAlphaText
 local function AddMiniAlpha()
-    local label = options:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    local label = page:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     label:SetPoint("TOPLEFT", colX + 6, nextY - 4)
     ns.LText(label, "Minimap opacity")
     fitLabels[#fitLabels + 1] = label
 
-    local minus = CreateFrame("Button", nil, options, "UIPanelButtonTemplate")
+    local minus = CreateFrame("Button", nil, page, "UIPanelButtonTemplate")
     minus:SetSize(24, 20)
-    minus:SetPoint("TOPLEFT", colX + 106, nextY)
+    minus:SetPoint("TOPLEFT", colX + CONTROL_X, nextY)
     minus:SetText("-")
 
-    miniAlphaText = options:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    miniAlphaText = page:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     miniAlphaText:SetPoint("LEFT", minus, "RIGHT", 6, 0)
-    miniAlphaText:SetWidth(40)
+    miniAlphaText:SetWidth(VALUE_W)
 
-    local plus = CreateFrame("Button", nil, options, "UIPanelButtonTemplate")
+    local plus = CreateFrame("Button", nil, page, "UIPanelButtonTemplate")
     plus:SetSize(24, 20)
     plus:SetPoint("LEFT", miniAlphaText, "RIGHT", 6, 0)
     plus:SetText("+")
@@ -358,14 +489,13 @@ local function Cycle(list, code, delta)
     return list[(index - 1 + delta) % #list + 1].code
 end
 local function AddRouteLineLook()
-    local label = options:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    local label = page:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     label:SetPoint("TOPLEFT", colX + 6, nextY - 4)
     ns.LText(label, "Route line")
     fitLabels[#fitLabels + 1] = label
 
-    lineSwatch = CreateFrame("Button", nil, options, "BackdropTemplate")
+    lineSwatch = CreateFrame("Button", nil, page, "BackdropTemplate")
     lineSwatch:SetSize(20, 20)
-    lineSwatch:SetPoint("TOPLEFT", colX + 106, nextY)
     lineSwatch:SetBackdrop({ edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border", edgeSize = 8,
         insets = { left = 2, right = 2, top = 2, bottom = 2 } })
     lineSwatch.tex = lineSwatch:CreateTexture(nil, "ARTWORK")
@@ -374,17 +504,18 @@ local function AddRouteLineLook()
     lineSwatch.tex:SetColorTexture(1, 1, 1)
     lineSwatch:RegisterForClicks("LeftButtonUp", "RightButtonUp")
 
-    local minus = CreateFrame("Button", nil, options, "UIPanelButtonTemplate")
+    local minus = CreateFrame("Button", nil, page, "UIPanelButtonTemplate")
     minus:SetSize(24, 20)
-    minus:SetPoint("LEFT", lineSwatch, "RIGHT", 12, 0)
+    minus:SetPoint("TOPLEFT", colX + CONTROL_X, nextY)
     minus:SetText("<")
-    lineStyleText = options:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    lineStyleText:SetPoint("LEFT", minus, "RIGHT", 4, 0)
-    lineStyleText:SetWidth(84)
-    local plus = CreateFrame("Button", nil, options, "UIPanelButtonTemplate")
+    lineStyleText = page:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    lineStyleText:SetPoint("LEFT", minus, "RIGHT", 6, 0)
+    lineStyleText:SetWidth(VALUE_W)
+    local plus = CreateFrame("Button", nil, page, "UIPanelButtonTemplate")
     plus:SetSize(24, 20)
-    plus:SetPoint("LEFT", lineStyleText, "RIGHT", 4, 0)
+    plus:SetPoint("LEFT", lineStyleText, "RIGHT", 6, 0)
     plus:SetText(">")
+    lineSwatch:SetPoint("LEFT", plus, "RIGHT", 12, 0)
 
     local function Changed()
         if ns.RedrawRouteLine then ns.RedrawRouteLine() end
@@ -431,7 +562,7 @@ function options:Refresh()
         goalText:SetText(L[CurrentGoal().name])
     end
     if miniStyleText then
-        miniStyleText:SetText(L[ns.db.miniPinStyle == "subtle" and MINI_STYLES[2].name or MINI_STYLES[1].name])
+        miniStyleText:SetText(L[ns.SubtleMinimap() and MINI_STYLES[2].name or MINI_STYLES[1].name])
     end
     if miniAlphaText then
         miniAlphaText:SetText(("%d%%"):format(math.floor((ns.db.miniPinAlpha or 1) * 100 + 0.5)))
@@ -450,8 +581,7 @@ end
 options:SetScript("OnShow", options.Refresh)
 
 local function Build()
-    Column(1)
-    AddHeader("Map")
+    Section(1) -- Map & minimap
     AddCheck("Show nodes on the world map",
         function() return not ns.db.worldPinsHidden end,
         function(on)
@@ -464,12 +594,18 @@ local function Build()
             ns.db.miniPinsHidden = not on or nil
             ns.NotifyNodesChanged()
         end)
-    AddMiniStyle()
-    AddMiniAlpha()
-    AddPinSize()
     AddCheck("Learn nodes you point at on the minimap",
         function() return not ns.db.minimapLearnOff end,
         function(on) ns.db.minimapLearnOff = not on or nil end)
+    AddHint("Hover a herb or vein on the minimap: Gathercraft remembers the spot.")
+    nextY = nextY - 10
+    AddMiniStyle()
+    AddMiniAlpha()
+    AddPinSize()
+
+    Section(2) -- Farm runs
+    AddRouteGoal()
+    nextY = nextY - 4
     AddCheck("Show Gathercraft arrow during farm runs",
         function() return not ns.db.arrowHidden end,
         function(on)
@@ -477,34 +613,28 @@ local function Build()
             if ns.UpdateArrow then ns.UpdateArrow() end
             if ns.RouteArrowChanged then ns.RouteArrowChanged() end
         end)
+    nextY = nextY - 4
     AddArrive()
     AddCheck("Show route line",
         function() return not ns.db.routeLineHidden end,
         function(on)
             if (not ns.db.routeLineHidden) ~= on then ns.ToggleRouteLine() end
         end)
+    nextY = nextY - 4
+    AddRouteLineLook()
 
-    nextY = nextY - 8
-    AddHeader("Sync")
+    Section(3) -- Sharing
     AddCheck("Share nodes with other players",
         function() return ns.db.sync and ns.db.sync.enabled end,
         function(on) ns.SyncCommand(on and "on" or "off") end)
+    AddHint("Only node spots are shared. Spots learned from the minimap follow once you harvest them.")
     AddCheck("Public channel (off = guild and friends only)",
         function() return ns.db.sync and ns.db.sync.public end,
         function(on)
             if ns.db.sync.public ~= on then ns.SyncCommand("public") end
         end)
 
-    nextY = nextY - 8
-    AddHeader("Language")
-    AddLanguage()
-
-    Column(2)
-    AddHeader("Farm runs")
-    AddRouteGoal()
-    AddRouteLineLook()
-
-    nextY = nextY - 8
+    Section(4) -- Rares & prices
     AddHeader("Rares")
     AddCheck("Alert when a rare shows up (sound + warning)",
         function() return ns.db.rareAlert ~= false end,
@@ -515,33 +645,37 @@ local function Build()
     AddCheck("Also play the raid warning sound",
         function() return ns.db.rareSound end,
         function(on) ns.db.rareSound = on end)
-
-    nextY = nextY - 8
-    AddHeader("Fishing")
-    AddCheck("Fish key applies a lure when the pole has none",
-        function() return ns.db.fishLure ~= false end,
-        function(on) ns.db.fishLure = on end)
-
-    nextY = nextY - 8
-    AddHeader("Other")
+    nextY = nextY - 6
+    AddHeader("Prices")
     AddCheck("Price alerts in chat (hot items you gather)",
         function() return ns.db.priceAlerts ~= false end,
         function(on) ns.db.priceAlerts = on end)
     AddCheck("Auction prices in item tooltips",
         function() return ns.db.tooltipPrices ~= false end,
         function(on) ns.db.tooltipPrices = on end)
+
+    Section(5) -- General
+    AddHeader("Language")
+    AddLanguage()
+    nextY = nextY - 6
+    AddHeader("Other")
     AddCheck("Minimap button",
         function() return not ns.db.minimapHidden end,
         function(on)
             ns.db.minimapHidden = not on
             ns.UpdateMinimapButton()
         end)
+    AddCheck("Fish key applies a lure when the pole has none",
+        function() return ns.db.fishLure ~= false end,
+        function(on) ns.db.fishLure = on end)
     AddCheck("Debug output (chat tab \"Gathercraft\")",
         function() return ns.db.debug end,
         function(on)
             ns.db.debug = on
             if ns.ShowDebugTab then ns.ShowDebugTab() end
         end)
+
+    ShowSection(ns.db.optionsSection)
 
     -- footer: key bindings and credits, below a thin line
     local line = options:CreateTexture(nil, "ARTWORK")
@@ -610,6 +744,7 @@ ns.EmbedOptions = function(parent)
     options:SetFrameStrata(parent:GetFrameStrata())
     title:Hide()
     close:Hide()
+    Layout(-4)
     tDeleteItem(UISpecialFrames, "GathercraftOptions")
     return options
 end

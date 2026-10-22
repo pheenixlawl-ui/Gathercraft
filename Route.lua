@@ -28,6 +28,14 @@ local QUICK_MAX_NODES = 100  -- automatic re-plans only look at the nearest node
 local REPLAN_INTERVAL = 10   -- seconds between automatic re-plans while moving
 local DETOUR_YARDS = 150     -- this much further from the target than you already were: new target
 local DETOUR_AVOID = 60      -- seconds the old target isn't picked first again after a detour
+-- Can't get there (a cliff, a waterfall: the route only knows straight lines):
+-- moving all the time, but not getting closer to the target
+local STUCK_SECONDS = 25     -- this long without getting closer ...
+local STUCK_MOVED = 40       -- ... while walking at least this far: hard to reach from here
+local PROGRESS_YARDS = 8     -- closer by this much = progress
+local TELEPORT_YARDS = 30    -- further than this in one check (half a second): not walking
+local UNREACH_BASE = 15 * 60 -- left out this long, doubling each time it happens again ...
+local UNREACH_MAX = 4 * 3600 -- ... up to this long
 local MAX_DOTS = 600          -- per map; long routes get wider spacing
 local NEAR_YARDS = 500       -- the first part of the line (around you) can be drawn denser
 local LINE_REF = ADDON_NAME .. "Route"
@@ -314,6 +322,7 @@ ns.NodeChance = function(n) return Chance(n, time()) end
 -- Can the route go there now? (minChance false: also unlikely points)
 local function Available(p, run, now, minChance)
     if ns.IsOnCooldown(p.node) or run.visited[p.node] or run.checkingSet[p.node] then return false end
+    if p.node.unreachUntil and p.node.unreachUntil > now then return false end
     local w = run.weights and run.weights[p.kind] or 1
     if w <= 0 then return false end
     local c = Chance(p.node, now)
@@ -743,6 +752,7 @@ Plan = function(quick)
     if run.target ~= first.node then
         run.target, run.targetPoint = first.node, first
         run.targetBest = WDist(px, py, first.wx, first.wy)
+        run.progressBest, run.progressAt, run.movedSince = run.targetBest, time(), 0
         MarkTarget(first.mapID, first.node)
     else
         run.targetPoint = first
@@ -831,8 +841,28 @@ local function CheckArrival()
     -- Walking away from the target (questing, a detour): pick a new one
     -- instead of pointing back all the time
     local tp = run.targetPoint
+    local step = run.lastX and WDist(px, py, run.lastX, run.lastY) or 0
+    run.lastX, run.lastY = px, py
+    local jumped = step > TELEPORT_YARDS -- hearthstone, portal, a flight: not walking
+    if not jumped then run.movedSince = (run.movedSince or 0) + step end
     if tp and run.target then
         local d = WDist(px, py, tp.wx, tp.wy)
+        -- moving, but not getting closer: a cliff or water is in the way
+        -- (not while fighting, dead or on a flight: that movement says nothing)
+        local busy = (UnitAffectingCombat and UnitAffectingCombat("player"))
+            or (UnitIsDeadOrGhost and UnitIsDeadOrGhost("player")) or (UnitOnTaxi and UnitOnTaxi("player"))
+        if busy or jumped or not run.progressBest or d < run.progressBest - PROGRESS_YARDS then
+            run.progressBest, run.progressAt, run.movedSince = d, time(), 0
+        elseif time() - (run.progressAt or time()) >= STUCK_SECONDS and (run.movedSince or 0) >= STUCK_MOVED
+            and d > ns.ArriveDistance() * 2 then
+            local node = run.target
+            ns.MarkUnreachable(node)
+            ns.Print((L["%s seems hard to reach from here: trying another node."]):format(node.name))
+            run.avoidFirst, run.avoidUntil = node, time() + DETOUR_AVOID
+            run.target, run.targetPoint, run.targetBest, run.progressBest = nil, nil, nil, nil
+            Plan(true)
+            return
+        end
         run.targetBest = math.min(run.targetBest or d, d)
         if d > run.targetBest + DETOUR_YARDS then
             ns.Debug(("left %s behind (%d yd): new target"):format(run.target.name, d))
@@ -935,9 +965,38 @@ local function SkipNode()
     Plan(true)
 end
 
+-- Hard to reach: left out of runs for a while, longer each time
+local function MarkUnreachable(node, seconds)
+    node.reachMiss = (node.reachMiss or 0) + 1
+    seconds = seconds or math.min(UNREACH_MAX, UNREACH_BASE * 2 ^ (node.reachMiss - 1))
+    node.unreachUntil = time() + seconds
+    ns.Debug(("%s unreachable for %d min (%dx)"):format(node.name, seconds / 60, node.reachMiss))
+    if ns.run then ns.run.pointsDirty = true end
+    return seconds
+end
+ns.MarkUnreachable = MarkUnreachable
+
+-- /gcr unreachable: you know you can't get there from here
+local function UnreachableNode()
+    local run = ns.run
+    if not run or not run.target then
+        ns.Print(L["No run target right now. Start one with /gcr run."])
+        return
+    end
+    local node = run.target
+    local seconds = MarkUnreachable(node, UNREACH_MAX)
+    run.visited[node] = true
+    run.avoidFirst, run.avoidUntil = node, time() + DETOUR_AVOID
+    run.target, run.targetPoint = nil, nil
+    ns.Print((L["%s left out for %d min (can't reach it)."]):format(node.name, seconds / 60))
+    Plan(true)
+end
+ns.UnreachableNode = UnreachableNode
+
 -- Called by the recorder after a node was harvested (it is on cooldown now)
 local function OnHarvested(node, spawn)
     node.upAt = nil
+    node.reachMiss, node.unreachUntil = nil, nil -- you got there after all
     node.emptyStreak, node.emptyAt = nil, nil -- it had something: back to normal
     -- the same vein mined two or three times counts once
     if not spawn or node.lastHitSpawn ~= spawn then

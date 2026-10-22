@@ -671,8 +671,22 @@ step("Pins: map and minimap apart, subtle style", function()
     ns.MigratePinSwitches()
     assert(not ns.db.worldPinsHidden and not ns.db.miniPinsHidden, "old 'shown' not migrated")
     -- subtle: silver ring, round see-through icon; world map pins stay plain
-    ns.db.miniPinStyle = "subtle"
+    ns.db.miniPinStyle = nil -- the default is subtle
     rebuild()
+    assert(ns.SubtleMinimap(), "subtle is not the default")
+    -- own finds are drawn above known spawn points (fixed order, also after a redraw)
+    local ownSeen, questieSeen = false, false
+    for _, pin in ipairs(MINI_ICONS) do
+        local n = pin.node
+        if n and not n.pendingReport then
+            local want = (n.source == "questie") and 1 or (n.source == nil and 3 or 2)
+            assert(pin.layer == want, ("pin layer %s for %s"):format(tostring(pin.layer), tostring(n.source)))
+            pin:Show() pin.__scripts.OnShow(pin)
+            assert(pin:GetFrameLevel() == Minimap:GetFrameLevel() + want, "frame level does not follow the layer")
+            if n.source == nil then ownSeen = true elseif n.source == "questie" then questieSeen = true end
+        end
+    end
+    assert(ownSeen and questieSeen, "test needs own and Questie pins")
     local subtle, plainPending = 0, 0
     for _, pin in ipairs(MINI_ICONS) do
         if pin.subtle then
@@ -683,7 +697,7 @@ step("Pins: map and minimap apart, subtle style", function()
         end
     end
     assert(subtle > 0, "no subtle minimap pins")
-    ns.db.miniPinStyle = nil
+    ns.db.miniPinStyle = "normal"
     rebuild()
     for _, pin in ipairs(MINI_ICONS) do
         assert(not pin.subtle and not (pin.ring and pin.ring:IsShown()), "normal style still has a ring")
@@ -743,6 +757,11 @@ step("Pins: map and minimap apart, subtle style", function()
     assert(math.abs(ns.db.miniPinAlpha - 0.2) < 1e-6, "opacity below 20%")
     for i = 1, 12 do up.__scripts.OnClick(up) end
     assert(ns.db.miniPinAlpha == nil, "100% not back to default")
+    -- sections: the chosen one is remembered, the first one is the default
+    ns.ShowOptionsSection("sync")
+    assert(ns.db.optionsSection == "sync", "section not remembered")
+    ns.ShowOptionsSection("nope")
+    assert(ns.db.optionsSection == nil, "unknown section not back to the first")
     slash("options")
     assert(ns.db.miniPinStyle == before, "tooltips changed the style")
     assert(not ns.db.worldPinsHidden and not ns.db.miniPinsHidden, "switches not back on")
@@ -1032,6 +1051,47 @@ step("Farm run: walking away from the target picks a new one", function()
     ns.db.nodes[Z] = nil
     player.map, player.x, player.y = 1412, 0.45, 0.72
 end)
+step("Farm run: a node you can't get to is left out for a while", function()
+    local Z = 1468
+    local function own(x, y) return { id = "o1731", name = "Copper Vein", type = "ore", x = x, y = y, count = 3, last = 1 } end
+    ns.db.nodes[Z] = { own(0.50, 0.30), own(0.80, 0.80) }
+    local cliff, other = ns.db.nodes[Z][1], ns.db.nodes[Z][2]
+    player.map, player.x, player.y = Z, 0.50, 0.50
+    ns.StartRun("ore", Z) advance(1)
+    assert(ns.run.target == cliff, "test setup: nearest node first")
+    -- walking back and forth below the cliff for half a minute, never getting closer
+    local walk = C_Timer.NewTicker(1, function() player.x = (player.x < 0.5) and 0.502 or 0.498 end)
+    advance(10)
+    assert(ns.run.target == cliff, "gave up too early")
+    advance(25)
+    walk:Cancel()
+    assert(ns.run.target == other, "still sent up the cliff")
+    assert(cliff.unreachUntil and cliff.unreachUntil > time() + 600, "node not left out")
+    advance(70) -- also after the "not first again" minute: out of the route altogether
+    for _, p in ipairs(ns.run.path or {}) do assert(p.node ~= cliff, "unreachable node still in the route") end
+    -- standing still or fighting is no reason to give up
+    ns.StopRun()
+    cliff.unreachUntil, cliff.reachMiss = nil, nil
+    player.x, player.y = 0.50, 0.50
+    ns.StartRun("ore", Z) advance(1)
+    assert(ns.run.target == cliff, "test setup again")
+    advance(40)
+    assert(ns.run.target == cliff and not cliff.unreachUntil, "standing still counted as stuck")
+    UnitAffectingCombat = function() return true end
+    walk = C_Timer.NewTicker(1, function() player.x = (player.x < 0.5) and 0.502 or 0.498 end)
+    advance(40)
+    walk:Cancel()
+    UnitAffectingCombat = nil
+    assert(ns.run.target == cliff and not cliff.unreachUntil, "fighting counted as stuck")
+    -- by hand, then harvested after all: back to normal
+    slash("unreachable") advance(1)
+    assert(cliff.unreachUntil and ns.run.target ~= cliff, "/gcr unreachable did nothing")
+    ns.OnHarvested(cliff, "S1")
+    assert(not cliff.unreachUntil and not cliff.reachMiss, "harvest did not clear it")
+    ns.StopRun()
+    ns.db.nodes[Z] = nil
+    player.map, player.x, player.y = 1412, 0.45, 0.72
+end)
 step("Minimap tooltip: pointing at a tracked node learns it", function()
     local Z = 1466
     local names = GathercraftNodeNames and GathercraftNodeNames[GetLocale()]
@@ -1084,6 +1144,8 @@ step("Minimap tooltip: pointing at a tracked node learns it", function()
     local herb
     for _, n in ipairs(ns.db.nodes[Z]) do if n.id == "o1618" then herb = n end end
     assert(herb and herb.seenOnly and herb.type == "herb" and herb.item == 2447, "new herb not learned")
+    -- zoom 0: 233 yd over 70 px = 3.3 yd per pixel, a look can be ~10 px off: ~33 yd
+    assert(herb.seenErr and math.abs(herb.seenErr - 10 * (466 + 2 / 3) / 2 / 70) < 0.5, "look error not from the zoom: " .. tostring(herb.seenErr))
     local count = #ns.db.nodes[Z]
     local wasDebug = ns.db.debug
     ns.db.debug = true
@@ -1151,6 +1213,31 @@ step("Minimap tooltip: pointing at a tracked node learns it", function()
     for _, n in ipairs(ns.db.nodes[Z]) do if n.id == "o1618" then herbs = herbs + 1 end end
     assert(herbs == 1, "harvest next to the guess made a second node: " .. herbs)
     assert(not herb.seenOnly and math.abs(herb.x - player.x) < 1e-6, "position not taken from the harvest")
+    -- one hover across a blip: the positions are averaged (middle of the blip)
+    owner = UIParent
+    GetMouseFoci = function() return { Minimap } end
+    lines = {}
+    advance(1)
+    local left, right = { 420, 340 }, { 432, 340 }
+    cursor = left
+    local _, lx = ns.CursorOnMap()
+    cursor = right
+    local _, rx = ns.CursorOnMap()
+    local flip = C_Timer.NewTicker(0.05, function() cursor = (cursor == left) and right or left end)
+    lines = { herbName }
+    advance(0.5)
+    flip:Cancel()
+    lines = {}
+    advance(1)
+    local hovered
+    for _, n in ipairs(ns.db.nodes[Z]) do
+        if n.seenOnly and n.x > math.min(lx, rx) - 0.002 and n.x < math.max(lx, rx) + 0.002 and math.abs(n.y - ns.db.nodes[Z][1].y) < 1 then hovered = n end
+    end
+    assert(hovered, "hover not learned")
+    local mid = (lx + rx) / 2
+    assert(math.abs(hovered.x - mid) < math.abs(rx - lx) * 0.3, ("hover not averaged: %.5f, edges %.5f / %.5f"):format(hovered.x, lx, rx))
+    GetMouseFoci = nil
+    owner = Minimap
     -- the diagnosis command runs through without errors
     lines = { herbName }
     slash("mmtest") advance(21)
@@ -1160,6 +1247,81 @@ step("Minimap tooltip: pointing at a tracked node learns it", function()
     for _, k in ipairs({ "IsMouseOver", "GetCenter", "GetWidth", "GetHeight", "GetZoom", "GetEffectiveScale" }) do Minimap[k] = nil end
     for _, k in ipairs({ "IsShown", "GetOwner", "NumLines" }) do GameTooltip[k] = nil end
     GetCursorPosition, GetCVar = savedCursor, savedCVar
+    ns.db.nodes[Z] = nil
+    player.map, player.x, player.y = 1412, 0.45, 0.72
+end)
+step("Minimap tooltip: rough guesses (zoomed out) still find their node", function()
+    local Z = 1467
+    local names = GathercraftNodeNames and GathercraftNodeNames[GetLocale()]
+    local herbName = names and names[1618] or "Peacebloom"
+    player.map, player.x, player.y = Z, 0.5, 0.5
+    -- guessed with the minimap zoomed out (~20 yd error): a harvest 45 yd away is that node
+    local rough = { id = "o1618", name = herbName, type = "herb", x = 0.5, y = 0.5, count = 1, last = 1,
+        seenOnly = true, seenErr = 12, seenW = 1 / 144, lookErr = 24 } -- averaged, but each look ~24 yd off
+    -- guessed zoomed in (~5 yd): a harvest 45 yd away is another node
+    local fine = { id = "o1618", name = herbName, type = "herb", x = 0.5, y = 0.6, count = 1, last = 1,
+        seenOnly = true, seenErr = 5, seenW = 1 / 25, lookErr = 5 }
+    ns.db.nodes[Z] = { rough, fine }
+    local function harvest(x, y, tag)
+        player.x, player.y = x, y
+        fire("UNIT_SPELLCAST_SENT", "player", herbName, tag, 2366)
+        fire("UNIT_SPELLCAST_SUCCEEDED", "player", tag, 2366)
+        loot = { { guid = "GameObject-0-1-1-1-1618-" .. tag, item = 2447, qty = 1 } }
+        fire("LOOT_READY") fire("LOOT_OPENED")
+        advance(3)
+    end
+    harvest(0.5 + 45 / 5000, 0.5, "RGH001")
+    assert(#ns.db.nodes[Z] == 2 and not rough.seenOnly, "rough guess 45 yd away did not merge")
+    harvest(0.5 + 45 / 5000, 0.6, "FIN001")
+    assert(#ns.db.nodes[Z] == 3 and fine.seenOnly, "exact guess merged with a node 45 yd away")
+    -- a look zoomed in counts much more than the rough guess it improves
+    local guess = { id = "o1618", name = herbName, type = "herb", x = 0.3, y = 0.3, count = 1, last = 1,
+        seenOnly = true, seenErr = 20, seenW = 1 / 400 }
+    table.insert(ns.db.nodes[Z], guess)
+    ns.SeenOnMinimap(Z, 0.3 + 10 / 5000, 0.3, herbName, 5)
+    local moved = (guess.x - 0.3) * 5000
+    assert(moved > 8 and moved < 10, ("zoomed-in look moved the guess %.1f of 10 yd"):format(moved))
+    assert(guess.seenErr < 6, "error did not shrink: " .. tostring(guess.seenErr))
+    -- a zoomed-out look finds a rough guess of ours up to 2 x its error away
+    local count = #ns.db.nodes[Z]
+    ns.SeenOnMinimap(Z, 0.7, 0.7, herbName, 20)
+    local far = ns.db.nodes[Z][#ns.db.nodes[Z]]
+    advance(6)
+    ns.SeenOnMinimap(Z, 0.7 + 35 / 5000, 0.7, herbName, 20)
+    assert(#ns.db.nodes[Z] == count + 1 and far.seenLooks == 2, "zoomed-out looks 35 yd apart made two nodes")
+    -- many looks made a guess exact (~8 yd), the next rough look is 40 yd off: still that node
+    local avg = { id = "o1618", name = herbName, type = "herb", x = 0.6, y = 0.2, count = 1, last = 1,
+        seenOnly = true, seenErr = 8, seenW = 1 / 64, lookErr = 24, seenLooks = 9 }
+    table.insert(ns.db.nodes[Z], avg)
+    count = #ns.db.nodes[Z]
+    advance(6)
+    ns.SeenOnMinimap(Z, 0.6 + 40 / 5000, 0.2, herbName, 24)
+    assert(#ns.db.nodes[Z] == count and avg.seenLooks == 10, "an exact guess turned away a rough look 40 yd off")
+    -- a zoomed-in look 40 yd off that guess (its looks were rough): it improves it, no second node
+    advance(6)
+    local before = avg.x
+    ns.SeenOnMinimap(Z, 0.6 + 45 / 5000, 0.2, herbName, 6)
+    assert(#ns.db.nodes[Z] == count and avg.seenLooks == 11 and avg.x > before, "zoomed-in look made a second node next to a rough guess")
+    -- a known spawn point 35 yd from a zoomed-out look is the one we see (zoomed in: not)
+    local spawn = { id = "o1618", name = herbName, type = "herb", x = 0.2, y = 0.8, count = 1, last = 1, source = "questie" }
+    table.insert(ns.db.nodes[Z], spawn)
+    count = #ns.db.nodes[Z]
+    advance(6)
+    ns.SeenOnMinimap(Z, 0.2 + 35 / 5000, 0.8, herbName, 20)
+    assert(#ns.db.nodes[Z] == count and spawn.upAt, "zoomed-out look did not find the spawn point 35 yd away")
+    advance(6)
+    ns.SeenOnMinimap(Z, 0.2 - 35 / 5000, 0.8, herbName, 5)
+    assert(#ns.db.nodes[Z] == count + 1, "zoomed-in look took a spawn point 35 yd away")
+    -- old duplicates (four guesses of one herb, up to 40 yd apart) become one; a real
+    -- second herb 120 yd away and exact nodes stay
+    local function seen(dx, dy) return { id = "o1618", name = herbName, type = "herb", x = 0.4 + dx / 5000, y = 0.4 + dy / 3333,
+        count = 1, last = 1, seenOnly = true } end
+    ns.db.nodes[Z] = { seen(0, 0), seen(30, 0), seen(0, 30), seen(25, 25), seen(120, 0),
+        { id = "o1618", name = herbName, type = "herb", x = 0.4 + 10 / 5000, y = 0.4, count = 2, last = 1 } }
+    local merged = ns.ConsolidateSeen(Z)
+    assert(merged == 3 and #ns.db.nodes[Z] == 3, ("duplicates: %d merged, %d left"):format(merged, #ns.db.nodes[Z]))
+    local one = ns.db.nodes[Z][1]
+    assert(one.seenLooks == 4 and math.abs((one.x - 0.4) * 5000 - 13.75) < 0.5, "merged guess not the average")
     ns.db.nodes[Z] = nil
     player.map, player.x, player.y = 1412, 0.45, 0.72
 end)

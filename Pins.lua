@@ -35,7 +35,9 @@ local TARGET_REF = ADDON_NAME .. "Target"
 
 local function WorldPinsShown() return not ns.db.worldPinsHidden end
 local function MiniPinsShown() return not ns.db.miniPinsHidden end
-local function SubtleMini() return ns.db.miniPinStyle == "subtle" end
+-- Subtle is the default; "normal" only when chosen in the options
+local function SubtleMini() return ns.db.miniPinStyle ~= "normal" end
+ns.SubtleMinimap = SubtleMini
 
 ---------------------------------------------------------------------------
 -- Pin frames
@@ -112,11 +114,30 @@ local function ShowTooltip(pin)
     if ns.IsOnCooldown(n) then
         GameTooltip:AddLine((L["Harvested, respawn in ~%ds"]):format(n.emptyUntil - time()), 1, 0.5, 0.5)
     end
+    if n.unreachUntil and n.unreachUntil > time() then
+        GameTooltip:AddLine((L["Hard to reach: left out of farm runs for %d min"]):format(math.ceil((n.unreachUntil - time()) / 60)), 1, 0.6, 0.2)
+    end
     GameTooltip:Show()
+end
+
+-- Pins on the same spot are drawn in a fixed order: your own finds on top,
+-- shared and starter nodes below, known spawn points (Questie) at the bottom.
+-- (HereBeDragons re-adds world map pins in random order on every redraw.)
+local function Layer(n)
+    if not n then return 1 end
+    if n.pendingReport or n.source == "questie" then return 1 end
+    if n.source == "sync" or n.source == "starter" then return 2 end
+    return 3
+end
+local function KeepLayer(pin)
+    local parent = pin:GetParent()
+    local level = parent and parent.GetFrameLevel and parent:GetFrameLevel()
+    if level and not pin.isTarget then pin:SetFrameLevel(level + (pin.layer or 1)) end
 end
 
 local function CreatePin()
     local pin = CreateFrame("Frame", nil, UIParent)
+    pin:HookScript("OnShow", KeepLayer)
     pin.icon = pin:CreateTexture(nil, "OVERLAY")
     pin.icon:SetAllPoints()
     pin.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92) -- crop the icon border
@@ -265,7 +286,7 @@ local function AddNodePins(mapID, n)
     local w, m
     if showWorld then
         w = table.remove(freeWorld) or CreatePin()
-        w.node, w.mapID, w.isMini = n, mapID, nil
+        w.node, w.mapID, w.isMini, w.layer = n, mapID, nil, Layer(n)
         w:SetSize(worldSize, worldSize)
         w.icon:SetTexture(icon)
         w.icon:SetDesaturated(n.pendingReport and true or false)
@@ -276,7 +297,7 @@ local function AddNodePins(mapID, n)
 
     if showMini then
         m = table.remove(freeMini) or CreatePin()
-        m.node, m.mapID, m.isMini = n, mapID, true
+        m.node, m.mapID, m.isMini, m.layer = n, mapID, true, Layer(n)
         m:SetSize(miniSize, miniSize)
         m.icon:SetTexture(icon)
         m.icon:SetDesaturated(n.pendingReport and true or false)
@@ -396,6 +417,7 @@ end
 
 local function TargetPin()
     local pin = CreatePin()
+    pin.isTarget = true
     Decorate(pin, RING_GOLD)
     -- the world map hands the pin to a new parent each time it opens
     pin:HookScript("OnShow", Raise)
@@ -608,7 +630,7 @@ end)
 ns.PinTest = function()
     local mapID = ns.GetPlayerPos and ns.GetPlayerPos()
     ns.Print(("Pin check for %s (%s), world map pins: %s, minimap pins: %s (%s)"):format(tostring(mapID and ns.GetZoneName(mapID)),
-        tostring(mapID), tostring(WorldPinsShown()), tostring(MiniPinsShown()), tostring(ns.db.miniPinStyle or "normal")))
+        tostring(mapID), tostring(WorldPinsShown()), tostring(MiniPinsShown()), tostring(SubtleMini() and "subtle" or "normal")))
     local stats = {}
     local sample = {}
     for _, n in ipairs((mapID and ns.db.nodes[mapID]) or {}) do
