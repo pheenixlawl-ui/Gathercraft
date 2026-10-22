@@ -21,6 +21,7 @@
 --   warm=0           minutes farmed before measuring (the addon has learned its spawn points)
 --   skill=300        herbalism and mining skill at the start (goes up while gathering, classic rules)
 --   goal=auto        the addon's route goal: auto | skill | gold | nodes
+--   loop=0           1 = route type Loop (a fixed round, like farming guides)
 --   tune=a:1,b:2     override ns.RouteTune values (spawn point learning), e.g. tune=prune:0,learn:0
 --   oracle=1         ignore the addon, always ride to the nearest node that is up
 --                    (nobody can know that: the best any route could ever do)
@@ -36,7 +37,7 @@ local ROOT = arg[1] or "."
 local opts = {
     zone = 1412, mode = "herb", minutes = 60, speed = 11.2, active = 0.35, respawn = 600,
     see = 40, track = 0, arrive = 25, seed = 1, runs = 1, oracle = 0, tune = "",
-    dead = 0, skew = 0, warm = 0, skill = 300, goal = "auto",
+    dead = 0, skew = 0, warm = 0, skill = 300, goal = "auto", loop = 0,
 }
 for i = 2, #arg do
     local k, v = arg[i]:match("^(%w+)=(.+)$")
@@ -104,6 +105,7 @@ local function RunOnce(seed)
     -- so the same seed gives the same result however busy the computer is
     debugprofilestop = function() return 0 end
     ns.db.routeGoal = opts.goal
+    ns.db.routeMode = opts.loop == 1 and "loop" or nil
     local GetPrice = ns.GetPrice
     ns.GetPrice = function(itemID)
         for _, kind in pairs(GathercraftQuestieData.kinds) do

@@ -311,7 +311,13 @@ local function IsNodeEnabled(n, mapID)
     return true
 end
 
-local function SameKind(n, id, nameKey)
+-- canonKey: the kind's language independent name (CanonicalName), lower case
+local function SameKind(n, id, nameKey, canonKey)
+    -- a guess from the minimap got one of the kind's object IDs (Peacebloom
+    -- has several): any object of that kind can be the harvest of it
+    if n.seenOnly and canonKey then
+        return (CanonicalName(n.id, n.name) or n.name):lower() == canonKey or n.name:lower() == nameKey
+    end
     if id and n.id then
         return n.id == id
     end
@@ -345,6 +351,7 @@ end
 local function AddNodeAt(mapID, x, y, name, nodeType, id, spawn, item)
     local list = GetZoneNodes(mapID, true)
     local nameKey = name:lower()
+    local canonKey = (CanonicalName(id, name) or name):lower()
 
     local copyOf = CultivatedCopy(mapID, x, y, nodeType, id, nameKey, spawn)
     if copyOf then
@@ -355,7 +362,7 @@ local function AddNodeAt(mapID, x, y, name, nodeType, id, spawn, item)
     -- Find the closest existing node of the same kind that this gather can belong to
     local best, bestDist
     for _, n in ipairs(list) do
-        if SameKind(n, id, nameKey) then
+        if SameKind(n, id, nameKey, canonKey) then
             local d = n.seenOnly and ns.Yards(mapID, x, y, n.x, n.y) or Distance(mapID, x, y, n.x, n.y)
             -- only seen on the minimap so far: its position is a rough guess
             if d <= (n.seenOnly and SeenMergeRadius(n) or MERGE_RADIUS) then
@@ -387,6 +394,7 @@ local function AddNodeAt(mapID, x, y, name, nodeType, id, spawn, item)
                     math.abs(south), south >= 0 and "south" or "north", n.seenLooks or 1))
             end
             n.x, n.y, n.count, n.seenOnly = x, y, 0, nil
+            n.id = id or n.id -- the real object, not the one guessed from the name
         end
         n.x = (n.x * n.count + x) / (n.count + 1)
         n.y = (n.y * n.count + y) / (n.count + 1)
@@ -1023,7 +1031,7 @@ local SEEN_SNAP = 25      -- yards: a node of that kind this close is the one we
 local SEEN_SNAP_MAX = 60  -- ... up to this far when the minimap is zoomed out (2 x the error of the look)
 local SEEN_BLIP_PX = 10   -- pixels: how far off the cursor can be while the tooltip of a blip shows (measured in Forever)
 local SEEN_ERR_MIN = 4    -- yards: a position never counts as more exact than this
-local SEEN_POLL = 0.2     -- seconds between looks at the tooltip
+local SEEN_POLL = 0.1     -- seconds between looks at the tooltip
 local SEEN_SAMPLE = 0.03  -- seconds between cursor samples while a blip's tooltip shows
 local SEEN_HOVER_MAX = 0.6 -- a hover longer than this counts as one look, then a new one starts
 local SEEN_AGAIN = 5      -- seconds before the same name at the same place counts again
@@ -1118,6 +1126,36 @@ local function LookError(ypp)
     return math.max(SEEN_ERR_MIN, (ypp or 3.3) * SEEN_BLIP_PX)
 end
 
+-- The node a look at the minimap means: the nearest of that kind within the
+-- look's error. One that can be up beats a closer one harvested a moment ago
+-- (the look is a few yards off, the neighbour may be the closer guess).
+local function MatchSeen(mapID, x, y, name, err, candidates)
+    candidates = candidates or SeenKinds()[name:lower()]
+    if not candidates then return end
+    local snap = math.max(SEEN_SNAP, math.min(SEEN_SNAP_MAX, 2 * err))
+    local best, bestDist, cooled, cooledDist
+    for _, n in ipairs(GetZoneNodes(mapID) or {}) do
+        for _, k in ipairs(candidates) do
+            if n.id == k.id or (not n.id and n.name:lower() == name:lower()) then
+                local d = Yards(mapID, x, y, n.x, n.y)
+                -- a rough guess of our own may be further off too
+                local r = n.seenOnly and math.max(snap, math.min(SEEN_SNAP_MAX, 2 * (n.lookErr or n.seenErr or err))) or snap
+                if d <= r then
+                    if IsOnCooldown(n) then
+                        if not cooledDist or d < cooledDist then cooled, cooledDist = n, d end
+                    elseif not bestDist or d < bestDist then
+                        best, bestDist = n, d
+                    end
+                end
+                break
+            end
+        end
+    end
+    -- only a node on cooldown there: it came back sooner than we thought
+    if not best then return cooled, cooledDist end
+    return best, bestDist
+end
+
 local lastSeen = {} -- name -> { t, x, y }
 local kindsBuiltAt = 0
 local Calibrate -- below
@@ -1136,18 +1174,10 @@ local function OnSeen(mapID, x, y, name, err)
     lastSeen[name] = { t = time(), x = x, y = y }
 
     -- a node of that kind close by: that's the one, it is up right now
-    local best, bestDist
-    for _, n in ipairs(GetZoneNodes(mapID) or {}) do
-        for _, k in ipairs(candidates) do
-            if n.id == k.id or (not n.id and n.name:lower() == name:lower()) then
-                local d = Yards(mapID, x, y, n.x, n.y)
-                -- a rough guess of our own may be further off too
-                local r = n.seenOnly and math.max(snap, math.min(SEEN_SNAP_MAX, 2 * (n.lookErr or n.seenErr or err))) or snap
-                if d <= r and (not bestDist or d < bestDist) then best, bestDist = n, d end
-            end
-        end
-    end
+    local best, bestDist = MatchSeen(mapID, x, y, name, err, candidates)
     if best then
+        -- seen with your own eyes: a parked node is real after all
+        if ns.IsParked and ns.IsParked(best) and ns.SyncUnpark then ns.SyncUnpark(best, "seen on the minimap") end
         best.seenAt, best.upAt = time(), time()
         best.emptyUntil, best.emptyAt = nil, nil -- there it is: respawned
         if best.seenOnly then
@@ -1198,7 +1228,7 @@ local function ConsolidateSeen(mapID)
         if a.seenOnly then
             for j = #list, i + 1, -1 do
                 local b = list[j]
-                if b.seenOnly and SameKind(b, a.id, a.name:lower()) then
+                if b.seenOnly and SameKind(b, a.id, a.name:lower(), (CanonicalName(a.id, a.name) or a.name):lower()) then
                     local ea, eb = a.seenErr or 24, b.seenErr or 24
                     local la, lb = a.lookErr or math.max(ea, 24), b.lookErr or math.max(eb, 24)
                     local r = math.max(SEEN_SNAP, math.min(SEEN_SNAP_MAX, 2 * math.max(la, lb)))
@@ -1261,6 +1291,8 @@ local function TooltipLines()
         local fs = _G["GameTooltipTextLeft" .. i]
         local text = fs and fs:GetText()
         if text then
+            -- several blips under the cursor: one name per line ("|n" too)
+            text = text:gsub("|n", "\n")
             for part in text:gmatch("[^\n]+") do
                 part = CleanLine(part)
                 if part ~= "" then lines[#lines + 1] = part end
@@ -1273,8 +1305,8 @@ end
 -- Debug: pointing at one of OUR minimap pins whose real spot we know shows
 -- how far the minimap maths is off (radius/zoom right in this client?)
 local calibrated
-Calibrate = function()
-    local owner = GameTooltip:GetOwner()
+Calibrate = function(pin)
+    local owner = pin or GameTooltip:GetOwner()
     local n = owner and owner.node
     if not (n and owner.isMini and not n.seenOnly and not n.pendingReport) or calibrated == n then return end
     calibrated = n
@@ -1315,7 +1347,71 @@ local function Sample(h)
     h.mapID, h.ypp = mapID, ypp
     h.x, h.y, h.n = h.x + x, h.y + y, h.n + 1
 end
+-- Our minimap pins let the mouse through to the game's blips (Pins.lua), and
+-- the game rebuilds or hides GameTooltip over the minimap all the time. What
+-- we know goes into a tooltip of our own: right below the game's tooltip when
+-- it shows one, else next to the pin under the cursor.
+local miniTip
+local function MiniTip()
+    if not miniTip then
+        miniTip = CreateFrame("GameTooltip", "GathercraftMinimapTooltip", UIParent, "GameTooltipTemplate")
+        miniTip:SetFrameStrata("TOOLTIP")
+    end
+    return miniTip
+end
+local function HideMiniTip()
+    if miniTip and miniTip:IsShown() then miniTip:Hide() end
+    if miniTip then miniTip.node, miniTip.under, miniTip.anchor = nil, nil, nil end
+end
+-- the node the game's tooltip names near the cursor, else our pin under it
+local function MiniTipTarget(names)
+    local mapID, x, y, _, ypp = CursorOnMap()
+    if mapID and names then
+        for _, name in ipairs(names) do
+            local n = MatchSeen(mapID, x, y, name, LookError(ypp))
+            if n then return n, nil, true end
+        end
+    end
+    local pin = ns.MinimapPinUnderCursor and ns.MinimapPinUnderCursor()
+    return pin and pin.node, pin, false
+end
+local function UpdateMiniTip()
+    if not (ns.AddNodeTooltipLines and Minimap:IsMouseOver()) then return HideMiniTip() end
+    local focus = MouseFocus()
+    if focus ~= nil and focus ~= Minimap then return HideMiniTip() end
+    local gameShows = GameTooltip:IsShown() and IsMinimapTooltip()
+    local names = gameShows and TooltipLines() or nil
+    if names and #names == 0 then names, gameShows = nil, false end
+    local node, pin, named = MiniTipTarget(names)
+    if not node then return HideMiniTip() end
+    local anchor = gameShows and GameTooltip or pin
+    if not anchor then return HideMiniTip() end
+    local tip = MiniTip()
+    if tip:IsShown() and tip.node == node and tip.anchor == anchor then return end
+    tip:SetOwner(UIParent, "ANCHOR_NONE")
+    tip:ClearAllPoints()
+    if anchor == GameTooltip then
+        tip:SetPoint("TOPLEFT", GameTooltip, "BOTTOMLEFT", 0, 2)
+    else
+        tip:SetPoint("BOTTOMLEFT", anchor, "TOPRIGHT", 2, 2)
+    end
+    -- right below the game's tooltip naming it: a short heading; below a
+    -- tooltip about something else (a quest area): with its name
+    ns.AddNodeTooltipLines(tip, node, gameShows and named)
+    tip:Show()
+    tip.node, tip.anchor = node, anchor
+    if ns.db.debug and pin then Calibrate(pin) end
+end
+ns.UpdateMinimapTooltip = UpdateMiniTip -- tests
+
+local tipElapsed = 0
 seenFrame:SetScript("OnUpdate", function(_, elapsed)
+    -- our tooltip keeps up on its own (also while a look is being measured)
+    tipElapsed = tipElapsed + elapsed
+    if tipElapsed >= SEEN_POLL and ns.db then
+        tipElapsed = 0
+        UpdateMiniTip()
+    end
     seenElapsed = seenElapsed + elapsed
     if hover then
         hover.age = hover.age + elapsed
@@ -1332,10 +1428,11 @@ seenFrame:SetScript("OnUpdate", function(_, elapsed)
     end
     if seenElapsed < SEEN_POLL then return end
     seenElapsed = 0
-    if not ns.db or ns.db.minimapLearnOff then return end
+    if not ns.db then return end
     if not (GameTooltip:IsShown() and Minimap:IsMouseOver()) then lastTooltip = nil return end
     local lines = TooltipLines()
     local mine = IsMinimapTooltip()
+    if ns.db.minimapLearnOff then return end
     local joined = table.concat(lines, "|")
     if ns.db.debug and joined ~= lastTooltip and joined ~= "" then
         Debug(("minimap tooltip [%s%s]: %s"):format(FrameName(GameTooltip:GetOwner()), mine and "" or ", ignored", joined))

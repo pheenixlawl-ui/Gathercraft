@@ -108,8 +108,10 @@ local function ImportQuestieZone(mapID, quiet)
                 }
                 local st = state and state[key]
                 if st then
-                    -- "until:streak[:hits:misses:emptyAt]" (older saves have only the first two)
-                    local untilT, streak, hits, misses, emptyAt = st:match("^(%d+):(%d+):?(%d*):?(%d*):?(%d*)$")
+                    -- "until:streak[:hits:misses:emptyAt[:unreachUntil:reachMiss]]"
+                    -- (older saves have only the first two or five)
+                    local untilT, streak, hits, misses, emptyAt, unreach, reachMiss =
+                        st:match("^(%d+):(%d+):?(%d*):?(%d*):?(%d*):?(%d*):?(%d*)$")
                     untilT, streak = tonumber(untilT), tonumber(streak)
                     hits, misses, emptyAt = tonumber(hits), tonumber(misses), tonumber(emptyAt)
                     if untilT and untilT > now then n.emptyUntil = untilT end
@@ -117,6 +119,9 @@ local function ImportQuestieZone(mapID, quiet)
                     if hits and hits > 0 then n.hits = hits end
                     if misses and misses > 0 then n.misses = misses end
                     if emptyAt and emptyAt > 0 and now - emptyAt < EMPTY_MEMORY then n.emptyAt = emptyAt end
+                    unreach, reachMiss = tonumber(unreach), tonumber(reachMiss)
+                    if unreach and unreach > 0 then n.unreachUntil = unreach end
+                    if reachMiss and reachMiss > 0 then n.reachMiss = reachMiss end
                 end
                 table.insert(list, n)
                 added = added + 1
@@ -142,9 +147,13 @@ local function SaveSpawnState()
             if n.source == "questie" then
                 local resting = n.emptyUntil and n.emptyUntil > now
                 local emptyAt = n.emptyAt and now - n.emptyAt < EMPTY_MEMORY and n.emptyAt or 0
-                if n.sk and (resting or n.emptyStreak or n.hits or n.misses) then
+                if n.sk and (resting or n.emptyStreak or n.hits or n.misses or n.reachMiss) then
                     state[mapID] = state[mapID] or {}
-                    if n.hits or n.misses or emptyAt > 0 then
+                    if n.reachMiss then
+                        -- hard to reach (Route.lua): kept, it doubles each time
+                        state[mapID][n.sk] = ("%d:%d:%d:%d:%d:%d:%d"):format(resting and n.emptyUntil or 0,
+                            n.emptyStreak or 0, n.hits or 0, n.misses or 0, emptyAt, n.unreachUntil or 0, n.reachMiss)
+                    elseif n.hits or n.misses or emptyAt > 0 then
                         state[mapID][n.sk] = ("%d:%d:%d:%d:%d"):format(resting and n.emptyUntil or 0,
                             n.emptyStreak or 0, n.hits or 0, n.misses or 0, emptyAt)
                     else

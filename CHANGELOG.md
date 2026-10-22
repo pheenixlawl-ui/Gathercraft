@@ -1,37 +1,29 @@
-## v0.1.11 – Learn nodes from the minimap, smarter runs, minimap your way
+## v0.1.12 – Loop routes, sharing you can see, and fixes from a full review
 
-**Sorry for the wait!** This update comes about 20 hours later than planned. We used the WoW Forever stress test to collect node spots (Zephras Isle alone grew from 24 to 70 known nodes – they will ship with the next starter data update) and to test every new feature on the real launch client. A few things we found there are already fixed in this version. Thank you for your patience – and for all the feedback on Discord!
+### New
+- **Loop routes:** Options → Farm runs → Route type → *Loop*. One fixed round through all spawn points you can gather, ridden in the same direction again and again – like the routes in farming guides, but worked out by Gathercraft from its own spawn points. Empty or hard to reach points are left out until they can have a node again, new spots go in where they are on the way, and after a quest you join the round again ahead of where you left it. `/gcr route` shows the whole round before you start. *Smart* (planning live) stays the default – in our simulator both bring about the same nodes per hour, so pick what you like riding.
+- **Herbs / minerals switch:** a small button next to the minimap switches your tracking between Find Herbs and Find Minerals with one click (shown when you know both; Shift-drag moves it along the minimap's edge). Prefer your action bar? Options → Map & minimap → *Put it on an action bar* creates the macro "GC Tracking" and puts it on your cursor. There is a key binding too. Every switch is your own click – nothing switches by itself.
+- **See what sharing does:** Options → Sharing shows how many Gathercraft players were around in the last hour, how many spots you received and how many wait for a second confirmation – and now and then one line in chat tells you when spots of other players arrived (can be turned off).
+- **Chests on or off:** Options → Map & minimap → *Show chests*.
+- **World map pins in a ring:** the world map now uses the same silver rings as the minimap. Prefer the old look? Options → World map style → Normal.
 
-### Highlights
-- **Learn nodes from the minimap:** point your mouse at a herb or vein that your tracking shows on the minimap, and Gathercraft remembers it – no need to ride there first.
-- **Subtle minimap style (new default):** our pins get a thin silver ring and a see-through icon, so what the game's tracking shows *right now* stands out from "a node usually spawns here". Works great next to addons like Node Sight.
-- **Gold target ring:** the next node of a farm run is marked with a pulsing gold ring on the map and minimap.
-- **Gear and buffs count:** gloves, enchants and Goldthorn Tea now let you gather above your own skill – routes and Farm Spots know it.
-- **Runs that understand questing and cliffs:** walk off for a quest and the run picks a new target near you; can't reach a node (cliff, waterfall)? The run notices and moves on.
-
-### Minimap and map
-- **Learn nodes from the minimap:** a known spawn point you point at is marked as *up right now*, and farm runs go there first. A new spot is added with a rough position: every hover makes it more exact (the mouse positions of one hover are averaged, and hovers with the minimap zoomed in count more), and harvesting it puts it exactly on the spot. Only what you point at yourself is read – nothing is scanned. Rough spots aren't shared with other players until you harvest them. Turn it off in the options if you like.
-- **Subtle style** is on by default. Prefer the old look? Options → Minimap style → Normal.
-- **Minimap opacity:** choose how visible Gathercraft's minimap pins are (20–100 %). The run target always stays fully visible.
-- **World map and minimap apart:** two switches – for example Gathercraft on the big map for planning, and another addon on the minimap. `/gcr pins` still switches both.
-- **Pins on the same spot** are always drawn in the same order: your own finds on top, known spawn points below.
+A thorough review of v0.1.11 also found a few things that could get in your way. All fixed:
 
 ### Farm runs
-- **Next node marked:** a bigger pin with a pulsing gold ring, sticks to the minimap edge while far away, and shows even when node pins are off.
-- **Your waypoint stays yours:** runs only use the game's waypoint when the Gathercraft arrow is off – and never replace or clear a waypoint you set yourself.
-- **Questing during a run:** walk about 150 yards away from the target and the run picks a new one instead of pointing back all the time.
-- **Can't get there?** If you keep moving for 25 seconds without getting closer (a cliff, a waterfall – routes only know straight lines), the run leaves that node out for a while and picks another. `/gcr unreachable` does the same by hand. Not while fighting, dead or on a flight.
-- **"Empty" only when you could check:** only the run's target counts as found empty – not nodes you just pass, not while fighting, not when you skip. Routes learn fewer wrong things while you quest.
-- **Waiting for respawns:** the farm panel counts down to the next expected respawn; a run with nothing to farm for 10 minutes stops by itself.
-- **Route line:** the *Line* style is solid all around you, also where the route comes back past you.
+- **The line follows you:** the dotted part from you to the next node is drawn again as you move (10 times a second) – it no longer starts where you stood when the route was planned.
+- **Questing with a run on no longer blocks nodes:** walking crosswise to the target (a quest, a mailbox, a building in the way) was sometimes taken as "can't get there", and the node was left out for 15 minutes or more. Now only walking around without getting any closer counts – standing still doesn't, and walking away is handled as a detour.
+- **"Hard to reach" is remembered properly:** for known spawn points it now survives a /reload or logout, and the count starts over after a day without problems.
+- **A target that moves stays marked:** when a few more looks at the minimap move a rough spot, the gold ring and the arrival check move with it.
 
-### Skills
-- **Gear and buffs count:** herbalism/mining bonuses let routes and Farm Spots include nodes above your own skill; skill-ups still go by your own skill. The bonus shows as "+N" in the Overview and tooltips, and a run notices it within seconds.
+### Learning nodes from the minimap
+- **Works on our own pins too:** Gathercraft's minimap pins now let the mouse through to the game's tracking blip, so Gathercraft learns that a known node is there right now. What Gathercraft knows about it shows in a small tooltip of its own – right below the game's tooltip (also below a quest area's), or next to the pin where the game shows nothing.
+- **Several blips at once:** when the game lists several things in one tooltip (a quest and a vein), each name is read on its own.
+- **No more double pins after harvesting:** a herb or vein learned from the minimap now always merges with your harvest, even when the game uses another object for the same herb (Peacebloom, Silverleaf, Earthroot, Copper and others have several).
+- **The right node lights up:** pointing at a herb next to one you just picked now marks the herb you point at, not the one you just harvested.
+- **Seen = real:** a shared node that was left out for being always empty comes back as soon as you see it on the minimap.
 
 ### Sharing (sync)
-- **Self-healing shared nodes:** a node that only came from other players, that you found empty again and again (5 times over at least 12 hours) and never harvested, is left out of routes and shown faded – not deleted. It comes back as soon as a new player reports it or you harvest it. Nodes known to more than the first three players are never parked.
-- **Two-part names:** your own sync messages are recognized with Forever's first + last names, so they are no longer treated as another player's.
-
-### Other
-- **Tidier options:** the options are now split into sections – Map & minimap, Farm runs, Sharing, Rares & prices, General – with a short line on what each one is about. Gathercraft remembers the section you had open.
-- **Debug tab:** turning debug output on opens the "Gathercraft" chat tab right away, also when an old closed one was left over. `/gcr mmtest` shows what Gathercraft sees on the minimap, for bug reports.
+- **Made for megaservers:** when many players log in at once, one of them asks for the zone and everyone else listens to the answers – about 40 % less traffic on the sharing channel in our 800-player test, with the same spots reaching everyone.
+- **Calmer channel:** a zone is answered at most every 5 minutes, answers are capped to what other players accept anyway, and repeated questions from one player are cut off. Your own finds are never stuck behind a long queue.
+- **Harder to flood:** one player can only keep a limited number of unconfirmed reports with you, and the oldest reports make room instead of blocking new ones. Broken zone or item numbers are ignored.
+- **Self-healing counts fresh:** an empty visit from long ago no longer counts towards leaving a shared node out.

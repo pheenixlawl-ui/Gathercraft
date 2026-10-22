@@ -3,4 +3,5 @@
     <Binding name="GATHERCRAFT_SKIP" category="ADDONS">Gathercraft_Skip()</Binding>
     <Binding name="GATHERCRAFT_ZONES" category="ADDONS">Gathercraft_Zones()</Binding>
     <Binding name="CLICK GathercraftFishButton:LeftButton" category="ADDONS"/>
+    <Binding name="CLICK GathercraftTrackButton:LeftButton" category="ADDONS"/>
 </Bindings>

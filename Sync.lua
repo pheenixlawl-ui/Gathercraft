@@ -38,6 +38,7 @@ local MERGE_RADIUS = 10       -- yards: same kind closer than this = same node
 local HEAL_MISSES = 5              -- empty visits (on the run target, not in combat) ...
 local HEAL_SPACING = 600           -- ... at least this many seconds apart ...
 local HEAL_SPAN = 12 * 3600        -- ... spread over at least this long
+local HEAL_RESET = 3 * 24 * 3600   -- no empty visit for this long: start counting again
 local HEARD_KEEP = 8               -- reporter names remembered per node
 local SEND_INTERVAL = 1.2     -- seconds between outgoing messages
 local MAX_MSG_LEN = 240
@@ -46,12 +47,19 @@ local BUSY_RATE = 20          -- incoming messages per second above which we sen
 local RATE_WINDOW = 60        -- seconds
 local RATE_MAX_NODES = 150    -- max nodes accepted per sender per window
 local QUERY_COOLDOWN = 600    -- seconds before asking for the same zone again
+local QUERY_HEARD = 120       -- someone else asked for the zone this recently: their answers reach us too
+local QUERY_JITTER = 15       -- seconds: wait a random moment before asking (others may ask first)
 local MAX_RESPONDERS = 3
 local PENDING_MAX_AGE = 3 * 24 * 3600
 local PENDING_MAX_AGE_NEW = 14 * 24 * 3600 -- zones without known spawn points (new Forever zones): keep them longer
 local PENDING_MAX_TOTAL = 2000 -- unconfirmed reports kept in all zones together
 local PENDING_MAX_PER_ZONE = 300 -- unconfirmed reports kept per zone (oldest go first)
 local PENDING_PER_REPORTER = 30  -- one stranger can't fill the list with fake reports
+local PENDING_PER_REPORTER_TOTAL = 100 -- ... in all zones together
+local ANSWER_COOLDOWN = 300   -- seconds: a zone is answered at most once in this time
+local QUEUE_MAX = 60          -- outgoing messages waiting at most (about a minute of sending)
+local QUEUE_ANSWER_MAX = 20   -- answers to zone queries only while fewer than this wait
+local MAX_ITEM_ID = 2 ^ 31 - 1
 local JOIN_DELAY = 8          -- seconds after login (let General/Trade join first)
 
 local TYPE_CODE = { herb = "h", ore = "o", chest = "c" }
@@ -62,6 +70,8 @@ local channelID
 local rate = {}               -- sender -> { start, count }
 local lastQuery = {}          -- mapID -> time (kept in the saved data: a /reload doesn't ask again)
 local answering = {}          -- mapID -> { responders = {} }
+local answeredAt = {}         -- mapID -> time we last answered a query for it
+local heardQuery = {}         -- mapID -> time someone else asked for it in the channel
 local recv = { start = 0, count = 0, processed = 0 }
 local incomingRate = 0        -- smoothed messages per second
 local stats = { received = 0, imported = 0, dropped = 0, skippedKnown = 0, skippedBusy = 0, peers = {} }
@@ -123,7 +133,14 @@ end
 -- Sending
 ---------------------------------------------------------------------------
 local function Enqueue(text, target)
+    -- never more than about a minute of sending waits: a flood of work can't
+    -- block our own harvest messages for long
+    if #queue >= QUEUE_MAX then
+        stats.dropped = stats.dropped + 1
+        return false
+    end
     queue[#queue + 1] = { text = text, target = target }
+    return true
 end
 
 local function SendNext()
@@ -210,9 +227,16 @@ local function ShareHarvest(mapID, node)
 end
 
 -- Pull: ask who knows more nodes for a zone than we do
-local function QueryZone(mapID)
+local function QueryZone(mapID, now)
     if not DB().enabled or not mapID then return end
     if time() - (lastQuery[mapID] or 0) < QUERY_COOLDOWN then return end
+    -- a moment later: when many log in at once (launch, a megaserver), the
+    -- first one asks and the others just listen to the answers
+    if not now then
+        C_Timer.After(math.random() * QUERY_JITTER, function() QueryZone(mapID, true) end)
+        return
+    end
+    local heard = time() - (heardQuery[mapID] or 0) < QUERY_HEARD
     -- Not in the public channel yet (e.g. right after login): don't use up the
     -- cooldown, JoinChannel asks again once we are in
     if not DB().public or (channelID and channelID > 0) then
@@ -226,8 +250,13 @@ local function QueryZone(mapID)
             known = known + 1
         end
     end
-    for _, t in ipairs(Targets()) do Enqueue(("Q:%d:%d"):format(mapID, known), t) end
-    Debug(("asked for zone %d (we know %d)"):format(mapID, known))
+    for _, t in ipairs(Targets()) do
+        -- the channel's answers to someone else's question reach us anyway
+        if not (heard and t == "CHANNEL") then
+            Enqueue(("Q:%d:%d"):format(mapID, known), t)
+        end
+    end
+    Debug(("asked for zone %d (we know %d)%s"):format(mapID, known, heard and ", channel: listening to another player's answers" or ""))
 end
 
 ---------------------------------------------------------------------------
@@ -261,6 +290,31 @@ local function DisplayName(id, item, nodeType)
     return name or (nodeType == "herb" and L["Unknown Herb"] or L["Unknown Ore"])
 end
 
+-- So you see that sharing works: now and then one line in chat with what
+-- other players' spots added (never more than one line every few minutes)
+local ANNOUNCE_DELAY, ANNOUNCE_GAP = 20, 180
+local announce = { zones = {}, total = 0, lastAt = 0, pending = false }
+local function AnnounceImport(mapID)
+    if DB().announceOff then return end
+    announce.zones[mapID] = (announce.zones[mapID] or 0) + 1
+    announce.total = announce.total + 1
+    if announce.pending then return end
+    announce.pending = true
+    local wait = math.max(ANNOUNCE_DELAY, announce.lastAt + ANNOUNCE_GAP - time())
+    C_Timer.After(wait, function()
+        announce.pending, announce.lastAt = false, time()
+        local names = {}
+        for zone in pairs(announce.zones) do
+            names[#names + 1] = ns.GetZoneName and ns.GetZoneName(zone) or tostring(zone)
+            if #names >= 3 then break end
+        end
+        if announce.total > 0 then
+            ns.Print((L["%d spots shared by other players added (%s)."]):format(announce.total, table.concat(names, ", ")))
+        end
+        announce.zones, announce.total = {}, 0
+    end)
+end
+
 local function Import(mapID, p)
     ns.db.nodes[mapID] = ns.db.nodes[mapID] or {}
     local node = {
@@ -273,6 +327,7 @@ local function Import(mapID, p)
     table.insert(ns.db.nodes[mapID], node)
     stats.imported = stats.imported + 1
     ns.NotifyNodesChanged("add", mapID, node) -- adds just this pin, keeps the index current
+    AnnounceImport(mapID)
 end
 
 -- Parked by self-healing (Route.lua leaves it out, Pins.lua fades it).
@@ -297,6 +352,9 @@ local function SelfHeal(n)
     if n.seenAt or (n.heard or 0) > CONFIRMATIONS then return end
     local now = time()
     if n.healAt and now - n.healAt < HEAL_SPACING then return end
+    if n.healAt and now - n.healAt > HEAL_RESET then
+        n.healFirst, n.healMisses = nil, nil -- long ago: count from scratch
+    end
     n.healAt = now
     n.healFirst = n.healFirst or now
     n.healMisses = (n.healMisses or 0) + 1
@@ -308,12 +366,6 @@ local function SelfHeal(n)
     return true
 end
 
-local function TotalPending(root)
-    local total = 0
-    for _, list in pairs(root) do total = total + #list end
-    return total
-end
-
 local function HandleNode(mapID, entry, sender, trusted, dry)
     local id, code, xs, ys, items = strsplit(",", entry)
     -- Validation: only real game objects, valid type, plain whole numbers
@@ -321,6 +373,7 @@ local function HandleNode(mapID, entry, sender, trusted, dry)
     if not (xs and ys and xs:match("^%d+$") and ys:match("^%d+$")) then return end
     if items and items ~= "" and not items:match("^%d+$") then return end
     local x, y, item = tonumber(xs), tonumber(ys), tonumber(items) or 0
+    if item > MAX_ITEM_ID then return end
     local nodeType = CODE_TYPE[code or ""]
     if not (id and id:match("^o%d+$") and nodeType and x and y) then return end
     if x > 10000 or y > 10000 then return end
@@ -359,8 +412,23 @@ local function HandleNode(mapID, entry, sender, trusted, dry)
             if q.by == who then mine = mine + 1 end
         end
         if mine >= PENDING_PER_REPORTER then return end
-        -- all zones together: a flood of reports for many maps stops here
-        if not trusted and not dry and TotalPending(root) >= PENDING_MAX_TOTAL then return end
+        if not trusted and not dry then
+            -- one stranger in all zones together, and all reports together:
+            -- the oldest unconfirmed report goes (a flood can't block others for days)
+            local total, theirs, oldest, oldestMap, oldestIndex = 0, 0, nil, nil, nil
+            for m, l in pairs(root) do
+                for i, q in ipairs(l) do
+                    total = total + 1
+                    if q.by == who then theirs = theirs + 1 end
+                    if not oldest or (q.first or 0) < (oldest.first or 0) then oldest, oldestMap, oldestIndex = q, m, i end
+                end
+            end
+            if theirs >= PENDING_PER_REPORTER_TOTAL then return end
+            if total >= PENDING_MAX_TOTAL and oldest then
+                table.remove(root[oldestMap], oldestIndex)
+                if ns.OnPendingChanged then ns.OnPendingChanged(oldestMap, oldest, "remove") end
+            end
+        end
         if #list >= PENDING_MAX_PER_ZONE then
             local gone = table.remove(list, 1) -- oldest unconfirmed report goes
             if not dry and ns.OnPendingChanged then ns.OnPendingChanged(mapID, gone, "remove") end
@@ -395,6 +463,7 @@ end
 
 local function OnNodes(body, sender, trusted, dry)
     local parts = { strsplit(";", body) }
+    if not (parts[1] and parts[1]:match("^%d+$")) then return end
     local mapID = tonumber(parts[1])
     if not mapID or not C_Map.GetMapInfo(mapID) then return end
     if not RateOK(sender, #parts - 1) then
@@ -425,7 +494,15 @@ end
 local function OnQuery(body, sender, distribution)
     local mapID, theirCount = body:match("^(%d+):?(%d*)$")
     mapID, theirCount = tonumber(mapID), tonumber(theirCount) or 0
-    if not mapID or answering[mapID] then return end
+    if not mapID then return end
+    -- a query costs like a few nodes: one player asking again and again is cut off
+    if not RateOK(sender, 10) then return end
+    -- a real question in the channel: its answers reach us too (a spammer's
+    -- don't count: nobody answers those)
+    if distribution ~= "GUILD" then heardQuery[mapID] = time() end
+    if answering[mapID] then return end
+    if time() - (answeredAt[mapID] or 0) < ANSWER_COOLDOWN then return end
+    if #queue >= QUEUE_ANSWER_MAX then return end
     local own = OwnNodes(mapID)
     -- Only answer if we can add something
     if #own <= theirCount then return end
@@ -438,6 +515,13 @@ local function OnQuery(body, sender, distribution)
         local count = 0
         for _ in pairs(a.responders) do count = count + 1 end
         if count >= MAX_RESPONDERS then return end
+        answeredAt[mapID] = time()
+        -- others take at most RATE_MAX_NODES from one player a minute: send
+        -- the best known ones, no more
+        if #own > RATE_MAX_NODES then
+            table.sort(own, function(x, y) return (x.count or 0) > (y.count or 0) end)
+            for i = #own, RATE_MAX_NODES + 1, -1 do own[i] = nil end
+        end
         SendNodes(mapID, own, { distribution == "GUILD" and "GUILD" or "CHANNEL" })
         Debug(("answered zone %d with %d nodes (they knew %d)"):format(mapID, #own, theirCount))
     end)
@@ -731,6 +815,16 @@ ns.SyncShare = ShareHarvest
 -- unconfirmed reports of one zone (grey pins in zones without known spawn points)
 ns.SyncSelfHeal = SelfHeal
 ns.IsParked = IsParked
+-- For the options: players seen in the last hour, spots received this session, waiting
+ns.SyncSummary = function()
+    local peers, now = 0, time()
+    for _, p in pairs(stats.peers) do
+        if now - p.t < 3600 then peers = peers + 1 end
+    end
+    local joined = channelID and channelID > 0
+    return peers, stats.imported, CountPending(), joined
+end
+ns.SyncUnpark = Unpark
 ns.SyncPending = function(mapID)
     local db = ns.db and ns.db.sync
     return db and db.pending and db.pending[mapID]

@@ -110,6 +110,7 @@ local function ShowSection(key)
 end
 ns.ShowOptionsSection = ShowSection
 
+local syncStatus, UpdateSyncStatus -- the Sharing section's status lines (below)
 local controls = {}
 -- Labels in front of +/- and < > controls; long translations get the
 -- smaller font instead of running into the buttons
@@ -385,6 +386,60 @@ local function AddRouteGoal()
     nextY = nextY - 30
 end
 
+-- Route type: < Smart | Loop >, explained in the tooltip
+local ROUTE_MODES = {
+    { code = "smart", name = "Smart",
+      tip = "Plans live: always rides to what most likely has a node right now." },
+    { code = "loop", name = "Loop",
+      tip = "One fixed round through all spawn points, ridden again and again like in farming guides. Empty or hard to reach points are left out until they can have a node again." },
+}
+local modeText
+local function CurrentMode()
+    return ns.db.routeMode == "loop" and ROUTE_MODES[2] or ROUTE_MODES[1], ns.db.routeMode == "loop" and 2 or 1
+end
+local function AddRouteMode()
+    local label = page:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    label:SetPoint("TOPLEFT", colX + 6, nextY - 4)
+    ns.LText(label, "Route type")
+    fitLabels[#fitLabels + 1] = label
+
+    local minus = CreateFrame("Button", nil, page, "UIPanelButtonTemplate")
+    minus:SetSize(24, 20)
+    minus:SetPoint("TOPLEFT", colX + CONTROL_X, nextY)
+    minus:SetText("<")
+
+    modeText = page:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    modeText:SetPoint("LEFT", minus, "RIGHT", 6, 0)
+    modeText:SetWidth(VALUE_W)
+
+    local plus = CreateFrame("Button", nil, page, "UIPanelButtonTemplate")
+    plus:SetSize(24, 20)
+    plus:SetPoint("LEFT", modeText, "RIGHT", 6, 0)
+    plus:SetText(">")
+
+    local function Tip(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:AddLine(L["Route type"], 1, 0.82, 0)
+        GameTooltip:AddLine(L[CurrentMode().tip], 1, 1, 1, true)
+        GameTooltip:Show()
+    end
+    local function Change()
+        local _, index = CurrentMode()
+        ns.db.routeMode = index == 1 and "loop" or nil
+        if ns.RouteModeChanged then ns.RouteModeChanged() end
+        options:Refresh()
+        if GameTooltip:IsOwned(minus) or GameTooltip:IsOwned(plus) then
+            Tip(GameTooltip:IsOwned(minus) and minus or plus)
+        end
+    end
+    for _, b in ipairs({ minus, plus }) do
+        b:SetScript("OnClick", Change)
+        b:SetScript("OnEnter", Tip)
+        b:SetScript("OnLeave", GameTooltip_Hide)
+    end
+    nextY = nextY - 30
+end
+
 -- Minimap pin style: < Normal | Subtle >, explained in the tooltip
 local MINI_STYLES = {
     { code = "normal", name = "Normal" },
@@ -421,6 +476,50 @@ local function AddMiniStyle()
     local function Change()
         -- subtle is the default (nil); "normal" has to be chosen
         ns.db.miniPinStyle = ns.SubtleMinimap() and "normal" or nil
+        ns.NotifyNodesChanged() -- rebuilds the pins
+        options:Refresh()
+        if GameTooltip:IsOwned(minus) or GameTooltip:IsOwned(plus) then Tip(GameTooltip:IsOwned(minus) and minus or plus) end
+    end
+    minus:SetScript("OnClick", Change)
+    plus:SetScript("OnClick", Change)
+    for _, b in ipairs({ minus, plus }) do
+        b:SetScript("OnEnter", Tip)
+        b:SetScript("OnLeave", GameTooltip_Hide)
+    end
+    nextY = nextY - 30
+end
+
+-- World map pin style: < Normal | Ring >
+local worldStyleText
+local function AddWorldStyle()
+    local label = page:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    label:SetPoint("TOPLEFT", colX + 6, nextY - 4)
+    ns.LText(label, "World map style")
+    fitLabels[#fitLabels + 1] = label
+
+    local minus = CreateFrame("Button", nil, page, "UIPanelButtonTemplate")
+    minus:SetSize(24, 20)
+    minus:SetPoint("TOPLEFT", colX + CONTROL_X, nextY)
+    minus:SetText("<")
+
+    worldStyleText = page:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    worldStyleText:SetPoint("LEFT", minus, "RIGHT", 6, 0)
+    worldStyleText:SetWidth(VALUE_W)
+
+    local plus = CreateFrame("Button", nil, page, "UIPanelButtonTemplate")
+    plus:SetSize(24, 20)
+    plus:SetPoint("LEFT", worldStyleText, "RIGHT", 6, 0)
+    plus:SetText(">")
+
+    local function Tip(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:AddLine(L["World map style"], 1, 0.82, 0)
+        GameTooltip:AddLine(L["Ring: each icon sits in a thin silver ring, like on the minimap."], 1, 1, 1, true)
+        GameTooltip:Show()
+    end
+    local function Change()
+        -- ring is the default (nil); "normal" has to be chosen
+        ns.db.worldPinStyle = ns.RingedWorldMap() and "normal" or nil
         ns.NotifyNodesChanged() -- rebuilds the pins
         options:Refresh()
         if GameTooltip:IsOwned(minus) or GameTooltip:IsOwned(plus) then Tip(GameTooltip:IsOwned(minus) and minus or plus) end
@@ -547,6 +646,7 @@ end
 
 function options:Refresh()
     FitLabels()
+    UpdateSyncStatus()
     for _, cb in ipairs(controls) do
         cb:SetChecked(cb.get())
     end
@@ -561,8 +661,14 @@ function options:Refresh()
     if goalText then
         goalText:SetText(L[CurrentGoal().name])
     end
+    if modeText then
+        modeText:SetText(L[CurrentMode().name])
+    end
     if miniStyleText then
         miniStyleText:SetText(L[ns.SubtleMinimap() and MINI_STYLES[2].name or MINI_STYLES[1].name])
+    end
+    if worldStyleText then
+        worldStyleText:SetText(L[ns.RingedWorldMap() and "Ring" or "Normal"])
     end
     if miniAlphaText then
         miniAlphaText:SetText(("%d%%"):format(math.floor((ns.db.miniPinAlpha or 1) * 100 + 0.5)))
@@ -580,6 +686,26 @@ function options:Refresh()
 end
 options:SetScript("OnShow", options.Refresh)
 
+-- Sharing section: what happened so far (so you see that it works)
+syncStatus = nil
+UpdateSyncStatus = function()
+    if not (syncStatus and ns.SyncSummary and ns.db and ns.db.sync) then return end
+    if not ns.db.sync.enabled then
+        syncStatus:SetText(L["Sharing is off."])
+        return
+    end
+    local peers, received, waiting, joined = ns.SyncSummary()
+    local lines = {
+        (L["Gathercraft players seen in the last hour: %d"]):format(peers),
+        (L["Spots received this session: %d"]):format(received),
+        (L["Waiting for a second player to confirm them: %d"]):format(waiting),
+    }
+    if ns.db.sync.public and not joined then
+        lines[#lines + 1] = "|cffff8040" .. L["Not in the sharing channel yet (it is joined a few seconds after login)."] .. "|r"
+    end
+    syncStatus:SetText(table.concat(lines, "\n"))
+end
+
 local function Build()
     Section(1) -- Map & minimap
     AddCheck("Show nodes on the world map",
@@ -594,16 +720,46 @@ local function Build()
             ns.db.miniPinsHidden = not on or nil
             ns.NotifyNodesChanged()
         end)
+    AddCheck("Show chests",
+        function() return not ns.db.chestsHidden end,
+        function(on)
+            ns.db.chestsHidden = not on or nil
+            ns.NotifyNodesChanged()
+        end)
     AddCheck("Learn nodes you point at on the minimap",
         function() return not ns.db.minimapLearnOff end,
         function(on) ns.db.minimapLearnOff = not on or nil end)
     AddHint("Hover a herb or vein on the minimap: Gathercraft remembers the spot.")
+    AddCheck("Herbs / minerals switch button",
+        function() return not ns.db.trackButtonHidden end,
+        function(on)
+            ns.db.trackButtonHidden = not on or nil
+            if ns.UpdateTrackButton then ns.UpdateTrackButton() end
+        end)
+    AddHint("Next to the minimap, when you know both: one click switches your tracking.")
+    do
+        local macro = CreateFrame("Button", nil, page, "UIPanelButtonTemplate")
+        macro:SetSize(180, 22)
+        macro:SetPoint("TOPLEFT", colX + 30, nextY)
+        ns.LText(macro, "Put it on an action bar")
+        macro:SetScript("OnClick", function() if ns.TrackMacro then ns.TrackMacro() end end)
+        macro:SetScript("OnEnter", function(self)
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            GameTooltip:AddLine(L["Put it on an action bar"], 1, 0.82, 0)
+            GameTooltip:AddLine(L["Creates the macro \"GC Tracking\" and puts it on your cursor. Works with the button hidden too."], 1, 1, 1, true)
+            GameTooltip:Show()
+        end)
+        macro:SetScript("OnLeave", GameTooltip_Hide)
+        nextY = nextY - 28
+    end
     nextY = nextY - 10
+    AddWorldStyle()
     AddMiniStyle()
     AddMiniAlpha()
     AddPinSize()
 
     Section(2) -- Farm runs
+    AddRouteMode()
     AddRouteGoal()
     nextY = nextY - 4
     AddCheck("Show Gathercraft arrow during farm runs",
@@ -633,6 +789,24 @@ local function Build()
         function(on)
             if ns.db.sync.public ~= on then ns.SyncCommand("public") end
         end)
+    AddCheck("Tell me in chat when spots of other players arrive",
+        function() return not (ns.db.sync and ns.db.sync.announceOff) end,
+        function(on) ns.db.sync.announceOff = not on or nil end)
+    -- what sharing did so far, kept up to date while the section is open
+    nextY = nextY - 10
+    AddHeader("Right now")
+    syncStatus = page:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    syncStatus:SetPoint("TOPLEFT", colX + 6, nextY)
+    syncStatus:SetPoint("RIGHT", page, "RIGHT", 0, 0)
+    syncStatus:SetJustifyH("LEFT")
+    nextY = nextY - 60
+    local statusElapsed = 0
+    page:SetScript("OnUpdate", function(_, elapsed)
+        statusElapsed = statusElapsed + elapsed
+        if statusElapsed < 2 then return end
+        statusElapsed = 0
+        UpdateSyncStatus()
+    end)
 
     Section(4) -- Rares & prices
     AddHeader("Rares")

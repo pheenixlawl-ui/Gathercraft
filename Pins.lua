@@ -38,12 +38,16 @@ local function MiniPinsShown() return not ns.db.miniPinsHidden end
 -- Subtle is the default; "normal" only when chosen in the options
 local function SubtleMini() return ns.db.miniPinStyle ~= "normal" end
 ns.SubtleMinimap = SubtleMini
+-- World map style "ring": the same silver ring, the icon stays fully visible
+local function RingedWorld() return ns.db.worldPinStyle ~= "normal" end
+ns.RingedWorldMap = RingedWorld
 
 ---------------------------------------------------------------------------
 -- Pin frames
 ---------------------------------------------------------------------------
 local freeWorld, freeMini = {}, {}
 local pinsByNode = {}    -- node -> { world = pin, mini = pin }
+local miniOn = {}        -- minimap pins in use (pin -> true)
 
 local function NodeIcon(n)
     if n.item and n.type ~= "chest" then -- chest loot is random, keep the chest icon
@@ -58,18 +62,19 @@ local function NodeIcon(n)
     return TYPE_ICONS[n.type] or DEFAULT_ICON
 end
 
-local function ShowTooltip(pin)
-    local n = pin.node
-    if not n then return end
-    if n.pendingReport and ns.SyncDisplayName then
-        -- the item name may have loaded since the pin was made
-        n.name = ns.SyncDisplayName(n.id, n.pendingReport.item, n.type)
+-- What we know about a node, into a tooltip (GameTooltip or our own
+-- minimap tooltip). under: right below the game's tooltip, which already
+-- names it - a short "Gathercraft" heading instead of name and type
+local function AddNodeLines(tt, n, pin, under)
+    if under then
+        tt:AddLine("Gathercraft", 1, 0.82, 0.3)
+    else
+        tt:AddLine(n.name, 1, 1, 1)
+        if n.type then
+            tt:AddLine(L[TYPE_LABELS[n.type] or n.type], 0.6, 0.6, 0.6)
+        end
     end
-    GameTooltip:SetOwner(pin, "ANCHOR_RIGHT")
-    GameTooltip:AddLine(n.name, 1, 1, 1)
-    if n.type then
-        GameTooltip:AddLine(L[TYPE_LABELS[n.type] or n.type], 0.6, 0.6, 0.6)
-    end
+    local GameTooltip = tt
     if n.pendingReport then
         GameTooltip:AddLine((L["Reported by %d player(s), not confirmed yet"]):format(n.pendingReport.rc or 1), 0.7, 0.7, 0.7)
         GameTooltip:AddLine(L["Not part of routes until you or other players confirm it."], 0.6, 0.6, 0.6, true)
@@ -79,7 +84,8 @@ local function ShowTooltip(pin)
     if ns.SkillTooltip then
         ns.SkillTooltip(GameTooltip, n)
     end
-    if n.item and ns.GetPrice then
+    -- (a chest's loot is random: one item's price says nothing)
+    if n.item and n.type ~= "chest" and ns.GetPrice then
         local price, source = ns.GetPrice(n.item)
         if price then
             GameTooltip:AddLine((L["Worth: %s each  |cff999999(%s)|r"]):format(ns.Money(price), source), 1, 1, 1)
@@ -98,7 +104,7 @@ local function ShowTooltip(pin)
     elseif n.source == "starter" then
         GameTooltip:AddLine(L["From the beta database (not confirmed yet)"], 0.8, 0.7, 1)
     end
-    local others = pin.others or (pin.othersOf and pin.othersOf.others)
+    local others = pin and (pin.others or (pin.othersOf and pin.othersOf.others))
     if others and #others > 0 then
         local names, seen = {}, { [n.name] = true }
         for _, o in ipairs(others) do
@@ -117,7 +123,23 @@ local function ShowTooltip(pin)
     if n.unreachUntil and n.unreachUntil > time() then
         GameTooltip:AddLine((L["Hard to reach: left out of farm runs for %d min"]):format(math.ceil((n.unreachUntil - time()) / 60)), 1, 0.6, 0.2)
     end
+end
+
+local function ShowTooltip(pin)
+    local n = pin.node
+    if not n then return end
+    if n.pendingReport and ns.SyncDisplayName then
+        -- the item name may have loaded since the pin was made
+        n.name = ns.SyncDisplayName(n.id, n.pendingReport.item, n.type)
+    end
+    GameTooltip:SetOwner(pin, "ANCHOR_RIGHT")
+    AddNodeLines(GameTooltip, n, pin)
     GameTooltip:Show()
+end
+
+-- Core.lua fills its own minimap tooltip with this
+function ns.AddNodeTooltipLines(tt, n, under)
+    AddNodeLines(tt, n, pinsByNode[n] and pinsByNode[n].mini, under)
 end
 
 -- Pins on the same spot are drawn in a fixed order: your own finds on top,
@@ -268,6 +290,7 @@ end
 
 local function AddNodePins(mapID, n)
     if not ns.IsNodeEnabled(n, mapID) then return end
+    if n.type == "chest" and ns.db.chestsHidden then return end -- Options: chests off
     local showWorld = WorldPinsShown()
     local showMini = MiniPinsShown() and mapID == playerMap
     if not (showWorld or showMini) then return end
@@ -287,10 +310,12 @@ local function AddNodePins(mapID, n)
     if showWorld then
         w = table.remove(freeWorld) or CreatePin()
         w.node, w.mapID, w.isMini, w.layer = n, mapID, nil, Layer(n)
+        w:EnableMouse(true)
         w:SetSize(worldSize, worldSize)
         w.icon:SetTexture(icon)
         w.icon:SetDesaturated(n.pendingReport and true or false)
         w.others = nil
+        Decorate(w, (RingedWorld() and not n.pendingReport) and RING_SILVER or nil)
         SetAlpha(w)
         HBDPins:AddWorldMapIconMap(REF, w, mapID, n.x, n.y, HBD_PINS_WORLDMAP_SHOW_PARENT or 1)
     end
@@ -298,6 +323,7 @@ local function AddNodePins(mapID, n)
     if showMini then
         m = table.remove(freeMini) or CreatePin()
         m.node, m.mapID, m.isMini, m.layer = n, mapID, true, Layer(n)
+        m:EnableMouse(false) -- the game's blip below gets the mouse (Core.lua shows our tooltip)
         m:SetSize(miniSize, miniSize)
         m.icon:SetTexture(icon)
         m.icon:SetDesaturated(n.pendingReport and true or false)
@@ -307,6 +333,7 @@ local function AddNodePins(mapID, n)
         Decorate(m, m.subtle and RING_SILVER or nil)
         SetAlpha(m)
         HBDPins:AddMinimapIconMap(REF, m, mapID, n.x, n.y, false, false)
+        miniOn[m] = true
     end
 
     -- the world map pin holds the list of kinds sharing the spot; without
@@ -337,7 +364,10 @@ local function RemoveNodePins(n, quiet)
         RequestRebuild() -- another kind takes over this spot
     end
     if pins.world then HBDPins:RemoveWorldMapIcon(REF, pins.world) end
-    if pins.mini then HBDPins:RemoveMinimapIcon(REF, pins.mini) end
+    if pins.mini then
+        HBDPins:RemoveMinimapIcon(REF, pins.mini)
+        miniOn[pins.mini] = nil
+    end
     for key, pin in pairs(pins) do
         pin:Hide()
         pin.node = nil
@@ -475,12 +505,34 @@ local function PlaceTarget()
         pin.icon:SetAlpha(1)
         pin:SetAlpha(1)
     end
+    target.world:EnableMouse(true)
+    target.mini:EnableMouse(false) -- like all minimap pins (see AddNodePins)
     HBDPins:AddWorldMapIconMap(TARGET_REF, target.world, mapID, n.x, n.y, HBD_PINS_WORLDMAP_SHOW_PARENT or 1)
     HBDPins:AddMinimapIconMap(TARGET_REF, target.mini, mapID, n.x, n.y, false, true)
     for _, pin in ipairs({ target.world, target.mini }) do
         Raise(pin)
         if pin.pulse then pin.pulse:Play() end
     end
+end
+
+-- The minimap pin under the cursor (they let the mouse through, so the game
+-- doesn't tell us): the run target first, else the one nearest the cursor
+function ns.MinimapPinUnderCursor()
+    local function over(pin)
+        return pin and pin:IsShown() and pin.IsMouseOver and pin:IsMouseOver() and (pin:GetAlpha() or 1) > 0
+    end
+    if over(target.mini) then return target.mini end
+    local cx, cy = GetCursorPosition()
+    local best, bestD
+    for pin in pairs(miniOn) do
+        if over(pin) then
+            local px, py = pin:GetCenter()
+            local es = pin:GetEffectiveScale() or 1
+            local d = (px and cx) and ((cx / es - px) ^ 2 + (cy / es - py) ^ 2) or 0
+            if not bestD or d < bestD then best, bestD = pin, d end
+        end
+    end
+    return best
 end
 
 local function SetRouteTarget(mapID, node)
@@ -547,6 +599,7 @@ local function OnNodesChanged(kind, mapID, node)
         local others = oldPrimary and oldPrimary.others
         RemoveNodePins(node, true)
         AddNodePins(mapID, node)
+        if node == target.node then PlaceTarget() end -- the gold ring moves with it
         local new = pinsByNode[node]
         local newPrimary = new and (new.world or new.mini)
         if others and #others > 0 and newPrimary then

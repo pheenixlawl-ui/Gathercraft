@@ -119,6 +119,8 @@ function methods:Show() local was = self.__shown self.__shown = true if not was 
 function methods:Hide() local was = self.__shown self.__shown = false if was and self.__scripts.OnHide then self.__scripts.OnHide(self) end end
 function methods:SetShown(v) if v then self:Show() else self:Hide() end end
 function methods:IsShown() return self.__shown end
+function methods:EnableMouse(on) self.__mouse = on and true or false end
+function methods:IsMouseEnabled() return self.__mouse ~= false end
 function methods:IsVisible() local f = self while f do if not f.__shown then return false end f = f.__parent end return true end
 function methods:SetParent(p) self.__parent = p end
 function methods:GetParent() return self.__parent end
@@ -315,7 +317,8 @@ libs["HereBeDragons-Pins-2.0"] = {
     AddMinimapIconMap = function(_, ref, icon, map, x, y, parent, float) pinCount = pinCount + 1
         HBD_ADDS[ref] = HBD_ADDS[ref] or { world = 0, mini = 0 } HBD_ADDS[ref].mini = HBD_ADDS[ref].mini + 1
         HBD_FLOAT[ref] = float if ref == "Gathercraft" then MINI_ICONS[#MINI_ICONS + 1] = icon end end,
-    AddWorldMapIconWorld = function(_, ref, icon, inst, x, y) LINE_DOTS = (LINE_DOTS or 0) + 1 LINE_PTS[#LINE_PTS + 1] = { x, y } end, AddMinimapIconWorld = function() end,
+    AddWorldMapIconWorld = function(_, ref, icon, inst, x, y) LINE_DOTS = (LINE_DOTS or 0) + 1 LINE_PTS[#LINE_PTS + 1] = { x, y } end,
+    AddMinimapIconWorld = function(_, ref) HBD_ADDS[ref] = HBD_ADDS[ref] or { world = 0, mini = 0 } HBD_ADDS[ref].mini = HBD_ADDS[ref].mini + 1 end,
     RemoveWorldMapIcon = function() pinCount = pinCount - 1 end, RemoveMinimapIcon = function() pinCount = pinCount - 1 end,
     RemoveAllWorldMapIcons = function() end, RemoveAllMinimapIcons = function() end,
 }
@@ -1027,6 +1030,106 @@ step("Farm run: only the target counts as empty, not passing by or fighting", fu
     ns.db.nodes[Z] = nil
     player.map, player.x, player.y = 1412, 0.45, 0.72
 end)
+step("Farm run: the line to the next node follows you", function()
+    local Z = 1469
+    local function own(x, y) return { id = "o1731", name = "Copper Vein", type = "ore", x = x, y = y, count = 3, last = 1 } end
+    ns.db.nodes[Z] = { own(0.30, 0.50), own(0.40, 0.55), own(0.50, 0.45), own(0.60, 0.55) }
+    player.map, player.x, player.y = Z, 0.25, 0.50
+    ns.StartRun("ore", Z) advance(1)
+    assert(ns.run and ns.run.path, "no run")
+    -- the part from you to the next node is drawn again as you move, often
+    local ref = "GathercraftRouteHead"
+    HBD_ADDS[ref] = { world = 0, mini = 0 }
+    for i = 1, 10 do player.x = player.x + 0.001 advance(0.2) end
+    assert(HBD_ADDS[ref].mini >= 10, "line to the next node not kept up: " .. HBD_ADDS[ref].mini)
+    -- standing still: not drawn again
+    local before = HBD_ADDS[ref].mini
+    advance(2)
+    assert(HBD_ADDS[ref].mini == before, "line redrawn while standing still")
+    ns.StopRun()
+    ns.db.nodes[Z] = nil
+    player.map, player.x, player.y = 1412, 0.45, 0.72
+end)
+step("Farm run: Loop rides a fixed round, new spots go in on the way", function()
+    local Z = 1467
+    -- 8 veins on a circle: the round must go round the circle
+    local nodes = {}
+    for i = 1, 8 do
+        local a = (i - 1) * math.pi / 4
+        nodes[i] = { id = "o1731", name = "Copper Vein", type = "ore", x = 0.5 + 0.2 * math.cos(a),
+            y = 0.5 + 0.2 * math.sin(a), count = 3, last = 1 }
+    end
+    ns.db.nodes[Z] = { unpack(nodes) }
+    local circle = {}
+    for i, n in ipairs(nodes) do circle[n] = i end
+    ns.db.routeMode = "loop"
+    player.map, player.x, player.y = Z, 0.72, 0.52
+    ns.StartRun("ore", Z) advance(1)
+    local run = ns.run
+    assert(run and run.loopMode and run.loop and #run.loop == 8, "no loop")
+    for i, node in ipairs(run.loop) do
+        local d = (circle[run.loop[i % 8 + 1]] - circle[node]) % 8
+        assert(d == 1 or d == 7, "the round cuts across the circle")
+    end
+    assert(#run.path == 8, "the line does not show the whole round")
+    -- ride it: always the next one in the same direction, a full round = round 2
+    local seen, dir = {}, nil
+    for k = 1, 8 do
+        local t = run.target
+        assert(t, "no target on the round")
+        seen[#seen + 1] = circle[t]
+        player.x, player.y = t.x, t.y
+        advance(1)
+        ns.OnHarvested(t, "LOOP" .. k)
+        advance(1)
+    end
+    for k = 2, #seen do
+        local d = (seen[k] - seen[k - 1]) % 8
+        dir = dir or d
+        assert(d == dir and (d == 1 or d == 7), "the round changed direction or skipped: " .. table.concat(seen, ","))
+    end
+    assert(run.round == 2, "a full round did not start round 2: " .. run.round)
+    -- a new spot between two neighbours goes in right there
+    local a, b = run.loop[3], run.loop[4]
+    local new = { id = "o1731", name = "Copper Vein", type = "ore", x = (a.x + b.x) / 2, y = (a.y + b.y) / 2, count = 1, last = 1 }
+    table.insert(ns.db.nodes[Z], new)
+    for _, f in ipairs(ns.nodeListeners) do f("add", Z, new) end
+    advance(1)
+    assert(#run.loop == 9, "new spot not in the round")
+    assert(run.loopIndex[new] == run.loopIndex[a] + 1 and run.loopIndex[b] == run.loopIndex[new] + 1,
+        "new spot not put in on the way")
+    -- a spot far off the round stays out (it would stretch the round across the map)
+    local far = { id = "o1731", name = "Copper Vein", type = "ore", x = 0.97, y = 0.03, count = 1, last = 1 }
+    table.insert(ns.db.nodes[Z], far)
+    for _, f in ipairs(ns.nodeListeners) do f("add", Z, far) end
+    advance(1)
+    assert(#run.loop == 9 and not run.loopIndex[far], "a far spot was pulled into the round")
+    -- after a detour (a quest far away) the round goes on, not back
+    advance(30) -- the veins just reached are checked by now
+    for _, f in ipairs(ns.nodeListeners) do f("update", Z) end
+    advance(1)
+    local pos = run.loopPos
+    -- off to a quest right next to the spot before the last one: that one is
+    -- the nearest, but it was passed already
+    local behind = run.loop[(pos - 2) % #run.loop + 1]
+    player.x, player.y = 0.5 + (behind.x - 0.5) * 1.15, 0.5 + (behind.y - 0.5) * 1.15
+    advance(2)
+    assert(run.target, "no target after the detour")
+    assert((run.loopIndex[run.target] - pos) % #run.loop <= 3, "after the detour the round went back")
+    -- back to Smart during the run
+    ns.db.routeMode = nil
+    ns.RouteModeChanged() advance(1)
+    assert(ns.run and not ns.run.loopMode and ns.run.path, "switching to Smart broke the run")
+    ns.StopRun()
+    -- the preview shows the closed round
+    ns.db.routeMode = "loop"
+    player.x, player.y = 0.72, 0.52
+    ns.PreviewRoute("ore") advance(1)
+    ns.PreviewRoute("") advance(1)
+    ns.db.routeMode = nil
+    ns.db.nodes[Z] = nil
+    player.map, player.x, player.y = 1412, 0.45, 0.72
+end)
 step("Farm run: walking away from the target picks a new one", function()
     local Z = 1465
     local function own(x) return { id = "o1731", name = "Copper Vein", type = "ore", x = x, y = 0.50, count = 3, last = 1 } end
@@ -1092,6 +1195,75 @@ step("Farm run: a node you can't get to is left out for a while", function()
     ns.db.nodes[Z] = nil
     player.map, player.x, player.y = 1412, 0.45, 0.72
 end)
+step("Farm run: questing or a stop is not 'hard to reach' (v0.1.12)", function()
+    local keep1412 = ns.db.nodes[1412]
+    local function silver() return { id = "o1617", name = "Silverleaf", type = "herb", x = 0.56, y = 0.50, count = 3, last = 1 } end
+    -- walking crosswise with the run on (a quest): never 'hard to reach'
+    ns.db.nodes[1412] = { silver() }
+    local node = ns.db.nodes[1412][1]
+    ns.NotifyNodesChanged()
+    player.map, player.x, player.y = 1412, 0.50, 0.50
+    advance(1) slash("run herb") advance(1)
+    assert(ns.run and ns.run.target == node, "test setup: target")
+    for i = 1, 60 do player.y = player.y - 3.5 / 3333 advance(0.5) end
+    assert(not node.unreachUntil, "walking crosswise marked the node unreachable")
+    ns.StopRun()
+    -- riding towards it, a long stop (mailbox), then around a building
+    ns.db.nodes[1412] = { silver() }
+    node = ns.db.nodes[1412][1]
+    ns.NotifyNodesChanged()
+    player.x, player.y = 0.50, 0.50
+    slash("run herb") advance(1)
+    for i = 1, 20 do player.x = player.x + 5 / 5000 advance(0.5) end
+    advance(30)
+    for i = 1, 12 do player.y = player.y - 3.75 / 3333 advance(0.5) end
+    assert(not node.unreachUntil, "standing still counted towards 'hard to reach'")
+    ns.StopRun()
+    -- the count starts over after a long time reachable
+    node.reachMiss, node.unreachUntil = 3, time() - 2 * 24 * 3600
+    ns.MarkUnreachable(node)
+    assert(node.reachMiss == 1, "old 'hard to reach' count kept")
+    ns.db.nodes[1412] = keep1412
+    ns.NotifyNodesChanged()
+    player.map, player.x, player.y = 1412, 0.45, 0.72
+end)
+step("Minimap guesses: object IDs, neighbours on cooldown, parked nodes (v0.1.12)", function()
+    local keep1412 = ns.db.nodes[1412]
+    -- a guess gets one of Peacebloom's object IDs; the harvest is another one
+    ns.db.nodes[1450] = {}
+    ns.NotifyNodesChanged() ns.ForgetSeenKinds()
+    player.map, player.x, player.y = 1450, 0.50, 0.50
+    ns.SeenOnMinimap(1450, 0.50 + 12 / 5000, 0.50, "Peacebloom", 20)
+    local seen = ns.db.nodes[1450][1]
+    assert(seen and seen.seenOnly, "test setup: no guess")
+    seen.id = "o3724"
+    fire("UNIT_SPELLCAST_SENT", "player", "Peacebloom", "c1", 2366)
+    fire("UNIT_SPELLCAST_SUCCEEDED", "player", "c1", 2366)
+    loot = { { guid = "GameObject-0-1-1-1-1618-BBBB22", item = 2447, qty = 2 } }
+    fire("LOOT_READY") fire("LOOT_OPENED") advance(3)
+    loot = {}
+    assert(#ns.db.nodes[1450] == 1, "guess and harvest with another object ID stayed two nodes")
+    assert(ns.db.nodes[1450][1].id == "o1618" and not ns.db.nodes[1450][1].seenOnly, "harvest did not take over the guess")
+    -- two herbs 20 yd apart, one harvested a moment ago: a look between them is the other one
+    local A = { id = "o1617", name = "Silverleaf", type = "herb", x = 0.40, y = 0.50, count = 3, last = 1 }
+    local B = { id = "o1617", name = "Silverleaf", type = "herb", x = 0.40 + 20 / 5000, y = 0.50, count = 3, last = 1 }
+    ns.db.nodes[1412] = { A, B }
+    ns.NotifyNodesChanged() ns.ForgetSeenKinds()
+    A.emptyUntil = time() + 290
+    ns.SeenOnMinimap(1412, B.x - 12 / 5000, 0.50, "Silverleaf", 33)
+    assert(B.upAt and not A.upAt, "the look went to the node harvested a moment ago")
+    -- a parked shared node you see on the minimap is real: back in the routes
+    local P = { id = "o1617", name = "Silverleaf", type = "herb", x = 0.70, y = 0.50, count = 0, last = 1,
+        source = "sync", parked = time(), healMisses = 5 }
+    ns.db.nodes[1412] = { P }
+    ns.NotifyNodesChanged() ns.ForgetSeenKinds()
+    assert(ns.IsParked(P), "test setup: parked")
+    ns.SeenOnMinimap(1412, 0.70, 0.50, "Silverleaf", 20)
+    assert(not ns.IsParked(P) and P.upAt, "seen on the minimap but still parked")
+    ns.db.nodes[1412], ns.db.nodes[1450] = keep1412, nil
+    ns.NotifyNodesChanged()
+    player.map, player.x, player.y = 1412, 0.45, 0.72
+end)
 step("Minimap tooltip: pointing at a tracked node learns it", function()
     local Z = 1466
     local names = GathercraftNodeNames and GathercraftNodeNames[GetLocale()]
@@ -1137,6 +1309,38 @@ step("Minimap tooltip: pointing at a tracked node learns it", function()
     assert(vein.seenAt and vein.upAt and not vein.emptyUntil, "known vein not marked as up")
     assert(ns.NodeChance(vein) == 1, "a node seen up is not certain for the route")
     assert(#ns.db.nodes[Z] == 1, "a known node was added again")
+    -- what we know shows in a tooltip of our own, below the game's (v0.1.12)
+    local tip = GathercraftMinimapTooltip
+    assert(tip and tip:IsShown() and tip.node == vein and tip.anchor == GameTooltip, "no tooltip of ours below the game's")
+    -- our minimap pins let the mouse through; where the game shows nothing,
+    -- the pin under the cursor shows our tooltip
+    fire("ZONE_CHANGED_NEW_AREA") advance(1) -- minimap pins for this zone
+    local vpin
+    for _, f in ipairs(allFrames) do if f.node == vein and f.isMini and not f.isTarget then vpin = f end end
+    assert(vpin, "no minimap pin for the vein")
+    assert(vpin.__mouse == false, "minimap pin still catches the mouse")
+    lines = {}
+    vpin:Show() -- HereBeDragons shows minimap pins in range (not the mock)
+    vpin.IsMouseOver = function() return true end
+    advance(0.5)
+    assert(tip:IsShown() and tip.node == vein and tip.anchor == vpin, "no tooltip of our own where the game shows none")
+    -- the game shows a quest area's tooltip there: ours goes below it
+    -- (the quest tooltip comes first, then the cursor reaches the pin: ours
+    -- right away, not only after the game's tooltip was measured)
+    vpin.IsMouseOver = function() return false end
+    lines = { "Restocking the Larders", "- 1/3 Small Egg" }
+    advance(0.15)
+    vpin.IsMouseOver = function() return true end
+    advance(0.2)
+    assert(tip:IsShown() and tip.node == vein and tip.anchor == GameTooltip, "nothing of ours below the game's quest tooltip")
+    -- several blips in one line ("|n"): each name counts
+    lines = { "Restocking the Larders|n" .. veinName }
+    vpin.IsMouseOver = function() return false end
+    advance(0.5)
+    assert(tip:IsShown() and tip.node == vein, "a name after |n not found")
+    lines = {}
+    advance(0.5)
+    assert(not tip:IsShown(), "our tooltip stays after leaving the pin")
     -- a herb nobody knew: learned at the cursor, rough position
     lines = { herbName }
     cursor = { 500, 435 } -- above the centre
@@ -1370,6 +1574,80 @@ step("Sync: share + receive", function()
     fire("CHAT_MSG_ADDON", "Gathercraft", "garbage;;;", "CHANNEL", "Evil", nil, nil, nil, "GathercraftSync")
     advance(5)
     note("sync sent", #sentMessages)
+end)
+step("Sync: floods are cut off (v0.1.12)", function()
+    slash("sync on")
+    local function msg(text, who) fire("CHAT_MSG_ADDON", "Gathercraft", text, "CHANNEL", who, nil, nil, nil, "GathercraftSync") end
+    -- one player asking for the same zone again and again: answered once, and briefly
+    local list = {}
+    for i = 1, 400 do list[i] = { id = "o99" .. (1000 + i), name = "X", type = "herb", x = (i % 20) / 20 + 0.01, y = math.floor(i / 20) / 21 + 0.01, count = 1, last = 1, item = 2447 } end
+    ns.db.nodes[1450] = list
+    local before = #sentMessages
+    for i = 1, 20 do msg("Q:1450:0", "Spammer-Realm") advance(9) end
+    advance(120)
+    local answers = 0
+    for i = before + 1, #sentMessages do if sentMessages[i]:find("^N:1450;") then answers = answers + 1 end end
+    note("answers to 20 queries", answers)
+    assert(answers > 0, "no answer at all")
+    assert(answers <= 20, "20 queries caused " .. answers .. " messages")
+    ns.db.nodes[1450] = nil
+    -- broken numbers are ignored
+    local pending = ns.db.sync.pending
+    msg("N:2521.5;o990101,h,5000,5000,2447", "Stranger Two")
+    msg("N:2521;o990102,h,5000,5000,99999999999999999999", "Stranger Two")
+    for _, p in ipairs(pending[2521] or {}) do
+        assert(p.id ~= "o990101" and p.id ~= "o990102", "broken report kept: " .. p.id)
+    end
+    -- one stranger can't fill the reports of all zones
+    local saved = ns.db.sync.pending
+    ns.db.sync.pending = {}
+    for i = 1, 100 do
+        ns.db.sync.pending[3000 + i] = { { id = "o9" .. i, type = "herb", x = 0.5, y = 0.5, item = 0,
+            reporters = { ["Flooder-Realm"] = true }, rc = 1, first = time(), by = "Flooder-Realm" } }
+    end
+    msg("N:2522;o990777,h,4000,4000,2447", "Flooder-Realm")
+    assert(not ns.db.sync.pending[2522] or #ns.db.sync.pending[2522] == 0, "flooder got past the limit")
+    msg("N:2522;o990778,h,4100,4100,2447", "Honest Player")
+    assert(ns.db.sync.pending[2522] and #ns.db.sync.pending[2522] == 1, "an honest report was refused")
+    ns.db.sync.pending = saved
+    -- self-healing: a first empty visit long ago doesn't count any more
+    local n = { id = "o1731", name = "Copper Vein", type = "ore", x = 0.3, y = 0.3, count = 1, last = 1, source = "sync", heard = 1,
+        healFirst = time() - 7 * 24 * 3600, healAt = time() - 4 * 24 * 3600, healMisses = 4 }
+    ns.SyncSelfHeal(n)
+    assert(n.healMisses == 1 and not ns.IsParked(n), "old empty visits still counted")
+    advance(5)
+end)
+step("Sharing shows what it does; chests can be hidden", function()
+    slash("sync on")
+    local function said(text)
+        for _, l in ipairs(log) do if l:find(text, 1, true) then return true end end
+    end
+    -- a friend's (guild) spot arrives: one line in chat a little later
+    for i, l in ipairs(log) do if l:find(ns.GetZoneName(1412), 1, true) then log[i] = "" end end
+    fire("CHAT_MSG_ADDON", "Gathercraft", "N:1412;o1620,h,6111,2222,785", "GUILD", "Guildie Three")
+    advance(200) -- at most one note every 3 minutes (an earlier step may just have had one)
+    assert(said(ns.GetZoneName(1412)), "no note about spots from other players")
+    local peers, received = ns.SyncSummary()
+    assert(received >= 1, "summary without the received spot")
+    -- the note can be turned off
+    ns.db.sync.announceOff = true
+    for i, l in ipairs(log) do if l:find(ns.GetZoneName(1412), 1, true) then log[i] = "" end end
+    fire("CHAT_MSG_ADDON", "Gathercraft", "N:1412;o1619,h,3555,4666,2449", "GUILD", "Guildie Three")
+    advance(240)
+    assert(not said(ns.GetZoneName(1412)), "note shown although turned off")
+    ns.db.sync.announceOff = nil
+    -- chests: off in the options = no pins
+    ns.db.nodes[1450] = { { id = "o2843", name = "Battered Chest", type = "chest", x = 0.5, y = 0.5, count = 1, last = 1 } }
+    HBD_ADDS["Gathercraft"] = { world = 0, mini = 0 }
+    ns.db.chestsHidden = true
+    ns.NotifyNodesChanged() advance(2)
+    local hidden = HBD_ADDS["Gathercraft"].world
+    ns.db.chestsHidden = nil
+    HBD_ADDS["Gathercraft"] = { world = 0, mini = 0 }
+    ns.NotifyNodesChanged() advance(2)
+    assert(HBD_ADDS["Gathercraft"].world > hidden, "chests not back on the map")
+    ns.db.nodes[1450] = nil
+    ns.NotifyNodesChanged() advance(1)
 end)
 step("Sync: single reports in a new zone show as grey pins", function()
     local function GreyPins()
@@ -1799,6 +2077,81 @@ end)
 step("Rare alert (nameplate + test)", function()
     classification = "rare" fire("NAME_PLATE_UNIT_ADDED", "nameplate1") classification = "normal"
     fire("NAME_PLATE_UNIT_ADDED", "nameplate2")
+end)
+step("World map pins in a ring (default), normal by option", function()
+    ns.db.worldPinStyle = nil
+    ns.NotifyNodesChanged() advance(2)
+    local ringed, plain = 0, 0
+    for _, f in ipairs(allFrames) do
+        if f.node and f.isMini == nil and not f.isTarget and f.icon then
+            if f.ring and f.ring:IsShown() then ringed = ringed + 1 else plain = plain + 1 end
+        end
+    end
+    assert(ringed > 0, "no world map pin in a ring")
+    ns.db.worldPinStyle = "normal"
+    ns.NotifyNodesChanged() advance(2)
+    local ringedAfter = 0
+    for _, f in ipairs(allFrames) do
+        if f.node and f.isMini == nil and not f.isTarget and f.icon and f.ring and f.ring:IsShown() then ringedAfter = ringedAfter + 1 end
+    end
+    assert(ringedAfter == 0, "world map pins still in rings with the normal style")
+    ns.db.worldPinStyle = nil
+    ns.NotifyNodesChanged() advance(2)
+end)
+step("Herbs / minerals switch button", function()
+    local btn = GathercraftTrackButton
+    assert(btn, "no switch button")
+    -- only one of the two known: no button
+    ns.UpdateTrackButton()
+    assert(not btn:IsShown(), "button shown without both tracking spells")
+    local realKnown = IsPlayerSpell
+    IsPlayerSpell = function(id) return id == 2383 or id == 2580 or realKnown(id) end
+    ns.UpdateTrackButton()
+    assert(btn:IsShown(), "button not shown with both tracking spells")
+    -- every click switches to the other one
+    local first = btn:GetAttribute("spell")
+    assert(btn:GetAttribute("type") == "spell" and first, "no spell on the button")
+    btn.__scripts.PreClick(btn) btn.__scripts.PostClick(btn) advance(1)
+    local second = btn:GetAttribute("spell")
+    assert(second and second ~= first, "click did not switch: " .. tostring(first) .. " / " .. tostring(second))
+    btn.__scripts.PreClick(btn) btn.__scripts.PostClick(btn) advance(1)
+    assert(btn:GetAttribute("spell") == first, "second click did not switch back")
+    assert(pcall(btn.__scripts.OnEnter, btn), "tooltip")
+    -- shift-drag moves it along the minimap's edge
+    local realShift, realCursor = IsShiftKeyDown, GetCursorPosition
+    IsShiftKeyDown = function() return true end
+    GetCursorPosition = function() return 400, 300 end
+    btn.__scripts.OnDragStart(btn)
+    assert(btn.__scripts.OnUpdate, "dragging does not follow the cursor")
+    assert(pcall(btn.__scripts.OnUpdate, btn, 0.1), "drag update")
+    btn.__scripts.OnDragStop(btn)
+    assert(not btn.__scripts.OnUpdate and ns.db.trackButtonAngle, "drag did not end or save the angle")
+    IsShiftKeyDown, GetCursorPosition = realShift, realCursor
+    ns.db.trackButtonAngle = nil
+    -- option off: hidden
+    ns.db.trackButtonHidden = true
+    ns.UpdateTrackButton()
+    assert(not btn:IsShown(), "option off, button still shown")
+    ns.db.trackButtonHidden = nil
+    -- the macro for the action bar: made once, then reused, on the cursor
+    local macros, picked = {}, nil
+    GetMacroIndexByName = function(n) for i, m in ipairs(macros) do if m.name == n then return i end end return 0 end
+    GetNumMacros = function() return #macros, 0 end
+    CreateMacro = function(n, icon, body) macros[#macros + 1] = { name = n, body = body } return #macros end
+    EditMacro = function(i, n, icon, body) macros[i].body = body return i end
+    PickupMacro = function(i) picked = i end
+    ns.TrackMacro()
+    assert(#macros == 1 and macros[1].body == "/click GathercraftTrackButton" and picked == 1, "macro not made")
+    ns.TrackMacro()
+    assert(#macros == 1, "macro made twice")
+    InCombatLockdown = function() return true end
+    picked = nil
+    ns.TrackMacro()
+    assert(picked == nil, "macro touched in combat")
+    InCombatLockdown = function() return false end
+    GetMacroIndexByName, GetNumMacros, CreateMacro, EditMacro, PickupMacro = nil, nil, nil, nil, nil
+    IsPlayerSpell = realKnown
+    ns.UpdateTrackButton()
 end)
 step("Fishing: equip, lure, cast, reel", function()
     local b = _G.GathercraftFishButton

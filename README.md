@@ -42,7 +42,7 @@ Herbs and ores are recorded the moment you gather them, no setup. On top of that
 
 **🧭 The Route That Thinks Ahead**
 
-Hit *Herbs*, *Ores* or *Herbs + Ores* and go. Gathercraft plans the shortest path through every node you selected on your continent and re-plans while you ride. It only sends you to nodes you can actually gather, and with the **route goal** it goes for what you need: **skill-ups** while you level, **gold** once you're done – or simply as many nodes as possible. Your target stays put until you reach it, and at 25 yards (you choose) it already moves on to the next one. Grab a node you spotted yourself and the route picks up from where you are. Spawn points that keep turning up empty get visited less – Gathercraft learns them while you farm. Pick the route line you like: seven colors, dots, fine dots, a solid line or big dots. The Zones tab shows Kalimdor and the Eastern Kingdoms side by side: *Only herbs* or *Only ores* is one click – or tick single materials per zone.
+Hit *Herbs*, *Ores* or *Herbs + Ores* and go. Gathercraft plans the shortest path through every node you selected on your continent and re-plans while you ride – or, with the **route type** *Loop*, rides one fixed round through all spawn points again and again, like the routes in farming guides. It only sends you to nodes you can actually gather, and with the **route goal** it goes for what you need: **skill-ups** while you level, **gold** once you're done – or simply as many nodes as possible. Your target stays put until you reach it, and at 25 yards (you choose) it already moves on to the next one. Grab a node you spotted yourself and the route picks up from where you are. Spawn points that keep turning up empty get visited less – Gathercraft learns them while you farm. Pick the route line you like: seven colors, dots, fine dots, a solid line or big dots. The Zones tab shows Kalimdor and the Eastern Kingdoms side by side: *Only herbs* or *Only ores* is one click – or tick single materials per zone.
 
 **💰 Farm Spots – where gold grows**
 
@@ -99,7 +99,7 @@ Then visit the auction house once and press *Gathercraft Scan* – from now on e
 | **Crafting** | Profit of every recipe, per profession |
 | **Zones** | Pick zones and materials for your routes |
 | **Skills** | Which nodes gave you skill-ups so far |
-| **Options** | Map, arrow, route goal & line, sharing, language, RARE! alert, fishing, price alerts |
+| **Options** | Map, arrow, route type, goal & line, sharing, language, RARE! alert, fishing, price alerts |
 
 For power users and macros: `/gcr run herb|ore|both` · `/gcr route` *(preview)* · `/gcr loadall` *(whole continent)* · `/gcr help` *(all commands)*
 

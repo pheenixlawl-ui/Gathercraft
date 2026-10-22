@@ -276,3 +276,189 @@ end
 
 _G["BINDING_NAME_" .. BINDING] = "Fish (pole, lure, cast, reel in)"
 ns.FishBinding = BINDING
+
+---------------------------------------------------------------------------
+-- Herbs / minerals switch: one click (or one key) switches the minimap
+-- tracking between Find Herbs and Find Minerals. A normal button press, like
+-- an action bar button: nothing ever switches on its own.
+---------------------------------------------------------------------------
+local TRACK_BUTTON = "GathercraftTrackButton"
+local TRACK_BINDING = "CLICK " .. TRACK_BUTTON .. ":LeftButton"
+local FIND_HERBS, FIND_MINERALS = 2383, 2580
+local TRACK_ICONS = {
+    [FIND_HERBS] = "Interface\\Icons\\INV_Misc_Flower_02",
+    [FIND_MINERALS] = "Interface\\Icons\\Spell_Nature_Earthquake",
+}
+
+-- sits on the minimap's edge like the minimap buttons (nothing covers it)
+local track = CreateFrame("Button", TRACK_BUTTON, Minimap, "SecureActionButtonTemplate")
+track:RegisterForClicks("AnyUp", "AnyDown")
+track:SetSize(31, 31)
+track:SetFrameStrata(Minimap:GetFrameStrata() or "LOW")
+track:SetFrameLevel((Minimap:GetFrameLevel() or 1) + 8)
+track:RegisterForDrag("LeftButton")
+track:Hide()
+track.bg = track:CreateTexture(nil, "BACKGROUND")
+track.bg:SetSize(24, 24)
+track.bg:SetPoint("CENTER")
+track.bg:SetTexture("Interface\\Minimap\\UI-Minimap-Background")
+track.icon = track:CreateTexture(nil, "ARTWORK")
+track.icon:SetSize(20, 20)
+track.icon:SetPoint("CENTER")
+track.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+track.border = track:CreateTexture(nil, "OVERLAY")
+track.border:SetSize(53, 53)
+track.border:SetPoint("TOPLEFT")
+track.border:SetTexture("Interface\\Minimap\\MiniMap-TrackingBorder")
+track:SetHighlightTexture("Interface\\Minimap\\UI-Minimap-ZoomButton-Highlight")
+
+local lastTracked
+
+local function KnowsSpell(id)
+    return IsPlayerSpell and IsPlayerSpell(id) or false
+end
+
+-- Which of the two the minimap tracks right now (nil: something else / none)
+local function ActiveTracking()
+    if C_Minimap and C_Minimap.GetNumTrackingTypes and C_Minimap.GetTrackingInfo then
+        for i = 1, C_Minimap.GetNumTrackingTypes() or 0 do
+            local info = C_Minimap.GetTrackingInfo(i)
+            local active, spellID, texture
+            if type(info) == "table" then
+                active, spellID, texture = info.active, info.spellID, info.texture
+            else
+                local _
+                _, texture, active, _, _, spellID = C_Minimap.GetTrackingInfo(i)
+            end
+            if active and (spellID == FIND_HERBS or spellID == FIND_MINERALS) then return spellID end
+        end
+    end
+    return lastTracked
+end
+
+-- The click switches to the other one; with only one of them known it puts
+-- that one back on (after dying, for example)
+local function NextTracking()
+    local herbs, minerals = KnowsSpell(FIND_HERBS), KnowsSpell(FIND_MINERALS)
+    if herbs and minerals then
+        return ActiveTracking() == FIND_HERBS and FIND_MINERALS or FIND_HERBS
+    end
+    return herbs and FIND_HERBS or minerals and FIND_MINERALS or nil
+end
+
+local function PrepareTrack()
+    local active = ActiveTracking()
+    track.icon:SetTexture(TRACK_ICONS[active or FIND_HERBS])
+    track.icon:SetDesaturated(active == nil)
+    if InCombatLockdown() then return end
+    local nextSpell = NextTracking()
+    track.next = nextSpell
+    if nextSpell then
+        track:SetAttribute("type", "spell")
+        track:SetAttribute("spell", SpellName(nextSpell) or nextSpell)
+    else
+        track:SetAttribute("type", nil)
+    end
+end
+
+-- On the minimap's edge at an angle (degrees, 0 = right, counter-clockwise)
+local TRACK_ANGLE = 250
+local function PlaceTrack()
+    if InCombatLockdown() then return end
+    local angle = math.rad(ns.db and ns.db.trackButtonAngle or TRACK_ANGLE)
+    local r = (Minimap:GetWidth() or 140) / 2 + 5
+    track:ClearAllPoints()
+    track:SetPoint("CENTER", Minimap, "CENTER", math.cos(angle) * r, math.sin(angle) * r)
+end
+
+-- Shown when you know both (option, out of combat)
+local function UpdateTrackButton()
+    if InCombatLockdown() or not ns.db then return end
+    local show = not ns.db.trackButtonHidden and KnowsSpell(FIND_HERBS) and KnowsSpell(FIND_MINERALS)
+    track:SetShown(show and true or false)
+    PrepareTrack()
+end
+ns.UpdateTrackButton = UpdateTrackButton
+
+track:SetScript("PreClick", function()
+    if not InCombatLockdown() then PrepareTrack() end
+    if not track.next and not InCombatLockdown() then
+        ns.Print(L["You know neither Find Herbs nor Find Minerals yet."])
+    end
+end)
+track:SetScript("PostClick", function()
+    lastTracked = track.next
+    C_Timer.After(0.3, PrepareTrack)
+end)
+-- Shift-drag: along the minimap's edge
+track:SetScript("OnDragStart", function(self)
+    if not IsShiftKeyDown() or InCombatLockdown() then return end
+    self:SetScript("OnUpdate", function()
+        if InCombatLockdown() then self:SetScript("OnUpdate", nil) return end
+        local mx, my = Minimap:GetCenter()
+        local cx, cy = GetCursorPosition()
+        local scale = Minimap:GetEffectiveScale() or 1
+        if not (mx and cx) then return end
+        ns.db.trackButtonAngle = math.floor(math.deg(math.atan2(cy / scale - my, cx / scale - mx)) % 360 + 0.5)
+        PlaceTrack()
+    end)
+end)
+track:SetScript("OnDragStop", function(self)
+    self:SetScript("OnUpdate", nil)
+end)
+track:SetScript("OnEnter", function(self)
+    GameTooltip:SetOwner(self, "ANCHOR_LEFT")
+    GameTooltip:AddLine(L["Find Herbs / Find Minerals"], 1, 0.82, 0)
+    if self.next then
+        GameTooltip:AddLine((L["Click: switch to %s"]):format(SpellName(self.next) or ""), 1, 1, 1)
+    end
+    local key = GetBindingKey(TRACK_BINDING)
+    if key then GameTooltip:AddLine((L["Key: %s"]):format(GetBindingText and GetBindingText(key) or key), 0.7, 0.7, 0.7) end
+    GameTooltip:AddLine(L["Shift-drag: move the button"], 0.6, 0.6, 0.6)
+    GameTooltip:Show()
+end)
+track:SetScript("OnLeave", GameTooltip_Hide)
+
+local trackEvents = CreateFrame("Frame")
+trackEvents:RegisterEvent("PLAYER_LOGIN")
+trackEvents:RegisterEvent("PLAYER_REGEN_ENABLED")
+trackEvents:RegisterEvent("MINIMAP_UPDATE_TRACKING")
+trackEvents:RegisterEvent("SPELLS_CHANGED")
+trackEvents:SetScript("OnEvent", function(_, event)
+    if event == "PLAYER_LOGIN" then PlaceTrack() end
+    if event == "MINIMAP_UPDATE_TRACKING" then PrepareTrack() return end
+    UpdateTrackButton()
+end)
+
+-- A macro for the action bar: "/click" the switch (the macro lives in your
+-- macros, /macro, and on the cursor right away to drop it on a bar)
+local TRACK_MACRO = "GC Tracking"
+function ns.TrackMacro()
+    if InCombatLockdown() then
+        ns.Print(L["Not possible in combat."])
+        return
+    end
+    if not (GetMacroIndexByName and CreateMacro) then return end
+    local body = "/click " .. TRACK_BUTTON
+    local index = GetMacroIndexByName(TRACK_MACRO) or 0
+    if index == 0 then
+        local account = GetNumMacros and GetNumMacros() or 0
+        if account >= (MAX_ACCOUNT_MACROS or 120) then
+            ns.Print(L["Your macro slots are full."])
+            return
+        end
+        index = CreateMacro(TRACK_MACRO, "INV_Misc_Flower_02", body, nil) or 0
+    else
+        EditMacro(index, TRACK_MACRO, nil, body)
+    end
+    if index > 0 then
+        if PickupMacro then PickupMacro(index) end
+        ns.Print((L["Macro \"%s\" is on your cursor: drop it on an action bar (you also find it under /macro)."]):format(TRACK_MACRO))
+    end
+end
+
+local function TrackBindingName()
+    _G["BINDING_NAME_" .. TRACK_BINDING] = L["Switch Find Herbs / Find Minerals"]
+end
+TrackBindingName()
+if ns.languageListeners then table.insert(ns.languageListeners, TrackBindingName) end

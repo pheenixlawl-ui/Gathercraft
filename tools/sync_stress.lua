@@ -124,6 +124,7 @@ end
 ---------------------------------------------------------------------------
 -- One simulated player = one addon instance in its own environment
 ---------------------------------------------------------------------------
+local sharedData = {} -- Data/*.lua, loaded once for all players
 local function NewClient(name, guild)
     local c = { name = name, fullName = name .. "-Forever", guild = guild, online = false, cpu = 0, recvCalls = 0, out = {} }
     local E = setmetatable({}, { __index = _G })
@@ -335,7 +336,19 @@ local function NewClient(name, guild)
     c.E = E
     local toc = io.open(ROOT .. "/Gathercraft.toc"):read("*a")
     for line in toc:gmatch("[^\r\n]+") do
-        if not line:match("^#") and line:match("%.lua$") and not line:match("^Libs") and not line:match("QuestieNodes") then
+        if line:match("^Data") and line:match("%.lua$") and not line:match("QuestieNodes") then
+            -- data files only set read-only globals: load them once and share
+            -- them (thousands of players fit into memory)
+            local data = sharedData[line]
+            if not data then
+                data = {}
+                local chunk = assert(loadfile(ROOT .. "/" .. line:gsub("\\", "/")))
+                setfenv(chunk, setmetatable(data, { __index = _G }))
+                chunk("Gathercraft", {})
+                sharedData[line] = data
+            end
+            for k, v in pairs(data) do E[k] = v end
+        elseif not line:match("^#") and line:match("%.lua$") and not line:match("^Libs") and not line:match("QuestieNodes") then
             local chunk = assert(loadfile(ROOT .. "/" .. line:gsub("\\", "/")))
             setfenv(chunk, E)
             local ok, e = pcall(chunk, "Gathercraft", ns)
@@ -532,6 +545,16 @@ scenarios.mega = function()
     Report("Whole realm in one zone", 5 * 60)
 end
 
+-- Forever megaserver: one channel for a whole ruleset (run on its own: slow)
+scenarios.mega3k = function()
+    Reset()
+    math.randomseed(7)
+    MakeFreshNodes(200)
+    Populate(tonumber(os.getenv("GC_PLAYERS") or "") or 3000, 180, 25, 0.3)
+    runUntil(NOW + 5 * 60)
+    Report("Megaserver, many players in one zone", 5 * 60)
+end
+
 scenarios.attack = function()
     Reset()
     math.randomseed(3)
@@ -617,9 +640,9 @@ scenarios.fuzz = function()
     Report("Fuzz (" .. #samples .. " broken messages)", 120)
 end
 
-local order = { "fuzz", "normal", "attack", "launch", "mega" }
+local order = { "fuzz", "normal", "attack", "launch", "mega", "mega3k" }
 for _, name in ipairs(order) do
-    if ONLY == "all" or ONLY == name then
+    if (ONLY == "all" and name ~= "mega3k") or ONLY == name then
         local t0 = os.clock()
         scenarios[name]()
         print(("  (simulated in %.1f s)"):format(os.clock() - t0))

@@ -33,12 +33,20 @@ local DETOUR_AVOID = 60      -- seconds the old target isn't picked first again 
 local STUCK_SECONDS = 25     -- this long without getting closer ...
 local STUCK_MOVED = 40       -- ... while walking at least this far: hard to reach from here
 local PROGRESS_YARDS = 8     -- closer by this much = progress
+local STUCK_SLACK = 20       -- further than the best distance by more than this = walking away, not stuck
+local STUCK_STEP = 1         -- yards per check: less = standing still ...
+local STUCK_IDLE = 2         -- ... for longer than this many seconds (doesn't count)
+local REACH_FORGET = 24 * 3600 -- reachable again for a day: its "hard to reach" count starts over
 local TELEPORT_YARDS = 30    -- further than this in one check (half a second): not walking
 local UNREACH_BASE = 15 * 60 -- left out this long, doubling each time it happens again ...
 local UNREACH_MAX = 4 * 3600 -- ... up to this long
 local MAX_DOTS = 600          -- per map; long routes get wider spacing
 local NEAR_YARDS = 500       -- the first part of the line (around you) can be drawn denser
 local LINE_REF = ADDON_NAME .. "Route"
+local HEAD_REF = ADDON_NAME .. "RouteHead" -- the part from you to the next node
+local HEAD_TICK = 0.1        -- seconds between updates of that part
+local HEAD_MOVE = 1.5        -- yards moved before it is drawn again
+local HEAD_MAX_DOTS = 150
 
 -- Route line look (Options): colors and styles
 local LINE_COLORS = {
@@ -83,10 +91,12 @@ local TUNE = {
     prune = 1.6,       -- leave out a point when its detour per expected node is this many times the route's
     learn = true,
     freeAfterDetour = true,
+    loopRejoin = 2,    -- loop, after a detour: 0 = keep going, 1 = nearest point, 2 = nearest of the next part
 }
 ns.RouteTune = TUNE
 
 local ticker
+local headTicker
 local preview -- plan shown with /gcr route (no run)
 local Plan    -- forward declaration
 local MarkEmpty
@@ -363,9 +373,8 @@ local function Prune(path, sx, sy)
     return path
 end
 
--- Plans the best path from (px, py) through the given points
-local function PlanPath(points, px, py, budget, maxNodes)
-    maxNodes = maxNodes or MAX_ROUTE_NODES
+-- Only the maxNodes points nearest to (px, py)
+local function NearestPoints(points, px, py, maxNodes)
     if #points > maxNodes then
         -- Too many nodes: only plan through the nearest ones. Grow a circle
         -- until it holds enough of them, so we never sort thousands of nodes.
@@ -390,6 +399,12 @@ local function PlanPath(points, px, py, budget, maxNodes)
         end
         points = near
     end
+    return points
+end
+
+-- Plans the best path from (px, py) through the given points
+local function PlanPath(points, px, py, budget, maxNodes)
+    points = NearestPoints(points, px, py, maxNodes or MAX_ROUTE_NODES)
     local path = NearestNeighbor(points, px, py)
     table.insert(path, 1, { wx = px, wy = py }) -- fixed start: the player
     TwoOptOpen(path, budget)
@@ -402,6 +417,189 @@ local function PlanPath(points, px, py, budget, maxNodes)
         cx, cy = p.wx, p.wy
     end
     return path, length
+end
+
+---------------------------------------------------------------------------
+-- Loop (Options → Farm runs → Route type): one fixed round through all
+-- spawn points you can gather, ridden in the same direction again and again,
+-- like the routes in farming guides. Planned once; new spawn points go in
+-- where they cost the least, so the order never jumps around. Points that
+-- can't have a node right now (harvested, found empty, hard to reach) are
+-- left out of the line until they can, but keep their place in the round.
+---------------------------------------------------------------------------
+local LOOP_BUDGET_MS = 300 -- planned once, so it may take a bit longer
+
+local function LoopMode()
+    return ns.db.routeMode == "loop"
+end
+
+-- 2-opt for a closed round (the last point leads back to the first)
+local function TwoOptClosed(t, budget)
+    local n = #t
+    if n < 4 then return end
+    local startTime = debugprofilestop()
+    local improved = true
+    while improved do
+        improved = false
+        for i = 1, n - 2 do
+            local a, b = t[i], t[i + 1]
+            -- for i = 1 the last edge (t[n] -> t[1]) touches a: leave it out
+            for j = i + 2, (i == 1) and n - 1 or n do
+                local c, e = t[j], t[j % n + 1]
+                if PDist(a, c) + PDist(b, e) - PDist(a, b) - PDist(c, e) < -0.01 then
+                    local l, r = i + 1, j
+                    while l < r do
+                        t[l], t[r] = t[r], t[l]
+                        l, r = l + 1, r - 1
+                    end
+                    b = t[i + 1]
+                    improved = true
+                end
+            end
+            if debugprofilestop() - startTime > budget then return end
+        end
+    end
+end
+
+-- Points that belong into the loop: every one you can gather
+local function LoopCandidates(points, weights)
+    local list = {}
+    for _, p in ipairs(points) do
+        if (weights[p.kind] or 1) > 0 then list[#list + 1] = p end
+    end
+    return list
+end
+
+-- Length of a closed round through the given points
+local function TourLength(tour)
+    local length = 0
+    for i, p in ipairs(tour) do
+        local q = tour[i % #tour + 1]
+        length = length + PDist(p, q)
+    end
+    return length
+end
+
+local function IndexLoop(run, byNode)
+    run.loopIndex = {}
+    local tour = {}
+    for i, node in ipairs(run.loop) do
+        run.loopIndex[node] = i
+        tour[i] = byNode[node]
+    end
+    run.loopLength = TourLength(tour)
+end
+
+-- Builds the round, or brings it up to date with the node list: points that
+-- are gone drop out, new ones are put in where they cost the least detour.
+local function UpdateLoop(run, points, px, py)
+    local byNode = {}
+    for _, p in ipairs(points) do byNode[p.node] = p end
+    local kept = {}
+    for _, node in ipairs(run.loop or {}) do
+        if byNode[node] then kept[#kept + 1] = node end
+    end
+    local candidates = LoopCandidates(points, run.weights)
+    if #kept < 2 or #kept < #(run.loop or {}) / 2 then
+        -- new run, another continent, or most of it is gone: plan it fresh
+        local tour = NearestNeighbor(NearestPoints(candidates, px, py, MAX_ROUTE_NODES), px, py)
+        TwoOptClosed(tour, LOOP_BUDGET_MS)
+        run.loop = {}
+        for i, p in ipairs(tour) do run.loop[i] = p.node end
+        run.loopPos, run.loopSteps = nil, 0
+        IndexLoop(run, byNode)
+        return
+    end
+    local inLoop = {}
+    for _, node in ipairs(kept) do inLoop[node] = true end
+    local lastNode = run.loopPos and run.loop[run.loopPos]
+    -- only points close to the round: a spot in a far zone of the continent
+    -- would stretch the round across the map
+    local maxCost = math.max(500, 3 * (run.loopLength or 0) / math.max(1, #run.loop))
+    for _, p in ipairs(candidates) do
+        if not inLoop[p.node] and #kept < MAX_ROUTE_NODES then
+            local bestI, bestCost
+            for i = 1, #kept do
+                local a, b = byNode[kept[i]], byNode[kept[i % #kept + 1]]
+                local cost = PDist(a, p) + PDist(p, b) - PDist(a, b)
+                if not bestCost or cost < bestCost then bestI, bestCost = i, cost end
+            end
+            if bestCost <= maxCost then
+                table.insert(kept, bestI + 1, p.node)
+                inLoop[p.node] = true
+            end
+        end
+    end
+    run.loop = kept
+    IndexLoop(run, byNode)
+    -- the point you reached last keeps its place in the round
+    run.loopPos = lastNode and run.loopIndex[lastNode] or nil
+end
+
+-- The path for a loop run: one full round ahead, starting after the point
+-- you reached last (or the nearest one when you (re)join the round)
+local function LoopPath(run, open, px, py)
+    local loop, n = run.loop, #run.loop
+    local openNode = {}
+    for _, p in ipairs(open) do openNode[p.node] = p end
+    local pos = run.loopPos
+    if not pos then
+        -- after a detour: the nearest point of the next part of the round
+        -- (not one you already passed), else the nearest at all
+        local from = run.loopLeft
+        local best, bd, bestAhead, bdAhead
+        for i, node in ipairs(loop) do
+            local p = openNode[node]
+            if p then
+                local d = WDist(px, py, p.wx, p.wy)
+                if not bd or d < bd then best, bd = i, d end
+                local avoid = node == run.avoidFirst and time() < (run.avoidUntil or 0)
+                if from and not avoid and (i - from) % n <= n / 3 and (not bdAhead or d < bdAhead) then
+                    bestAhead, bdAhead = i, d
+                end
+            end
+        end
+        best = bestAhead or best
+        run.loopLeft = nil
+        if not best then return {}, 0 end
+        pos = (best - 2) % n + 1 -- the point before it: it is next
+        run.loopPos = pos
+    end
+    local path, length, cx, cy = {}, 0, px, py
+    for k = 1, n do
+        local p = openNode[loop[(pos + k - 1) % n + 1]]
+        if p then
+            path[#path + 1] = p
+            length = length + WDist(cx, cy, p.wx, p.wy)
+            cx, cy = p.wx, p.wy
+        end
+    end
+    return path, length
+end
+
+-- Reached the target of a loop run: move on along the round. Once you are
+-- all the way round, a new round starts (its points count as open again).
+local function LoopReached(run, node)
+    local i = run.loopIndex and run.loopIndex[node]
+    if not i then return end
+    local n = #run.loop
+    if run.loopPos then
+        run.loopSteps = (run.loopSteps or 0) + (i - run.loopPos) % n
+    end
+    run.loopPos = i
+    if (run.loopSteps or 0) >= n then
+        run.loopSteps = run.loopSteps - n
+        wipe(run.visited)
+        run.visited[node] = true
+        local msg = (L["Round %d complete, starting round %d."]):format(run.round, run.round + 1)
+        if time() - (run.roundSaidAt or 0) >= 120 then
+            ns.Print(msg)
+            run.roundSaidAt = time()
+        else
+            ns.Debug(msg)
+        end
+        run.round = run.round + 1
+    end
 end
 
 local function CountZones(points)
@@ -435,8 +633,10 @@ local function GetDot(size, rgb)
     return dot
 end
 
+local ClearHead -- below
 local function ClearLine()
     if not HBDPins then return end
+    ClearHead()
     HBDPins:RemoveAllWorldMapIcons(LINE_REF)
     HBDPins:RemoveAllMinimapIcons(LINE_REF)
     for _, dot in ipairs(usedDots) do
@@ -463,28 +663,102 @@ local function LengthInside(ax, ay, bx, by, ox, oy, r)
     return (t2 - t1) * math.sqrt(len2)
 end
 
--- Draws the path: player position -> first node -> ... -> last node.
--- Dense around you (what the minimap shows), wider further away, never more
--- than MAX_DOTS. "Around you" is the distance from you, not along the path:
--- a route that bends back close to you is drawn dense there too.
+-- The part from you to the next node: drawn on its own and kept up to date
+-- while you move (HEAD_TICK), the rest only when the route is planned
+local headWorld, headMini = {}, {}
+local function MakeDot()
+    local dot = CreateFrame("Frame", nil, UIParent)
+    dot:EnableMouse(false)
+    dot.tex = dot:CreateTexture(nil, "ARTWORK")
+    dot.tex:SetAllPoints()
+    dot.tex:SetTexture("Interface\\CHARACTERFRAME\\TempPortraitAlphaMask")
+    return dot
+end
+local headShown = 0
+ClearHead = function()
+    if not HBDPins then return end
+    for i = 1, headShown do
+        HBDPins:RemoveWorldMapIcon(HEAD_REF, headWorld[i])
+        HBDPins:RemoveMinimapIcon(HEAD_REF, headMini[i])
+        headWorld[i]:Hide()
+        headMini[i]:Hide()
+    end
+    headShown = 0
+end
+local function DrawHead(px, py, instance)
+    local run = ns.run
+    local tp = run and run.targetPoint
+    if not (HBDPins and tp and px) or ns.db.routeLineHidden then return ClearHead() end
+    run.headX, run.headY, run.headTarget = px, py, tp
+    local style, rgb = LineStyle(), LineColor().rgb
+    local seg = WDist(px, py, tp.wx, tp.wy)
+    local spacing = math.max(style.near, seg / HEAD_MAX_DOTS)
+    local showFlag = HBD_PINS_WORLDMAP_SHOW_PARENT or 1
+    local n, d = 0, spacing
+    while d < seg - 6 do
+        if d > 4 then
+            n = n + 1
+            local w, m = headWorld[n], headMini[n]
+            if not w then
+                w, m = MakeDot(), MakeDot()
+                headWorld[n], headMini[n] = w, m
+            end
+            w:SetSize(style.map, style.map)
+            m:SetSize(style.mini, style.mini)
+            w.tex:SetVertexColor(rgb[1], rgb[2], rgb[3], 0.9)
+            m.tex:SetVertexColor(rgb[1], rgb[2], rgb[3], 0.9)
+            local t = d / seg
+            local x, y = px + (tp.wx - px) * t, py + (tp.wy - py) * t
+            HBDPins:AddWorldMapIconWorld(HEAD_REF, w, instance, x, y, showFlag)
+            HBDPins:AddMinimapIconWorld(HEAD_REF, m, instance, x, y, false)
+        end
+        d = d + spacing
+    end
+    for i = n + 1, headShown do
+        HBDPins:RemoveWorldMapIcon(HEAD_REF, headWorld[i])
+        HBDPins:RemoveMinimapIcon(HEAD_REF, headMini[i])
+        headWorld[i]:Hide()
+        headMini[i]:Hide()
+    end
+    headShown = n
+end
+local function UpdateHead()
+    local run = ns.run
+    if not (run and run.targetPoint and run.path) then return end
+    local px, py, instance = PlayerWorld()
+    if not px or instance ~= run.instance then return end
+    if run.headTarget == run.targetPoint and run.headX and WDist(px, py, run.headX, run.headY) < HEAD_MOVE then return end
+    DrawHead(px, py, instance)
+end
+
+-- Draws the path: (you ->) first node -> ... -> last node. The part from you
+-- to the first node is the head (above). Dense around you (what the minimap
+-- shows), wider further away, never more than MAX_DOTS. "Around you" is the
+-- distance from you, not along the path: a route that bends back close to
+-- you is drawn dense there too.
 local function DrawLine(path, length, instance, px, py)
     ClearLine()
     if not path or #path == 0 or ns.db.routeLineHidden then return end
+    DrawHead(px, py, instance)
     local style, rgb = LineStyle(), LineColor().rgb
-    local nearLen, cx, cy = 0, px, py
-    for _, p in ipairs(path) do
+    local nearLen, cx, cy = 0, path[1].wx, path[1].wy
+    length = 0
+    for i = 2, #path do
+        local p = path[i]
         nearLen = nearLen + LengthInside(cx, cy, p.wx, p.wy, px, py, NEAR_YARDS)
+        length = length + WDist(cx, cy, p.wx, p.wy)
         cx, cy = p.wx, p.wy
     end
-    local farLen = math.max(0, (length or 0) - nearLen)
+    local farLen = math.max(0, length - nearLen)
     local nearDots = math.min(nearLen / style.near, MAX_DOTS * 0.75)
     local nearSpacing = nearLen > 0 and nearLen / math.max(nearDots, 1) or style.near
     local farSpacing = math.max(style.far, farLen / math.max(MAX_DOTS - nearDots, 1))
     local showFlag = HBD_PINS_WORLDMAP_SHOW_PARENT or 1
     local near2 = NEAR_YARDS * NEAR_YARDS
     local along, nextAt = 0, nearSpacing
-    cx, cy = px, py
-    for _, p in ipairs(path) do
+    cx, cy = path[1].wx, path[1].wy
+    for i = 2, #path do
+        local p = path[i]
         local seg = WDist(cx, cy, p.wx, p.wy)
         -- dots at fixed distances along the whole path (not per segment)
         while nextAt < along + seg do
@@ -572,6 +846,10 @@ local function StopRun(silent)
         ticker:Cancel()
         ticker = nil
     end
+    if headTicker then
+        headTicker:Cancel()
+        headTicker = nil
+    end
     ClearLine()
     preview = nil
     if ns.run then
@@ -599,6 +877,7 @@ Plan = function(quick)
         run.points = CollectPoints(run.filter, instance, run.zone)
         run.pointsDirty, run.pointsInstance = false, instance
         run.pointsChanged = true
+        run.loopDirty = true
     end
     local points = run.points
     run.total = #points
@@ -612,6 +891,7 @@ Plan = function(quick)
     if not run.weights or run.pointsChanged or time() - (run.weightsAt or 0) > 30 then
         run.weights, run.goal = KindWeights(points)
         run.weightsAt, run.pointsChanged = time(), nil
+        run.loopDirty = true
         local any = false
         for _, w in pairs(run.weights) do
             if w > 0 then any = true break end
@@ -644,6 +924,7 @@ Plan = function(quick)
         for _, p in ipairs(points) do
             if not ns.IsOnCooldown(p.node) and not run.checkingSet[p.node] and (run.weights[p.kind] or 1) > 0 then
                 wipe(run.visited)
+                run.loopSteps = 0
                 local msg = (L["Round %d complete, starting round %d."]):format(run.round, run.round + 1)
                 -- tiny runs (one zone, one herb) finish rounds quickly: say it only now and then
                 if time() - (run.roundSaidAt or 0) >= 120 then
@@ -681,59 +962,76 @@ Plan = function(quick)
     end
     run.waiting, run.waitingSince, run.nextRespawn = nil, nil, nil
 
-    -- Keep the node we are heading to: re-plans only reorder what comes after
-    -- it. Otherwise a slightly shorter total route can make the arrow jump to
-    -- a node behind you while you walk. A new target is picked only when you
-    -- reach, harvest or skip the current one.
-    local keep
-    if run.target then
-        for i, p in ipairs(open) do
-            if p.node == run.target then
-                keep = table.remove(open, i)
-                break
-            end
-        end
-    end
-    local sx, sy = px, py
-    if keep then sx, sy = keep.wx, keep.wy end
     local path, length
-    if #open == 0 then
-        path, length = {}, 0
-    elseif quick then
-        path, length = PlanPath(open, sx, sy, QUICK_BUDGET_MS, QUICK_MAX_NODES)
+    if run.loopMode then
+        -- Loop: the fixed round (see above), brought up to date when the
+        -- node list or what you can gather changed
+        if run.loopDirty or not run.loop then
+            UpdateLoop(run, points, px, py)
+            run.loopDirty = nil
+        end
+        path, length = LoopPath(run, open, px, py)
+        if #path == 0 and #open > 0 then
+            -- only points outside the round are open (you rode to another
+            -- part of the continent): plan the round fresh from here
+            run.loop = nil
+            UpdateLoop(run, points, px, py)
+            path, length = LoopPath(run, open, px, py)
+        end
     else
-        path, length = PlanPath(open, sx, sy)
-    end
-    if keep then
-        table.insert(path, 1, keep)
-        length = length + WDist(px, py, keep.wx, keep.wy)
-    elseif #path > 1 then
-        -- New target: never send you far away while a node is much closer
-        local nearest, nd = nil, math.huge
-        for _, p in ipairs(path) do
-            local d = WDist(px, py, p.wx, p.wy)
-            if d < nd then nearest, nd = p, d end
-        end
-        local fd = WDist(px, py, path[1].wx, path[1].wy)
-        if nearest ~= path[1] and fd > nd * 2.5 and fd - nd > 150 then
+        -- Keep the node we are heading to: re-plans only reorder what comes after
+        -- it. Otherwise a slightly shorter total route can make the arrow jump to
+        -- a node behind you while you walk. A new target is picked only when you
+        -- reach, harvest or skip the current one.
+        local keep
+        if run.target then
             for i, p in ipairs(open) do
-                if p == nearest then table.remove(open, i) break end
+                if p.node == run.target then
+                    keep = table.remove(open, i)
+                    break
+                end
             end
-            path, length = PlanPath(open, nearest.wx, nearest.wy, quick and QUICK_BUDGET_MS or nil, quick and QUICK_MAX_NODES or nil)
-            table.insert(path, 1, nearest)
-            length = length + nd
         end
-    end
-    -- walked off for something else (a quest...): don't point back at the
-    -- node you just left behind; it comes later in the path
-    if not keep and #path > 1 and run.avoidFirst and path[1].node == run.avoidFirst
-        and time() < (run.avoidUntil or 0) then
-        table.insert(path, table.remove(path, 1))
-        length = 0
-        local cx, cy = px, py
-        for _, p in ipairs(path) do
-            length = length + WDist(cx, cy, p.wx, p.wy)
-            cx, cy = p.wx, p.wy
+        local sx, sy = px, py
+        if keep then sx, sy = keep.wx, keep.wy end
+        if #open == 0 then
+            path, length = {}, 0
+        elseif quick then
+            path, length = PlanPath(open, sx, sy, QUICK_BUDGET_MS, QUICK_MAX_NODES)
+        else
+            path, length = PlanPath(open, sx, sy)
+        end
+        if keep then
+            table.insert(path, 1, keep)
+            length = length + WDist(px, py, keep.wx, keep.wy)
+        elseif #path > 1 then
+            -- New target: never send you far away while a node is much closer
+            local nearest, nd = nil, math.huge
+            for _, p in ipairs(path) do
+                local d = WDist(px, py, p.wx, p.wy)
+                if d < nd then nearest, nd = p, d end
+            end
+            local fd = WDist(px, py, path[1].wx, path[1].wy)
+            if nearest ~= path[1] and fd > nd * 2.5 and fd - nd > 150 then
+                for i, p in ipairs(open) do
+                    if p == nearest then table.remove(open, i) break end
+                end
+                path, length = PlanPath(open, nearest.wx, nearest.wy, quick and QUICK_BUDGET_MS or nil, quick and QUICK_MAX_NODES or nil)
+                table.insert(path, 1, nearest)
+                length = length + nd
+            end
+        end
+        -- walked off for something else (a quest...): don't point back at the
+        -- node you just left behind; it comes later in the path
+        if not keep and #path > 1 and run.avoidFirst and path[1].node == run.avoidFirst
+            and time() < (run.avoidUntil or 0) then
+            table.insert(path, table.remove(path, 1))
+            length = 0
+            local cx, cy = px, py
+            for _, p in ipairs(path) do
+                length = length + WDist(cx, cy, p.wx, p.wy)
+                cx, cy = p.wx, p.wy
+            end
         end
     end
     if #path == 0 then
@@ -752,7 +1050,7 @@ Plan = function(quick)
     if run.target ~= first.node then
         run.target, run.targetPoint = first.node, first
         run.targetBest = WDist(px, py, first.wx, first.wy)
-        run.progressBest, run.progressAt, run.movedSince = run.targetBest, time(), 0
+        run.progressBest, run.stuckFor, run.movedSince = run.targetBest, 0, 0
         MarkTarget(first.mapID, first.node)
     else
         run.targetPoint = first
@@ -762,11 +1060,14 @@ Plan = function(quick)
 end
 
 -- Re-plan a moment later (several changes in a row only cause one plan)
-local function RequestPlan(kind)
+local function RequestPlan(kind, mapID, node)
     local run = ns.run
     -- the node list changes when nodes are added or removed, not when one is
-    -- harvested or nudged a little ("update", "harvest")
-    if run and kind ~= "update" and kind ~= "harvest" then run.pointsDirty = true end
+    -- harvested or nudged a little ("update", "harvest") - unless it is the
+    -- target: a guess from the minimap can move a good bit with a new look
+    if run and ((kind ~= "update" and kind ~= "harvest") or (node and node == run.target)) then
+        run.pointsDirty = true
+    end
     if run and not run.planPending then
         run.planPending = true
         C_Timer.After(0.3, function() Plan(true) end) -- quick: no hitch while you loot
@@ -845,21 +1146,30 @@ local function CheckArrival()
     run.lastX, run.lastY = px, py
     local jumped = step > TELEPORT_YARDS -- hearthstone, portal, a flight: not walking
     if not jumped then run.movedSince = (run.movedSince or 0) + step end
+    if step >= STUCK_STEP * TICK and not jumped then run.lastMoveAt = time() end
     if tp and run.target then
         local d = WDist(px, py, tp.wx, tp.wy)
         -- moving, but not getting closer: a cliff or water is in the way
         -- (not while fighting, dead or on a flight: that movement says nothing)
         local busy = (UnitAffectingCombat and UnitAffectingCombat("player"))
             or (UnitIsDeadOrGhost and UnitIsDeadOrGhost("player")) or (UnitOnTaxi and UnitOnTaxi("player"))
+        -- Stuck = walking around for a while, always about as far away as at
+        -- best: running along a cliff, up and down a waterfall. Standing still
+        -- doesn't count, and walking away (a quest) is the detour below.
         if busy or jumped or not run.progressBest or d < run.progressBest - PROGRESS_YARDS then
-            run.progressBest, run.progressAt, run.movedSince = d, time(), 0
-        elseif time() - (run.progressAt or time()) >= STUCK_SECONDS and (run.movedSince or 0) >= STUCK_MOVED
+            run.progressBest, run.stuckFor, run.movedSince = d, 0, 0
+        elseif d > run.progressBest + STUCK_SLACK then
+            run.stuckFor, run.movedSince = 0, 0
+        elseif time() - (run.lastMoveAt or 0) <= STUCK_IDLE then
+            run.stuckFor = (run.stuckFor or 0) + TICK
+        end
+        if not (busy or jumped) and (run.stuckFor or 0) >= STUCK_SECONDS and (run.movedSince or 0) >= STUCK_MOVED
             and d > ns.ArriveDistance() * 2 then
             local node = run.target
             ns.MarkUnreachable(node)
             ns.Print((L["%s seems hard to reach from here: trying another node."]):format(node.name))
             run.avoidFirst, run.avoidUntil = node, time() + DETOUR_AVOID
-            run.target, run.targetPoint, run.targetBest, run.progressBest = nil, nil, nil, nil
+            run.target, run.targetPoint, run.targetBest, run.progressBest, run.stuckFor = nil, nil, nil, nil, 0
             Plan(true)
             return
         end
@@ -868,6 +1178,12 @@ local function CheckArrival()
             ns.Debug(("left %s behind (%d yd): new target"):format(run.target.name, d))
             run.avoidFirst, run.avoidUntil = run.target, time() + DETOUR_AVOID
             run.target, run.targetPoint, run.targetBest = nil, nil, nil
+            -- loop: join the round again where you are
+            if TUNE.loopRejoin == 1 then
+                run.loopPos = nil
+            elseif TUNE.loopRejoin == 2 then
+                run.loopLeft, run.loopPos = run.loopPos, nil
+            end
             Plan(true)
             return
         end
@@ -897,7 +1213,7 @@ local function CheckArrival()
     -- Every node of the plan you get close to counts as checked, not only the
     -- target. "Close" = where you can see whether it is there (Options).
     local arrive = ns.ArriveDistance()
-    local reached = false
+    local reached, reachedTarget = false, false
     for _, p in ipairs(run.path) do
         if not run.visited[p.node] and WDist(px, py, p.wx, p.wy) <= arrive then
             run.visited[p.node] = true
@@ -905,8 +1221,10 @@ local function CheckArrival()
             run.checking[#run.checking + 1] = { node = p.node, wx = p.wx, wy = p.wy, at = time(),
                 target = p.node == run.target, combat = fighting or nil }
             reached = true
+            if p.node == run.target then reachedTarget = true end
         end
     end
+    if reachedTarget and run.loopMode then LoopReached(run, run.target) end
     if reached then
         if SOUNDKIT and SOUNDKIT.MAP_PING then
             PlaySound(SOUNDKIT.MAP_PING)
@@ -938,17 +1256,22 @@ local function StartRun(filter, zone)
         harvests = {}, -- where we harvested during this run (recent ones)
         round = 1,
         done = 0,
+        loopMode = LoopMode() or nil, -- a fixed round instead of planning live
     }
     ns.db.activeRun = { filter = filter, zone = zone }
     ns.run.bonusSig = BonusSignature()
     Plan()
     local run = ns.run
     if not run then return end -- nothing to farm
-    if run.path then
+    if run.path and run.loopMode and run.loop then
+        ns.Print((L["Loop started: %d spawn points in %d zone(s), one round %d yd."]):format(
+            #run.loop, run.zones, run.loopLength or 0))
+    elseif run.path then
         ns.Print((L["Run started: %d nodes in %d zone(s), path %d yd."]):format(
             #run.path, run.zones, run.length) .. " " .. (L["Route goal: %s."]):format(L[GOAL_NAMES[run.goal] or "Nodes"]))
     end
     ticker = C_Timer.NewTicker(TICK, CheckArrival)
+    headTicker = C_Timer.NewTicker(HEAD_TICK, UpdateHead)
 end
 
 local function SkipNode()
@@ -967,6 +1290,8 @@ end
 
 -- Hard to reach: left out of runs for a while, longer each time
 local function MarkUnreachable(node, seconds)
+    -- reached fine for a long time since: start counting again
+    if node.unreachUntil and time() - node.unreachUntil > REACH_FORGET then node.reachMiss = nil end
     node.reachMiss = (node.reachMiss or 0) + 1
     seconds = seconds or math.min(UNREACH_MAX, UNREACH_BASE * 2 ^ (node.reachMiss - 1))
     node.unreachUntil = time() + seconds
@@ -1063,7 +1388,21 @@ local function PreviewRoute(filter)
         ns.Print(L["No available nodes on this continent (check /gcr zones)."])
         return
     end
-    local path, length = PlanPath(open, px, py)
+    local path, length
+    if LoopMode() then
+        -- the round a loop run would ride, closed back to its start
+        path = NearestNeighbor(NearestPoints(LoopCandidates(all, weights), px, py, MAX_ROUTE_NODES), px, py)
+        TwoOptClosed(path, LOOP_BUDGET_MS)
+        local zones = CountZones(path)
+        length = TourLength(path)
+        if #path > 1 then path[#path + 1] = path[1] end
+        preview = { path = path, length = length, instance = instance, px = px, py = py }
+        DrawLine(path, length, instance, px, py)
+        ns.Print((L["Loop preview: %d spawn points in %d zone(s), one round %d yd. /gcr route again to hide."]):format(
+            #path > 1 and #path - 1 or #path, zones, length))
+        return
+    end
+    path, length = PlanPath(open, px, py)
     preview = { path = path, length = length, instance = instance, px = px, py = py }
     DrawLine(path, length, instance, px, py)
     ns.Print((L["Route preview: %d nodes in %d zone(s), path %d yd. /gcr route again to hide."]):format(
@@ -1123,6 +1462,20 @@ ns.RouteGoalChanged = function()
     if ns.run then
         ns.run.weights = nil
         Plan(true)
+    end
+end
+
+-- Options: Smart route or Loop. A run going on switches right away.
+ns.RouteModeChanged = function()
+    local run = ns.run
+    if run then
+        run.loopMode = LoopMode() or nil
+        run.loop, run.loopPos, run.loopSteps, run.loopDirty = nil, nil, 0, nil
+        run.target, run.targetPoint = nil, nil
+        Plan()
+    elseif preview then
+        preview = nil
+        ClearLine()
     end
 end
 
