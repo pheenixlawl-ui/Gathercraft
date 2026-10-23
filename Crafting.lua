@@ -373,6 +373,17 @@ local function Learn(reader)
         if product then MergeRecipe(prof, name, tonumber(product), tonumber(nMin), tonumber(nMax), nil, reagentText) end
     end
     mine[prof] = { list = old, updated = time() }
+    -- the skill shown in the window (for the skill planner)
+    local _, rank
+    if GetTradeSkillLine then
+        local name, r = GetTradeSkillLine()
+        if ProfKey(name) == prof then rank = r end
+    end
+    if not rank and GetCraftDisplaySkillLine then
+        local name, r = GetCraftDisplaySkillLine()
+        if ProfKey(name) == prof then rank = r end
+    end
+    if type(rank) == "number" and rank > 0 then mine[prof].rank = rank end
     if not told[prof] then
         told[prof] = true
         local total = 0
@@ -576,7 +587,9 @@ local function MerchantItem(i)
             return info.name, info.price, info.stackCount, info.numAvailable, info.hasExtendedCost
         end
     end
+    ---@diagnostic disable-next-line: deprecated -- older clients only have GetMerchantItemInfo
     if GetMerchantItemInfo then
+        ---@diagnostic disable-next-line: deprecated
         local name, _, price, quantity, numAvailable, _, _, extendedCost = GetMerchantItemInfo(i)
         return name, price, quantity, numAvailable, extendedCost
     end
@@ -713,6 +726,7 @@ local function Lookup(idx, name)
     if idx[key] then return idx[key] end
     local shipped = ShippedNames()[key]
     if shipped then return shipped end
+    ---@diagnostic disable-next-line: deprecated -- fallback for clients without the C_ version
     local getInfo = (C_Item and C_Item.GetItemInfo) or GetItemInfo
     if getInfo then
         local ok, _, link = pcall(getInfo, name)
@@ -972,6 +986,7 @@ local function Have(itemID)
         local ok, n = pcall(C_Item.GetItemCount, itemID, true)
         if ok and n then return n end
     end
+    ---@diagnostic disable-next-line: deprecated -- fallback for clients without the C_ version
     return GetItemCount and GetItemCount(itemID, true) or 0
 end
 
@@ -1134,7 +1149,8 @@ ns.BuildCraftPage = function(page, style)
 
     local sub = page:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     sub:SetPoint("TOPLEFT", 6, -28)
-    sub:SetWidth(520)
+    sub:SetWidth(440)
+    sub:SetWordWrap(false)
     sub:SetJustifyH("LEFT")
 
     local filter = "mine" -- "mine" = my professions, or a profession name
@@ -1206,9 +1222,18 @@ ns.BuildCraftPage = function(page, style)
         b:Show()
     end
 
+    -- the skill planner for the profession shown (or one of yours)
+    local planButton = CreateFrame("Button", nil, page, "UIPanelButtonTemplate")
+    planButton:SetSize(110, 20)
+    planButton:SetPoint("TOPRIGHT", -4, -20)
+    ns.LText(planButton, "Skill plan")
+    planButton:SetScript("OnClick", function()
+        if ns.ShowSkillPlan then ns.ShowSkillPlan(filter ~= "mine" and filter or nil) end
+    end)
+
     local mineCheck = CreateFrame("CheckButton", nil, page, "UICheckButtonTemplate")
     mineCheck:SetSize(22, 22)
-    mineCheck:SetPoint("TOPRIGHT", -150, -22)
+    mineCheck:SetPoint("TOPRIGHT", -268, -22)
     local mineLabel = page:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     mineLabel:SetPoint("LEFT", mineCheck, "RIGHT", 2, 0)
     ns.LText(mineLabel, "Only recipes I know")
@@ -1256,6 +1281,38 @@ ns.BuildCraftPage = function(page, style)
         if extra then bits[#bits + 1] = extra end
         return name .. (#bits > 0 and ("  |cff999999(" .. table.concat(bits, ", ") .. ")|r") or ""), friendly
     end
+    -- A vendor of the recipe item you can ride to: your faction, a map we
+    -- know, the nearest one (same continent first)
+    local HBD = LibStub and LibStub("HereBeDragons-2.0", true)
+    local function VendorWaypoint(r)
+        local src, maps = GathercraftRecipeSources, GathercraftAreaMaps
+        local spells = GathercraftRecipeData and GathercraftRecipeData.spells
+        local spell = src and maps and spells and spells[r.prof] and spells[r.prof][r.key]
+        local item = spell and src.scroll and src.scroll[spell]
+        local packed = item and src.items and src.items[item]
+        if not packed then return end
+        local mine = UnitFactionGroup and UnitFactionGroup("player")
+        local letter = mine == "Alliance" and "A" or mine == "Horde" and "H" or nil
+        local pmap, px, py = ns.GetPlayerPos and ns.GetPlayerPos()
+        local best, bestD
+        for list in packed:gmatch("V:([%d,]+)") do
+            for id in list:gmatch("%d+") do
+                local npc = src.npcs and src.npcs[tonumber(id)]
+                local name, area, friendly, x, y = (npc or ""):match("^([^|]*)|(%d*)|([^|]*)|(%d+)|(%d+)")
+                local mapID = area and maps[tonumber(area)]
+                if mapID and (not letter or friendly == "" or friendly:find(letter, 1, true)) then
+                    x, y = tonumber(x) / 10000, tonumber(y) / 10000
+                    local d = (pmap and px and py and HBD) and HBD:GetZoneDistance(pmap, px, py, mapID, x, y) or math.huge
+                    if not best or d < bestD then
+                        best, bestD = { mapID = mapID, x = x, y = y, name = name }, d
+                    end
+                end
+            end
+        end
+        return best
+    end
+    ns.RecipeVendorWaypoint = VendorWaypoint
+
     local function AddSourceLines(r)
         local src = GathercraftRecipeSources
         local spells = GathercraftRecipeData and GathercraftRecipeData.spells
@@ -1310,6 +1367,10 @@ ns.BuildCraftPage = function(page, style)
         for tag in packed:gmatch("[^|]+") do tags[tag] = true end
         if tags.W then GameTooltip:AddLine("  " .. L["World drop (many enemies of its level)"], 0.8, 0.8, 0.8) end
         if tags.Q then GameTooltip:AddLine("  " .. L["Quest reward"], 0.8, 0.8, 0.8) end
+        local wp = VendorWaypoint(r)
+        if wp then
+            GameTooltip:AddLine((L["Click: waypoint to %s"]):format(wp.name), 0.4, 1, 0.4)
+        end
     end
 
     local function ShowTooltip(row)
@@ -1359,6 +1420,14 @@ ns.BuildCraftPage = function(page, style)
         row:EnableMouse(true)
         row:SetScript("OnEnter", ShowTooltip)
         row:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        -- a recipe you don't know yet: click for a waypoint to its vendor
+        row:SetScript("OnMouseUp", function(self)
+            local r = self.data
+            local wp = r and not r.learned and VendorWaypoint(r)
+            if wp and ns.SetWaypoint and ns.SetWaypoint(wp.mapID, wp.x, wp.y) then
+                ns.Print((L["Waypoint set: %s (%s)."]):format(wp.name, ns.GetZoneName(wp.mapID)))
+            end
+        end)
         row.bg = row:CreateTexture(nil, "BACKGROUND")
         row.bg:SetAllPoints()
         row.bg:SetColorTexture(1, 0.8, 0.3, i % 2 == 0 and 0.035 or 0)
@@ -1483,7 +1552,10 @@ ns.RecipeTest = function()
     if not id then return end
     local classID, subID = select(6, C_Item.GetItemInfoInstant(id))
     print(("  item class %s / %s (recipes are class 9)"):format(tostring(classID), tostring(subID)))
-    local spellName, spellID = GetItemSpell and GetItemSpell(id)
+    ---@diagnostic disable-next-line: deprecated -- fallback for clients without the C_ version
+    local getSpell = (C_Item and C_Item.GetItemSpell) or GetItemSpell
+    local spellName, spellID
+    if getSpell then spellName, spellID = getSpell(id) end
     print(("  GetItemSpell: %s (%s)"):format(tostring(spellName), tostring(spellID)))
     local api = C_TradeSkillUI
     if api and api.GetRecipeSchematic and spellID then
@@ -1501,6 +1573,34 @@ ns.RecipeTest = function()
 end
 
 ns.CraftAdvice = Evaluate
+
+-- Your skill in a profession: the skill list, else what the profession
+-- window showed last time
+local SKILL_TYPE = { Mining = "ore", Cooking = "cook", ["First Aid"] = "aid" }
+ns.ProfessionRank = function(prof)
+    if SKILL_TYPE[prof] and ns.GetSkill then
+        local rank, maxRank = ns.GetSkill(SKILL_TYPE[prof])
+        if rank then return rank, maxRank end
+    end
+    if GetNumSkillLines and GetSkillLineInfo then
+        for i = 1, GetNumSkillLines() do
+            local name, isHeader, _, rank, _, _, maxRank = GetSkillLineInfo(i)
+            if not isHeader and name and ProfKey(name) == prof then return rank, maxRank end
+        end
+    end
+    local mine = CharRecipes()[prof]
+    return mine and mine.rank
+end
+
+-- For the skill planner (Planner.lua)
+ns.CraftData = {
+    AllRecipes = AllRecipes, Unpack = Unpack, ReagentCost = ReagentCost, Have = Have,
+    ProfLabel = ProfLabel, DisplayName = DisplayName, Professions = PROFESSIONS, MyProfessions = Professions,
+    Known = function(prof)
+        local mine = CharRecipes()[prof]
+        return mine and mine.list or {}
+    end,
+}
 ns.CraftTest = CraftTest
 
 -- /gcr trainertest : what this client tells us at a trainer (window open)

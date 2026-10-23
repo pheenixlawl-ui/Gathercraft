@@ -59,6 +59,27 @@ local function KnownObjectType(objectID)
     return kind and KIND_TYPES[kind[1]]
 end
 
+-- The name of a known herb or vein (by object, else by the item it gave) in
+-- the chosen language
+local function KindNameFor(objectID, itemID)
+    local data = GathercraftQuestieData
+    if not data then return end
+    local oid = objectID and ("o" .. objectID)
+    local kind = oid and data.kinds[oid]
+    if not kind and itemID then
+        for id, k in pairs(data.kinds) do
+            if k[2] == itemID and (k[1] == "h" or k[1] == "o") and (not kind or #k[3] < #kind[3]) then
+                oid, kind = id, k -- the plain node, not a rare variant
+            end
+        end
+    end
+    if not kind then return end
+    local lang = ns.Language and ns.Language() or GetLocale()
+    local names = lang:sub(1, 2) ~= "en" and GathercraftNodeNames and GathercraftNodeNames[lang]
+    return (names and names[tonumber(oid:sub(2))]) or kind[3]
+end
+ns.KindNameFor = KindNameFor
+
 -- "Opening" is also used for quest objects and doors: only real chests count
 local CHEST_WORDS = {
     "chest", "strongbox", "footlocker", "coffer",            -- en
@@ -296,8 +317,9 @@ local function GetContinent(mapID)
     return id, name
 end
 
--- Selection from the zones window (/gcr zones). A node is used only if all
--- levels are checked: continent, material on the continent, zone, material in the zone.
+-- Selection from the zones window (/gcr zones): what "Start run" farms (and
+-- the map, only with the option "Hide zones and materials unticked ...").
+-- A node is used only if all levels are checked: continent, zone, material in the zone.
 local function IsNodeEnabled(n, mapID)
     local db = ns.db
     if db.disabledZones[mapID] then return false end
@@ -577,16 +599,36 @@ local function GetGatherType(spellID)
     return nodeType, name
 end
 
+-- The name of what the mouse points at in the world (the game's tooltip for
+-- herbs, veins and chests). A tooltip of a button (our herbs/minerals switch,
+-- an action bar) is no node name.
 local function GetTooltipTitle()
     if GameTooltip and GameTooltip:IsShown() then
+        local owner = GameTooltip:GetOwner()
+        if owner and owner ~= UIParent and owner ~= WorldFrame then return end
         local line = _G.GameTooltipTextLeft1
         return line and line:GetText()
     end
 end
 
 -- Reads the loot source (game object ID + spawn UID) and the first item ID
+-- Items herbs and veins give (Forever adds seeds and rare reagents like
+-- Frilled Lichen to herbs: those are extras, not what the node is)
+local nodeItems
+local function IsNodeItem(id)
+    if not nodeItems then
+        nodeItems = {}
+        local kinds = GathercraftQuestieData and GathercraftQuestieData.kinds or {}
+        for _, k in pairs(kinds) do
+            if (k[1] == "h" or k[1] == "o") and k[2] and k[2] > 0 then nodeItems[k[2]] = true end
+        end
+    end
+    return nodeItems[id]
+end
+
 local function ReadLoot()
     local objectID, spawn, itemID, firstGUID
+    local firstItem
     local count = GetNumLootItems and GetNumLootItems() or 0
     for slot = 1, count do
         if GetLootSourceInfo and not objectID then
@@ -602,12 +644,15 @@ local function ReadLoot()
         end
         if not itemID then
             local link = GetLootSlotLink(slot)
-            if link then
-                itemID = tonumber(link:match("item:(%d+)"))
+            local id = link and tonumber(link:match("item:(%d+)"))
+            if id then
+                firstItem = firstItem or id
+                if IsNodeItem(id) then itemID = id end
             end
         end
     end
-    return objectID, spawn, itemID, firstGUID, count
+    -- the herb or ore itself; else (a new Forever node) the first item
+    return objectID, spawn, itemID or firstItem, firstGUID, count
 end
 
 -- Every item in the loot window with its amount (for the gold value)
@@ -641,6 +686,13 @@ local function TryRecord()
     elseif p.itemID then
         id = "i" .. p.itemID
     end
+    -- a known herb or vein: its own name (whatever a tooltip said), and with
+    -- no name from the game at all the item tells
+    local better = p.objectID and KnownObjectType(p.objectID) ~= "chest" and KindNameFor(p.objectID)
+    if not better and (p.name == L["Unknown Herb"] or p.name == L["Unknown Ore"]) and p.itemID then
+        better = KindNameFor(nil, p.itemID)
+    end
+    if better then p.name = better end
     Debug(("RECORD name=%s type=%s id=%s spawn=%s item=%s"):format(
         p.name, p.type, tostring(id), tostring(p.spawn), tostring(p.itemID)))
 
@@ -842,6 +894,8 @@ frame:SetScript("OnEvent", function(self, event, ...)
                 GathercraftDB = WoWFFarmDB
                 ns.migratedOld = true
             end
+            -- nothing saved yet: a new player (Welcome.lua shows the welcome)
+            ns.freshInstall = GathercraftDB == nil
             WoWFFarmDB = nil
             GathercraftDB = GathercraftDB or {}
             GathercraftDB.version = GathercraftDB.version or 1
@@ -868,6 +922,28 @@ frame:SetScript("OnEvent", function(self, event, ...)
                 NodesChanged()
             end
         end
+        -- v0.1.13: herbs gathered while our herbs/minerals switch showed its
+        -- tooltip were named after it: give them a real name
+        local wrong = { ["find herbs / find minerals"] = true, [L["Find Herbs / Find Minerals"]:lower()] = true }
+        local fixed = 0
+        for _, list in pairs(ns.db.nodes) do
+            for _, n in ipairs(list) do
+                if n.name and wrong[n.name:lower()] then
+                    local oid = n.id and tonumber(n.id:match("^o(%d+)$"))
+                    n.name = KindNameFor(oid, n.item) or (n.type == "ore" and L["Unknown Ore"] or L["Unknown Herb"])
+                    fixed = fixed + 1
+                end
+            end
+        end
+        for key in pairs(ns.db.kindStats or {}) do
+            for w in pairs(wrong) do
+                if key:lower():find(w, 1, true) then ns.db.kindStats[key] = nil end
+            end
+        end
+        if fixed > 0 then
+            Debug(("%d nodes named after the herbs/minerals switch renamed"):format(fixed))
+            NodesChanged()
+        end
         Print(L["by pheenixlawl loaded. Type /gcr help for commands."])
         if ns.migratedOld then
             Print(L["Your WoWFFarm data was taken over. Welcome to Gathercraft!"])
@@ -880,7 +956,7 @@ frame:SetScript("OnEvent", function(self, event, ...)
         if ns.db.activeRun then
             C_Timer.After(2, function()
                 if ns.db.activeRun then
-                    ns.StartRun(ns.db.activeRun.filter, ns.db.activeRun.zone)
+                    ns.StartRun(ns.db.activeRun.filter, ns.db.activeRun.zone, ns.db.activeRun.quick)
                 end
             end)
         end
@@ -918,6 +994,9 @@ local function Help()
     print(L["  /gcr stats        - node totals"])
     print(L["  /gcr clear        - remove waypoint"])
     print(L["  /gcr options      - options window (or shift-click the minimap button)"])
+    print(L["  /gcr plan [profession] - skill plan with material list"])
+    print(L["  /gcr welcome      - show the welcome again"])
+    print(L["  /gcr whatsnew     - what's new in this version"])
     print(L["  /gcr skills       - your gathering skills and what we learned"])
     print(L["  /gcr sync         - sync status and options"])
     print(L["  /gcr loadall      - load known spawn points for the whole continent"])
@@ -1013,6 +1092,12 @@ SlashCmdList.GATHERCRAFT = function(msg)
         if ns.CraftTest then ns.CraftTest() end
     elseif cmd == "scan" then
         if ns.StartScan then ns.StartScan() end
+    elseif cmd == "plan" then
+        if ns.ShowSkillPlan then ns.ShowSkillPlan(rest) end
+    elseif cmd == "welcome" then
+        if ns.ShowWelcome then ns.ShowWelcome() end
+    elseif cmd == "whatsnew" or cmd == "new" then
+        if ns.WhatsNew then ns.WhatsNew(true) end
     else
         Help()
     end
@@ -1184,7 +1269,7 @@ local function OnSeen(mapID, x, y, name, err)
             -- every look is a guess: the average gets closer. Looks with the
             -- minimap zoomed in are more exact and count more (1 / error²).
             local wNew = 1 / (err * err)
-            local w = best.seenW or 1 / ((best.seenErr or err) ^ 2)
+            local w = best.seenW or (1 / ((best.seenErr or err) ^ 2))
             w = math.min(w, SEEN_LOOKS_MAX * wNew) -- newer looks keep a say
             best.x = (best.x * w + x * wNew) / (w + wNew)
             best.y = (best.y * w + y * wNew) / (w + wNew)
@@ -1233,7 +1318,7 @@ local function ConsolidateSeen(mapID)
                     local la, lb = a.lookErr or math.max(ea, 24), b.lookErr or math.max(eb, 24)
                     local r = math.max(SEEN_SNAP, math.min(SEEN_SNAP_MAX, 2 * math.max(la, lb)))
                     if Yards(mapID, a.x, a.y, b.x, b.y) <= r then
-                        local wa, wb = a.seenW or 1 / (ea * ea), b.seenW or 1 / (eb * eb)
+                        local wa, wb = a.seenW or (1 / (ea * ea)), b.seenW or (1 / (eb * eb))
                         a.x = (a.x * wa + b.x * wb) / (wa + wb)
                         a.y = (a.y * wa + b.y * wb) / (wa + wb)
                         a.seenW = wa + wb

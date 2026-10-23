@@ -480,6 +480,13 @@ local function Populate(count, spread, every, freshShare)
         clients[#clients + 1] = c
         hpush({ at = NOW + math.random() * spread, fn = function()
             Login(c)
+            -- GC_ROUTEQ=1: everyone starts a farm run through 3 other zones
+            -- right after login (the route asks for those zones too)
+            if os.getenv("GC_ROUTEQ") and c.ns.SyncQueryRouteZones then
+                local zones = {}
+                for _ = 1, 3 do zones[#zones + 1] = 1415 + math.random(0, 9) end
+                hpush({ at = NOW + 5, fn = function() c.ns.SyncQueryRouteZones(zones) end })
+            end
             local function nextGather()
                 local spot
                 if math.random() < freshShare then

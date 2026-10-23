@@ -675,6 +675,27 @@ local function CurrentZoneQuery()
     QueryZone(mapID)
 end
 
+-- A farm run through other zones: ask for those too, so new spots others
+-- found there are in the route from the start. A few zones only (the ones
+-- the route reaches first), one after another - never the whole world.
+local ROUTE_QUERY_MAX = 5     -- zones asked for per run
+local ROUTE_QUERY_GAP = 15    -- seconds between them
+local function QueryRouteZones(mapIDs)
+    if not DB().enabled then return end
+    -- not in the public channel (yet): the zone cooldown doesn't count there,
+    -- so don't ask at all (the current zone is asked once we are in)
+    if DB().public and not (channelID and channelID > 0) then return end
+    local here = C_Map.GetBestMapForUnit("player")
+    local n = 0
+    for _, mapID in ipairs(mapIDs) do
+        if mapID ~= here and time() - (lastQuery[mapID] or 0) >= QUERY_COOLDOWN and n < ROUTE_QUERY_MAX then
+            n = n + 1
+            C_Timer.After(n * ROUTE_QUERY_GAP, function() QueryZone(mapID) end)
+        end
+    end
+    if n > 0 then Debug(("route: asking for %d more zone(s)"):format(n)) end
+end
+
 ---------------------------------------------------------------------------
 -- Commands: /gcr sync [on|off|public|ask|stress|block <name>|unblock <name>]
 ---------------------------------------------------------------------------
@@ -812,6 +833,7 @@ frame:SetScript("OnEvent", function(self, event, ...)
 end)
 
 ns.SyncShare = ShareHarvest
+ns.SyncQueryRouteZones = QueryRouteZones
 -- unconfirmed reports of one zone (grey pins in zones without known spawn points)
 ns.SyncSelfHeal = SelfHeal
 ns.IsParked = IsParked

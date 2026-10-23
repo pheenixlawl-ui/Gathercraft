@@ -110,6 +110,26 @@ for _, p in ipairs(profs) do
     print("        [" .. q(p) .. "] = { " .. table.concat(parts, ", ") .. " },")
 end
 print("    },")
+-- skill-up colours per recipe spell: "yellow:grey" (orange from the required
+-- skill, green halfway between yellow and grey) - for the skill planner
+print("    -- skill-up colours per recipe spell: \"yellow:grey\"")
+print("    colors = {")
+local spellList = {}
+for _, p in ipairs(profs) do
+    for _, spell in pairs(spellOf[p]) do spellList[#spellList + 1] = spell end
+end
+table.sort(spellList)
+local seen, parts = {}, {}
+for _, spell in ipairs(spellList) do
+    local t = ns.Thresholds and ns.Thresholds[spell]
+    if t and not seen[spell] and t[2] and t[4] and t[4] > t[2] then
+        seen[spell] = true
+        parts[#parts + 1] = ("[%d]=\"%d:%d\""):format(spell, t[2], t[4])
+        if #parts == 8 then print("        " .. table.concat(parts, ", ") .. ",") parts = {} end
+    end
+end
+if #parts > 0 then print("        " .. table.concat(parts, ", ") .. ",") end
+print("    },")
 print("    -- required skill estimated (Forever moved it from Classic's); a trainer visit confirms it")
 print("    guessed = {")
 for _, p in ipairs(profs) do

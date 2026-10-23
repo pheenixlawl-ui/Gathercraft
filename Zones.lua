@@ -51,10 +51,18 @@ close:SetPoint("TOPRIGHT", -2, -2)
 
 local hint = window:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 hint:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -6)
-ns.LText(hint, "Unchecked zones and materials are hidden and not routed. Click + to pick single materials.")
+ns.LText(hint, "Ticked zones and materials are what Start run farms. The map still shows everything. Click + to pick single materials.")
+
+-- quick runs (overview, minimap button) stay in your zone: this is where a
+-- route over several zones is planned
+local routeHint = window:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+routeHint:SetPoint("TOPLEFT", hint, "BOTTOMLEFT", 0, -3)
+routeHint:SetWidth(WIDTH - 30)
+routeHint:SetJustifyH("LEFT")
+ns.LText(routeHint, "Farm runs from the overview or the minimap button stay in your zone. For a route over several zones: tick them here and press Start run.")
 
 local scroll = CreateFrame("ScrollFrame", "GathercraftZonesScroll", window, "UIPanelScrollFrameTemplate")
-scroll:SetPoint("TOPLEFT", 12, -56)
+scroll:SetPoint("TOPLEFT", 12, -84)
 scroll:SetPoint("BOTTOMRIGHT", -32, 44)
 
 local content = CreateFrame("Frame", nil, scroll)
@@ -265,7 +273,10 @@ Refresh = function()
     end
     -- columns: Kalimdor left, Eastern Kingdoms right, the rest below the shorter one
     local scrollWidth = scroll:GetWidth() or 0
-    if scrollWidth > 100 then content:SetWidth(scrollWidth) end -- the page has its size now
+    if scrollWidth > 100 then
+        content:SetWidth(scrollWidth) -- the page has its size now
+        if window:GetParent() ~= UIParent then routeHint:SetWidth(scrollWidth + 6) end
+    end
     local width = content:GetWidth() or 0
     local columns = (width >= TWO_COLUMNS_FROM and #tree > 1) and 2 or 1
     local colW = columns == 2 and (width - COL_GAP) / 2 or width
@@ -468,7 +479,9 @@ ns.EmbedZones = function(parent)
     hint:ClearAllPoints()
     hint:SetPoint("TOPLEFT", 6, -6)
     scroll:ClearAllPoints()
-    scroll:SetPoint("TOPLEFT", 4, -26)
+    -- room for the route hint (two lines in some languages)
+    routeHint:SetWidth(math.max(parent:GetWidth() or 0, 480) - 20)
+    scroll:SetPoint("TOPLEFT", 4, -50)
     scroll:SetPoint("BOTTOMRIGHT", -26, 40)
     content:SetWidth(math.max(parent:GetWidth() or 0, 480) - 40) -- width can be 0 before the first layout
     startButton:ClearAllPoints()

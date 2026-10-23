@@ -59,6 +59,13 @@ local function TotalSkill()
     return sum
 end
 
+-- "item:2770" (a skill plan's farm run) reads as the item's name
+ns.RunFilterLabel = function(filter)
+    local item = filter and tonumber(filter:match("^item:(%d+)$"))
+    if item then return ns.ItemName and ns.ItemName(item) or filter end
+    return filter
+end
+
 local function RunStats()
     local run = ns.run
     if not run then
@@ -68,7 +75,22 @@ local function RunStats()
     if not stats or stats.run ~= run then
         stats = { run = run, start = GetTime(), nodes = 0, value = 0, skillStart = TotalSkill() }
     end
+    -- a run resumed right after login: professions are known a moment later
+    if stats.skillStart == 0 then stats.skillStart = TotalSkill() end
     return stats
+end
+
+-- What the run brought so far (for the summary when it ends, Welcome.lua)
+ns.RunSnapshot = function()
+    local run, s = ns.run, stats
+    if not (run and s and s.run == run) then return end
+    local label = FILTER_LABELS[run.filter or ""] and L[FILTER_LABELS[run.filter]] or ns.RunFilterLabel(run.filter)
+    local mapID = run.zone or (C_Map and C_Map.GetBestMapForUnit and C_Map.GetBestMapForUnit("player"))
+    return {
+        label = label, zoneName = mapID and ns.GetZoneName(mapID), elapsed = GetTime() - s.start,
+        nodes = s.nodes, value = s.value, valueSource = s.source,
+        skill = math.max(0, TotalSkill() - s.skillStart),
+    }
 end
 
 table.insert(ns.gatherListeners, function(node, p)
@@ -190,7 +212,7 @@ local function UpdatePanel()
     local elapsed = GetTime() - s.start
     local hours = math.max(elapsed / 3600, 1 / 60)
 
-    local label = FILTER_LABELS[run.filter or ""] and L[FILTER_LABELS[run.filter]] or run.filter
+    local label = FILTER_LABELS[run.filter or ""] and L[FILTER_LABELS[run.filter]] or ns.RunFilterLabel(run.filter)
     if run.zone then label = (label and (label .. " · ") or "") .. ns.GetZoneName(run.zone) end
     title:SetText(L["Farm run"] .. (label and ("  |cffaaaaaa" .. label .. "|r") or ""))
     if elapsed >= 3600 then

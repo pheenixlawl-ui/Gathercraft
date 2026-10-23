@@ -32,9 +32,21 @@ button:Hide()
 local owner = CreateFrame("Frame") -- holds the temporary "reel in" binding
 local lineOut = false
 
+-- Does the player know this spell? IsPlayerSpell works in Forever (Ketho's
+-- tools call it deprecated: newer clients moved it to C_SpellBook)
+local function PlayerKnows(id)
+    ---@diagnostic disable-next-line: deprecated
+    if IsPlayerSpell then return IsPlayerSpell(id) and true or false end
+    if C_SpellBook and C_SpellBook.IsSpellKnown then
+        local ok, known = pcall(C_SpellBook.IsSpellKnown, id)
+        return ok and known and true or false
+    end
+    return false
+end
+
 local function FishingSpell()
     for _, id in ipairs(FISHING_SPELLS) do
-        if IsPlayerSpell and IsPlayerSpell(id) then return id end
+        if PlayerKnows(id) then return id end
     end
 end
 
@@ -51,6 +63,7 @@ end
 
 local function ItemCount(id)
     if C_Item and C_Item.GetItemCount then return C_Item.GetItemCount(id) end
+    ---@diagnostic disable-next-line: deprecated -- fallback for clients without the C_ version
     return GetItemCount and GetItemCount(id) or 0
 end
 
@@ -315,7 +328,7 @@ track:SetHighlightTexture("Interface\\Minimap\\UI-Minimap-ZoomButton-Highlight")
 local lastTracked
 
 local function KnowsSpell(id)
-    return IsPlayerSpell and IsPlayerSpell(id) or false
+    return PlayerKnows(id)
 end
 
 -- Which of the two the minimap tracks right now (nil: something else / none)

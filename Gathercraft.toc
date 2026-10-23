@@ -3,7 +3,7 @@
 ## Notes: Gather. Route. Profit. Every node on your map, live farm routes, one-key fishing and rare alerts.
 ## Author: pheenixlawl
 ## IconTexture: Interface\AddOns\Gathercraft\Media\Icon
-## Version: 0.1.12
+## Version: 0.1.13
 ## X-Credits: Spawn data and item names from Questie (github.com/Questie/Questie), GPLv3. Recipes from SkillUp Forever (github.com/cjber/skillup-forever), GPLv3. Map pins via HereBeDragons.
 ## X-License: GPL-3.0-or-later
 ## X-Curse-Project-ID: 1754991
@@ -42,10 +42,13 @@ Options.lua
 Advisor.lua
 Crafting.lua
 Main.lua
+Welcome.lua
+Planner.lua
 Data\StarterData.lua
 Data\QuestieNodes.lua
 Data\NodeNames.lua
 Data\ItemNames.lua
 Data\RecipeData.lua
 Data\RecipeSources.lua
+Data\AreaMaps.lua
 Starter.lua

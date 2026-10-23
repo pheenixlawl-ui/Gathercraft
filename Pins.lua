@@ -54,7 +54,9 @@ local function NodeIcon(n)
         local icon
         if C_Item and C_Item.GetItemIconByID then
             icon = C_Item.GetItemIconByID(n.item)
+        ---@diagnostic disable-next-line: deprecated -- fallback for clients without the C_ version
         elseif GetItemIcon then
+            ---@diagnostic disable-next-line: deprecated
             icon = GetItemIcon(n.item)
         end
         if icon then return icon end
@@ -289,7 +291,9 @@ local function AddToGrid(mapID, pin)
 end
 
 local function AddNodePins(mapID, n)
-    if not ns.IsNodeEnabled(n, mapID) then return end
+    -- the Zones tab picks what Start run farms; the map shows everything,
+    -- unless the option says the map follows it too
+    if ns.db.mapFollowsZones and not ns.IsNodeEnabled(n, mapID) then return end
     if n.type == "chest" and ns.db.chestsHidden then return end -- Options: chests off
     local showWorld = WorldPinsShown()
     local showMini = MiniPinsShown() and mapID == playerMap

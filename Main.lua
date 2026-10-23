@@ -311,6 +311,21 @@ local function CreateBar(type, label, x, y)
     bar:SetStatusBarColor(unpack(BAR_COLORS[type]))
     bar:SetMinMaxValues(0, 1)
 
+    -- the whole way to 300: what your trainer has unlocked shows lighter,
+    -- thin lines mark where the next trainer visit is due
+    local unlocked = bar:CreateTexture(nil, "BACKGROUND")
+    unlocked:SetPoint("TOPLEFT")
+    unlocked:SetPoint("BOTTOMLEFT")
+    unlocked:SetColorTexture(BAR_COLORS[type][1], BAR_COLORS[type][2], BAR_COLORS[type][3], 0.22)
+    local ticks = {}
+    for i, cap in ipairs({ 75, 150, 225 }) do
+        local t = bar:CreateTexture(nil, "OVERLAY")
+        t:SetSize(1, 12)
+        t:SetPoint("LEFT", (COL_WIDTH - 106) * cap / 300, 0)
+        t:SetColorTexture(0, 0, 0, 0.6)
+        ticks[i] = t
+    end
+
     local text = bar:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     text:SetPoint("CENTER", 0, 0)
 
@@ -319,7 +334,7 @@ local function CreateBar(type, label, x, y)
     missing:SetPoint("LEFT", frame, "LEFT", 4, 0)
     ns.LText(missing, "< not learned yet >")
 
-    bars[type] = { icon = icon, name = name, frame = frame, bar = bar, text = text, missing = missing }
+    bars[type] = { icon = icon, name = name, frame = frame, bar = bar, text = text, missing = missing, unlocked = unlocked }
 end
 CreateBar("herb", "Herbalism", COL_LEFT, -28)
 CreateBar("ore", "Mining", COL_LEFT, -52)
@@ -337,11 +352,17 @@ local function UpdateBars()
         b.icon:SetAlpha(learned and 1 or 0.5)
         if learned then
             b.name:SetTextColor(1, 1, 1)
-            b.bar:SetMinMaxValues(0, maxRank > 0 and maxRank or 1)
+            local full = math.max(300, maxRank or 0)
+            b.bar:SetMinMaxValues(0, full)
             b.bar:SetValue(rank)
+            b.unlocked:SetWidth(math.max(1, (COL_WIDTH - 106) * math.min(maxRank or 0, full) / full))
             local tier = TIERS[maxRank] and L[TIERS[maxRank]]
             local bonus = (effective and effective > rank) and ("  |cff7bd35f+%d|r"):format(effective - rank) or ""
-            b.text:SetText((tier and ("|cffffd27f" .. tier .. "|r  ") or "") .. ("%d / %d"):format(rank, maxRank) .. bonus)
+            -- close to the end of what the trainer taught: time for the next visit
+            local near = maxRank and maxRank < 300 and rank >= maxRank - 5
+            local numbers = ("%d / %d"):format(rank, maxRank)
+            if near then numbers = "|cffff9933" .. numbers .. "|r" end
+            b.text:SetText((tier and ("|cffffd27f" .. tier .. "|r  ") or "") .. numbers .. bonus)
         else
             b.name:SetTextColor(0.5, 0.5, 0.5)
         end
@@ -490,7 +511,7 @@ local function RunButton(text, filter, width, anchor)
     local b = Button(overview, text, width)
     b:SetPoint("LEFT", anchor, "RIGHT", 6, 0)
     b:SetScript("OnClick", function()
-        ns.StartRun(filter)
+        ns.StartHereRun(filter)
         main:Hide()
     end)
     runButtons[#runButtons + 1] = b
@@ -643,5 +664,68 @@ loader:SetScript("OnEvent", function()
         for _, t in ipairs({ "herb", "ore" }) do
             session.skillStart[t] = ns.GetSkill(t)
         end
+    end)
+end)
+
+---------------------------------------------------------------------------
+-- Trainer reminder: 5 points before the end of what your trainer taught
+-- (and once more when you are there), so no skill-up is wasted
+---------------------------------------------------------------------------
+local NEXT_TIER = { [75] = "Journeyman", [150] = "Expert", [225] = "Artisan" }
+local SKILL_LABELS = { herb = "Herbalism", ore = "Mining", fish = "Fishing", cook = "Cooking", aid = "First Aid" }
+local reminded = {}
+
+local function TrainerSkills()
+    local list = {}
+    for type, label in pairs(SKILL_LABELS) do
+        local rank, maxRank = ns.GetSkill(type)
+        if rank and maxRank then list[#list + 1] = { label = L[label], rank = rank, maxRank = maxRank } end
+    end
+    local d = ns.CraftData
+    if d and ns.ProfessionRank then
+        for _, p in ipairs(d.Professions) do
+            -- Mining (smelting), Cooking and First Aid are covered above
+            if p.name ~= "Mining" and p.name ~= "Cooking" and p.name ~= "First Aid" then
+                local rank, maxRank = ns.ProfessionRank(p.name)
+                if rank and maxRank then list[#list + 1] = { label = d.ProfLabel(p.name), rank = rank, maxRank = maxRank } end
+            end
+        end
+    end
+    return list
+end
+
+local function CheckTrainer()
+    if not ns.db or ns.db.trainerRemindOff then return end
+    for _, s in ipairs(TrainerSkills()) do
+        local nextTier = NEXT_TIER[s.maxRank]
+        if nextTier and s.rank >= s.maxRank - 5 then
+            local capped = s.rank >= s.maxRank
+            local key = s.label .. ":" .. s.maxRank .. (capped and ":cap" or ":near")
+            if not reminded[key] then
+                reminded[key] = true
+                if capped then
+                    ns.Print((L["%s is at %d/%d: no more skill-ups until you learn %s at your trainer."]):format(
+                        s.label, s.rank, s.maxRank, L[nextTier]))
+                else
+                    ns.Print((L["%s %d/%d: visit your trainer soon to learn %s - skill-ups stop at %d."]):format(
+                        s.label, s.rank, s.maxRank, L[nextTier], s.maxRank))
+                end
+            end
+        end
+    end
+end
+ns.CheckTrainer = CheckTrainer
+
+local trainerWatch = CreateFrame("Frame")
+trainerWatch:RegisterEvent("PLAYER_LOGIN")
+trainerWatch:RegisterEvent("SKILL_LINES_CHANGED")
+trainerWatch:RegisterEvent("CHAT_MSG_SKILL")
+local checkPending = false
+trainerWatch:SetScript("OnEvent", function(_, event)
+    if checkPending then return end
+    checkPending = true
+    C_Timer.After(event == "PLAYER_LOGIN" and 8 or 1, function()
+        checkPending = false
+        CheckTrainer()
     end)
 end)

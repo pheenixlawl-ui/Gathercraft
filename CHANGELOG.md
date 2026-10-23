@@ -1,29 +1,23 @@
-## v0.1.12 – Loop routes, sharing you can see, and fixes from a full review
+## v0.1.13 – Skill plan with material list, run summary, and routes that ask ahead
 
 ### New
-- **Loop routes:** Options → Farm runs → Route type → *Loop*. One fixed round through all spawn points you can gather, ridden in the same direction again and again – like the routes in farming guides, but worked out by Gathercraft from its own spawn points. Empty or hard to reach points are left out until they can have a node again, new spots go in where they are on the way, and after a quest you join the round again ahead of where you left it. `/gcr route` shows the whole round before you start. *Smart* (planning live) stays the default – in our simulator both bring about the same nodes per hour, so pick what you like riding.
-- **Herbs / minerals switch:** a small button next to the minimap switches your tracking between Find Herbs and Find Minerals with one click (shown when you know both; Shift-drag moves it along the minimap's edge). Prefer your action bar? Options → Map & minimap → *Put it on an action bar* creates the macro "GC Tracking" and puts it on your cursor. There is a key binding too. Every switch is your own click – nothing switches by itself.
-- **See what sharing does:** Options → Sharing shows how many Gathercraft players were around in the last hour, how many spots you received and how many wait for a second confirmation – and now and then one line in chat tells you when spots of other players arrived (can be turned off).
-- **Chests on or off:** Options → Map & minimap → *Show chests*.
-- **World map pins in a ring:** the world map now uses the same silver rings as the minimap. Prefer the old look? Options → World map style → Normal.
+- **Skill plan:** Crafting tab → *Skill plan* (or `/gcr plan`). Pick a profession and a target skill, and Gathercraft works out the cheapest way there: which recipe to make from which skill, how many, and where to learn it (trainer or vendor). Below: every material you need, what you already have in bags and bank, what's missing and what it costs. Bars and bolts you can make yourself are broken down into ore and cloth – and herbs and ore get a *Farm* button that starts a farm run for them. Prices come from your auction house scan; without one they are rough.
+- **Skill bars to 300 and a trainer reminder:** the profession bars in the overview now show the whole way to 300 – the part your trainer has unlocked is lighter. 5 points before the end of a rank, one line in chat reminds you to visit your trainer, and once more when you're there (Options → General).
+- **Run summary:** when you stop a farm run, a small window shows what it brought – time, nodes, nodes per hour, worth, gold per hour and skill-ups. *Share in guild* or *Share in group* posts one line in chat, only when you click it. Don't want it? Options → Farm runs → *Show a summary when a run ends*.
+- **Routes ask ahead:** a farm run through other zones asks other Gathercraft players about those zones right away (a few zones, one after another) – new spots they found there are in your route before you arrive.
+- **Waypoints to recipe vendors:** in the Crafting tab, click a recipe you don't know yet and Gathercraft sets a waypoint to the nearest vendor of your faction who sells it.
+- **Welcome:** new players get a short welcome on their first start – three steps to get going. `/gcr welcome` shows it again.
+- **What's new:** after an update, one line in chat says what's new. `/gcr whatsnew` repeats it.
 
-A thorough review of v0.1.11 also found a few things that could get in your way. All fixed:
+### Changed
+- **Right-click farms where you are:** right-click on the minimap button, the run buttons in the overview and the key binding now always farm the zone you're in, for the gathering professions you have – whatever is picked in the Zones tab. In a capital city that's its zone (Thunder Bluff → Mulgore, Orgrimmar → Durotar, ...). Too few known spots here: the nearest zone that has some. Before, a run could stretch across the whole continent.
+- **Clearer route line:** on the world map the line keeps the same spacing all the way to the end – long rounds no longer fall apart into scattered dots far from you. The default style is now a solid line (Options → Farm runs → Route line).
+- **The map shows everything:** unticking a zone or material in the Zones tab now only decides what *Start run* farms – the pins stay on the map. Want the old way? Options → Map & minimap → *Hide zones and materials unticked in the Zones tab*.
+- **Loop adapts to busy zones:** the Loop route type now watches how fast spots come back while you ride. Where many players farm, a spot is soon back to what it can be – so the round gets shorter and runs through the dense part of the zone more often, like the small loops in farming guides. Where you farm alone, it stays the whole round (or grows back). One line in chat says when it changes, and the next run in that zone starts the same way for a few hours. In our simulations (two-hour runs in Durotar, Mulgore and Dun Morogh) with eight other gatherers in the zone, Loop now brings 6–27% more nodes per hour than before and 3–16% more than Smart; farming alone it is as good as Smart or a little better.
+- **Runs over several zones stay together:** a run from the Zones tab plans the picked zones that border each other near you. Zones far away are left out for this run, and one line in chat names them – start a run there once you're there.
 
-### Farm runs
-- **The line follows you:** the dotted part from you to the next node is drawn again as you move (10 times a second) – it no longer starts where you stood when the route was planned.
-- **Questing with a run on no longer blocks nodes:** walking crosswise to the target (a quest, a mailbox, a building in the way) was sometimes taken as "can't get there", and the node was left out for 15 minutes or more. Now only walking around without getting any closer counts – standing still doesn't, and walking away is handled as a detour.
-- **"Hard to reach" is remembered properly:** for known spawn points it now survives a /reload or logout, and the count starts over after a day without problems.
-- **A target that moves stays marked:** when a few more looks at the minimap move a rough spot, the gold ring and the arrival check move with it.
+### Fixed
+- Nodes were sometimes saved as "Find Herbs" or "Find Minerals" (the name of the tracking button under the mouse). Such entries are repaired on login.
 
-### Learning nodes from the minimap
-- **Works on our own pins too:** Gathercraft's minimap pins now let the mouse through to the game's tracking blip, so Gathercraft learns that a known node is there right now. What Gathercraft knows about it shows in a small tooltip of its own – right below the game's tooltip (also below a quest area's), or next to the pin where the game shows nothing.
-- **Several blips at once:** when the game lists several things in one tooltip (a quest and a vein), each name is read on its own.
-- **No more double pins after harvesting:** a herb or vein learned from the minimap now always merges with your harvest, even when the game uses another object for the same herb (Peacebloom, Silverleaf, Earthroot, Copper and others have several).
-- **The right node lights up:** pointing at a herb next to one you just picked now marks the herb you point at, not the one you just harvested.
-- **Seen = real:** a shared node that was left out for being always empty comes back as soon as you see it on the minimap.
-
-### Sharing (sync)
-- **Made for megaservers:** when many players log in at once, one of them asks for the zone and everyone else listens to the answers – about 40 % less traffic on the sharing channel in our 800-player test, with the same spots reaching everyone.
-- **Calmer channel:** a zone is answered at most every 5 minutes, answers are capped to what other players accept anyway, and repeated questions from one player are cut off. Your own finds are never stuck behind a long queue.
-- **Harder to flood:** one player can only keep a limited number of unconfirmed reports with you, and the oldest reports make room instead of blocking new ones. Broken zone or item numbers are ignored.
-- **Self-healing counts fresh:** an empty visit from long ago no longer counts towards leaving a shared node out.
+### Under the hood
+- Newer WoW functions are used where the game has them (the old ones stay as a fallback), and a `.luarc.json` lets the Lua language server and Ketho's WoW API extension check the code cleanly.

@@ -10,7 +10,7 @@ local function ToggleRun()
     if ns.run then
         ns.StopRun()
     else
-        ns.StartRun("both")
+        ns.StartHereRun() -- your zone, your gathering professions
     end
 end
 
@@ -391,7 +391,7 @@ local ROUTE_MODES = {
     { code = "smart", name = "Smart",
       tip = "Plans live: always rides to what most likely has a node right now." },
     { code = "loop", name = "Loop",
-      tip = "One fixed round through all spawn points, ridden again and again like in farming guides. Empty or hard to reach points are left out until they can have a node again." },
+      tip = "One fixed round through all spawn points, ridden again and again like in farming guides. Where many players farm and spots come back fast, the round gets shorter and stays in the dense part. Empty or hard to reach points are left out until they can have a node again." },
 }
 local modeText
 local function CurrentMode()
@@ -726,6 +726,12 @@ local function Build()
             ns.db.chestsHidden = not on or nil
             ns.NotifyNodesChanged()
         end)
+    AddCheck("Hide zones and materials unticked in the Zones tab",
+        function() return ns.db.mapFollowsZones end,
+        function(on)
+            ns.db.mapFollowsZones = on or nil
+            ns.NotifyNodesChanged()
+        end)
     AddCheck("Learn nodes you point at on the minimap",
         function() return not ns.db.minimapLearnOff end,
         function(on) ns.db.minimapLearnOff = not on or nil end)
@@ -769,6 +775,9 @@ local function Build()
             if ns.UpdateArrow then ns.UpdateArrow() end
             if ns.RouteArrowChanged then ns.RouteArrowChanged() end
         end)
+    AddCheck("Show a summary when a run ends",
+        function() return not ns.db.summaryOff end,
+        function(on) ns.db.summaryOff = not on end)
     nextY = nextY - 4
     AddArrive()
     AddCheck("Show route line",
@@ -839,6 +848,9 @@ local function Build()
             ns.db.minimapHidden = not on
             ns.UpdateMinimapButton()
         end)
+    AddCheck("Remind me to visit the trainer (5 points before the end of a rank)",
+        function() return not ns.db.trainerRemindOff end,
+        function(on) ns.db.trainerRemindOff = not on end)
     AddCheck("Fish key applies a lure when the pole has none",
         function() return ns.db.fishLure ~= false end,
         function(on) ns.db.fishLure = on end)

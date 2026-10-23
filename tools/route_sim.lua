@@ -23,6 +23,9 @@
 --   goal=auto        the addon's route goal: auto | skill | gold | nodes
 --   loop=0           1 = route type Loop (a fixed round, like farming guides)
 --   tune=a:1,b:2     override ns.RouteTune values (spawn point learning), e.g. tune=prune:0,learn:0
+--   rivals=0         other gatherers in the zone: they ride around, take every node they see
+--                    (with tracking on they also ride to nodes their minimap shows)
+--   (environment) SIM_LOG=<Lua pattern>: print the addon's debug lines that match, e.g. SIM_LOG="^loop"
 --   oracle=1         ignore the addon, always ride to the nearest node that is up
 --                    (nobody can know that: the best any route could ever do)
 --
@@ -37,7 +40,7 @@ local ROOT = arg[1] or "."
 local opts = {
     zone = 1412, mode = "herb", minutes = 60, speed = 11.2, active = 0.35, respawn = 600,
     see = 40, track = 0, arrive = 25, seed = 1, runs = 1, oracle = 0, tune = "",
-    dead = 0, skew = 0, warm = 0, skill = 300, goal = "auto", loop = 0,
+    dead = 0, skew = 0, warm = 0, skill = 300, goal = "auto", loop = 0, rivals = 0,
 }
 for i = 2, #arg do
     local k, v = arg[i]:match("^(%w+)=(.+)$")
@@ -124,6 +127,8 @@ local function RunOnce(seed)
     local Debug = ns.Debug
     ns.Debug = function(msg, ...)
         if type(msg) == "string" and msg:find("was empty", 1, true) then emptyCount = emptyCount + 1 end
+        local pat = os.getenv("SIM_LOG")
+        if pat and type(msg) == "string" and msg:find(pat) then io.write(("  [%5ds] %s\n"):format(h.now(), msg)) end
         return Debug(msg, ...)
     end
 
@@ -215,6 +220,45 @@ local function RunOnce(seed)
         respawns[#respawns + 1] = { at = now + opts.respawn, kind = tostring(p.id) }
     end
 
+    -- other gatherers: wander to random places, take what they see
+    local rivals = {}
+    for i = 1, opts.rivals do
+        rivals[i] = { x = math.random() * WORLD_W + OffsetX(opts.zone), y = math.random() * WORLD_H, busy = 0 }
+    end
+    local rivalTaken = 0
+    local function MoveRivals(now)
+        for _, r in ipairs(rivals) do
+            if now >= r.busy then
+                local best, bd
+                local reach = math.max(opts.see, opts.track)
+                for _, p in ipairs(points) do
+                    if p.up then
+                        local d = math.sqrt((p.wx - r.x) ^ 2 + (p.wy - r.y) ^ 2)
+                        if d <= reach and (not bd or d < bd) then best, bd = p, d end
+                    end
+                end
+                if best and bd <= opts.see then
+                    best.up = false
+                    respawns[#respawns + 1] = { at = now + opts.respawn, kind = tostring(best.id) }
+                    rivalTaken = rivalTaken + 1
+                    r.x, r.y, r.busy = best.wx, best.wy, now + GATHER_TIME + bd / opts.speed
+                else
+                    local gx, gy
+                    if best then gx, gy = best.wx, best.wy
+                    else
+                        if not r.gx or math.abs(r.gx - r.x) + math.abs(r.gy - r.y) < 5 then
+                            r.gx, r.gy = math.random() * WORLD_W + OffsetX(opts.zone), math.random() * WORLD_H
+                        end
+                        gx, gy = r.gx, r.gy
+                    end
+                    local d = math.sqrt((gx - r.x) ^ 2 + (gy - r.y) ^ 2)
+                    local step = math.min(d, opts.speed * DT)
+                    if d > 0.01 then r.x, r.y = r.x + (gx - r.x) / d * step, r.y + (gy - r.y) / d * step end
+                end
+            end
+        end
+    end
+
     -- ride
     local stats = { gathered = 0, distance = 0, idle = 0, arrivals = 0, emptyArrivals = 0, detours = 0 }
     local lastTarget
@@ -232,6 +276,7 @@ local function RunOnce(seed)
             emptyCount, skillUps, gold = 0, 0, 0
         end
         Respawn(now)
+        MoveRivals(now)
         if now >= busyUntil then
             local px, py = player.x * WORLD_W + OffsetX(opts.zone), player.y * WORLD_H
             -- a node in sight: take it

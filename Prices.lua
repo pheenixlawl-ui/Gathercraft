@@ -79,7 +79,9 @@ local function VendorPrice(itemID)
     if C_Item and C_Item.GetItemInfo then
         sell = select(11, C_Item.GetItemInfo(itemID))
     end
+    ---@diagnostic disable-next-line: deprecated -- fallback for clients without the C_ version
     if not sell and GetItemInfo then
+        ---@diagnostic disable-next-line: deprecated
         sell = select(11, GetItemInfo(itemID))
     end
     if type(sell) == "number" and sell > 0 then return sell end
@@ -732,7 +734,8 @@ local function PriceTest()
     Check("QueryAuctionItems (classic AH)", QueryAuctionItems)
     Check("GetAuctionItemInfo", GetAuctionItemInfo)
     Check("C_AuctionHouse.ReplicateItems (full scan)", C_AuctionHouse and C_AuctionHouse.ReplicateItems)
-    local _, canGetAll = CanSendAuctionQuery and CanSendAuctionQuery()
+    local canGetAll
+    if CanSendAuctionQuery then canGetAll = select(2, CanSendAuctionQuery()) end
     print(("  CanSendAuctionQuery: %s, getAll: %s (only meaningful at the auction house)"):format(
         tostring(CanSendAuctionQuery ~= nil), tostring(canGetAll)))
     local p = PriceDB()

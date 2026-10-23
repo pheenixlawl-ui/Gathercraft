@@ -10,3 +10,4 @@ ignore:
   - .github
   - .vscode
   - "*.zip"
+  - .luarc.json

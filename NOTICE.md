@@ -40,6 +40,9 @@ docs/icon.png, docs/banner.png) as the name or branding of your own version.
   GPL-3.0-or-later, which reads them from the WoW: Forever client tables
   (via wago.tools) and CMaNGOS classic-db (GPL-3.0). Converted by
   tools/import_skillup.lua.
+- **Data/AreaMaps.lua** - zone area IDs and their map IDs from the Questie
+  database (GPLv3), converted by tools/import_area_maps.py (for waypoints to
+  recipe vendors).
 - **Data/RecipeSources.lua** - where recipes are learned: trainer fees, recipe
   items and their likeliest drops from SkillUp Forever (GPL-3.0-or-later, see
   above); vendors, quest rewards and NPC names and zones from the Questie

@@ -40,8 +40,9 @@ local REACH_FORGET = 24 * 3600 -- reachable again for a day: its "hard to reach"
 local TELEPORT_YARDS = 30    -- further than this in one check (half a second): not walking
 local UNREACH_BASE = 15 * 60 -- left out this long, doubling each time it happens again ...
 local UNREACH_MAX = 4 * 3600 -- ... up to this long
-local MAX_DOTS = 600          -- per map; long routes get wider spacing
-local NEAR_YARDS = 500       -- the first part of the line (around you) can be drawn denser
+local MAX_DOTS = 1200         -- world map; long routes get a bit wider spacing
+local MINI_DOTS = 400        -- minimap: only the part around you ...
+local MINI_YARDS = 600       -- ... this far (the line is drawn again as you ride)
 local LINE_REF = ADDON_NAME .. "Route"
 local HEAD_REF = ADDON_NAME .. "RouteHead" -- the part from you to the next node
 local HEAD_TICK = 0.1        -- seconds between updates of that part
@@ -72,7 +73,7 @@ local function Pick(list, code)
     return list[1]
 end
 local function LineColor() return Pick(LINE_COLORS, ns.db.routeLineColor) end
-local function LineStyle() return Pick(LINE_STYLES, ns.db.routeLineStyle) end
+local function LineStyle() return Pick(LINE_STYLES, ns.db.routeLineStyle or "line") end -- default: a solid line
 ns.ROUTE_LINE_COLORS, ns.ROUTE_LINE_STYLES = LINE_COLORS, LINE_STYLES
 ns.RouteLineColor, ns.RouteLineStyle = LineColor, LineStyle
 
@@ -92,6 +93,14 @@ local TUNE = {
     learn = true,
     freeAfterDetour = true,
     loopRejoin = 2,    -- loop, after a detour: 0 = keep going, 1 = nearest point, 2 = nearest of the next part
+    loopAdapt = true,  -- loop: shorter round where nodes come back fast (measured, see LoopAdapt)
+    loopAdaptMin = 30, -- ... once this many spawn points were passed a second time
+    loopAdaptEvery = 120, -- seconds between checks
+    loopStep = 1.6,    -- the round grows or shrinks by at most this factor at a time
+    loopMinShare = 0.4, -- never shorter than this share of the points
+    loopFast = 0.5,    -- points refill within this share of a round: shorter round
+    loopSlow = 1.0,    -- still filling after a whole round: longer round
+    loopRemember = 3 * 3600, -- seconds a shorter round is remembered for the zone
 }
 ns.RouteTune = TUNE
 
@@ -121,12 +130,31 @@ end
 -- Planning
 ---------------------------------------------------------------------------
 local TYPE_FILTERS = { herb = true, ore = true }
+-- "item:2770": every node that gives this item (any language, rich and poor
+-- variants too) - the skill planner's farm runs use it
+local itemFilters = {}
+local function FilterItem(filter)
+    local item = itemFilters[filter]
+    if item == nil then
+        item = tonumber(filter:match("^item:(%d+)$")) or false
+        itemFilters[filter] = item
+    end
+    return item
+end
+local function NodeItem(n)
+    if n.item then return n.item end
+    local kinds = GathercraftQuestieData and GathercraftQuestieData.kinds
+    local kind = kinds and n.id and kinds[n.id]
+    return kind and kind[2]
+end
 local function MatchesFilter(n, filter)
     -- chests are map icons only, never part of a route
     if n.type == "chest" then return false end
     if not filter then return true end
     if filter == "both" then return n.type == "herb" or n.type == "ore" end
     if TYPE_FILTERS[filter] then return n.type == filter end -- no string work per node
+    local item = FilterItem(filter)
+    if item then return NodeItem(n) == item end
     return n.type == filter or n.name:lower():find(filter, 1, true)
 end
 
@@ -143,12 +171,135 @@ local function WorldPos(n, mapID)
 end
 
 -- All checked nodes on the given continent (or in one zone only)
-local function CollectPoints(filter, instance, zone)
+-- capital cities belong to the zone around them
+local CITY_ZONE = {
+    [1453] = 1429, -- Stormwind City -> Elwynn Forest
+    [1454] = 1411, -- Orgrimmar -> Durotar
+    [1455] = 1426, -- Ironforge -> Dun Morogh
+    [1456] = 1412, -- Thunder Bluff -> Mulgore
+    [1457] = 1438, -- Darnassus -> Teldrassil
+    [1458] = 1420, -- Undercity -> Tirisfal Glades
+}
+
+-- Zones picked for one run (Zones tab) that lie far apart: the route takes
+-- the group of neighbouring zones you are in (or the nearest one) instead of
+-- zigzagging across the continent. Two zones belong together when their
+-- nodes come within GROUP_LINK yards of each other somewhere.
+local GROUP_LINK = 700
+-- zones you can ride between (map IDs), on top of nodes close together
+local NEIGHBOURS = {
+    -- Kalimdor
+    { 1411, 1413 }, { 1412, 1413 }, { 1413, 1440 }, { 1413, 1442 }, { 1413, 1445 }, { 1413, 1441 },
+    { 1440, 1439 }, { 1440, 1448 }, { 1440, 1442 }, { 1440, 1447 }, { 1448, 1452 }, { 1448, 1450 },
+    { 1452, 1450 }, { 1442, 1443 }, { 1443, 1444 }, { 1444, 1441 }, { 1441, 1446 }, { 1446, 1449 },
+    { 1449, 1451 },
+    -- Eastern Kingdoms
+    { 1429, 1436 }, { 1429, 1431 }, { 1429, 1433 }, { 1436, 1431 }, { 1431, 1434 }, { 1431, 1430 },
+    { 1431, 1433 }, { 1433, 1428 }, { 1430, 1435 }, { 1435, 1419 }, { 1428, 1427 }, { 1427, 1418 }, { 1427, 1432 },
+    { 1418, 1432 }, { 1432, 1426 }, { 1432, 1437 }, { 1437, 1417 }, { 1417, 1424 }, { 1417, 1425 },
+    { 1424, 1416 }, { 1424, 1421 }, { 1424, 1425 }, { 1416, 1422 }, { 1421, 1420 }, { 1420, 1422 },
+    { 1422, 1423 },
+}
+local function ZoneGroups(points)
+    local parent = {}
+    local function find(z)
+        while parent[z] ~= z do
+            parent[z] = parent[parent[z]]
+            z = parent[z]
+        end
+        return z
+    end
+    local cells = {}
+    for _, p in ipairs(points) do
+        parent[p.mapID] = parent[p.mapID] or p.mapID
+        local cx, cy = math.floor(p.wx / GROUP_LINK), math.floor(p.wy / GROUP_LINK)
+        local key = cx .. ":" .. cy
+        local cell = cells[key]
+        if not cell then cell = {} cells[key] = cell end
+        cell[p.mapID] = cell[p.mapID] or {}
+        table.insert(cell[p.mapID], p)
+    end
+    for _, pair in ipairs(NEIGHBOURS) do
+        local a, b = pair[1], pair[2]
+        if parent[a] and parent[b] and find(a) ~= find(b) then parent[find(a)] = find(b) end
+    end
+    -- neighbouring cells: zones with nodes close together are joined
+    for key, cell in pairs(cells) do
+        local cx, cy = key:match("^(-?%d+):(-?%d+)$")
+        cx, cy = tonumber(cx), tonumber(cy)
+        for dx = -1, 1 do
+            for dy = -1, 1 do
+                local other = cells[(cx + dx) .. ":" .. (cy + dy)]
+                if other then
+                    for zoneA, listA in pairs(cell) do
+                        for zoneB, listB in pairs(other) do
+                            if zoneA ~= zoneB and find(zoneA) ~= find(zoneB) then
+                                local near = false
+                                for _, a in ipairs(listA) do
+                                    for _, b in ipairs(listB) do
+                                        if PDist(a, b) <= GROUP_LINK then near = true break end
+                                    end
+                                    if near then break end
+                                end
+                                if near then parent[find(zoneA)] = find(zoneB) end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+    local groups = {}
+    for zone in pairs(parent) do
+        local root = find(zone)
+        groups[root] = groups[root] or {}
+        groups[root][zone] = true
+    end
+    return groups
+end
+
+-- The group this run uses: yours (the zone you stand in, a capital counts as
+-- its zone), else the one with the node nearest to you. Returns the zones of
+-- the group and the zones left out.
+local function PickGroup(points, px, py)
+    local groups = ZoneGroups(points)
+    local count = 0
+    for _ in pairs(groups) do count = count + 1 end
+    if count <= 1 then return nil end
+    local here = ns.GetPlayerPos and ns.GetPlayerPos()
+    here = here and CITY_ZONE[here] or here
+    local chosen
+    for _, zones in pairs(groups) do
+        if here and zones[here] then chosen = zones end
+    end
+    if not chosen then
+        local bestD
+        for _, p in ipairs(points) do
+            local d = WDist(px, py, p.wx, p.wy)
+            if not bestD or d < bestD then
+                bestD = d
+                for _, zones in pairs(groups) do
+                    if zones[p.mapID] then chosen = zones end
+                end
+            end
+        end
+    end
+    local left = {}
+    for _, zones in pairs(groups) do
+        if zones ~= chosen then
+            for zone in pairs(zones) do left[#left + 1] = zone end
+        end
+    end
+    return chosen, left
+end
+
+-- quick = a run started where you are: your Zones tab selection doesn't count
+local function CollectPoints(filter, instance, zone, quick)
     local points = {}
     for mapID, nodes in pairs(ns.db.nodes) do
         if (not zone or mapID == zone) and (zone or not ns.db.disabledZones[mapID]) then
             for _, n in ipairs(nodes) do
-                if MatchesFilter(n, filter) and ns.IsNodeEnabled(n, mapID)
+                if MatchesFilter(n, filter) and (quick or ns.IsNodeEnabled(n, mapID))
                     and not (ns.IsParked and ns.IsParked(n)) then
                     local wx, wy, inst = WorldPos(n, mapID)
                     if wx and inst == instance then
@@ -480,6 +631,49 @@ local function TourLength(tour)
     return length
 end
 
+local LOOP_MIN_POINTS = 8
+local LOOP_NEAR = 800 -- yards: a point of the round this close = you are still at the round
+local GATHER_SECONDS = 5
+
+-- The order in which points leave the round when it gets shorter: always the
+-- one that costs the longest detour (lonely points first, dense parts stay).
+-- Returns the nodes in that order and the round's length after each step.
+local function TrimOrder(tour)
+    local n = #tour
+    local prev, nxt, sav, alive = {}, {}, {}, {}
+    for i = 1, n do prev[i], nxt[i], alive[i] = (i - 2) % n + 1, i % n + 1, true end
+    local function Saving(i)
+        local a, b = tour[prev[i]], tour[nxt[i]]
+        return PDist(a, tour[i]) + PDist(tour[i], b) - PDist(a, b)
+    end
+    for i = 1, n do sav[i] = Saving(i) end
+    local length = TourLength(tour)
+    local order, lengths = {}, { [0] = length }
+    for k = 1, n - LOOP_MIN_POINTS do
+        local bi, bs
+        for i = 1, n do
+            if alive[i] and (not bs or sav[i] > bs) then bi, bs = i, sav[i] end
+        end
+        alive[bi] = false
+        local a, b = prev[bi], nxt[bi]
+        nxt[a], prev[b] = b, a
+        length = length - bs
+        sav[a], sav[b] = Saving(a), Saving(b)
+        order[k], lengths[k] = tour[bi].node, length
+    end
+    return order, lengths
+end
+
+-- The zone most points of a round are in (to remember its round size)
+local function MainZone(tour)
+    local count, best, bestN = {}, nil, 0
+    for _, p in ipairs(tour) do
+        count[p.mapID] = (count[p.mapID] or 0) + 1
+        if count[p.mapID] > bestN then best, bestN = p.mapID, count[p.mapID] end
+    end
+    return best
+end
+
 local function IndexLoop(run, byNode)
     run.loopIndex = {}
     local tour = {}
@@ -492,6 +686,8 @@ end
 
 -- Builds the round, or brings it up to date with the node list: points that
 -- are gone drop out, new ones are put in where they cost the least detour.
+local LoopSetSize -- below
+
 local function UpdateLoop(run, points, px, py)
     local byNode = {}
     for _, p in ipairs(points) do byNode[p.node] = p end
@@ -507,6 +703,35 @@ local function UpdateLoop(run, points, px, py)
         run.loop = {}
         for i, p in ipairs(tour) do run.loop[i] = p.node end
         run.loopPos, run.loopSteps = nil, 0
+        -- for a shorter round later (LoopAdapt): the full round, which points
+        -- leave first, and what you see while riding
+        run.loopFull, run.loopFullSet, run.loopOut, run.loopPts = {}, {}, {}, {}
+        for i, p in ipairs(tour) do
+            run.loopFull[i], run.loopPts[i] = p.node, p
+            run.loopFullSet[p.node] = true
+        end
+        if #tour > LOOP_MIN_POINTS then
+            run.loopTrim, run.loopTrimLen = TrimOrder(tour)
+        else
+            run.loopTrim, run.loopTrimLen = nil, nil
+        end
+        run.loopN0, run.loopSize = #tour, #tour
+        run.loopKey = (MainZone(tour) or 0) .. ":" .. tostring(run.filter)
+        run.loopStats, run.lastPass, run.harvestAt, run.pending = { h1 = 0, n1 = 0, rev = {} }, {}, {}, {}
+        -- this zone was busy a little while ago: start with the shorter round
+        -- (said once per run: a fresh plan on the way doesn't repeat it)
+        local saved = ns.db.loopShort
+        local known = saved and saved[run.loopKey]
+        if known and time() - known.at >= TUNE.loopRemember then
+            saved[run.loopKey], known = nil, nil
+        end
+        if TUNE.loopAdapt and run.loopTrim and known then
+            local m = math.max(LOOP_MIN_POINTS, math.floor(#tour * known.share + 0.5))
+            if m < #tour and LoopSetSize(run, m) and not run.loopShortSaid then
+                run.loopShortSaid = true
+                ns.Print((L["Loop: this zone was busy a short while ago, the round starts shorter (%d of %d spawn points)."]):format(m, #tour))
+            end
+        end
         IndexLoop(run, byNode)
         return
     end
@@ -517,7 +742,7 @@ local function UpdateLoop(run, points, px, py)
     -- would stretch the round across the map
     local maxCost = math.max(500, 3 * (run.loopLength or 0) / math.max(1, #run.loop))
     for _, p in ipairs(candidates) do
-        if not inLoop[p.node] and #kept < MAX_ROUTE_NODES then
+        if not inLoop[p.node] and #kept < MAX_ROUTE_NODES and not (run.loopOut and run.loopOut[p.node]) then
             local bestI, bestCost
             for i = 1, #kept do
                 local a, b = byNode[kept[i]], byNode[kept[i % #kept + 1]]
@@ -527,6 +752,17 @@ local function UpdateLoop(run, points, px, py)
             if bestCost <= maxCost then
                 table.insert(kept, bestI + 1, p.node)
                 inLoop[p.node] = true
+                -- new spots stay in the round when it gets shorter: next to
+                -- their neighbour in the full round
+                if run.loopFull and not run.loopFullSet[p.node] then
+                    local at = #run.loopFull
+                    for i, node in ipairs(run.loopFull) do
+                        if node == kept[bestI] then at = i break end
+                    end
+                    table.insert(run.loopFull, at + 1, p.node)
+                    table.insert(run.loopPts, p)
+                    run.loopFullSet[p.node] = true
+                end
             end
         end
     end
@@ -534,6 +770,130 @@ local function UpdateLoop(run, points, px, py)
     IndexLoop(run, byNode)
     -- the point you reached last keeps its place in the round
     run.loopPos = lastNode and run.loopIndex[lastNode] or nil
+end
+
+-- Passes: every time you come close to a spawn point of the round (for
+-- whatever reason: the route, a node on your minimap, a quest) it counts as
+-- looked at: harvested within a short while = it was up. Later passes of the
+-- same point show how fast points come back.
+local PASS_YARDS = 40
+local PASS_WAIT = 25
+local function LoopPasses(run, px, py)
+    if not run.loopPts then return end
+    local now, st = time(), run.loopStats
+    for _, p in ipairs(run.loopPts) do
+        local node = p.node
+        local started = run.pending[node]
+        if started then
+            local hit = (run.harvestAt[node] or 0) >= started - 2
+            if hit or now - started >= PASS_WAIT then
+                run.pending[node] = nil
+                local last = run.lastPass[node]
+                if not last then
+                    st.n1 = st.n1 + 1
+                    if hit then st.h1 = st.h1 + 1 end
+                else
+                    st.rev[#st.rev + 1] = { t = started - last, hit = hit }
+                    if #st.rev > 400 then table.remove(st.rev, 1) end
+                end
+                run.lastPass[node] = now
+            end
+        elseif math.abs(p.wx - px) <= PASS_YARDS and math.abs(p.wy - py) <= PASS_YARDS
+            and WDist(px, py, p.wx, p.wy) <= PASS_YARDS
+            and (not run.lastPass[node] or now - run.lastPass[node] > 60) then
+            run.pending[node] = now
+        end
+    end
+end
+
+-- Where many players farm, a gathered point is soon back to what it can be
+-- (someone else takes the rest anyway): a shorter round through the dense
+-- part, ridden more often, brings more - like the small loops in farming
+-- guides. Where you farm alone, points need long to fill again: the whole
+-- round. Measured, not guessed: the share of passes with a harvest, by time
+-- since your last pass there, is fitted to
+--   P(t) = A * (1 - e^(-t / fill))
+-- Filled well within a round: shorter. Still filling after a whole round:
+-- longer. One step at a time, so the next passes show whether it was right.
+local function LoopAdapt(run)
+    if not TUNE.loopAdapt or not run.loopTrim then return end
+    local st = run.loopStats
+    if #st.rev < TUNE.loopAdaptMin then return end
+    -- the passes by time since the one before (log scale bins)
+    local bins = {}
+    for _, r in ipairs(st.rev) do
+        local b = math.max(1, math.min(16, math.floor(math.log(math.max(r.t, 60) / 60) / math.log(1.5)) + 1))
+        local bin = bins[b]
+        if not bin then bin = { n = 0, h = 0, t = 0 } bins[b] = bin end
+        bin.n, bin.t = bin.n + 1, bin.t + r.t
+        if r.hit then bin.h = bin.h + 1 end
+    end
+    local bestA, bestK, bestLL
+    for ia = 1, 20 do
+        local A = ia / 20
+        for ik = 0, 40 do
+            local k = 1 / (60 * 360 ^ (ik / 40)) -- fills within 1 minute ... 6 hours
+            local ll = 0
+            for _, bin in pairs(bins) do
+                local p = math.min(math.max(A * (1 - math.exp(-k * bin.t / bin.n)), 0.001), 0.999)
+                ll = ll + bin.h * math.log(p) + (bin.n - bin.h) * math.log(1 - p)
+            end
+            if not bestLL or ll > bestLL then bestA, bestK, bestLL = A, k, ll end
+        end
+    end
+    local speed = (run.rideTime or 0) > 30 and run.rideDist / run.rideTime or 11
+    local n0 = run.loopN0
+    local length = run.loopTrimLen[n0 - run.loopSize] or run.loopLength or 0
+    local round = length / speed + run.loopSize * bestA * GATHER_SECONDS
+    local fill = 1 / bestK
+    local size = run.loopSize
+    if fill < round * TUNE.loopFast then
+        size = math.max(math.floor(n0 * TUNE.loopMinShare + 0.5), math.floor(run.loopSize / TUNE.loopStep + 0.5))
+    elseif fill > round * TUNE.loopSlow then
+        size = math.min(n0, math.floor(run.loopSize * TUNE.loopStep + 0.5))
+    end
+    size = math.max(LOOP_MIN_POINTS, size)
+    ns.Debug(("loop: %d points, a pass finds a node %d%% of the time at most, refills in ~%d min, round %d min"):format(
+        run.loopSize, bestA * 100, fill / 60, round / 60))
+    if math.abs(size - run.loopSize) <= 0.1 * run.loopSize then
+        -- still short: remembered a while longer
+        if run.loopSize < n0 and ns.db.loopShort and ns.db.loopShort[run.loopKey] then
+            ns.db.loopShort[run.loopKey].at = time()
+        end
+        return
+    end
+    local shorter = size < run.loopSize
+    if not LoopSetSize(run, size) then return end
+    ns.Print((shorter
+        and L["Loop: spots come back fast here (many players?) - shorter round through the dense part: %d of %d spawn points."]
+        or L["Loop: spots come back slowly here - the round takes in more again: %d of %d spawn points."]):format(size, n0))
+    -- remembered for the zone and what you farm: the next run starts like this
+    ns.db.loopShort = ns.db.loopShort or {}
+    ns.db.loopShort[run.loopKey] = size < n0 and { share = size / n0, at = time() } or nil
+    return true
+end
+
+-- The round with m points: the full round minus the first m points of the
+-- trim order, ridden from the point nearest to you
+LoopSetSize = function(run, m)
+    local byNode = {}
+    for _, p in ipairs(run.points) do byNode[p.node] = p end
+    local removed = {}
+    for k = 1, run.loopN0 - m do removed[run.loopTrim[k]] = true end
+    run.loopOut = removed -- left out on purpose: not put back in on the way
+    local tour = {}
+    for _, node in ipairs(run.loopFull) do
+        if not removed[node] and byNode[node] then tour[#tour + 1] = byNode[node] end
+    end
+    if #tour < LOOP_MIN_POINTS then return end
+    TwoOptClosed(tour, LOOP_BUDGET_MS)
+    run.loop = {}
+    for i, p in ipairs(tour) do run.loop[i] = p.node end
+    IndexLoop(run, byNode)
+    run.loopSize = m
+    run.loopPos, run.loopLeft, run.loopSteps = nil, nil, 0
+    run.target, run.targetPoint = nil, nil
+    return true
 end
 
 -- The path for a loop run: one full round ahead, starting after the point
@@ -732,51 +1092,55 @@ local function UpdateHead()
 end
 
 -- Draws the path: (you ->) first node -> ... -> last node. The part from you
--- to the first node is the head (above). Dense around you (what the minimap
--- shows), wider further away, never more than MAX_DOTS. "Around you" is the
--- distance from you, not along the path: a route that bends back close to
--- you is drawn dense there too.
+-- to the first node is the head (above).
+--   World map: the same spacing all the way, so the line never falls apart
+--   at the far end; a very long round only gets a bit wider spacing.
+--   Minimap: only the part around you (the rest isn't visible there anyway,
+--   and the line is drawn again as you ride), dense.
 local function DrawLine(path, length, instance, px, py)
     ClearLine()
     if not path or #path == 0 or ns.db.routeLineHidden then return end
     DrawHead(px, py, instance)
     local style, rgb = LineStyle(), LineColor().rgb
-    local nearLen, cx, cy = 0, path[1].wx, path[1].wy
+    local miniLen, cx, cy = 0, path[1].wx, path[1].wy
     length = 0
     for i = 2, #path do
         local p = path[i]
-        nearLen = nearLen + LengthInside(cx, cy, p.wx, p.wy, px, py, NEAR_YARDS)
+        miniLen = miniLen + LengthInside(cx, cy, p.wx, p.wy, px, py, MINI_YARDS)
         length = length + WDist(cx, cy, p.wx, p.wy)
         cx, cy = p.wx, p.wy
     end
-    local farLen = math.max(0, length - nearLen)
-    local nearDots = math.min(nearLen / style.near, MAX_DOTS * 0.75)
-    local nearSpacing = nearLen > 0 and nearLen / math.max(nearDots, 1) or style.near
-    local farSpacing = math.max(style.far, farLen / math.max(MAX_DOTS - nearDots, 1))
     local showFlag = HBD_PINS_WORLDMAP_SHOW_PARENT or 1
-    local near2 = NEAR_YARDS * NEAR_YARDS
-    local along, nextAt = 0, nearSpacing
-    cx, cy = path[1].wx, path[1].wy
-    for i = 2, #path do
-        local p = path[i]
-        local seg = WDist(cx, cy, p.wx, p.wy)
-        -- dots at fixed distances along the whole path (not per segment)
-        while nextAt < along + seg do
-            local d = nextAt - along
-            local t = seg > 0 and d / seg or 0
-            local x = cx + (p.wx - cx) * t
-            local y = cy + (p.wy - cy) * t
-            -- keep the node pins themselves clear
-            if d > 6 and seg - d > 6 then
-                HBDPins:AddWorldMapIconWorld(LINE_REF, GetDot(style.map, rgb), instance, x, y, showFlag)
-                HBDPins:AddMinimapIconWorld(LINE_REF, GetDot(style.mini, rgb), instance, x, y, false)
+    local mini2 = MINI_YARDS * MINI_YARDS
+    -- dots at fixed distances along the whole path (not per segment)
+    local function Walk(spacing, add)
+        local along, nextAt = 0, spacing
+        cx, cy = path[1].wx, path[1].wy
+        for i = 2, #path do
+            local p = path[i]
+            local seg = WDist(cx, cy, p.wx, p.wy)
+            while nextAt < along + seg do
+                local d = nextAt - along
+                local t = seg > 0 and d / seg or 0
+                -- keep the node pins themselves clear
+                if d > 6 and seg - d > 6 then
+                    add(cx + (p.wx - cx) * t, cy + (p.wy - cy) * t)
+                end
+                nextAt = nextAt + spacing
             end
-            local ox, oy = x - px, y - py
-            nextAt = nextAt + ((ox * ox + oy * oy <= near2) and nearSpacing or farSpacing)
+            along = along + seg
+            cx, cy = p.wx, p.wy
         end
-        along = along + seg
-        cx, cy = p.wx, p.wy
     end
+    Walk(math.max(style.far, length / MAX_DOTS), function(x, y)
+        HBDPins:AddWorldMapIconWorld(LINE_REF, GetDot(style.map, rgb), instance, x, y, showFlag)
+    end)
+    Walk(math.max(style.near, miniLen / MINI_DOTS), function(x, y)
+        local ox, oy = x - px, y - py
+        if ox * ox + oy * oy <= mini2 then
+            HBDPins:AddMinimapIconWorld(LINE_REF, GetDot(style.mini, rgb), instance, x, y, false)
+        end
+    end)
 end
 
 ---------------------------------------------------------------------------
@@ -840,7 +1204,10 @@ end
 ---------------------------------------------------------------------------
 -- Farm run
 ---------------------------------------------------------------------------
-local function StopRun(silent)
+local function StopRun(silent, summary)
+    -- what the run brought: a summary when you stop it (or it gives up),
+    -- not when a new run replaces it
+    local snapshot = (not silent or summary) and ns.run and ns.RunSnapshot and ns.RunSnapshot()
     ns.db.activeRun = nil
     if ticker then
         ticker:Cancel()
@@ -859,6 +1226,7 @@ local function StopRun(silent)
             ns.Print(L["Run stopped."])
         end
     end
+    if snapshot and ns.ShowRunSummary then ns.ShowRunSummary(snapshot) end
 end
 
 -- (Re-)plans the run from the player's current position
@@ -874,7 +1242,54 @@ Plan = function(quick)
     -- The node list only changes when the database changes: reuse it
     -- (rebuilding thousands of entries on every plan makes the game hitch)
     if not run.points or run.pointsDirty or run.pointsInstance ~= instance then
-        run.points = CollectPoints(run.filter, instance, run.zone)
+        run.points = CollectPoints(run.filter, instance, run.zone, run.quick)
+        -- picked zones far apart: the group of neighbouring zones near you.
+        -- Chosen once; again on another continent, when you are in a picked
+        -- zone outside it (a flight), or when nothing of it is left.
+        if not run.zone and not run.quick then
+            local here = ns.GetPlayerPos and ns.GetPlayerPos()
+            here = here and CITY_ZONE[here] or here
+            local function Filter()
+                local kept = {}
+                for _, p in ipairs(run.points) do
+                    if run.groupZones[p.mapID] then kept[#kept + 1] = p end
+                end
+                return kept
+            end
+            local stale = not run.groupDone or run.pointsInstance ~= instance
+            local kept
+            if not stale and run.groupZones then
+                if here and not run.groupZones[here] then
+                    for _, p in ipairs(run.points) do
+                        if p.mapID == here then stale = true break end
+                    end
+                end
+                if not stale then
+                    kept = Filter()
+                    stale = #kept == 0
+                end
+            end
+            if stale then
+                local zones, left = PickGroup(run.points, px, py)
+                run.groupZones, run.groupDone = zones or false, true
+                local sig
+                if zones and left and #left > 0 then
+                    local names = {}
+                    for i, zone in ipairs(left) do names[i] = ns.GetZoneName(zone) end
+                    table.sort(names)
+                    sig = table.concat(names, ", ")
+                    if sig ~= run.groupSaid then
+                        local shown = {}
+                        for i = 1, math.min(4, #names) do shown[i] = names[i] end
+                        ns.Print((L["Some picked zones are far from here (%s): this run stays near you. Start a run there when you are there."]):format(
+                            table.concat(shown, ", ") .. (#names > 4 and ", ..." or "")))
+                    end
+                end
+                run.groupSaid = sig
+                kept = zones and Filter() or nil
+            end
+            if kept then run.points = kept end
+        end
         run.pointsDirty, run.pointsInstance = false, instance
         run.pointsChanged = true
         run.loopDirty = true
@@ -971,7 +1386,49 @@ Plan = function(quick)
             run.loopDirty = nil
         end
         path, length = LoopPath(run, open, px, py)
-        if #path == 0 and #open > 0 then
+        run.loopIdle = nil
+        if #path == 0 then
+            -- the round's points are checked or unlikely: unlikely ones of the
+            -- round before anything else; all checked: the next round
+            local loose, visited, near = {}, false, false
+            for _, p in ipairs(points) do
+                if run.loopIndex[p.node] then
+                    if Available(p, run, now, false) then loose[#loose + 1] = p
+                    elseif run.visited[p.node] then visited = true end
+                    if not near and WDist(px, py, p.wx, p.wy) <= LOOP_NEAR then near = true end
+                end
+            end
+            if #loose == 0 and visited then
+                for _, p in ipairs(points) do
+                    if run.loopIndex[p.node] and not ns.IsOnCooldown(p.node) and not run.checkingSet[p.node]
+                        and not (p.node.unreachUntil and p.node.unreachUntil > now) and (run.weights[p.kind] or 1) > 0 then
+                        loose[#loose + 1] = p
+                    end
+                end
+                if #loose > 0 then
+                    wipe(run.visited)
+                    run.loopSteps = 0
+                    run.round = run.round + 1
+                end
+            end
+            path, length = LoopPath(run, loose, px, py)
+            -- the shorter round has nothing right now (all harvested a moment
+            -- ago): meanwhile the nearest points of the whole round, the
+            -- shorter round stays as it is
+            if #path == 0 and run.loopSize and run.loopSize < run.loopN0 then
+                local other = {}
+                for _, p in ipairs(open) do
+                    if run.loopFullSet[p.node] then other[#other + 1] = p end
+                end
+                if #other > 0 then
+                    path, length = PlanPath(other, px, py, QUICK_BUDGET_MS, QUICK_MAX_NODES)
+                end
+            end
+            -- points of the round close by come back: wait for them instead
+            -- of planning a new round
+            run.loopIdle = #path == 0 and near or nil
+        end
+        if #path == 0 and #open > 0 and not run.loopIdle then
             -- only points outside the round are open (you rode to another
             -- part of the continent): plan the round fresh from here
             run.loop = nil
@@ -1067,6 +1524,8 @@ local function RequestPlan(kind, mapID, node)
     -- target: a guess from the minimap can move a good bit with a new look
     if run and ((kind ~= "update" and kind ~= "harvest") or (node and node == run.target)) then
         run.pointsDirty = true
+        -- the whole list changed (zones picked in the Zones tab): choose the group again
+        if not kind then run.groupDone = nil end
     end
     if run and not run.planPending then
         run.planPending = true
@@ -1122,7 +1581,7 @@ local function CheckArrival()
     if not run.target then
         if run.waitingSince and time() - run.waitingSince >= WAIT_GIVE_UP then
             ns.Print(L["Nothing to farm for 10 minutes: run stopped. Start it again any time."])
-            StopRun(true)
+            StopRun(true, true)
             return
         end
         if time() - (run.lastTry or 0) >= WAIT_RETRY then
@@ -1146,6 +1605,20 @@ local function CheckArrival()
     run.lastX, run.lastY = px, py
     local jumped = step > TELEPORT_YARDS -- hearthstone, portal, a flight: not walking
     if not jumped then run.movedSince = (run.movedSince or 0) + step end
+    -- riding speed (for the length of a round in minutes)
+    if not jumped and step >= STUCK_STEP * TICK then
+        run.rideDist, run.rideTime = (run.rideDist or 0) + step, (run.rideTime or 0) + TICK
+    end
+    if run.loopMode and run.loopPts then
+        if not jumped then LoopPasses(run, px, py) end
+        if time() - (run.adaptAt or 0) >= TUNE.loopAdaptEvery then
+            run.adaptAt = time()
+            if LoopAdapt(run) then
+                Plan(true)
+                return
+            end
+        end
+    end
     if step >= STUCK_STEP * TICK and not jumped then run.lastMoveAt = time() end
     if tp and run.target then
         local d = WDist(px, py, tp.wx, tp.wy)
@@ -1240,7 +1713,7 @@ local function CheckArrival()
     end
 end
 
-local function StartRun(filter, zone)
+local function StartRun(filter, zone, quick)
     if not HBD then
         ns.Print(L["HereBeDragons missing, routes are not available."])
         return
@@ -1250,7 +1723,8 @@ local function StartRun(filter, zone)
 
     ns.run = {
         filter = filter,
-        zone = zone,       -- only this zone (from "Best place to farm")
+        zone = zone,       -- only this zone (from "Best place to farm", or where you are)
+        quick = quick or nil, -- started where you are: the Zones tab selection doesn't count
         visited = {},
         checking = {}, -- nodes reached, waiting to see if they get harvested
         harvests = {}, -- where we harvested during this run (recent ones)
@@ -1258,7 +1732,7 @@ local function StartRun(filter, zone)
         done = 0,
         loopMode = LoopMode() or nil, -- a fixed round instead of planning live
     }
-    ns.db.activeRun = { filter = filter, zone = zone }
+    ns.db.activeRun = { filter = filter, zone = zone, quick = quick or nil }
     ns.run.bonusSig = BonusSignature()
     Plan()
     local run = ns.run
@@ -1272,7 +1746,76 @@ local function StartRun(filter, zone)
     end
     ticker = C_Timer.NewTicker(TICK, CheckArrival)
     headTicker = C_Timer.NewTicker(HEAD_TICK, UpdateHead)
+    -- the other zones of the route, in the order you get there: ask other
+    -- players what they found there (Sync.lua)
+    if ns.SyncQueryRouteZones and run.path then
+        local zones, seen = {}, {}
+        for _, p in ipairs(run.path) do
+            if not seen[p.mapID] then
+                seen[p.mapID] = true
+                zones[#zones + 1] = p.mapID
+            end
+        end
+        ns.SyncQueryRouteZones(zones)
+    end
 end
+
+-- Overview, minimap button, key binding: a run where you are, for what you
+-- can gather (Herbalism, Mining or both), whatever the Zones tab selection
+-- says - that one is for runs started there. The zone you stand in when it
+-- has enough nodes for a round; in a city (Thunder Bluff) or a zone without
+-- nodes, the nearest zone that has them.
+local HERE_MIN_NODES = 8
+local function CountIn(mapID, filter)
+    local count = 0
+    for _, n in ipairs(ns.db.nodes[mapID] or {}) do
+        if MatchesFilter(n, filter) and not (ns.IsParked and ns.IsParked(n)) then
+            count = count + 1
+            if count >= HERE_MIN_NODES then break end
+        end
+    end
+    return count
+end
+-- herb, ore or both: the gathering professions you have
+local function ProfessionFilter()
+    local herb = ns.GetSkill and ns.GetSkill("herb")
+    local ore = ns.GetSkill and ns.GetSkill("ore")
+    if herb and not ore then return "herb" end
+    if ore and not herb then return "ore" end
+    return "both"
+end
+local function StartHereRun(filter)
+    filter = filter or ProfessionFilter()
+    local mapID = ns.GetPlayerPos and ns.GetPlayerPos()
+    mapID = mapID and CITY_ZONE[mapID] or mapID
+    local zone = mapID and CountIn(mapID, filter) >= HERE_MIN_NODES and mapID or nil
+    if not zone and HBD then
+        local px, py, instance = PlayerWorld()
+        local best, bestD
+        if px then
+            for m, nodes in pairs(ns.db.nodes) do
+                if CountIn(m, filter) >= HERE_MIN_NODES then
+                    for _, n in ipairs(nodes) do
+                        if MatchesFilter(n, filter) then
+                            local wx, wy, inst = WorldPos(n, m)
+                            if wx and inst == instance then
+                                local d = WDist(px, py, wx, wy)
+                                if not bestD or d < bestD then best, bestD = m, d end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+        zone = best
+    end
+    if not zone then
+        ns.Print(L["No matching nodes near you."])
+        return
+    end
+    StartRun(filter, zone, true)
+end
+ns.StartHereRun = StartHereRun
 
 local function SkipNode()
     local run = ns.run
@@ -1333,6 +1876,7 @@ local function OnHarvested(node, spawn)
     end
     local run = ns.run
     if run then
+        if run.harvestAt then run.harvestAt[node] = time() end
         run.visited[node] = true
         local px, py = PlayerWorld()
         if px then

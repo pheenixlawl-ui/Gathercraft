@@ -310,7 +310,7 @@ libs["HereBeDragons-2.0"] = {
     end,
 }
 local pinCount = 0
-HBD_ADDS, HBD_FLOAT, MINI_ICONS, LINE_PTS = {}, {}, {}, {}
+HBD_ADDS, HBD_FLOAT, MINI_ICONS, LINE_PTS, MINI_PTS = {}, {}, {}, {}, {}
 libs["HereBeDragons-Pins-2.0"] = {
     AddWorldMapIconMap = function(_, ref) pinCount = pinCount + 1 PIN_ADDS = (PIN_ADDS or 0) + 1
         HBD_ADDS[ref] = HBD_ADDS[ref] or { world = 0, mini = 0 } HBD_ADDS[ref].world = HBD_ADDS[ref].world + 1 end,
@@ -318,7 +318,8 @@ libs["HereBeDragons-Pins-2.0"] = {
         HBD_ADDS[ref] = HBD_ADDS[ref] or { world = 0, mini = 0 } HBD_ADDS[ref].mini = HBD_ADDS[ref].mini + 1
         HBD_FLOAT[ref] = float if ref == "Gathercraft" then MINI_ICONS[#MINI_ICONS + 1] = icon end end,
     AddWorldMapIconWorld = function(_, ref, icon, inst, x, y) LINE_DOTS = (LINE_DOTS or 0) + 1 LINE_PTS[#LINE_PTS + 1] = { x, y } end,
-    AddMinimapIconWorld = function(_, ref) HBD_ADDS[ref] = HBD_ADDS[ref] or { world = 0, mini = 0 } HBD_ADDS[ref].mini = HBD_ADDS[ref].mini + 1 end,
+    AddMinimapIconWorld = function(_, ref, icon, inst, x, y) HBD_ADDS[ref] = HBD_ADDS[ref] or { world = 0, mini = 0 } HBD_ADDS[ref].mini = HBD_ADDS[ref].mini + 1
+        if x then MINI_PTS[#MINI_PTS + 1] = { x, y } end end,
     RemoveWorldMapIcon = function() pinCount = pinCount - 1 end, RemoveMinimapIcon = function() pinCount = pinCount - 1 end,
     RemoveAllWorldMapIcons = function() end, RemoveAllMinimapIcons = function() end,
 }
@@ -388,7 +389,8 @@ step("Tauren Cultivation: the copy on top is not a new node", function()
     local function CountNear(x, y)
         local c = 0
         for _, n in ipairs(ns.db.nodes[1412]) do
-            if n.name == "Earthroot" and math.abs(n.x - x) < 0.002 and math.abs(n.y - y) < 0.002 then c = c + 1 end
+            -- by object: the name follows the chosen language
+            if n.id == "o1619" and math.abs(n.x - x) < 0.002 and math.abs(n.y - y) < 0.002 then c = c + 1 end
         end
         return c
     end
@@ -539,7 +541,7 @@ step("Farm run: only nodes you can gather, route goals", function()
         ns.db.routeLineStyle = st.code
         LINE_DOTS = 0
         ns.RedrawRouteLine() advance(1)
-        assert(LINE_DOTS > 0 and LINE_DOTS <= 620, "route dots for " .. st.code .. ": " .. LINE_DOTS)
+        assert(LINE_DOTS > 0 and LINE_DOTS <= 1220, "route dots for " .. st.code .. ": " .. LINE_DOTS)
         note("route line", st.code, "dots", LINE_DOTS, "path yd", math.floor(ns.run.length))
     end
     ns.db.routeLineColor, ns.db.routeLineStyle = nil, nil
@@ -830,7 +832,7 @@ step("Farm run target: own marker, game waypoint only without arrow", function()
     ns.db.arrowHidden = nil
     USER_WP = nil
 end)
-step("Route line: dense all around you, also where the route bends back", function()
+step("Route line: dense around you on the minimap, even all along on the map", function()
     local Z = 1461
     ns.db.nodes[Z] = {}
     -- out 900 yd east, then back west past you, then far away: zone is 5000 x 3333 yd
@@ -842,23 +844,35 @@ step("Route line: dense all around you, also where the route bends back", functi
     ns.db.routeLineStyle = "line"
     ns.StartRun("herb", Z) advance(1)
     assert(ns.run and ns.run.path and #ns.run.path >= 8, "no route")
-    LINE_PTS, LINE_DOTS = {}, 0
+    LINE_PTS, MINI_PTS, LINE_DOTS = {}, {}, 0
     ns.RedrawRouteLine()
     local pxw, pyw = player.x * 5000 + (Z - 1400) * 6000, player.y * 3333
-    local near, worst = 0, 0
-    for i, a in ipairs(LINE_PTS) do
-        if math.sqrt((a[1] - pxw) ^ 2 + (a[2] - pyw) ^ 2) < 450 then
-            near = near + 1
-            local best = math.huge
-            for j, b in ipairs(LINE_PTS) do
-                if i ~= j then best = math.min(best, math.sqrt((a[1] - b[1]) ^ 2 + (a[2] - b[2]) ^ 2)) end
+    local function Gaps(pts, within)
+        local count, worst = 0, 0
+        for i, a in ipairs(pts) do
+            if not within or math.sqrt((a[1] - pxw) ^ 2 + (a[2] - pyw) ^ 2) < within then
+                count = count + 1
+                local best = math.huge
+                for j, b in ipairs(pts) do
+                    if i ~= j then best = math.min(best, math.sqrt((a[1] - b[1]) ^ 2 + (a[2] - b[2]) ^ 2)) end
+                end
+                worst = math.max(worst, best)
             end
-            worst = math.max(worst, best)
         end
+        return count, worst
     end
-    note("route line near dots", near, "worst gap", worst, "all", LINE_DOTS)
-    assert(near > 50 and worst <= 8, ("line not dense around you: %d dots, gap %.1f yd"):format(near, worst))
-    assert(LINE_DOTS <= 620, "too many dots: " .. LINE_DOTS)
+    -- minimap: dense around you
+    local near, worstNear = Gaps(MINI_PTS, 450)
+    note("route line minimap dots near you", near, "worst gap", worstNear)
+    assert(near > 50 and worstNear <= 8, ("minimap line not dense around you: %d dots, gap %.1f yd"):format(near, worstNear))
+    for _, a in ipairs(MINI_PTS) do
+        assert(math.sqrt((a[1] - pxw) ^ 2 + (a[2] - pyw) ^ 2) <= 601, "minimap dot far away from you")
+    end
+    -- world map: the same spacing all the way, also at the far end
+    local all, worst = Gaps(LINE_PTS)
+    note("route line world dots", all, "worst gap", worst)
+    assert(worst <= 13, ("world map line falls apart: gap %.1f yd"):format(worst))
+    assert(LINE_DOTS <= 1220, "too many dots: " .. LINE_DOTS)
     ns.StopRun()
     ns.db.routeLineStyle = nil
     ns.db.nodes[Z] = nil
@@ -1130,6 +1144,72 @@ step("Farm run: Loop rides a fixed round, new spots go in on the way", function(
     ns.db.nodes[Z] = nil
     player.map, player.x, player.y = 1412, 0.45, 0.72
 end)
+step("Farm run: Loop gets shorter where spots come back fast, longer where not (v0.1.13)", function()
+    local Z = 1467
+    local keep = ns.db.nodes[Z]
+    local function vein(x, y) return { id = "o1731", name = "Copper Vein", type = "ore", x = x, y = y, count = 3, last = 1 } end
+    ns.db.nodes[Z] = {}
+    -- a dense patch of 24 veins, 12 lonely ones on a wide circle around it
+    for i = 0, 23 do table.insert(ns.db.nodes[Z], vein(0.42 + (i % 6) * 0.03, 0.42 + math.floor(i / 6) * 0.03)) end
+    for i = 1, 12 do
+        local a = i * math.pi / 6
+        table.insert(ns.db.nodes[Z], vein(0.5 + 0.4 * math.cos(a), 0.5 + 0.4 * math.sin(a)))
+    end
+    ns.db.loopShort = nil
+    ns.db.routeMode = "loop"
+    player.map, player.x, player.y = Z, 0.45, 0.45
+    ns.StartRun("ore", Z) advance(1)
+    local run = ns.run
+    assert(run and run.loopN0 == 36 and run.loopSize == 36, "loop not built with all 36 points")
+    -- many players: a pass finds a node one time in five, after 3 minutes as after 30
+    local rev = {}
+    for i = 1, 60 do rev[i] = { t = (i % 2 == 0) and 180 or 1800, hit = i % 5 == 0 } end
+    run.loopStats.rev = rev
+    run.adaptAt = 0
+    for i in ipairs(log) do log[i] = "" end
+    advance(1)
+    assert(run.loopSize < 36, "the round did not get shorter: " .. run.loopSize)
+    for _, node in ipairs(run.loop) do
+        assert(math.abs(node.x - 0.5) < 0.2 and math.abs(node.y - 0.5) < 0.2, "a lonely point stayed in the shorter round")
+    end
+    local said = false
+    local want = (ns.L["Loop: spots come back fast here (many players?) - shorter round through the dense part: %d of %d spawn points."]):format(run.loopSize, 36)
+    for _, l in ipairs(log) do if l:find(want, 1, true) then said = true end end
+    assert(said, "no word about the shorter round")
+    assert(ns.db.loopShort and ns.db.loopShort[Z .. ":ore"], "shorter round not remembered for the zone")
+    assert(run.target and run.loopIndex[run.target], "the target is not on the new round")
+    -- farming alone: right after a pass nothing, long after it often
+    rev = {}
+    for i = 1, 60 do
+        local long = i % 2 == 0
+        rev[i] = { t = long and 3600 or 180, hit = long and i % 4 == 0 }
+    end
+    run.loopStats.rev = rev
+    run.adaptAt = 0
+    advance(1)
+    assert(run.loopSize == 36, "the round did not grow back: " .. run.loopSize)
+    assert(not ns.db.loopShort[Z .. ":ore"], "the full round should forget the shorter one")
+    ns.StopRun(true)
+    -- a busy zone a short while ago: the next run starts shorter
+    ns.db.loopShort[Z .. ":ore"] = { share = 0.5, at = time() }
+    ns.db.loopShort[Z .. ":herb"] = { share = 0.4, at = time() - 4 * 3600 } -- too old, and herbs
+    ns.StartRun("ore", Z) advance(1)
+    assert(ns.run and ns.run.loopSize == 18, "remembered round size not used: " .. tostring(ns.run and ns.run.loopSize))
+    -- the shorter round all harvested a moment ago: the whole round meanwhile
+    local short = {}
+    for _, node in ipairs(ns.run.loop) do
+        node.emptyUntil = time() + 600
+        short[node] = true
+    end
+    ns.run.target = nil
+    advance(6)
+    assert(ns.run.target and not short[ns.run.target] and ns.run.loopSize == 18,
+        "nothing to ride to while the shorter round respawns, or the round changed")
+    for node in pairs(short) do node.emptyUntil = nil end
+    ns.StopRun(true)
+    ns.db.loopShort, ns.db.routeMode = nil, nil
+    ns.db.nodes[Z] = keep
+end)
 step("Farm run: walking away from the target picks a new one", function()
     local Z = 1465
     local function own(x) return { id = "o1731", name = "Copper Vein", type = "ore", x = x, y = 0.50, count = 3, last = 1 } end
@@ -1376,7 +1456,9 @@ step("Minimap tooltip: pointing at a tracked node learns it", function()
     -- not shared while its position is a guess
     local sent = #sentMessages
     ns.SyncShare(Z, herb) advance(3)
-    assert(#sentMessages == sent, "a node only seen on the minimap was shared")
+    for i = sent + 1, #sentMessages do -- a zone query on the way is fine, a shared node is not
+        assert(sentMessages[i]:sub(1, 2) == "Q:", "a node only seen on the minimap was shared")
+    end
     -- another addon's pin tooltip, our own pins, or the option off: nothing
     lines = { herbName }
     cursor = { 500, 365 }
@@ -1575,6 +1657,29 @@ step("Sync: share + receive", function()
     advance(5)
     note("sync sent", #sentMessages)
 end)
+step("Sync: a run through another zone asks for that zone too (v0.1.13)", function()
+    slash("sync on")
+    local Z = 1469
+    ns.db.nodes[Z] = { { id = "o1731", name = "Copper Vein", type = "ore", x = 0.4, y = 0.5, count = 3, last = 1 } }
+    player.map, player.x, player.y = 1412, 0.45, 0.72
+    local function asked()
+        local n = 0
+        for _, m in ipairs(sentMessages) do if m:find("^Q:" .. Z .. ":") then n = n + 1 end end
+        return n
+    end
+    local before = asked()
+    ns.StartRun("ore", Z) advance(1)
+    assert(asked() == before, "asked right away (should wait a moment)")
+    advance(40)
+    ns.StopRun(true)
+    assert(asked() > before, "the route's zone was not asked for")
+    -- the same run again a minute later: not asked again
+    local once = asked()
+    ns.StartRun("ore", Z) advance(45)
+    ns.StopRun(true)
+    assert(asked() == once, "asked for the zone again right away")
+    ns.db.nodes[Z] = nil
+end)
 step("Sync: floods are cut off (v0.1.12)", function()
     slash("sync on")
     local function msg(text, who) fire("CHAT_MSG_ADDON", "Gathercraft", text, "CHANNEL", who, nil, nil, nil, "GathercraftSync") end
@@ -1646,6 +1751,26 @@ step("Sharing shows what it does; chests can be hidden", function()
     HBD_ADDS["Gathercraft"] = { world = 0, mini = 0 }
     ns.NotifyNodesChanged() advance(2)
     assert(HBD_ADDS["Gathercraft"].world > hidden, "chests not back on the map")
+    -- the Zones tab is for "Start run": an unticked zone stays on the map,
+    -- unless the option says the map follows it (v0.1.13)
+    local chest = ns.db.nodes[1450][1]
+    local pins = LibStub("HereBeDragons-Pins-2.0")
+    local add = pins.AddWorldMapIconMap
+    local chestPinned
+    pins.AddWorldMapIconMap = function(self, ref, frame, mapID, x, y, ...)
+        if mapID == 1450 and x == chest.x and y == chest.y then chestPinned = true end
+        return add(self, ref, frame, mapID, x, y, ...)
+    end
+    ns.db.disabledZones[1450] = true
+    chestPinned = false
+    ns.NotifyNodesChanged() advance(2)
+    assert(chestPinned, "an unticked zone hides its pins")
+    ns.db.mapFollowsZones = true
+    chestPinned = false
+    ns.NotifyNodesChanged() advance(2)
+    assert(not chestPinned, "the option does not hide the unticked zone")
+    pins.AddWorldMapIconMap = add
+    ns.db.mapFollowsZones, ns.db.disabledZones[1450] = nil, nil
     ns.db.nodes[1450] = nil
     ns.NotifyNodesChanged() advance(1)
 end)
@@ -2276,6 +2401,292 @@ step("Zones in two columns, Farm Spots continent tabs", function()
     ns.HideMain()
 end)
 step("Delete + wipe zone", function() slash("del") slash("wipe zone") advance(1) end)
+step("Welcome, what's new and the run summary (v0.1.13)", function()
+    local function said(text)
+        for _, l in ipairs(log) do if l:find(text, 1, true) then return true end end
+    end
+    -- this test started with old WoWFFarm data: an update, no welcome
+    assert(not (_G.GathercraftWelcome and _G.GathercraftWelcome:IsShown()), "welcome for a player who already had data")
+    assert(ns.db.welcomeSeen and ns.db.lastVersion, "version not remembered")
+    -- same version again: quiet; a new player: the welcome
+    for i, l in ipairs(log) do log[i] = "" end
+    ns.WelcomeOnLogin()
+    assert(not said("0.1."), "what's new again without an update")
+    local fresh = ns.freshInstall
+    ns.freshInstall, ns.db.welcomeSeen = true, nil
+    ns.WelcomeOnLogin()
+    assert(_G.GathercraftWelcome and _G.GathercraftWelcome:IsShown(), "no welcome on a fresh install")
+    _G.GathercraftWelcome:Hide()
+    ns.freshInstall = fresh
+    assert(ns.db.welcomeSeen, "closing the welcome is not remembered")
+    slash("welcome")
+    assert(_G.GathercraftWelcome:IsShown(), "/gcr welcome does not show it again")
+    _G.GathercraftWelcome:Hide()
+    slash("whatsnew")
+    assert(said("0.1.13") or said("CurseForge"), "/gcr whatsnew says nothing")
+    -- a run that brought something: the summary shows when you stop it
+    local sent = {}
+    SendChatMessage = function(msg, chatType) sent[#sent + 1] = { msg = msg, type = chatType } end
+    player.map, player.x, player.y = 1412, 0.45, 0.72
+    ns.StartRun("herb") advance(1)
+    for _ = 1, 3 do
+        for _, f in ipairs(ns.gatherListeners) do f({ type = "herb", name = "Peacebloom" }, { value = 1234 }) end
+    end
+    advance(150)
+    ns.StopRun()
+    local card = _G.GathercraftRunSummary
+    assert(card and card:IsShown(), "no summary after a run")
+    ns.ShareRunSummary("GUILD")
+    assert(#sent == 1 and sent[1].type == "GUILD", "share did not post in guild chat")
+    assert(sent[1].msg:find("3", 1, true) and not sent[1].msg:find("|", 1, true), "bad share line: " .. sent[1].msg)
+    assert(not card:IsShown(), "summary stays open after sharing")
+    -- a new run replacing the old one, or a very short one: no summary
+    ns.StartRun("herb") advance(1)
+    for _, f in ipairs(ns.gatherListeners) do f({ type = "herb", name = "Peacebloom" }, { value = 1234 }) end
+    advance(150)
+    ns.StartRun("ore") advance(1)
+    assert(not card:IsShown(), "summary when a new run replaced the old one")
+    advance(30)
+    ns.StopRun()
+    assert(not card:IsShown(), "summary after a 30 second run")
+    -- turned off in the options
+    ns.db.summaryOff = true
+    ns.StartRun("herb") advance(1)
+    for _, f in ipairs(ns.gatherListeners) do f({ type = "herb", name = "Peacebloom" }, { value = 1234 }) end
+    advance(150)
+    ns.StopRun()
+    assert(not card:IsShown(), "summary although it is turned off")
+    ns.db.summaryOff = nil
+    SendChatMessage = nil
+end)
+step("Crafting: waypoint to a recipe vendor (v0.1.13)", function()
+    slash("") ns.ToggleMain("crafting") advance(1)
+    assert(ns.RecipeVendorWaypoint, "crafting page not built")
+    local src, spells = GathercraftRecipeSources, GathercraftRecipeData.spells
+    local found, wp
+    for prof, list in pairs(spells) do
+        for key, spell in pairs(list) do
+            local item = src.scroll[spell]
+            local packed = item and src.items[item]
+            if packed and packed:find("V:", 1, true) then
+                wp = ns.RecipeVendorWaypoint({ prof = prof, key = key })
+                if wp then found = true break end
+            end
+        end
+        if found then break end
+    end
+    assert(wp, "no recipe vendor with a position found")
+    assert(type(wp.mapID) == "number" and wp.x > 0 and wp.x < 1 and wp.y > 0 and wp.y < 1 and wp.name ~= "", "bad vendor position")
+    ns.ToggleMain("crafting")
+end)
+step("Skill plan: steps and material list (v0.1.13)", function()
+    slash("plan tailoring") advance(1)
+    local win = _G.GathercraftSkillPlan
+    assert(win and win:IsShown(), "/gcr plan does not open the planner")
+    for _, prof in ipairs({ "Tailoring", "Blacksmithing", "Alchemy", "Leatherworking", "Engineering", "Enchanting", "Cooking", "First Aid" }) do
+        local steps, mats, total, stuck = ns.SkillPlan(prof, 1, 300)
+        assert(not stuck and #steps > 0 and #mats > 0, prof .. ": no plan to 300")
+        local at = 1
+        for _, s in ipairs(steps) do
+            assert(s.from == at and s.to > s.from and s.crafts >= 1, prof .. ": steps don't follow each other")
+            assert(s.recipe.how ~= nil, prof .. ": a recipe nobody can learn")
+            at = s.to
+        end
+        assert(at == 300, prof .. ": plan ends at " .. at)
+    end
+    -- bars you don't have are broken down into ore, and ore gets a farm run
+    local _, mats = ns.SkillPlan("Blacksmithing", 1, 150)
+    local ore
+    for _, m in ipairs(mats) do if m.id == 2770 then ore = m end end
+    assert(ore and ore.node and ore.node:find("Copper"), "copper ore (from bars) not in the list or without a node")
+    -- every copper bar - also the ones inside bronze bars - comes from one copper ore
+    local bars, ore2 = 0, 0
+    local steps150, mats150 = ns.SkillPlan("Blacksmithing", 1, 150)
+    local recipes = GathercraftRecipeData.professions
+    local function uses(id, s)
+        local _, reagents = recipes.Blacksmithing[s.recipe.key]:match("^([^|]+)|(.*)$")
+        return tonumber((reagents or ""):match(id .. ":(%d+)")) or 0
+    end
+    local bronze = 0
+    for _, s in ipairs(steps150) do
+        bars = bars + uses(2840, s) * s.crafts
+        bronze = bronze + uses(2841, s) * s.crafts
+    end
+    bars = bars + math.ceil(bronze / 2) -- one smelt: 1 copper + 1 tin bar -> 2 bronze bars
+    for _, m in ipairs(mats150) do if m.id == 2770 then ore2 = m.need end end
+    assert(ore2 >= bars, ("copper ore %d for at least %d copper bars"):format(ore2, bars))
+    -- a recipe read from a profession window has no required skill: the shipped one counts
+    ns.db.recipeDB = ns.db.recipeDB or {}
+    ns.db.recipeDB.Tailoring = ns.db.recipeDB.Tailoring or {}
+    local shippedShirt = recipes.Tailoring["Orange Mageweave Shirt"]
+    ns.db.recipeDB.Tailoring["Orange Mageweave Shirt"] = shippedShirt:gsub("^(%d+:%d+:%d+:)%d+", "%10")
+    for _, s in ipairs(ns.SkillPlan("Tailoring", 100, 170)) do
+        assert(s.recipe.key ~= "Orange Mageweave Shirt", "a recipe planned below its required skill")
+    end
+    ns.db.recipeDB.Tailoring["Orange Mageweave Shirt"] = nil
+    -- a farm run for an item: every node that gives it, whatever its name
+    player.map, player.x, player.y = 1412, 0.45, 0.72
+    ns.StartRun("item:2770") advance(1)
+    assert(ns.run and ns.run.path and #ns.run.path > 0, "no route for copper ore")
+    for _, p in ipairs(ns.run.path) do
+        assert(p.node.type == "ore" and p.node.name:find("Copper") or p.node.name:find("Kupfer") or p.node.name ~= "", "a node that gives no copper ore")
+    end
+    ns.StopRun(true)
+    -- smelting: Mining rises with it up to where the shipped smelts end
+    local msteps, _, _, mstuck = ns.SkillPlan("Mining", 1, 300)
+    assert(#msteps > 0 and msteps[1].from == 1 and mstuck, "smelting plan: " .. tostring(msteps[1] and msteps[1].recipe.key) .. " " .. tostring(mstuck))
+    ns.ShowSkillPlan("Mining") advance(1)
+    -- herbs gathered while the switch showed its tooltip get a real name at login
+    ns.db.nodes[1412] = ns.db.nodes[1412] or {}
+    local odd = { name = "Find Herbs / Find Minerals", type = "herb", x = 0.31, y = 0.31, count = 1, last = 1, item = 2447 }
+    table.insert(ns.db.nodes[1412], odd)
+    fire("PLAYER_LOGIN") advance(10)
+    assert(odd.name == "Peacebloom" or odd.name:find("Peacebloom") or odd.name ~= "Find Herbs / Find Minerals", "node still named after the switch: " .. odd.name)
+    -- the switch's own tooltip is no node name when gathering
+    GameTooltip:SetOwner(_G.GathercraftTrackButton, "ANCHOR_LEFT")
+    GameTooltip:AddLine("Find Herbs / Find Minerals")
+    GameTooltip:Show()
+    -- you already know a bit: the plan starts at your skill
+    local steps = ns.SkillPlan("Tailoring", 120, 150)
+    assert(steps[1].from == 120 and steps[#steps].to == 150, "plan does not start at the given skill")
+    win:Hide()
+end)
+step("Trainer reminder 5 points before the end of a rank (v0.1.13)", function()
+    local function count(text)
+        local n = 0
+        for _, l in ipairs(log) do if l:find(text, 1, true) then n = n + 1 end end
+        return n
+    end
+    local oldRank, oldMax = PROFS[1][2], PROFS[1][3]
+    for i, l in ipairs(log) do log[i] = "" end
+    PROFS[1][2], PROFS[1][3] = 69, 75
+    ns.CheckTrainer()
+    assert(count("69/75") == 0, "reminded 6 points before the end")
+    PROFS[1][2] = 70
+    ns.CheckTrainer() ns.CheckTrainer()
+    assert(count("70/75") == 1, "no reminder (or twice) at 70/75")
+    PROFS[1][2] = 75
+    ns.CheckTrainer()
+    assert(count("75/75") == 1, "no reminder at the cap")
+    -- the bar goes to 300 and shows what is unlocked
+    ns.ToggleMain("overview") advance(3)
+    ns.ToggleMain("overview")
+    -- turned off: quiet
+    ns.db.trainerRemindOff = true
+    PROFS[2][2], PROFS[2][3] = 148, 150
+    ns.CheckTrainer()
+    assert(count("148/150") == 0, "reminder although it is turned off")
+    ns.db.trainerRemindOff = nil
+    PROFS[1][2], PROFS[1][3] = oldRank, oldMax
+    PROFS[2][2], PROFS[2][3] = 30, 75
+end)
+step("Forever bonus loot (seeds, lichen) is not what the herb is (v0.1.13)", function()
+    player.map, player.x, player.y = 1412, 0.66, 0.66
+    -- the switch's tooltip is still up while gathering: not the node's name
+    GameTooltip:SetOwner(_G.GathercraftTrackButton, "ANCHOR_LEFT")
+    GameTooltip:AddLine("Find Herbs / Find Minerals")
+    GameTooltip:Show()
+    fire("UNIT_SPELLCAST_SENT", "player", "", "castB", 2366)
+    fire("UNIT_SPELLCAST_SUCCEEDED", "player", "castB", 2366)
+    loot = { { guid = "GameObject-0-1-1-1-1617-BONUS1", item = 999001, qty = 1 },
+        { guid = "GameObject-0-1-1-1-1617-BONUS1", item = 765, qty = 2 } }
+    fire("LOOT_READY") fire("LOOT_OPENED")
+    advance(3)
+    loot = {}
+    GameTooltip:Hide()
+    local found
+    for _, n in ipairs(ns.db.nodes[1412]) do
+        if math.abs(n.x - 0.66) < 0.01 and math.abs(n.y - 0.66) < 0.01 and n.type == "herb" then found = n end
+    end
+    assert(found, "the gather was not recorded")
+    assert(found.item == 765, "node item is the bonus drop: " .. tostring(found.item))
+    assert(not found.name:find("Find Herbs", 1, true), "node named after the switch tooltip")
+end)
+step("A run from the overview stays in your zone (v0.1.13)", function()
+    -- nodes in two zones next to each other: the overview run stays where you are
+    local function vein(x, y) return { id = "o1731", name = "Copper Vein", type = "ore", x = x, y = y, count = 3, last = 1 } end
+    local keepA, keepB = ns.db.nodes[1461], ns.db.nodes[1460]
+    ns.db.nodes[1461], ns.db.nodes[1460] = {}, {}
+    for i = 1, 10 do table.insert(ns.db.nodes[1461], vein(0.1 + i * 0.07, 0.5)) end
+    for i = 1, 10 do table.insert(ns.db.nodes[1460], vein(0.1 + i * 0.07, 0.4)) end
+    player.map, player.x, player.y = 1461, 0.5, 0.5
+    ns.StartHereRun("ore") advance(1)
+    assert(ns.run and ns.run.zone == 1461, "the run left your zone")
+    for _, p in ipairs(ns.run.path) do assert(p.mapID == 1461, "a node of another zone in the route") end
+    ns.StopRun(true)
+    -- a city or a zone with too few nodes for a round: the nearest zone that has them
+    ns.db.nodes[1461] = { vein(0.5, 0.5) }
+    ns.StartHereRun("ore") advance(1)
+    assert(ns.run and ns.run.zone == 1460, "not the nearest zone with nodes: " .. tostring(ns.run and ns.run.zone))
+    for _, p in ipairs(ns.run.path) do assert(p.mapID == 1460, "a node of another zone in the route") end
+    ns.StopRun(true)
+    -- in a capital: the zone around it (Thunder Bluff -> Mulgore)
+    local keepM = ns.db.nodes[1412]
+    ns.db.nodes[1412] = {}
+    for i = 1, 10 do table.insert(ns.db.nodes[1412], vein(0.1 + i * 0.07, 0.6)) end
+    player.map, player.x, player.y = 1456, 0.5, 0.5
+    ns.StartHereRun("ore") advance(1)
+    assert(ns.run and ns.run.zone == 1412, "Thunder Bluff run not in Mulgore: " .. tostring(ns.run and ns.run.zone))
+    ns.StopRun(true)
+    ns.db.nodes[1412] = keepM
+    player.map, player.x, player.y = 1461, 0.5, 0.5
+    -- the Zones tab selection doesn't count for a quick run
+    ns.db.nodes[1461] = {}
+    for i = 1, 10 do table.insert(ns.db.nodes[1461], vein(0.1 + i * 0.07, 0.5)) end
+    ns.db.disabledZones[1461] = true
+    ns.StartHereRun("ore") advance(1)
+    assert(ns.run and ns.run.zone == 1461 and #ns.run.path > 0, "an unticked zone blocks the quick run")
+    ns.StopRun(true)
+    ns.db.disabledZones[1461] = nil
+    -- right-click: what you can gather (only Mining here: ore)
+    local GetSkill = ns.GetSkill
+    ns.GetSkill = function(t) if t == "ore" then return 50, 75, 50 end end
+    ns.StartHereRun() advance(1)
+    assert(ns.run and ns.run.filter == "ore", "right-click run not for your profession: " .. tostring(ns.run and ns.run.filter))
+    ns.StopRun(true)
+    ns.GetSkill = GetSkill
+    ns.db.nodes[1461], ns.db.nodes[1460] = keepA, keepB
+    player.map, player.x, player.y = 1412, 0.45, 0.72
+end)
+step("Zones tab run over picked zones far apart: the group near you (v0.1.13)", function()
+    local function vein(x, y) return { id = "o1731", name = "Copper Vein", type = "ore", x = x, y = y, count = 3, last = 1 } end
+    local keep = {}
+    for _, z in ipairs({ 1412, 1413, 1443, 1460, 1461 }) do keep[z] = ns.db.nodes[z] end
+    local function fill(z, y)
+        ns.db.nodes[z] = {}
+        for i = 1, 6 do table.insert(ns.db.nodes[z], vein(0.1 + i * 0.12, y)) end
+    end
+    -- Mulgore + Barrens (neighbours) and Desolace (far away), nothing else picked
+    for _, z in ipairs({ 1412, 1413, 1443 }) do fill(z, 0.5) end
+    ns.db.nodes[1460], ns.db.nodes[1461] = nil, nil
+    local disabled = ns.db.disabledZones
+    ns.db.disabledZones = {}
+    for z in pairs(ns.db.nodes) do
+        if z ~= 1412 and z ~= 1413 and z ~= 1443 then ns.db.disabledZones[z] = true end
+    end
+    for i, l in ipairs(log) do log[i] = "" end
+    player.map, player.x, player.y = 1412, 0.5, 0.5
+    ns.StartRun("ore") advance(1)
+    assert(ns.run and ns.run.path, "no run")
+    local zones = {}
+    for _, p in ipairs(ns.run.points) do zones[p.mapID] = true end
+    assert(zones[1412] and zones[1413], "Mulgore and the Barrens are neighbours: both belong in the route")
+    assert(not zones[1443], "Desolace is far away: not in this route")
+    local told = false
+    for _, l in ipairs(log) do if l:find(ns.GetZoneName(1443), 1, true) then told = true end end
+    assert(told, "no word about the far zone")
+    -- a flight to Desolace: the run moves there
+    player.map, player.x, player.y = 1443, 0.5, 0.5
+    ns.run.pointsDirty = true
+    advance(15)
+    local there = {}
+    for _, p in ipairs(ns.run.points) do there[p.mapID] = true end
+    assert(there[1443] and not there[1412], "after a flight the run stays in the old zones")
+    ns.StopRun(true)
+    ns.db.disabledZones = disabled
+    for z, v in pairs(keep) do ns.db.nodes[z] = v end
+    player.map, player.x, player.y = 1412, 0.45, 0.72
+end)
 step("Long run (10 min) for leaks", function() slash("run herb") advance(600) slash("stop") end)
 
 io.write("\n--- errors: " .. #errors .. "\n")
