@@ -4482,6 +4482,69 @@ step("Skill statistics: gathers at the end of a rank are not counted, 300 is", f
     player.map, player.x, player.y = 1412, 0.45, 0.72
     advance(1)
 end)
+step("Starter data: the new Forever kinds are pins with names, and are never shared", function()
+    -- the beta data loaded at login: Poor Copper, Wilted Peacebloom, Stunted Silverleaf
+    local data = GathercraftStarterData
+    assert(data and data.version == "beta-2026-10-23", "starter data version " .. tostring(data and data.version))
+    local want = { o562111 = "Poor Copper Vein", o656160 = "Wilted Peacebloom", o656161 = "Stunted Silverleaf" }
+    local shipped = {}
+    for _, list in pairs(data.nodes) do
+        for _, e in ipairs(list) do if want[e[1]] then shipped[e[1]] = (shipped[e[1]] or 0) + 1 end end
+    end
+    for oid, name in pairs(want) do assert((shipped[oid] or 0) > 0, name .. " missing in the starter data") end
+    -- in a fresh profile they all come in as starter nodes of their own kind
+    local saved = { nodes = ns.db.nodes, version = ns.db.starterVersion }
+    ns.db.nodes, ns.db.starterVersion = {}, nil
+    ns.ForgetSeenKinds()
+    local mark = #log
+    local loader
+    for f in pairs(eventFrames["PLAYER_LOGOUT"] or {}) do
+        if eventFrames["PLAYER_LOGIN"][f] then loader = f end
+    end
+    assert(loader, "test setup: starter loader not found")
+    loader.__scripts.OnEvent(loader, "PLAYER_LOGIN")
+    local got, named = {}, {}
+    for mapID, list in pairs(ns.db.nodes) do
+        for _, n in ipairs(list) do
+            if want[n.id] then
+                assert(n.source == "starter", n.name .. " not marked as starter data")
+                got[n.id] = (got[n.id] or 0) + 1
+                if n.name and n.name ~= "" and n.name ~= n.id then named[n.id] = (named[n.id] or 0) + 1 end
+            end
+        end
+    end
+    for oid, name in pairs(want) do
+        assert(got[oid] == shipped[oid], ("%s: %s of %d imported"):format(name, tostring(got[oid]), shipped[oid]))
+        assert(named[oid] == got[oid], name .. " without a name")
+    end
+    -- and they get pins (Mulgore, where we stand)
+    player.map, player.x, player.y = 1412, 0.45, 0.72
+    ns.NotifyNodesChanged() advance(2)
+    local pinned = {}
+    for _, f in ipairs(allFrames) do
+        if f.node and want[f.node.id] and f.node.source == "starter" then pinned[f.node.id] = true end
+    end
+    for oid, name in pairs(want) do
+        local inMulgore = false
+        for _, e in ipairs(data.nodes[1412] or {}) do if e[1] == oid then inMulgore = true end end
+        assert(not inMulgore or pinned[oid], name .. " has no pin")
+    end
+    -- never shared as if we had found them: no push, no answer to a query
+    ns.db.sync = ns.db.sync or {}
+    local sent = #sentMessages
+    for _, n in ipairs(ns.db.nodes[1412] or {}) do
+        if want[n.id] then ns.SyncShare(1412, n) end
+    end
+    advance(3)
+    -- someone asks for Mulgore: we hold only starter nodes there, so nothing to answer with
+    fire("CHAT_MSG_ADDON", "Gathercraft", "Q:1412:0", "CHANNEL", "Curious Player", nil, nil, nil, "GathercraftSync")
+    advance(12)
+    for i = sent + 1, #sentMessages do
+        assert(sentMessages[i]:sub(1, 2) == "Q:", "a starter node was shared: " .. sentMessages[i])
+    end
+    ns.db.nodes, ns.db.starterVersion = saved.nodes, saved.version
+    ns.ForgetSeenKinds() ns.NotifyNodesChanged() advance(1)
+end)
 step("SoftTarget is not in the release: no event, /gcr softtest only shows the help", function()
     assert(ns.SoftTargetTest == nil and ns.SoftTargetState == nil, "SoftTarget code is still loaded")
     assert(not next(eventFrames["PLAYER_SOFT_INTERACT_CHANGED"] or {}), "something still listens to PLAYER_SOFT_INTERACT_CHANGED")
