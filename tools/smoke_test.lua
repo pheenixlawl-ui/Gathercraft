@@ -1040,10 +1040,23 @@ step("Farm run: only the target counts as empty, not passing by or fighting", fu
     advance(30)
     UnitAffectingCombat = nil
     assert(not D.misses and D.emptyUntil and heals == 1, "empty while fighting counted")
-    -- skipped: learns, no self-healing
+    -- skipped (a cliff, a mob in the way): out of the run for a while, but
+    -- nothing learned and no self-healing
     aim(C)
+    local restBefore = C.emptyUntil
+    C.emptyUntil = nil
+    local chance = ns.NodeChance(C)
+    C.emptyUntil = restBefore
     slash("skip") advance(1)
-    assert((C.misses or 0) == 1 and heals == 1, "skip counted for self-healing")
+    assert(not C.misses and not C.emptyStreak and not C.emptyAt, "skip learned 'empty'")
+    assert(heals == 1, "skip counted for self-healing")
+    assert(ns.run.visited[C] and C.emptyUntil and C.emptyUntil >= time() + 299 - 1, "skipped node not out of the run for 5 min")
+    assert(ns.run.target ~= C, "still pointing at the skipped node")
+    -- once its time out is over, its chance is what it was
+    local wasUntil = C.emptyUntil
+    C.emptyUntil = nil
+    assert(math.abs(ns.NodeChance(C) - chance) < 1e-9, "skip changed the node's chance")
+    C.emptyUntil = wasUntil
     ns.StopRun()
     ns.SyncSelfHeal = realHeal
     ns.db.nodes[Z] = nil

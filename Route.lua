@@ -2017,7 +2017,9 @@ local function SkipNode()
         return
     end
     local node = run.target
-    MarkEmpty(node, "skipped", "learn")
+    -- out of this run for a while, but nothing learned: you may skip it for
+    -- a cliff or a mob in the way, that says nothing about the node
+    node.upAt = nil
     node.emptyUntil = math.max(node.emptyUntil or 0, time() + SKIP_TIME)
     run.visited[node] = true
     ns.Print((L["%s marked empty for %d min."]):format(node.name, SKIP_TIME / 60))
