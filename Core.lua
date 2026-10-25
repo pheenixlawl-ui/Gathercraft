@@ -1160,7 +1160,6 @@ local function Help()
     print(L["  /gcr rare         - test the rare alert"])
     print(L["  /gcr debug        - toggle debug output"])
     print("  /gcr test         - API check")
-    print("  /gcr softtest     - interact targeting check")
     print(L["  /gcr scan         - scan auction house prices (at the auction house)"])
     print(L["  /gcr ahtest       - price sources and auction house check"])
 end
@@ -1240,8 +1239,6 @@ SlashCmdList.GATHERCRAFT = function(msg)
         ns.MinimapTest()
     elseif cmd == "test" then
         ApiTest()
-    elseif cmd == "softtest" then
-        if ns.SoftTargetTest then ns.SoftTargetTest() end
     elseif cmd == "ahtest" or cmd == "prices" then
         if ns.PriceTest then ns.PriceTest() end
     elseif cmd == "recipetest" then

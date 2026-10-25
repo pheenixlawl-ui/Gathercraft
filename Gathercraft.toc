@@ -34,7 +34,6 @@ UI.lua
 Zones.lua
 Pins.lua
 Route.lua
-SoftTarget.lua
 Sync.lua
 Skills.lua
 Fishing.lua
