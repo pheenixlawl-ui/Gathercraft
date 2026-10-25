@@ -415,6 +415,13 @@ local function SyncStatus(c)
     return dropped, pending, imported
 end
 
+-- Floors for "known per player, average" (the share of the new nodes every
+-- player knows at the end); below them sharing got worse and the run fails.
+-- v0.1.13 had 97 / 99 / 96 %; a recorder that dropped your own gathers of
+-- nodes that came from sync (0.1.14 before the fix) had 51 / 18 / 35 %.
+-- The realm floor is lower: 800 players in 5 min leave the last ones less time.
+local KNOWN_FLOOR = { ["Normal evening"] = 90, ["Launch day rush"] = 90, ["Whole realm in one zone"] = 85 }
+
 local function Report(title, duration, extra)
     local online = {}
     for _, c in ipairs(clients) do if c.online then online[#online + 1] = c end end
@@ -461,6 +468,10 @@ local function Report(title, duration, extra)
     print(("  Dropped by the incoming budget: %d (all players)   Waiting for confirmation: %.1f per player"):format(dropped, n > 0 and pending / n or 0))
     if fresh > 0 then
         print(("  New nodes found by someone: %d   known per player: %.0f%% average, %.0f%% worst"):format(fresh, covSum / n * 100, covMin * 100))
+        local floor = KNOWN_FLOOR[title]
+        if floor and covSum / n * 100 < floor then
+            addError(("%s: new nodes known per player %.0f%% on average, the floor is %d%%"):format(title, covSum / n * 100, floor))
+        end
     end
     if extra then extra(online) end
 end

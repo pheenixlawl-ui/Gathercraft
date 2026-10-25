@@ -256,13 +256,15 @@ local function FindNode(mapID, id, x, y, radius)
     return best
 end
 
--- Name of a node kind in our own language, if we harvested it ourselves
+-- Name of a node kind in our own language, if we harvested it ourselves.
+-- A name that only came from the item (a node from sync, n.itemName) is no
+-- name of the object, even once we harvested that node ourselves
 local function KnownName(id)
     if not nameCache then
         nameCache = {}
         for _, list in pairs(ns.db.nodes) do
             for _, n in ipairs(list) do
-                if n.id and not n.source and not nameCache[n.id] then
+                if n.id and not n.source and not n.itemName and not nameCache[n.id] then
                     nameCache[n.id] = n.name
                 end
             end
@@ -690,6 +692,10 @@ end
 -- The name our records give an object that the spawn data doesn't know (a
 -- new Forever node such as Wilted Peacebloom): your own gathers first, else
 -- any record of the zone (beta starter data, sync). nil: never seen.
+-- Never a name that only came from the item: sync sends no object names, so
+-- a node from sync is named after its loot (Peacebloom for a Wilted
+-- Peacebloom) and would make our own gather of it look like another kind.
+-- Sync nodes from before n.itemName existed are skipped as well.
 -- Both lookups use indexes (KnownName's cache, the zone index of FindNode):
 -- no walk over a zone's nodes per loot.
 local function ObjectName(objectID, mapID)
@@ -697,8 +703,10 @@ local function ObjectName(objectID, mapID)
     local known = KnownName(oid)
     if known then return known end
     local byId = mapID and ZoneIndex(mapID)
-    local same = byId and byId[oid]
-    return same and same[1] and same[1].name or nil
+    for _, n in ipairs(byId and byId[oid] or {}) do
+        if not n.itemName and n.source ~= "sync" then return n.name end
+    end
+    return nil
 end
 ns.ObjectName = ObjectName -- for the tests (tools/smoke_test.lua)
 

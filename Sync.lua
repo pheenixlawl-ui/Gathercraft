@@ -323,6 +323,9 @@ local function Import(mapID, p)
         x = p.x, y = p.y, count = p.rc or 1, last = time(),
         item = p.item > 0 and p.item or nil, source = "sync",
         heard = p.rc or 1, heardBy = {},
+        -- named after its item (no name of ours for the object): never used
+        -- as the object's name when our own loot is checked (Core.lua ObjectName)
+        itemName = not ns.KnownName(p.id) or nil,
     }
     for who in pairs(p.reporters or {}) do node.heardBy[who] = true end
     table.insert(ns.db.nodes[mapID], node)

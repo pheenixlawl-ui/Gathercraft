@@ -4545,6 +4545,50 @@ step("Starter data: the new Forever kinds are pins with names, and are never sha
     ns.db.nodes, ns.db.starterVersion = saved.nodes, saved.version
     ns.ForgetSeenKinds() ns.NotifyNodesChanged() advance(1)
 end)
+step("Sync: your own gather of a node that came from sync is booked and shared", function()
+    -- a new Forever object (no spawn data kind) from a guild member: sync
+    -- sends no object names, so it is named after its item
+    local W = IdentityWorld()
+    W.Set({})
+    fire("CHAT_MSG_ADDON", "Gathercraft", "N:1412;o7123456,h,5000,5000,2447", "GUILD", "Guildie Sync-Realm") advance(1)
+    local got
+    for _, n in ipairs(ns.db.nodes[1412]) do if n.id == "o7123456" then got = n end end
+    assert(got and got.source == "sync" and got.itemName, "the node from sync was not imported with its item name")
+    assert(ns.ObjectName(7123456, 1412) == nil, "the item name of a node from sync is used as the object name")
+    local function Shared(tag)
+        for i = tag + 1, #sentMessages do
+            if sentMessages[i]:find("o7123456", 1, true) then return true end
+        end
+    end
+    -- you gather it yourself: the cast names the object, the loot fits
+    W.At(0)
+    local sent = #sentMessages
+    local c = W.Cast("Wilted Peacebloom") W.Wait(2) W.Done(c) W.Loot(7123456, 2447, "SYNC01") W.Wait(12)
+    assert(got.lastSpawn == "SYNC01" and got.count == 2 and not got.source,
+        ("own gather of the node from sync not booked: spawn %s, count %d, source %s"):format(tostring(got.lastSpawn), got.count, tostring(got.source)))
+    assert(Shared(sent), "own gather of the node from sync not shared")
+    -- now your own node, but still named after its item: the next one of the
+    -- same object somewhere else is booked too (a new node), also once the
+    -- name lookup was built again (any bigger change, a relog)
+    ns.NotifyNodesChanged() advance(1)
+    W.At(80)
+    sent = #sentMessages
+    c = W.Cast("Wilted Peacebloom") W.Wait(2) W.Done(c) W.Loot(7123456, 2447, "SYNC02") W.Wait(12)
+    local second
+    for _, n in ipairs(ns.db.nodes[1412]) do if n.id == "o7123456" and n.lastSpawn == "SYNC02" then second = n end end
+    assert(second and second ~= got and second.name == "Wilted Peacebloom", "second gather of the object not booked as its own node")
+    assert(Shared(sent), "second gather of the object not shared")
+    assert(ns.ObjectName(7123456, 1412) == "Wilted Peacebloom", "the gathered name is not the object's name now")
+    -- unchanged (round 10): loot of another kind still drops the gather
+    W.At(160)
+    local before = 0
+    for _, n in ipairs(ns.db.nodes[1412]) do if n.id == "o7123456" then before = before + 1 end end
+    c = W.Cast("Glow Cap") W.Wait(2) W.Done(c) W.Loot(7123456, 2447, "SYNC03") W.Wait(12)
+    local after = 0
+    for _, n in ipairs(ns.db.nodes[1412]) do if n.id == "o7123456" then after = after + 1 end end
+    assert(after == before and W.Count("Glow Cap") == 0, "loot of another kind was booked")
+    W.Restore()
+end)
 step("SoftTarget is not in the release: no event, /gcr softtest only shows the help", function()
     assert(ns.SoftTargetTest == nil and ns.SoftTargetState == nil, "SoftTarget code is still loaded")
     assert(not next(eventFrames["PLAYER_SOFT_INTERACT_CHANGED"] or {}), "something still listens to PLAYER_SOFT_INTERACT_CHANGED")
