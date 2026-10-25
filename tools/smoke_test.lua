@@ -4435,6 +4435,53 @@ step("Zones tab run over picked zones far apart: the group near you (v0.1.13)", 
     for z, v in pairs(keep) do ns.db.nodes[z] = v end
     player.map, player.x, player.y = 1412, 0.45, 0.72
 end)
+step("Skill statistics: gathers at the end of a rank are not counted, 300 is", function()
+    local Z = 1471
+    local was = { rank = PROFS[1][2], max = PROFS[1][3], debug = ns.db.debug }
+    ns.db.debug = true
+    player.map, player.x, player.y = Z, 0.50, 0.50
+    local seq = 0
+    local function Gather(rank, max, after)
+        PROFS[1][2], PROFS[1][3] = rank, max
+        seq = seq + 1
+        local id = "cap" .. seq
+        fire("UNIT_SPELLCAST_SENT", "player", "Peacebloom", id, 2366) advance(1)
+        fire("UNIT_SPELLCAST_SUCCEEDED", "player", id, 2366)
+        if after then PROFS[1][2] = after end
+        loot = { { guid = ("GameObject-0-1-1-1-1618-CAP%03d"):format(seq), item = 2447, qty = 1 } }
+        fire("LOOT_READY") loot = {}
+        advance(3) -- the skill is read 1.5 s after the gather
+    end
+    local key = "herb:peacebloom"
+    local function S() local s = ns.KindStats()[key] or {} return s.n or 0, s.ups or 0, s.minNoUp end
+    local n0, up0 = S()
+    -- 75/75: no point possible until you train: not counted
+    local mark = #log
+    Gather(75, 75)
+    local n, up = S()
+    assert(n == n0 and up == up0, ("75/75 counted: n %d -> %d"):format(n0, n))
+    local said = false
+    for i = mark + 1, #log do if log[i]:find("at the end of your rank (75/75), not counted", 1, true) then said = true end end
+    assert(said, "no debug line for the gather at the end of the rank")
+    Gather(150, 150)
+    n, up = S()
+    assert(n == n0 and up == up0, "150/150 counted")
+    -- 74/75 with a point: counted
+    Gather(74, 75, 75)
+    n, up = S()
+    assert(n == n0 + 1 and up == up0 + 1, ("74/75 with a skill-up not counted: n %d, ups %d"):format(n - n0, up - up0))
+    -- 300/300: as before (counted, no point)
+    Gather(300, 300)
+    local n3, up3, noUp = S()
+    assert(n3 == n0 + 2 and up3 == up0 + 1 and noUp and noUp <= 300, "300/300 not counted as before")
+
+    PROFS[1][2], PROFS[1][3] = was.rank, was.max
+    ns.db.debug = was.debug
+    ns.db.nodes[Z] = nil
+    ns.NotifyNodesChanged()
+    player.map, player.x, player.y = 1412, 0.45, 0.72
+    advance(1)
+end)
 step("SoftTarget is not in the release: no event, /gcr softtest only shows the help", function()
     assert(ns.SoftTargetTest == nil and ns.SoftTargetState == nil, "SoftTarget code is still loaded")
     assert(not next(eventFrames["PLAYER_SOFT_INTERACT_CHANGED"] or {}), "something still listens to PLAYER_SOFT_INTERACT_CHANGED")

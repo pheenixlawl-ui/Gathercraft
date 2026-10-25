@@ -194,8 +194,8 @@ end
 -- skillBefore = own rank (skill-ups), reachBefore = with bonus (what you
 -- could gather: the upper bound of a node's requirement)
 local function OnGatherStart(pending)
-    local rank, _, effective = GetSkill(pending.type)
-    pending.skillBefore, pending.reachBefore = rank, effective or rank
+    local rank, maxRank, effective = GetSkill(pending.type)
+    pending.skillBefore, pending.reachBefore, pending.maxBefore = rank, effective or rank, maxRank
 end
 
 -- Called by the recorder after a node was recorded
@@ -208,6 +208,14 @@ local function OnGathered(node, pending)
             return
         end
         countedSpawns[pending.spawn] = true
+    end
+    -- at the end of a rank (75/75, 150/150, 225/225) no gather can give a
+    -- point until you train: it says nothing about the kind's skill-up chance
+    -- (300 is the real end, counted as before)
+    local cap = pending.maxBefore
+    if cap and cap > 0 and cap < 300 and before >= cap then
+        ns.Debug(("SKILL %s: at the end of your rank (%d/%d), not counted"):format(node.name, before, cap))
+        return
     end
     local key = ns.KindKey(node)
     C_Timer.After(CHECK_DELAY, function()
