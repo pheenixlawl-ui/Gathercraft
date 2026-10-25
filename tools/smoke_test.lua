@@ -3943,6 +3943,89 @@ step("Fishing: equip, lure, cast, reel", function()
     assert(_G.GathercraftPanel:IsShown(), "fishing panel not shown")
     _G.GathercraftPanel.__scripts.OnUpdate = _G.GathercraftPanel.__scripts.OnUpdate
 end)
+step("Fishing: your interact settings come back (end, abort, /reload, login, own change)", function()
+    local saved = { get = GetCVar, set = SetCVar }
+    local store
+    local function Reset() store = { SoftTargetInteract = "1", SoftTargetInteractRange = "10", SoftTargetInteractArc = "0" } end
+    GetCVar = function(k) if store[k] ~= nil then return store[k] end return saved.get(k) end
+    SetCVar = function(k, v) store[k] = tostring(v) return true end
+    local function Is(i, r, a, what)
+        assert(store.SoftTargetInteract == i and store.SoftTargetInteractRange == r and store.SoftTargetInteractArc == a,
+            ("%s: SoftTargetInteract=%s Range=%s Arc=%s, expected %s/%s/%s"):format(what, store.SoftTargetInteract,
+                store.SoftTargetInteractRange, store.SoftTargetInteractArc, i, r, a))
+    end
+    local function Cast() fire("UNIT_SPELLCAST_CHANNEL_START", "player", "fc", 7620) end
+    local function Stop() fire("UNIT_SPELLCAST_CHANNEL_STOP", "player", "fc", 7620) advance(1) end
+    ns.db.fishingCVars = nil
+
+    -- (1) a normal cast and catch
+    Reset() Cast()
+    Is("3", "30", "2", "line out")
+    assert(ns.db.fishingCVars and ns.db.fishingCVars.SoftTargetInteractRange.orig == "10", "not kept in the saved variables")
+    Stop()
+    Is("1", "10", "0", "after the catch")
+    assert(ns.db.fishingCVars == nil, "the saved entry is left after the catch")
+
+    -- (2) aborted (moved, interrupted): the same stop
+    Reset() Cast() advance(2) fire("UNIT_SPELLCAST_CHANNEL_STOP", "player", "fc", 7620)
+    Is("1", "10", "0", "after an abort")
+
+    -- (3) settings you already have wider stay untouched and are not recorded
+    store = { SoftTargetInteract = "3", SoftTargetInteractRange = "40", SoftTargetInteractArc = "2" }
+    Cast()
+    assert(ns.db.fishingCVars == nil, "unchanged settings were recorded")
+    Stop()
+    Is("3", "40", "2", "your own wide settings")
+
+    -- (4) you change one while the line is out: it stays as you set it
+    Reset() Cast()
+    store.SoftTargetInteractRange = "25"
+    Stop()
+    Is("1", "25", "0", "changed by you during the cast")
+
+    -- (5) /reload with the line out: the old code is gone before the stop;
+    -- the reloaded addon puts the values back at login
+    Reset() Cast()
+    -- the frames of the first load: from the fishing button on, as many as a
+    -- load makes (a /reload drops all of them)
+    local first
+    for i, f in ipairs(allFrames) do if f == _G.GathercraftFishButton then first = i break end end
+    local old = next(eventFrames["UNIT_SPELLCAST_CHANNEL_STOP"])
+    assert(first and old, "test setup: fishing frames not found")
+    local before = #allFrames
+    local chunk = assert(loadfile(ROOT .. "/Fishing.lua"))
+    chunk("Gathercraft", ns) -- the reloaded addon (saved variables kept: ns.db)
+    local made = #allFrames - before
+    for i = first, first + made - 1 do
+        local f = allFrames[i]
+        for _, list in pairs(eventFrames) do list[f] = nil end
+        f.__scripts = {}
+    end
+    assert(eventFrames["UNIT_SPELLCAST_CHANNEL_STOP"][old] == nil, "test setup: the old fishing frame is still there")
+    local new = next(eventFrames["UNIT_SPELLCAST_CHANNEL_STOP"])
+    assert(new and new ~= old, "test setup: reloaded fishing frame missing")
+    Is("3", "30", "2", "right after the reload")
+    new.__scripts.OnEvent(new, "PLAYER_LOGIN")
+    Is("1", "10", "0", "after login following a /reload with the line out")
+    assert(ns.db.fishingCVars == nil, "the saved entry is left after login")
+    Stop() -- the stop of that old cast reaches the new code: nothing more happens
+    Is("1", "10", "0", "the old cast's stop after the reload")
+
+    -- (6) login with an open entry, you changed one meanwhile
+    ns.db.fishingCVars = { SoftTargetInteract = { orig = "1", ours = "3" }, SoftTargetInteractRange = { orig = "10", ours = "30" } }
+    store = { SoftTargetInteract = "2", SoftTargetInteractRange = "30.000000", SoftTargetInteractArc = "0" }
+    new.__scripts.OnEvent(new, "PLAYER_LOGIN")
+    Is("2", "10", "0", "login with an open entry")
+    assert(ns.db.fishingCVars == nil, "the open entry is left after login")
+
+    -- (7) login without an entry: nothing is touched
+    store = { SoftTargetInteract = "3", SoftTargetInteractRange = "30", SoftTargetInteractArc = "2" }
+    new.__scripts.OnEvent(new, "PLAYER_LOGIN")
+    Is("3", "30", "2", "login without an entry")
+
+    GetCVar, SetCVar = saved.get, saved.set
+    ns.db.fishingCVars = nil
+end)
 step("Pin tooltip", function()
     for _, f in ipairs(allFrames) do
         if f.node and f.__scripts.OnEnter then f.__scripts.OnEnter(f) f.__scripts.OnLeave(f) break end

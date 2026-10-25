@@ -145,35 +145,59 @@ end
 -- by default "interact" only finds things about 10 yards in front of you,
 -- the bobber lands further away. We widen it for the cast and put your
 -- settings back afterwards.
+--   What we changed is kept in the saved variables (ns.db.fishingCVars:
+--   name -> { orig = your value, ours = the value we set }) while the line
+--   is out. A /reload or logout with the line out: the next login puts
+--   your values back. Only a setting that still has our value is put back;
+--   one you changed yourself in the meantime stays as you set it.
+--   A hard crash: the game writes saved variables only on logout and
+--   /reload, so after a crash there may be nothing to put back. Then the
+--   widened values stay until you set them again (Options > Controls, or
+--   /console SoftTargetInteract ...).
 local BOBBER_CVARS = { SoftTargetInteractRange = 30, SoftTargetInteractArc = 2 }
-local savedCVars
 
-local function WidenInteract()
-    if not (GetCVar and SetCVar) then return end
-    if savedCVars then return end
-    savedCVars = {}
-    -- 0 = off, 1 = gamepad only, 2 = keyboard/mouse only, 3 = both:
-    -- the keyboard needs 2 or 3
-    local mode = GetCVar("SoftTargetInteract")
-    if mode ~= "2" and mode ~= "3" then
-        savedCVars.SoftTargetInteract = mode
-        pcall(SetCVar, "SoftTargetInteract", "3")
-    end
-    for name, value in pairs(BOBBER_CVARS) do
-        local current = GetCVar(name)
-        if current and tonumber(current) and tonumber(current) < value then
-            savedCVars[name] = current
-            pcall(SetCVar, name, tostring(value))
-        end
+-- the same setting value ("30" and "30.000" are the same)
+local function SameValue(a, b)
+    if a == b then return true end
+    local x, y = tonumber(a), tonumber(b)
+    return x ~= nil and x == y
+end
+
+local function SetOurs(saved, name, value)
+    local before = GetCVar(name)
+    if pcall(SetCVar, name, value) and SameValue(GetCVar(name), value) then
+        saved[name] = saved[name] or { orig = before, ours = value }
     end
 end
 
-local function RestoreInteract()
-    if not savedCVars then return end
-    for name, value in pairs(savedCVars) do
-        pcall(SetCVar, name, value)
+local function WidenInteract()
+    if not (GetCVar and SetCVar and ns.db) then return end
+    ns.db.fishingCVars = ns.db.fishingCVars or {}
+    local saved = ns.db.fishingCVars
+    -- 0 = off, 1 = gamepad only, 2 = keyboard/mouse only, 3 = both:
+    -- the keyboard needs 2 or 3
+    local mode = GetCVar("SoftTargetInteract")
+    if mode ~= "2" and mode ~= "3" then SetOurs(saved, "SoftTargetInteract", "3") end
+    for name, value in pairs(BOBBER_CVARS) do
+        local current = tonumber(GetCVar(name))
+        if current and current < value then SetOurs(saved, name, tostring(value)) end
     end
-    savedCVars = nil
+    if not next(saved) then ns.db.fishingCVars = nil end
+end
+
+-- Puts back what we changed (end of the cast, or the next login after a
+-- /reload with the line out). A setting you changed meanwhile stays.
+local function RestoreInteract()
+    local saved = ns.db and ns.db.fishingCVars
+    if not saved then return end
+    for name, s in pairs(saved) do
+        if SameValue(GetCVar(name), s.ours) then
+            if s.orig ~= nil then pcall(SetCVar, name, s.orig) end
+        else
+            ns.Debug(("FISH %s is %s now, not our %s: left as you set it"):format(name, tostring(GetCVar(name)), tostring(s.ours)))
+        end
+    end
+    ns.db.fishingCVars = nil
 end
 
 local function IsFishingCast(spellID)
@@ -226,6 +250,13 @@ events:SetScript("OnEvent", function(_, event, _, _, spellID)
         end
     elseif event == "PLAYER_REGEN_ENABLED" then
         SetReelBinding(lineOut)
+        Prepare()
+    elseif event == "PLAYER_LOGIN" then
+        -- left over from a /reload or logout with the line out: put it back
+        if not lineOut and ns.db and ns.db.fishingCVars then
+            ns.Debug("FISH interact settings of an earlier cast found at login: putting yours back")
+            RestoreInteract()
+        end
         Prepare()
     else
         Prepare()
