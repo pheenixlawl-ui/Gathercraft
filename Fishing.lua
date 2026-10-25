@@ -149,7 +149,12 @@ end
 --   name -> { orig = your value, ours = the value we set }) while the line
 --   is out. A /reload or logout with the line out: the next login puts
 --   your values back. Only a setting that still has our value is put back;
---   one you changed yourself in the meantime stays as you set it.
+--   one you changed yourself in the meantime stays as you set it (also when
+--   you cast again before the line came in: your new value is the one we
+--   put back). A value that could not be put back stays in the list, so the
+--   next login tries again.
+--   Limit: if you set exactly the value we use, nothing tells it apart from
+--   ours, and your old value comes back.
 --   A hard crash: the game writes saved variables only on logout and
 --   /reload, so after a crash there may be nothing to put back. Then the
 --   widened values stay until you set them again (Options > Controls, or
@@ -174,6 +179,14 @@ local function WidenInteract()
     if not (GetCVar and SetCVar and ns.db) then return end
     ns.db.fishingCVars = ns.db.fishingCVars or {}
     local saved = ns.db.fishingCVars
+    -- cast again before the last one was put back: a setting you changed
+    -- since is yours now (it is what we put back, or stays if wide enough)
+    for name, s in pairs(saved) do
+        if not SameValue(GetCVar(name), s.ours) then
+            ns.Debug(("FISH %s is %s now, not our %s: yours from now on"):format(name, tostring(GetCVar(name)), tostring(s.ours)))
+            saved[name] = nil
+        end
+    end
     -- 0 = off, 1 = gamepad only, 2 = keyboard/mouse only, 3 = both:
     -- the keyboard needs 2 or 3
     local mode = GetCVar("SoftTargetInteract")
@@ -186,18 +199,24 @@ local function WidenInteract()
 end
 
 -- Puts back what we changed (end of the cast, or the next login after a
--- /reload with the line out). A setting you changed meanwhile stays.
+-- /reload with the line out). A setting you changed meanwhile stays. One
+-- that could not be set stays in the list: the next login tries again.
 local function RestoreInteract()
     local saved = ns.db and ns.db.fishingCVars
     if not saved then return end
     for name, s in pairs(saved) do
         if SameValue(GetCVar(name), s.ours) then
-            if s.orig ~= nil then pcall(SetCVar, name, s.orig) end
+            if s.orig == nil or (pcall(SetCVar, name, s.orig) and SameValue(GetCVar(name), s.orig)) then
+                saved[name] = nil
+            else
+                ns.Debug(("FISH %s could not be put back to %s: tried again at the next login"):format(name, tostring(s.orig)))
+            end
         else
             ns.Debug(("FISH %s is %s now, not our %s: left as you set it"):format(name, tostring(GetCVar(name)), tostring(s.ours)))
+            saved[name] = nil
         end
     end
-    ns.db.fishingCVars = nil
+    if not next(saved) then ns.db.fishingCVars = nil end
 end
 
 local function IsFishingCast(spellID)

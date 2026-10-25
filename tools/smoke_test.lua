@@ -3956,7 +3956,7 @@ step("Fishing: equip, lure, cast, reel", function()
     assert(_G.GathercraftPanel:IsShown(), "fishing panel not shown")
     _G.GathercraftPanel.__scripts.OnUpdate = _G.GathercraftPanel.__scripts.OnUpdate
 end)
-step("Fishing: your interact settings come back (end, abort, /reload, login, own change)", function()
+step("Fishing: your interact settings come back (end, abort, /reload, login, own change, second cast, failed restore)", function()
     local saved = { get = GetCVar, set = SetCVar }
     local store
     local function Reset() store = { SoftTargetInteract = "1", SoftTargetInteractRange = "10", SoftTargetInteractArc = "0" } end
@@ -4035,6 +4035,32 @@ step("Fishing: your interact settings come back (end, abort, /reload, login, own
     store = { SoftTargetInteract = "3", SoftTargetInteractRange = "30", SoftTargetInteractArc = "2" }
     new.__scripts.OnEvent(new, "PLAYER_LOGIN")
     Is("3", "30", "2", "login without an entry")
+
+    -- (8) cast again before the line came in, you changed one in between:
+    -- your value is what comes back, not the one from before
+    Reset() Cast()
+    store.SoftTargetInteractRange = "25"
+    Cast()
+    Is("3", "30", "2", "second cast after your change")
+    Stop()
+    Is("1", "25", "0", "second cast after your change, then the catch")
+    assert(ns.db.fishingCVars == nil, "the saved entry is left after a second cast")
+
+    -- (9) cast twice without a change: your original values come back
+    Reset() Cast() Cast() Stop()
+    Is("1", "10", "0", "two casts, no change")
+
+    -- (10) putting one back fails: its entry stays, the next login puts it back
+    Reset() Cast()
+    SetCVar = function(k, v) if k == "SoftTargetInteractRange" then error("blocked") end store[k] = tostring(v) return true end
+    Stop()
+    Is("1", "30", "0", "a value that could not be put back")
+    assert(ns.db.fishingCVars and ns.db.fishingCVars.SoftTargetInteractRange and not ns.db.fishingCVars.SoftTargetInteract,
+        "a failed restore: its entry is gone, or the others stayed")
+    SetCVar = function(k, v) store[k] = tostring(v) return true end
+    new.__scripts.OnEvent(new, "PLAYER_LOGIN")
+    Is("1", "10", "0", "the next login after a failed restore")
+    assert(ns.db.fishingCVars == nil, "the entry is left after the login put it back")
 
     GetCVar, SetCVar = saved.get, saved.set
     ns.db.fishingCVars = nil
