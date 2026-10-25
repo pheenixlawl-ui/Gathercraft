@@ -1461,8 +1461,15 @@ ns.BuildCraftPage = function(page, style)
     hint:SetPoint("BOTTOMLEFT", 6, 6)
     hint:SetWidth(710)
     hint:SetJustifyH("LEFT")
-    hint:SetText(L["Colored names: recipes you know (color = skill-up chance). Grey: not learned yet, with the skill it needs. "] ..
-        L["Hover a line for the reagents. \"Can make\" counts bags and bank. Visit trainers to add their recipes."])
+    -- two texts in one line: set again on a language change, and the list
+    -- ends above it when a translation needs more lines
+    local function HintText()
+        hint:SetText(L["Colored names: recipes you know (color = skill-up chance). Grey: not learned yet, with the skill it needs. "] ..
+            L["Hover a line for the reagents. \"Can make\" counts bags and bank. Visit trainers to add their recipes."])
+        scroll:SetPoint("BOTTOMRIGHT", -24, math.max(34, (hint:GetStringHeight() or 0) + 12))
+    end
+    HintText()
+    table.insert(ns.languageListeners, HintText)
 
     Refresh = function()
         filter = filter == "mine" and (ns.db.craftTab or "mine") or filter

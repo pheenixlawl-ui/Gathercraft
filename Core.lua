@@ -26,7 +26,9 @@ end
 local NEXT_MIN_DIST = 10  -- yards: /gcr next skips nodes you are standing on
 local RESPAWN_TIME = 300  -- seconds a harvested node stays out of runs
 local RESPAWN_BY_TYPE = { chest = 900 } -- chests take longer
-local LOOT_WAIT = 1.5     -- seconds to wait for the loot window after a gather
+local LOOT_WAIT = 1.5     -- seconds after a gather: first look whether its loot came
+local IDENTITY_WAIT = 10  -- seconds after the cast: a gather with no name waits this long for its loot
+                          -- (our own upper bound, not a rule of the game client)
 local LIST_MAX = 15
 local DEBUG_WINDOW = "Gathercraft"
 
@@ -74,7 +76,7 @@ local function KindNameFor(objectID, itemID)
         end
     end
     if not kind then return end
-    local lang = ns.Language and ns.Language() or GetLocale()
+    local lang = ns.NameLanguage and ns.NameLanguage() or GetLocale()
     local names = lang:sub(1, 2) ~= "en" and GathercraftNodeNames and GathercraftNodeNames[lang]
     return (names and names[tonumber(oid:sub(2))]) or kind[3]
 end
@@ -215,11 +217,11 @@ local function IsOnCooldown(node)
     return node.emptyUntil and node.emptyUntil > time()
 end
 
--- Fast lookup: a node of this kind near x/y (map coordinates) or nil.
--- Uses an index per zone and kind instead of scanning every node.
-local function FindNode(mapID, id, x, y, radius)
+-- The nodes of a zone by kind id, built once and kept up to date by
+-- NodesChanged ("add" appends, bigger changes drop it)
+local function ZoneIndex(mapID)
     local list = ns.db.nodes[mapID]
-    if not list or not id then return end
+    if not list then return end
     local byId = nodeIndex[mapID]
     if not byId then
         byId = {}
@@ -231,6 +233,14 @@ local function FindNode(mapID, id, x, y, radius)
         end
         nodeIndex[mapID] = byId
     end
+    return byId
+end
+
+-- Fast lookup: a node of this kind near x/y (map coordinates) or nil.
+-- Uses an index per zone and kind instead of scanning every node.
+local function FindNode(mapID, id, x, y, radius)
+    local byId = id and ZoneIndex(mapID)
+    if not byId then return end
     local candidates = byId[id]
     if not candidates then return end
     local best, bestD
@@ -298,8 +308,9 @@ local continentCache = {}
 local CONTINENT_TYPE = (Enum and Enum.UIMapType and Enum.UIMapType.Continent) or 2
 
 local function GetContinent(mapID)
-    if continentCache[mapID] then
-        return continentCache[mapID].id, continentCache[mapID].name
+    local c = continentCache[mapID]
+    if c then
+        return c.id, c.id == 0 and L["Other"] or c.name -- "Other": in the language of now
     end
     local id, name = 0, L["Other"]
     local info = C_Map.GetMapInfo(mapID)
@@ -670,15 +681,102 @@ local function ReadLootItems()
     return items
 end
 
-local function TryRecord()
-    local p = ns.pending
+-- A gather knows what it was: a name from the game (cast target or tooltip)
+-- or its loot (object or item)
+local function HasName(p)
+    return p.name and p.name ~= L["Unknown Herb"] and p.name ~= L["Unknown Ore"]
+end
+
+-- The name our records give an object that the spawn data doesn't know (a
+-- new Forever node such as Wilted Peacebloom): your own gathers first, else
+-- any record of the zone (beta starter data, sync). nil: never seen.
+-- Both lookups use indexes (KnownName's cache, the zone index of FindNode):
+-- no walk over a zone's nodes per loot.
+local function ObjectName(objectID, mapID)
+    local oid = "o" .. objectID
+    local known = KnownName(oid)
+    if known then return known end
+    local byId = mapID and ZoneIndex(mapID)
+    local same = byId and byId[oid]
+    return same and same[1] and same[1].name or nil
+end
+ns.ObjectName = ObjectName -- for the tests (tools/smoke_test.lua)
+
+-- Does this loot belong to this gather? Checked by kind (the kind names of
+-- the spawn data, so two objects of the same herb both fit), not by one
+-- object ID. A new Forever object goes by the name our records give it,
+-- never by its item: Wilted Peacebloom is its own herb, even where its loot
+-- holds a Peacebloom item. An object nobody has a name for can't be checked.
+local function LootFits(p, objectID, itemID)
+    if p.guess or p.type == "chest" then return true end
+    local objType = objectID and KnownObjectType(objectID)
+    if objType and objType ~= p.type then return false end
+    if not HasName(p) then return true end
+    local name = p.name:lower()
+    local data = GathercraftQuestieData
+    local kind = objectID and data and data.kinds["o" .. objectID]
+    if kind then
+        return name == kind[3]:lower() or name == (KindNameFor(objectID) or ""):lower()
+    end
+    if objectID then
+        local known = ObjectName(objectID, p.mapID)
+        return not known or name == known:lower()
+    end
+    -- no object at all: the item's kind (in the game's language or English)
+    if itemID and data then
+        local fits, any = false, false
+        for _, k in pairs(data.kinds) do
+            if k[2] == itemID and (k[1] == "h" or k[1] == "o") then
+                any = true
+                if name == k[3]:lower() then fits = true end
+            end
+        end
+        if any then return fits or name == (KindNameFor(nil, itemID) or ""):lower() end
+    end
+    return true
+end
+
+-- Gathers that succeeded but whose loot hadn't come when the next cast
+-- started: they wait for their own loot (up to IDENTITY_WAIT). A loot goes
+-- to the one gather it fits; if it fits several (the same herb twice, a vein
+-- mined again), nobody can tell whose it is: all of them are dropped. A
+-- spawn booked without its loot would let one vein count three times.
+local awaiting = {}
+
+-- p: this gather (default: the one waiting)
+local function TryRecord(p)
+    p = p or ns.pending
     if not p or not p.succeeded or p.done then return end
-    if not p.lootSeen and GetTime() - p.succeededAt < LOOT_WAIT then
-        return -- give the loot window a moment
+    if not p.lootSeen then
+        -- one rule for every gather: it is booked only with its own loot
+        -- (object, spawn, item). It waits for it up to IDENTITY_WAIT (our own
+        -- bound); without it nothing is booked - a name alone has no spawn, and
+        -- a vein mined three times would count three times
+        if GetTime() - p.sentAt < IDENTITY_WAIT then
+            if not p.waiting then
+                p.waiting = true
+                C_Timer.After(IDENTITY_WAIT - (GetTime() - p.sentAt) + 0.1, function() TryRecord(p) end)
+            end
+            return
+        end
     end
     p.done = true
-    ns.pending = nil
+    if ns.pending == p then ns.pending = nil end
+    for i = #awaiting, 1, -1 do
+        if awaiting[i] == p then table.remove(awaiting, i) end
+    end
     if p.guess or not p.type then return end -- not a gather after all
+    local why = (p.lootAmbiguous and not p.lootSeen and "its loot can't be told from another gather's")
+        or (p.lootConflict and not p.lootSeen and "only loot of another kind")
+        or (not p.lootSeen and "no loot of its own came")
+    if why then
+        Debug(("DROPPED gather %s (%s): %s (%.1f s), nothing recorded"):format(tostring(p.castGUID), tostring(p.name),
+            why, GetTime() - p.sentAt))
+        -- it did succeed: the route must not call a spot of its type close by
+        -- empty because of it (nothing is learned from it either way)
+        if ns.OnGatherUncertain then ns.OnGatherUncertain(p) end
+        return
+    end
 
     local id
     if p.objectID then
@@ -686,11 +784,17 @@ local function TryRecord()
     elseif p.itemID then
         id = "i" .. p.itemID
     end
-    -- a known herb or vein: its own name (whatever a tooltip said), and with
-    -- no name from the game at all the item tells
+    -- a known herb or vein: its own name (whatever a tooltip said). With no
+    -- name from the game: a new Forever object goes by the name our records
+    -- give it (never by its item: Wilted Peacebloom is no Peacebloom), and
+    -- only loot without any object is named after its item
     local better = p.objectID and KnownObjectType(p.objectID) ~= "chest" and KindNameFor(p.objectID)
-    if not better and (p.name == L["Unknown Herb"] or p.name == L["Unknown Ore"]) and p.itemID then
-        better = KindNameFor(nil, p.itemID)
+    if not better and not HasName(p) then
+        if p.objectID then
+            better = ObjectName(p.objectID, p.mapID)
+        elseif p.itemID then
+            better = KindNameFor(nil, p.itemID)
+        end
     end
     if better then p.name = better end
     Debug(("RECORD name=%s type=%s id=%s spawn=%s item=%s"):format(
@@ -711,7 +815,7 @@ local function TryRecord()
     end
 
     if ns.OnHarvested then
-        ns.OnHarvested(node, p.spawn)
+        ns.OnHarvested(node, p.spawn, p) -- p: where the gather started
     end
     if ns.SyncShare then
         ns.SyncShare(p.mapID, node)
@@ -748,6 +852,19 @@ local function OnSpellcastSent(unit, target, castGUID, spellID)
 
     local mapID, x, y = GetPlayerPos()
     if not mapID then return end
+    -- the gather before is not finished yet (its loot didn't come): it keeps
+    -- waiting for its own loot (see awaiting); never booked without it
+    local old = ns.pending
+    if old and not old.done then
+        if old.succeeded then
+            old.awaiting = true
+            awaiting[#awaiting + 1] = old
+            TryRecord(old) -- schedules its end (or ends it, if its time is up)
+        else
+            old.done = true
+            Debug(("DROPPED gather %s: a new cast started before it succeeded"):format(tostring(old.castGUID)))
+        end
+    end
     ns.pending = {
         castGUID = castGUID, name = name, type = nodeType, guess = guess, spellID = spellID,
         mapID = mapID, x = x, y = y, sentAt = GetTime(),
@@ -763,8 +880,8 @@ local function OnSpellcastSucceeded(castGUID, spellID)
     if not p or p.castGUID ~= castGUID then return end
     p.succeeded = true
     p.succeededAt = GetTime()
-    TryRecord()
-    C_Timer.After(LOOT_WAIT + 0.1, TryRecord)
+    TryRecord(p)
+    C_Timer.After(LOOT_WAIT + 0.1, function() TryRecord(p) end) -- this gather, even if a next one started
 end
 
 local function OnSpellcastFailed(castGUID)
@@ -779,8 +896,47 @@ local function OnLoot()
     local objectID, spawn, itemID, guid, count = ReadLoot()
     Debug(("LOOT slots=%d source=%s item=%s"):format(count, tostring(guid), tostring(itemID)))
 
-    local p = ns.pending
-    if not p or p.lootSeen or GetTime() - p.sentAt > 10 then return end
+    -- a loot event that tells nothing (no object, no item): wait for the next
+    if not objectID and not itemID then
+        Debug("LOOT without source or item: waiting for the next loot event")
+        return
+    end
+    -- whose loot is it? The current gather and the earlier ones still waiting
+    -- for theirs, if it fits their kind
+    local now, fits = GetTime(), {}
+    local cur = ns.pending
+    if cur and not cur.done and not cur.lootSeen and now - cur.sentAt <= IDENTITY_WAIT then
+        if LootFits(cur, objectID, itemID) then
+            fits[#fits + 1] = cur
+        else
+            cur.lootConflict = true -- unless loot that fits still comes, nothing is recorded
+            Debug(("LOOT of object %s does not fit the gather of %s (%s)"):format(
+                tostring(objectID), tostring(cur.name), tostring(cur.castGUID)))
+        end
+    end
+    for i = #awaiting, 1, -1 do
+        local a = awaiting[i]
+        if a.done or now - a.sentAt > IDENTITY_WAIT then
+            table.remove(awaiting, i)
+        elseif not a.lootSeen and LootFits(a, objectID, itemID) then
+            fits[#fits + 1] = a
+        end
+    end
+    if #fits == 0 then return end
+    if #fits > 1 then
+        -- the same kind gathered twice (or a vein mined again) before the loot
+        -- came: nobody can tell whose it is, so none of them is booked
+        local casts = {}
+        for _, f in ipairs(fits) do
+            f.lootAmbiguous = true
+            casts[#casts + 1] = tostring(f.castGUID)
+        end
+        Debug(("LOOT of object %s fits %d gathers (%s): can't tell whose, all dropped"):format(
+            tostring(objectID), #fits, table.concat(casts, ", ")))
+        return
+    end
+    local p = fits[1]
+    if p.lootAmbiguous then return end -- once in doubt, it stays dropped
     p.lootSeen = true
     p.items = ReadLootItems()
     p.objectID = objectID
@@ -790,7 +946,8 @@ local function OnLoot()
         -- only a known herb, ore or chest object makes a guess a gather
         local known = KnownObjectType(objectID)
         if not known then
-            ns.pending = nil
+            p.done = true
+            if ns.pending == p then ns.pending = nil end
             return
         end
         p.type, p.guess = known, false
@@ -802,7 +959,7 @@ local function OnLoot()
         Debug(("GUESS confirmed: spell %s is %s"):format(tostring(p.spellID), known))
         if ns.OnGatherStart then ns.OnGatherStart(p) end
     end
-    TryRecord()
+    TryRecord(p)
 end
 
 ---------------------------------------------------------------------------
@@ -1003,6 +1160,7 @@ local function Help()
     print(L["  /gcr rare         - test the rare alert"])
     print(L["  /gcr debug        - toggle debug output"])
     print("  /gcr test         - API check")
+    print("  /gcr softtest     - interact targeting check")
     print(L["  /gcr scan         - scan auction house prices (at the auction house)"])
     print(L["  /gcr ahtest       - price sources and auction house check"])
 end
@@ -1082,6 +1240,8 @@ SlashCmdList.GATHERCRAFT = function(msg)
         ns.MinimapTest()
     elseif cmd == "test" then
         ApiTest()
+    elseif cmd == "softtest" then
+        if ns.SoftTargetTest then ns.SoftTargetTest() end
     elseif cmd == "ahtest" or cmd == "prices" then
         if ns.PriceTest then ns.PriceTest() end
     elseif cmd == "recipetest" then

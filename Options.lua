@@ -58,6 +58,8 @@ local SECTIONS = {
       desc = "How Gathercraft shows nodes on the world map and the minimap." },
     { key = "runs", name = "Farm runs", icon = "Interface\\Icons\\Ability_Tracking",
       desc = "What a farm run goes for and how it shows you the way." },
+    { key = "level", name = "Leveling", icon = "Interface\\Icons\\Trade_Herbalism",
+      desc = "While you level: which nodes still give skill-ups, at a glance." },
     { key = "sync", name = "Sharing", icon = "Interface\\Icons\\INV_Letter_15",
       desc = "Share the spots you find with other Gathercraft players – and get theirs." },
     { key = "alerts", name = "Rares & prices", icon = "Interface\\Icons\\Ability_Warrior_BattleShout",
@@ -100,6 +102,24 @@ local function StyleNav(b, selected)
     end
 end
 
+-- Pages of checks and hints only (Leveling) flow: each row gets the height
+-- its text needs, worked out again when the language or the width changes
+-- (a translation may wrap once more)
+local function Reflow(p)
+    if not p.rows then return end
+    local y = p.rowsTop
+    for _, r in ipairs(p.rows) do
+        local h = r.fs:GetStringHeight() or 0
+        if r.cb then
+            r.cb:SetPoint("TOPLEFT", r.x, y)
+            y = y - math.max(26, h + 12)
+        else
+            r.fs:SetPoint("TOPLEFT", r.x + 30, y + 2)
+            y = y - math.max(16, h + 5)
+        end
+    end
+end
+
 local function ShowSection(key)
     if not sectionPages[key] then key = SECTIONS[1].key end
     if ns.db then ns.db.optionsSection = key ~= SECTIONS[1].key and key or nil end
@@ -107,6 +127,7 @@ local function ShowSection(key)
         page:SetShown(k == key)
         StyleNav(navButtons[k], k == key)
     end
+    Reflow(sectionPages[key])
 end
 ns.ShowOptionsSection = ShowSection
 
@@ -128,7 +149,7 @@ end
 local page -- the section the Add* functions below fill
 local colX, nextY = 0, 0
 
-local function Section(index)
+local function Section(index, flow)
     local info = SECTIONS[index]
     page = CreateFrame("Frame", nil, content)
     page:SetAllPoints(content)
@@ -181,6 +202,10 @@ local function Section(index)
     navButtons[info.key] = b
 
     colX, nextY = 0, -62
+    if flow then
+        page.rows, page.rowsTop = {}, nextY
+        page:SetScript("OnSizeChanged", Reflow)
+    end
 end
 
 local function AddHeader(text)
@@ -198,6 +223,7 @@ local function AddHint(text)
     fs:SetPoint("RIGHT", page, "RIGHT", 0, 0)
     fs:SetJustifyH("LEFT")
     ns.LText(fs, text)
+    if page.rows then page.rows[#page.rows + 1] = { fs = fs, x = colX } end
     nextY = nextY - 16
 end
 
@@ -207,7 +233,15 @@ local function AddCheck(label, get, set)
     cb:SetSize(24, 24)
     cb:SetPoint("TOPLEFT", colX, nextY)
     local fs = page:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    fs:SetPoint("LEFT", cb, "RIGHT", 4, 0)
+    if page.rows then
+        -- may wrap: up to the right edge, its first line next to the box
+        fs:SetPoint("TOPLEFT", cb, "TOPRIGHT", 4, -5)
+        fs:SetPoint("RIGHT", page, "RIGHT", 0, 0)
+        fs:SetJustifyH("LEFT")
+        page.rows[#page.rows + 1] = { cb = cb, fs = fs, x = colX }
+    else
+        fs:SetPoint("LEFT", cb, "RIGHT", 4, 0)
+    end
     ns.LText(fs, label)
     cb:SetScript("OnClick", function(self)
         set(self:GetChecked() and true or false)
@@ -683,6 +717,8 @@ function options:Refresh()
         end
         languageText:SetText(name)
     end
+    -- also after a language change (that calls Refresh)
+    for _, p in pairs(sectionPages) do Reflow(p) end
 end
 options:SetScript("OnShow", options.Refresh)
 
@@ -788,7 +824,27 @@ local function Build()
     nextY = nextY - 4
     AddRouteLineLook()
 
-    Section(3) -- Sharing
+    Section(3, true) -- Leveling (long translations: rows flow)
+    AddCheck("Color pins by skill-up chance",
+        function() return not ns.db.skillColorsOff end,
+        function(on)
+            ns.db.skillColorsOff = not on or nil
+            ns.NotifyNodesChanged()
+        end)
+    AddHint("|cffff8040Orange|r every time · |cffffff00yellow|r likely · |cff40ff40green|r sometimes · |cff999999grey|r never · |cffff5555red|r skill too low")
+    AddHint("Like at the trainer. Only below skill 300, on pins with a ring (the default map styles).")
+    AddCheck("Hide nodes that give no more skill-ups",
+        function() return ns.db.hideGreyNodes end,
+        function(on)
+            ns.db.hideGreyNodes = on or nil
+            ns.NotifyNodesChanged()
+        end)
+    AddHint("Handy while you level - turn it off when you farm for gold.")
+    AddCheck("Remind me to visit the trainer (5 points before the end of a rank)",
+        function() return not ns.db.trainerRemindOff end,
+        function(on) ns.db.trainerRemindOff = not on end)
+
+    Section(4) -- Sharing
     AddCheck("Share nodes with other players",
         function() return ns.db.sync and ns.db.sync.enabled end,
         function(on) ns.SyncCommand(on and "on" or "off") end)
@@ -817,7 +873,7 @@ local function Build()
         UpdateSyncStatus()
     end)
 
-    Section(4) -- Rares & prices
+    Section(5) -- Rares & prices
     AddHeader("Rares")
     AddCheck("Alert when a rare shows up (sound + warning)",
         function() return ns.db.rareAlert ~= false end,
@@ -837,7 +893,7 @@ local function Build()
         function() return ns.db.tooltipPrices ~= false end,
         function(on) ns.db.tooltipPrices = on end)
 
-    Section(5) -- General
+    Section(6) -- General
     AddHeader("Language")
     AddLanguage()
     nextY = nextY - 6
@@ -848,9 +904,6 @@ local function Build()
             ns.db.minimapHidden = not on
             ns.UpdateMinimapButton()
         end)
-    AddCheck("Remind me to visit the trainer (5 points before the end of a rank)",
-        function() return not ns.db.trainerRemindOff end,
-        function(on) ns.db.trainerRemindOff = not on end)
     AddCheck("Fish key applies a lure when the pole has none",
         function() return ns.db.fishLure ~= false end,
         function(on) ns.db.fishLure = on end)

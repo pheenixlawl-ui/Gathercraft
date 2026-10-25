@@ -62,6 +62,18 @@ local function GetSkill(nodeType)
     end
 end
 
+-- GetSkill found nothing: true when that may only be because the old skill
+-- list hides it (a collapsed header in the skill window), false when the
+-- profession is really not learned (any more)
+local function SkillListIncomplete()
+    if not (GetNumSkillLines and GetSkillLineInfo) then return not (GetProfessions and GetProfessionInfo) end
+    for i = 1, GetNumSkillLines() do
+        local _, isHeader, isExpanded = GetSkillLineInfo(i)
+        if isHeader and not isExpanded then return true end
+    end
+    return false
+end
+
 -- The stats table, migrated to the current format
 local function KindStats()
     local db = ns.db
@@ -125,23 +137,44 @@ local function Required(id, name)
     return (kind and REQUIRED[kind[3]]) or (name and REQUIRED[name])
 end
 
+-- The trainer colour of a node for your skill: "orange" (skill-up every
+-- time), "yellow" (likely), "green" (sometimes), "grey" (never), "red" (your
+-- skill is too low). nil: requirement unknown. Pass mine/effective from
+-- GetSkill when you already have them (pins colour thousands of nodes).
+local function SkillLevel(name, id, mine, effective)
+    local req = Required(id, name)
+    if not req or not mine then return nil, req end
+    local d = mine - req
+    if d < 0 then
+        -- above your own skill, but your bonus (gloves, tea...) reaches it
+        if effective and effective >= req then return "orange", req end
+        return "red", req
+    end
+    if d < 25 then return "orange", req end
+    if d < 50 then return "yellow", req end
+    if d < 100 then return "green", req end
+    return "grey", req
+end
+
+local LEVEL_RANK = { orange = 0, yellow = 1, green = 2, grey = 3, red = 4 }
+
 -- Returns sort rank (lower = better to farm) and a coloured text
 local function SkillVerdict(nodeType, name, id, key)
     if nodeType == "chest" then return 5, L["|cffaaaaaaChest|r"] end
-    local mine, _, effective = GetSkill(nodeType)
+    local mine, maxRank, effective = GetSkill(nodeType)
     if not mine then return 6, L["|cffff5555Profession not learned|r"] end
-    local req = Required(id, name)
-    if req then
-        local d = mine - req
-        if d < 0 then
-            -- above your own skill, but your bonus (gloves, tea...) reaches it
-            if effective and effective >= req then return 0, L["|cffff8040Skill-up guaranteed|r"] end
-            return 4, (L["|cffff5555Needs skill %d|r"]):format(req)
+    local level, req = SkillLevel(name, id, mine, effective)
+    if level then
+        local rank = LEVEL_RANK[level]
+        -- at the end of a rank (75/75...) nothing gives a point until you train
+        if level ~= "grey" and level ~= "red" and maxRank and maxRank > 0 and maxRank < 300 and mine >= maxRank then
+            return rank, L["|cffffd060No skill-ups until you train the next rank|r"]
         end
-        if d < 25 then return 0, L["|cffff8040Skill-up guaranteed|r"] end
-        if d < 50 then return 1, L["|cffffff00Skill-up likely|r"] end
-        if d < 100 then return 2, L["|cff40ff40Skill-up sometimes|r"] end
-        return 3, L["|cff999999No more skill-ups|r"]
+        if level == "orange" then return rank, L["|cffff8040Skill-up guaranteed|r"] end
+        if level == "yellow" then return rank, L["|cffffff00Skill-up likely|r"] end
+        if level == "green" then return rank, L["|cff40ff40Skill-up sometimes|r"] end
+        if level == "grey" then return rank, L["|cff999999No more skill-ups|r"] end
+        return rank, (L["|cffff5555Needs skill %d|r"]):format(req)
     end
     local s = key and KindStats()[key]
     if s and s.maxUp and mine <= s.maxUp then return 1, L["|cff55ff55Skill-ups seen|r"] end
@@ -246,6 +279,8 @@ end
 
 ns.GetSkill = GetSkill
 ns.SkillVerdict = SkillVerdict
+ns.SkillLevel = SkillLevel
+ns.SkillListIncomplete = SkillListIncomplete
 ns.RequiredSkill = function(id, name) return Required(id, name) or 0 end
 ns.KindStats = KindStats
 ns.OnGatherStart = OnGatherStart

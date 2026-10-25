@@ -382,26 +382,54 @@ hereEmpty:SetWidth(430)
 hereEmpty:SetJustifyH("LEFT")
 ns.LText(hereEmpty, "No nodes known in this zone yet.")
 
+-- The rows scroll between the header and the run buttons, each as high as
+-- its texts (a long verdict or name wraps, in every language)
+local hereScroll = CreateFrame("ScrollFrame", "GathercraftHereScroll", overview, "UIPanelScrollFrameTemplate")
+hereScroll:SetPoint("TOPLEFT", 4, -128)
+hereScroll:SetPoint("BOTTOMRIGHT", overview, "BOTTOMLEFT", 418, 40)
+local hereContent = CreateFrame("Frame", nil, hereScroll)
+hereContent:SetSize(414, 10)
+hereScroll:SetScrollChild(hereContent)
+
 local hereRows = {}
 for i = 1, LIST_ROWS do
-    local row = CreateFrame("Frame", nil, overview)
-    row:SetSize(436, 26)
-    row:SetPoint("TOPLEFT", 4, -130 - (i - 1) * 28)
+    local row = CreateFrame("Frame", nil, hereContent)
+    row:SetSize(414, 26)
     row.icon = row:CreateTexture(nil, "ARTWORK")
     row.icon:SetSize(22, 22)
-    row.icon:SetPoint("LEFT", 0, 0)
+    row.icon:SetPoint("TOPLEFT", 0, -2)
     row.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
     row.name = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     row.name:SetPoint("TOPLEFT", row.icon, "TOPRIGHT", 6, 1)
-    row.name:SetWidth(260)
     row.name:SetJustifyH("LEFT")
     row.info = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    row.info:SetPoint("BOTTOMLEFT", row.icon, "BOTTOMRIGHT", 6, -1)
-    row.info:SetWidth(290)
+    row.info:SetPoint("TOPLEFT", row.name, "BOTTOMLEFT", 0, -2)
     row.info:SetJustifyH("LEFT")
     row:Hide()
     hereRows[i] = row
 end
+
+-- Rows one below the other, each as high as its wrapped texts
+local function LayoutHere()
+    local w = hereContent:GetWidth()
+    local y = 0
+    for _, row in ipairs(hereRows) do
+        if row:IsShown() then
+            row:SetWidth(w)
+            row.name:SetWidth(w - 28)
+            row.info:SetWidth(w - 28)
+            local h = math.max(26, (row.name:GetStringHeight() or 0) + (row.info:GetStringHeight() or 0) + 5)
+            row:SetHeight(h)
+            row:SetPoint("TOPLEFT", 0, -y)
+            y = y + h + 2
+        end
+    end
+    hereContent:SetHeight(math.max(10, y))
+end
+hereScroll:SetScript("OnSizeChanged", function(_, w)
+    hereContent:SetWidth(w)
+    LayoutHere()
+end)
 
 -- Skill-up verdict for a node kind at the current skill
 local function Verdict(type, key, name, id)
@@ -444,6 +472,7 @@ local function UpdateHere()
             row:Hide()
         end
     end
+    LayoutHere()
 end
 
 ---------------------------------------------------------------------------
@@ -553,25 +582,53 @@ skillsEmpty:SetPoint("TOPLEFT", 6, -6)
 ns.LText(skillsEmpty, "No skill data yet. Gather a few nodes!")
 
 local skillRows = {}
+local VERDICT_W = 240 -- the verdict column, right of the name
 local function SkillRow(i)
     local row = skillRows[i]
     if row then return row end
     row = CreateFrame("Frame", nil, skillsContent)
     row:SetSize(PAGE_WIDTH - 30, 30)
-    row:SetPoint("TOPLEFT", 4, -4 - (i - 1) * 32)
     row.icon = row:CreateTexture(nil, "ARTWORK")
     row.icon:SetSize(24, 24)
-    row.icon:SetPoint("LEFT", 0, 0)
+    row.icon:SetPoint("TOPLEFT", 0, -2)
     row.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
     row.name = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     row.name:SetPoint("TOPLEFT", row.icon, "TOPRIGHT", 8, 1)
-    row.info = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    row.info:SetPoint("BOTTOMLEFT", row.icon, "BOTTOMRIGHT", 8, -1)
+    row.name:SetJustifyH("LEFT")
     row.verdict = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    row.verdict:SetPoint("LEFT", row.name, "RIGHT", 12, 0)
+    row.verdict:SetPoint("TOPLEFT", row.name, "TOPRIGHT", 12, 0)
+    row.verdict:SetWidth(VERDICT_W)
+    row.verdict:SetJustifyH("LEFT")
+    row.info = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    row.info:SetJustifyH("LEFT")
     skillRows[i] = row
     return row
 end
+
+-- Name and verdict side by side (each wraps in its column), the numbers
+-- below: every row as high as its texts, within the page width
+local function LayoutSkills(count)
+    local w = skillsContent:GetWidth() - 4
+    local y = 4
+    for i = 1, count do
+        local row = skillRows[i]
+        row:SetWidth(w)
+        row.name:SetWidth(w - 32 - 12 - VERDICT_W)
+        row.info:SetWidth(w - 32)
+        local top = math.max(row.name:GetStringHeight() or 0, row.verdict:GetStringHeight() or 0, 12)
+        row.info:SetPoint("TOPLEFT", row, "TOPLEFT", 32, -(top + 3))
+        local h = math.max(30, top + (row.info:GetStringHeight() or 0) + 6)
+        row:SetHeight(h)
+        row:SetPoint("TOPLEFT", 4, -y)
+        y = y + h + 2
+    end
+    skillsContent:SetHeight(math.max(10, y + 4))
+end
+local shownSkills = 0
+skillsScroll:SetScript("OnSizeChanged", function(_, w)
+    skillsContent:SetWidth(w)
+    LayoutSkills(shownSkills)
+end)
 
 local function UpdateSkills()
     local items = {}
@@ -603,9 +660,16 @@ local function UpdateSkills()
     for i = #list + 1, #skillRows do
         skillRows[i]:Hide()
     end
-    skillsContent:SetHeight(math.max(10, #list * 32 + 8))
+    shownSkills = #list
+    LayoutSkills(#list)
 end
 skillsPage:SetScript("OnShow", UpdateSkills)
+
+-- a language change: new texts and their heights at once, without a reload
+table.insert(ns.languageListeners, function()
+    if overview:IsVisible() then UpdateOverview() end
+    if skillsPage:IsVisible() then UpdateSkills() end
+end)
 
 ---------------------------------------------------------------------------
 -- Open / close

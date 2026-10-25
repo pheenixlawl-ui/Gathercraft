@@ -76,6 +76,7 @@ local recv = { start = 0, count = 0, processed = 0 }
 local incomingRate = 0        -- smoothed messages per second
 local stats = { received = 0, imported = 0, dropped = 0, skippedKnown = 0, skippedBusy = 0, peers = {} }
 local stress                  -- running stress test (fake data, nothing stored)
+local stays = {}              -- nodes with a healStay (self-healing, see SelfHeal), looked at while you move
 
 local function DB()
     return ns.db.sync
@@ -336,24 +337,75 @@ local function IsParked(n)
     return (n and n.parked and n.source == "sync" and (n.hits or 0) == 0) and true or false
 end
 
-local function Unpark(n, why)
+-- The zone a node is saved in (parking is rare: a plain search will do)
+local function MapOf(n)
+    for mapID, list in pairs(ns.db.nodes) do
+        for _, x in ipairs(list) do
+            if x == n then return mapID end
+        end
+    end
+end
+
+-- Parked or back: only this node's pins (they fade) and the route's node
+-- list change. Telling everyone "all changed" would take every pin of the
+-- continent off and on again for one node.
+local function ParkChanged(n, mapID)
+    mapID = mapID or MapOf(n)
+    if ns.RouteNodeListChanged then ns.RouteNodeListChanged() end
+    if mapID then
+        ns.NotifyNodesChanged("update", mapID, n)
+    else
+        ns.NotifyNodesChanged()
+    end
+end
+
+local function Unpark(n, why, mapID)
     if not n.parked then return end
-    n.parked, n.healMisses, n.healAt, n.healFirst = nil, nil, nil, nil
+    n.parked, n.healMisses, n.healAt, n.healFirst, n.healStay = nil, nil, nil, nil, nil
+    stays[n] = nil
     Debug(("%s is back (%s)"):format(tostring(n.name), why))
-    ns.NotifyNodesChanged()
+    ParkChanged(n, mapID)
 end
 
 -- Route.lua calls this when the run target was found empty (not skipped,
 -- not in combat). Returns true when the node was parked just now.
-local function SelfHeal(n)
+-- An empty visit counts once per stay: standing at the spot (or waiting
+-- there through a stop and a new run) the route checks it again and again,
+-- but that is still the same visit. The spot of the last counted visit is
+-- kept on the node (n.healStay, world position) until you are seen clearly
+-- away from it during a run (see NoteWhere).
+
+-- Route.lua, every check of a run: where you are. pos() gives the player's
+-- world position; leave: yards from the spot that count as gone from it.
+local function NoteWhere(pos, leave)
+    if not next(stays) then return end
+    local px, py, inst = pos()
+    if not px then return end
+    for n in pairs(stays) do
+        local s = n.healStay
+        if not s or s.inst ~= inst or (px - s.wx) ^ 2 + (py - s.wy) ^ 2 > leave * leave then
+            n.healStay, stays[n] = nil, nil
+            if s then Debug(("left the spot of %s: its next empty visit counts again"):format(tostring(n.name))) end
+        end
+    end
+end
+
+-- at: { wx, wy, inst } of the spot (Route.lua); without it nothing is kept
+local function SelfHeal(n, at)
     if not n or n.parked or n.source ~= "sync" or (n.hits or 0) > 0 then return end
     -- seen with your own eyes (tooltip), or more players than the first
     -- confirmations know it: real
     if n.seenAt or (n.heard or 0) > CONFIRMATIONS then return end
+    -- still the stay of the last counted empty visit: not a visit of its own
+    if n.healStay then return end
     local now = time()
     if n.healAt and now - n.healAt < HEAL_SPACING then return end
     if n.healAt and now - n.healAt > HEAL_RESET then
         n.healFirst, n.healMisses = nil, nil -- long ago: count from scratch
+    end
+    if at and at.wx then
+        n.healStay = { wx = at.wx, wy = at.wy, inst = at.inst }
+        stays[n] = true
     end
     n.healAt = now
     n.healFirst = n.healFirst or now
@@ -362,7 +414,7 @@ local function SelfHeal(n)
     n.parked = now
     ns.Print((L["%s was always empty and only came from other players: left out of routes until someone new reports it."]):format(n.name))
     Debug(("parked %s"):format(tostring(n.id)))
-    ns.NotifyNodesChanged()
+    ParkChanged(n)
     return true
 end
 
@@ -394,7 +446,7 @@ local function HandleNode(mapID, entry, sender, trusted, dry)
                     known.heardBy[who] = true
                     known.heard = (known.heard or 0) + 1
                     -- someone new has it: it is real after all
-                    if known.parked then Unpark(known, "reported by " .. who) end
+                    if known.parked then Unpark(known, "reported by " .. who, mapID) end
                 end
             end
         end
@@ -804,6 +856,13 @@ frame:SetScript("OnEvent", function(self, event, ...)
         s.lastQuery[scope] = s.lastQuery[scope] or {}
         lastQuery = s.lastQuery[scope]
 
+        -- spots of counted empty visits you were not seen leaving yet (kept over a reload)
+        for _, list in pairs(ns.db.nodes or {}) do
+            for _, n in ipairs(list) do
+                if n.healStay then stays[n] = true end
+            end
+        end
+
         -- Drop old unconfirmed reports
         for mapID, list in pairs(s.pending) do
             for i = #list, 1, -1 do
@@ -836,6 +895,7 @@ ns.SyncShare = ShareHarvest
 ns.SyncQueryRouteZones = QueryRouteZones
 -- unconfirmed reports of one zone (grey pins in zones without known spawn points)
 ns.SyncSelfHeal = SelfHeal
+ns.SyncNoteWhere = NoteWhere
 ns.IsParked = IsParked
 -- For the options: players seen in the last hour, spots received this session, waiting
 ns.SyncSummary = function()

@@ -12,13 +12,19 @@ local L = ns.L or setmetatable({}, { __index = function(_, k) return k end })
 --     staying on the same recipe is preferred a little (fewer steps)
 --   * the material list: what you need, what you have (bags and bank), what
 --     is missing and what that costs; bars and bolts you can make yourself
---     are broken down into ore and cloth, and herbs and ore you can gather
---     get a button that starts a farm run for them
+--     (profession learned, recipe known, skill high enough) are broken down
+--     into ore and cloth, all others are bought; herbs and ore you can
+--     gather get a button that starts a farm run for them
+--   * shown, but not part of the recipe choice: trainer fees and recipe
+--     items of the recipes the plan uses, and where you have to train the
+--     next rank; prices and fees nobody knows yet are counted as unknown,
+--     never as 0
 ---------------------------------------------------------------------------
 local CAPS = { 75, 150, 225, 300 }
 local SWITCH_PENALTY = 1.08   -- a new recipe has to be this much cheaper per point
 local UNKNOWN_PRICE = 2000     -- copper per item when no price is known (keeps such recipes possible but not first)
 local ROW_H = 18
+local WIDE_W = 492  -- a line without a right column (hints, notes): the whole row, wrapped
 
 local function Data() return ns.CraftData end
 
@@ -55,6 +61,18 @@ local function HowToLearn(prof, key, spell, known, req, grey)
     if (req or 0) <= 1 and not item and grey <= 75 then return "start" end
 end
 
+-- A recipe read from a profession window has no required skill: take the shipped one
+local function RequiredOf(prof, key, req)
+    if (req or 0) == 0 then
+        local shipped = GathercraftRecipeData.professions and GathercraftRecipeData.professions[prof]
+        if shipped and shipped[key] then
+            local _, _, shippedReq = Data().Unpack(shipped[key])
+            req = shippedReq or req
+        end
+    end
+    return req
+end
+
 -- The recipes the plan can use, with colours and the cost of one craft
 local function Candidates(prof)
     local d = Data()
@@ -69,14 +87,7 @@ local function Candidates(prof)
         if c then yellow, grey = c:match("^(%d+):(%d+)$") end
         yellow, grey = tonumber(yellow), tonumber(grey)
         local product, made, req, reagents = d.Unpack(packed)
-        -- a recipe read from a profession window has no required skill: take the shipped one
-        if (req or 0) == 0 then
-            local shipped = GathercraftRecipeData.professions and GathercraftRecipeData.professions[prof]
-            if shipped and shipped[key] then
-                local _, _, shippedReq = d.Unpack(shipped[key])
-                req = shippedReq or req
-            end
-        end
+        req = RequiredOf(prof, key, req)
         if yellow and grey and reagents and #reagents > 0 then
             local how, fee, recipeItem = HowToLearn(prof, key, spell, known, req, grey)
             if how then
@@ -96,7 +107,7 @@ local function Candidates(prof)
                 list[#list + 1] = {
                     key = key, name = d.DisplayName(prof, key), product = product, made = made,
                     req = math.max(1, req or 1), yellow = yellow, grey = grey, reagents = reagents,
-                    cost = cost, how = how, fee = fee, recipeItem = recipeItem,
+                    cost = cost, how = how, fee = fee, recipeItem = recipeItem, guessed = guessed,
                 }
             end
         end
@@ -139,15 +150,22 @@ local function MakePlan(prof, from, to)
     return steps, stuck, unknownPrices
 end
 
--- What makes an item: a recipe of this profession or smelting (bars)
-local function Producers(prof)
+-- What makes an item that you can make yourself: a recipe of this profession
+-- or smelting (bars) - only with the profession learned, the recipe known
+-- and the skill it needs (from = your skill in the planned profession).
+-- Everything else is bought.
+local function Producers(prof, from)
     local d = Data()
     local out = {}
     for _, p in ipairs({ prof, "Mining" }) do
-        for key, packed in pairs(d.AllRecipes(p)) do
-            local product, made, _, reagents = d.Unpack(packed)
-            if product and product > 0 and reagents and #reagents > 0 and not out[product] then
-                out[product] = { prof = p, key = key, made = math.max(1, made or 1), reagents = reagents }
+        local rank = p == prof and from or (ns.ProfessionRank and ns.ProfessionRank(p))
+        if rank then
+            for key, packed in pairs(d.Known(p)) do
+                local product, made, req, reagents = d.Unpack(packed)
+                req = RequiredOf(p, key, req)
+                if product and product > 0 and reagents and #reagents > 0 and (req or 0) <= rank and not out[product] then
+                    out[product] = { prof = p, key = key, made = math.max(1, made or 1), reagents = reagents }
+                end
             end
         end
     end
@@ -172,8 +190,9 @@ local function NodeFor(itemID)
     return nodeOfItem[itemID]
 end
 
--- Materials of the plan: { id, need, have, missing, cost, node, made = from }
-local function Materials(prof, steps)
+-- Materials of the plan: { id, need, have, missing, cost, node, made = from },
+-- the cost of what is missing, and how many missing items have no price
+local function Materials(prof, steps, from)
     local d = Data()
     local need = {}
     for _, s in ipairs(steps) do
@@ -183,7 +202,7 @@ local function Materials(prof, steps)
     end
     -- bars, bolts...: what you don't have is made from its own materials
     -- (again and again: bronze bars need copper bars, which need ore)
-    local producers = Producers(prof)
+    local producers = Producers(prof, from)
     local madeTimes, madeFrom = {}, {}
     for _ = 1, 100 do
         local changed = false
@@ -204,7 +223,7 @@ local function Materials(prof, steps)
         end
         if not changed then break end
     end
-    local list, total = {}, 0
+    local list, total, unknown = {}, 0, 0
     for id, n in pairs(need) do
         local have = d.Have(id)
         local missing = math.max(0, n - have)
@@ -212,6 +231,7 @@ local function Materials(prof, steps)
         local price = d.ReagentCost(id)
         local cost = price and price * missing or nil
         total = total + (cost or 0)
+        if missing > 0 and not price then unknown = unknown + 1 end -- not 0: unknown
         list[#list + 1] = { id = id, need = n, have = have, missing = missing, cost = cost,
             node = NodeFor(id), madeFrom = madeFrom[id] }
     end
@@ -220,12 +240,41 @@ local function Materials(prof, steps)
         if a.missing ~= b.missing then return a.missing > b.missing end
         return a.id < b.id
     end)
-    return list, total
+    return list, total, unknown
 end
+
+-- What the recipes of the plan cost to learn, once each: trainer fees of the
+-- ones you don't know yet, and recipe items to buy (their price only when a
+-- vendor showed it to you). Not part of the recipe choice.
+local function LearnCosts(steps)
+    local seen = {}
+    local c = { fees = 0, feesUnknown = 0, trainer = 0, items = 0, itemCost = 0, itemsUnknown = 0 }
+    for _, s in ipairs(steps) do
+        local r = s.recipe
+        if not seen[r] then
+            seen[r] = true
+            if r.how == "trainer" then
+                c.trainer = c.trainer + 1
+                if type(r.fee) == "number" then c.fees = c.fees + r.fee else c.feesUnknown = c.feesUnknown + 1 end
+            elseif r.how == "vendor" then
+                c.items = c.items + 1
+                local price = r.recipeItem and ns.db.vendorPrices and ns.db.vendorPrices[r.recipeItem]
+                if price then c.itemCost = c.itemCost + price else c.itemsUnknown = c.itemsUnknown + 1 end
+            end
+        end
+    end
+    return c
+end
+
+-- steps, materials, cost of the missing materials, where the plan got stuck,
+-- whether stand-in prices were used, and info = { learn costs, missing
+-- materials without a price }
 ns.SkillPlan = function(prof, from, to)
     local steps, stuck, unknown = MakePlan(prof, from, to)
-    local mats, total = Materials(prof, steps)
-    return steps, mats, total, stuck, unknown
+    local mats, total, matsUnknown = Materials(prof, steps, from)
+    local info = LearnCosts(steps)
+    info.matsUnknown = matsUnknown
+    return steps, mats, total, stuck, unknown, info
 end
 
 ---------------------------------------------------------------------------
@@ -269,7 +318,9 @@ local function Refresh()
     local d = Data()
     local prof = state.prof
     profText:SetText(d.ProfLabel(prof))
-    local rank = ns.ProfessionRank and ns.ProfessionRank(prof)
+    local rank, maxRank
+    if ns.ProfessionRank then rank, maxRank = ns.ProfessionRank(prof) end
+    if not (maxRank and maxRank > 0) then maxRank = nil end
     local from = rank or 1
     local target = state.target
     if not target or target <= from then
@@ -279,18 +330,39 @@ local function Refresh()
         end
         state.target = target
     end
-    skillText:SetText(rank and (L["Your skill: %d"]):format(rank) or L["Your skill: ? (open your profession window once)"])
-    targetText:SetText(target)
+    skillText:SetText(rank and maxRank and (L["Your skill: %d / %d"]):format(rank, maxRank)
+        or rank and (L["Your skill: %d"]):format(rank) or L["Your skill: ? (open your profession window once)"])
+    -- the targets are the usual Classic caps; without your own maximum they are assumed
+    targetText:SetText(maxRank and tostring(target) or ("~" .. target))
 
-    local steps, mats, total, stuck, unknown = ns.SkillPlan(prof, from, target)
-    local n = 0
+    local steps, mats, total, stuck, unknown, info = ns.SkillPlan(prof, from, target)
+    -- where you have to train the next rank: your own maximum, after that the
+    -- usual caps (assumed)
+    local trainAt = {}
+    if maxRank and maxRank < target then trainAt[maxRank] = "known" end
+    for _, cap in ipairs(CAPS) do
+        if cap < target and cap >= from and (not maxRank or cap > maxRank) then trainAt[cap] = trainAt[cap] or "assumed" end
+    end
+    -- rows one below the other; a line without a right column (hints, notes)
+    -- takes the whole width and wraps, so long translations and big amounts
+    -- are not cut off: its row grows with the text
+    local n, y = 0, 0
     local function Line(left, right, color)
         n = n + 1
         local row = Row(n)
+        local wide = right == nil
+        row.left:SetWidth(wide and WIDE_W or 300)
+        row.left:SetWordWrap(wide)
         row.left:SetText(left)
         row.right:SetText(right or "")
         row.left:SetTextColor(unpack(color or { 1, 1, 1 }))
         row.button:Hide()
+        local h = ROW_H
+        if wide then h = math.max(ROW_H, math.ceil((row.left:GetStringHeight() or 0) + 6)) end
+        row:SetHeight(h)
+        row:ClearAllPoints()
+        row:SetPoint("TOPLEFT", 0, -y)
+        y = y + h
         row:Show()
         return row
     end
@@ -298,12 +370,40 @@ local function Refresh()
     if prof == "Mining" then
         Line(L["Mining also rises when you mine veins: a farm run for ore often does both."], nil, { 0.7, 0.7, 0.7 })
     end
+    local function Train(at)
+        local kind = trainAt[at]
+        if not kind then return end
+        trainAt[at] = nil
+        Line(kind == "known" and (L["Train the next rank at your trainer (needed at %d)."]):format(at)
+            or (L["Train the next rank at your trainer (at ~%d, cap assumed)."]):format(at), nil, { 1, 0.82, 0.3 })
+    end
     for _, s in ipairs(steps) do
         local r = s.recipe
+        for at = s.from, s.to - 1 do Train(at) end
         local learn = ""
         if r.how == "trainer" then learn = "  |cff999999" .. L["(trainer)"] .. "|r"
         elseif r.how == "vendor" then learn = "  |cff999999" .. L["(buy the recipe)"] .. "|r" end
-        Line(("%d-%d  %s%s"):format(s.from, s.to, r.name, learn), (L["%dx"]):format(s.crafts))
+        -- ~: some of its materials had no price, the choice used a stand-in
+        Line(("%d-%d  %s%s"):format(s.from, s.to, r.name, learn), (L["%dx"]):format(s.crafts) .. (r.guessed and " ~" or ""))
+    end
+    if steps[#steps] then Train(steps[#steps].to) end
+    local estimated = false
+    for _, s in ipairs(steps) do estimated = estimated or s.recipe.guessed end
+    if estimated then Line(L["~ = planned with an estimated price."], nil, { 0.6, 0.6, 0.6 }) end
+    -- learning the plan's recipes: shown apart, not part of the choice
+    if info.trainer > 0 then
+        Line((L["Trainer fees for new recipes: %s"]):format(ns.Money(info.fees))
+            .. (info.feesUnknown > 0 and ("  |cffff7070" .. (L["(+%d without a known fee)"]):format(info.feesUnknown) .. "|r") or ""),
+            nil, { 0.8, 0.8, 0.8 })
+    end
+    if info.items > 0 then
+        local text = (L["Recipes to buy from a vendor: %d"]):format(info.items)
+        if info.itemCost > 0 then text = text .. "  " .. (L["about %s"]):format(ns.Money(info.itemCost)) end
+        if info.itemsUnknown > 0 then text = text .. "  |cffff7070" .. (L["(+%d without a price)"]):format(info.itemsUnknown) .. "|r" end
+        Line(text, nil, { 0.8, 0.8, 0.8 })
+    end
+    if info.trainer > 0 or info.items > 0 then
+        Line(L["Fees and recipe items are not part of the recipe choice."], nil, { 0.6, 0.6, 0.6 })
     end
     if stuck and prof == "Mining" then
         Line((L["From %d on: mine veins to go up (farm run for ore)."]):format(stuck), nil, { 1, 0.5, 0.4 })
@@ -343,8 +443,16 @@ local function Refresh()
         end
     end
     for i = n + 1, #rows do rows[i]:Hide() end
-    content:SetHeight(math.max(1, n * ROW_H))
-    totalText:SetText((L["Missing materials cost about %s"]):format(ns.Money(total)))
+    content:SetHeight(math.max(1, y))
+    -- materials nobody knows a price for count as unknown, never as 0
+    if info.matsUnknown > 0 and total == 0 then
+        totalText:SetText((L["Missing materials cost: unknown (%d without a price)"]):format(info.matsUnknown))
+    elseif info.matsUnknown > 0 then
+        totalText:SetText((L["Missing materials cost about %s"]):format(ns.Money(total)) .. "  |cffff7070"
+            .. (L["(+%d without a price)"]):format(info.matsUnknown) .. "|r")
+    else
+        totalText:SetText((L["Missing materials cost about %s"]):format(ns.Money(total)))
+    end
     noteText:SetText(unknown and L["Some prices are unknown: scan the auction house for a better plan."] or "")
 end
 ns.RefreshSkillPlan = Refresh
@@ -403,6 +511,9 @@ local function Build()
 
     totalText = win:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     totalText:SetPoint("BOTTOMLEFT", 24, 42)
+    totalText:SetWidth(512) -- one line inside the card, whatever the language
+    totalText:SetJustifyH("LEFT")
+    totalText:SetWordWrap(false)
     noteText = win:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     noteText:SetPoint("BOTTOMLEFT", 24, 24)
     noteText:SetWidth(500)

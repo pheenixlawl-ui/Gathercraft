@@ -33,6 +33,22 @@ local ROUND_MASK = "Interface\\CharacterFrame\\TempPortraitAlphaMask"
 local SUBTLE_ICON_ALPHA = 0.6
 local TARGET_REF = ADDON_NAME .. "Target"
 
+-- Leveling (Options → Leveling): the ring of a pin in the trainer's colour
+-- for your skill, so you see at a glance what still levels you. Only while
+-- the profession can still go up; nodes without a known requirement (new
+-- Forever kinds) keep the silver ring. A white ring, tinted.
+local RING_WHITE = MEDIA .. "RingWhite"
+local SKILL_TINT = {
+    orange = { 1, 0.55, 0.2 }, yellow = { 1, 0.95, 0.2 }, green = { 0.3, 0.95, 0.3 },
+    grey = { 0.6, 0.6, 0.6 }, red = { 1, 0.2, 0.2 },
+}
+local SKILL_ORDER = { orange = 1, yellow = 2, green = 3, red = 4, grey = 5 } -- a shared spot: its best kind
+local GREY_ALPHA = 0.6   -- grey nodes (no more skill-ups) step back
+local MAX_SKILL = 300
+
+local function SkillColorsOn() return not ns.db.skillColorsOff end
+local function HideGrey() return ns.db.hideGreyNodes end
+
 local function WorldPinsShown() return not ns.db.worldPinsHidden end
 local function MiniPinsShown() return not ns.db.miniPinsHidden end
 -- Subtle is the default; "normal" only when chosen in the options
@@ -48,6 +64,67 @@ ns.RingedWorldMap = RingedWorld
 local freeWorld, freeMini = {}, {}
 local pinsByNode = {}    -- node -> { world = pin, mini = pin }
 local miniOn = {}        -- minimap pins in use (pin -> true)
+
+-- Your skill, read once per check (not once per pin: a continent has
+-- thousands), and each kind's colour for it
+local skillNow = {}      -- "herb"/"ore" -> { rank, with bonus, max rank } or false
+local levelCache = {}    -- kind key -> colour, or false for none
+local levelArgs = {}     -- kind key -> { type, name, id } (to work it out again)
+local skillSig
+
+local function LevelKey(n) return n.type .. ":" .. tostring(n.id or n.name) end
+
+local function ComputeLevel(nodeType, name, id)
+    local skill = skillNow[nodeType]
+    if not (skill and skill[1] < MAX_SKILL and ns.SkillLevel) then return false end
+    -- at the end of a rank (75/75...): no skill-ups until you train, silver
+    if skill[3] and skill[3] > 0 and skill[1] >= skill[3] then return false end
+    return ns.SkillLevel(name, id, skill[1], skill[2]) or false
+end
+
+-- The trainer colour of one node, or nil
+local function NodeLevel(n)
+    if not (n and n.type) or n.type == "chest" or n.pendingReport then return nil end
+    local key = LevelKey(n)
+    local c = levelCache[key]
+    if c == nil then
+        c = ComputeLevel(n.type, n.name, n.id)
+        levelCache[key], levelArgs[key] = c, { n.type, n.name, n.id }
+    end
+    return c or nil
+end
+
+-- Reads your skill. Returns whether a colour changed, and whether a node
+-- became grey or stopped being grey (then hidden nodes have to change)
+local function CheckSkills()
+    local sig = ""
+    for _, t in ipairs({ "herb", "ore" }) do
+        local rank, maxRank, eff
+        if ns.GetSkill then rank, maxRank, eff = ns.GetSkill(t) end
+        if rank then
+            skillNow[t] = { rank, eff or rank, maxRank }
+        elseif not (ns.SkillListIncomplete and ns.SkillListIncomplete()) then
+            skillNow[t] = false -- not learned (or unlearned)
+        end
+        -- else nothing read (a collapsed header in the skill window): keep what we knew
+        local s = skillNow[t] or false
+        skillNow[t] = s
+        sig = sig .. t .. (s and (s[1] .. "/" .. s[2] .. "/" .. tostring(s[3])) or "-") .. ";"
+    end
+    if sig == skillSig then return false, false end
+    skillSig = sig
+    local changed, greyChanged = false, false
+    for key, args in pairs(levelArgs) do
+        local c = ComputeLevel(args[1], args[2], args[3])
+        local old = levelCache[key]
+        if c ~= old then
+            changed = true
+            if (c == "grey") ~= (old == "grey") then greyChanged = true end
+            levelCache[key] = c
+        end
+    end
+    return changed, greyChanged
+end
 
 local function NodeIcon(n)
     if n.item and n.type ~= "chest" then -- chest loot is random, keep the chest icon
@@ -209,6 +286,43 @@ local function Decorate(pin, ring)
     end
 end
 
+-- The colour of a pin: its node's, or for a spot several kinds share the
+-- best of them (Copper or Tin can be there: Tin levels you, so it counts)
+local function PinLevel(pin)
+    if not SkillColorsOn() then return nil end
+    local best = NodeLevel(pin.node)
+    local unknown = best == nil
+    local others = pin.others or (pin.othersOf and pin.othersOf.others)
+    for _, o in ipairs(others or {}) do
+        local c = NodeLevel(o)
+        if not c then
+            unknown = true
+        elseif not best or SKILL_ORDER[c] < SKILL_ORDER[best] then
+            best = c
+        end
+    end
+    -- grey, but an unknown kind can be there too: no verdict
+    if best == "grey" and unknown then return nil end
+    return best
+end
+
+-- The ring in the trainer colour (pins with a ring only). Call after Decorate.
+local function Tint(pin)
+    if not pin or pin.isTarget then return end
+    pin.level = nil
+    if not (pin.ring and pin.ring:IsShown()) then return end
+    local level = PinLevel(pin)
+    pin.level = level
+    if level then
+        local c = SKILL_TINT[level]
+        pin.ring:SetTexture(RING_WHITE)
+        pin.ring:SetVertexColor(c[1], c[2], c[3])
+    else
+        pin.ring:SetTexture(RING_SILVER)
+        pin.ring:SetVertexColor(1, 1, 1)
+    end
+end
+
 -- Known spawn points (Questie / beta data) are drawn smaller and a bit
 -- transparent, so your own nodes stand out and the map stays readable
 local KNOWN_SCALE, KNOWN_ALPHA = 0.7, 0.75
@@ -248,7 +362,9 @@ local function SetAlpha(pin)
         pin.icon:SetAlpha(1)
         return
     end
-    Fade(pin, ns.IsOnCooldown(n) and DIM_ALPHA or (n.source and KNOWN_ALPHA or 1))
+    local alpha = ns.IsOnCooldown(n) and DIM_ALPHA or (n.source and KNOWN_ALPHA or 1)
+    if pin.level == "grey" then alpha = alpha * GREY_ALPHA end
+    Fade(pin, alpha)
     pin.icon:SetAlpha(pin.subtle and SUBTLE_ICON_ALPHA or 1)
 end
 
@@ -290,11 +406,46 @@ local function AddToGrid(mapID, pin)
     table.insert(grid[mapID][key], pin)
 end
 
+-- The minimap pin of a node (only nodes of the zone you are in have one).
+-- world: the node's world map pin, which holds the kinds sharing its spot;
+-- linked before the colour is worked out (the spot shows its best kind)
+local function AddMiniPin(mapID, n, world)
+    local _, miniSize = Sizes(n)
+    local m = table.remove(freeMini) or CreatePin()
+    m.node, m.mapID, m.isMini, m.layer = n, mapID, true, Layer(n)
+    m.othersOf = world
+    m:EnableMouse(false) -- the game's blip below gets the mouse (Core.lua shows our tooltip)
+    m:SetSize(miniSize, miniSize)
+    m.icon:SetTexture(NodeIcon(n))
+    m.icon:SetDesaturated(n.pendingReport and true or false)
+    m.others = nil
+    -- grey report pins keep their own look, so they never pass for "subtle"
+    m.subtle = SubtleMini() and not n.pendingReport
+    Decorate(m, m.subtle and RING_SILVER or nil)
+    Tint(m)
+    SetAlpha(m)
+    HBDPins:AddMinimapIconMap(REF, m, mapID, n.x, n.y, false, false)
+    miniOn[m] = true
+    return m
+end
+
+local function RemoveMiniPin(pins)
+    local m = pins.mini
+    if not m then return end
+    HBDPins:RemoveMinimapIcon(REF, m)
+    miniOn[m] = nil
+    m:Hide()
+    m.node, m.othersOf = nil, nil
+    table.insert(freeMini, m)
+    pins.mini = nil
+end
+
 local function AddNodePins(mapID, n)
     -- the Zones tab picks what Start run farms; the map shows everything,
     -- unless the option says the map follows it too
     if ns.db.mapFollowsZones and not ns.IsNodeEnabled(n, mapID) then return end
     if n.type == "chest" and ns.db.chestsHidden then return end -- Options: chests off
+    if HideGrey() and NodeLevel(n) == "grey" then return end -- Options → Leveling
     local showWorld = WorldPinsShown()
     local showMini = MiniPinsShown() and mapID == playerMap
     if not (showWorld or showMini) then return end
@@ -304,11 +455,15 @@ local function AddNodePins(mapID, n)
             shared.others = shared.others or {}
             table.insert(shared.others, n)
             pinsByNode[n] = { sharedWith = shared }
+            -- the spot's colour may change with the new kind
+            local spot = pinsByNode[shared.node]
+            if spot and spot.world then Tint(spot.world) SetAlpha(spot.world) end
+            if spot and spot.mini then Tint(spot.mini) SetAlpha(spot.mini) end
             return
         end
     end
     local icon = NodeIcon(n)
-    local worldSize, miniSize = Sizes(n)
+    local worldSize = Sizes(n)
 
     local w, m
     if showWorld then
@@ -320,32 +475,18 @@ local function AddNodePins(mapID, n)
         w.icon:SetDesaturated(n.pendingReport and true or false)
         w.others = nil
         Decorate(w, (RingedWorld() and not n.pendingReport) and RING_SILVER or nil)
+        Tint(w)
         SetAlpha(w)
         HBDPins:AddWorldMapIconMap(REF, w, mapID, n.x, n.y, HBD_PINS_WORLDMAP_SHOW_PARENT or 1)
     end
 
-    if showMini then
-        m = table.remove(freeMini) or CreatePin()
-        m.node, m.mapID, m.isMini, m.layer = n, mapID, true, Layer(n)
-        m:EnableMouse(false) -- the game's blip below gets the mouse (Core.lua shows our tooltip)
-        m:SetSize(miniSize, miniSize)
-        m.icon:SetTexture(icon)
-        m.icon:SetDesaturated(n.pendingReport and true or false)
-        m.others = nil
-        -- grey report pins keep their own look, so they never pass for "subtle"
-        m.subtle = SubtleMini() and not n.pendingReport
-        Decorate(m, m.subtle and RING_SILVER or nil)
-        SetAlpha(m)
-        HBDPins:AddMinimapIconMap(REF, m, mapID, n.x, n.y, false, false)
-        miniOn[m] = true
-    end
+    if showMini then m = AddMiniPin(mapID, n, w) end
 
     -- the world map pin holds the list of kinds sharing the spot; without
     -- world map pins the minimap pin does
     local primary = w or m
     if n.source == "questie" then AddToGrid(mapID, primary) end
-    pinsByNode[n] = { world = w, mini = m }
-    if m then m.othersOf = w end
+    pinsByNode[n] = { world = w, mini = m } -- m.othersOf = w (set in AddMiniPin)
 end
 
 -- Removes the pins of one node
@@ -361,6 +502,10 @@ local function RemoveNodePins(n, quiet)
             if others[i] == n then table.remove(others, i) end
         end
         pinsByNode[n] = nil
+        -- the spot's colour may have come from this kind
+        local spot = pins.sharedWith.node and pinsByNode[pins.sharedWith.node]
+        if spot and spot.world then Tint(spot.world) SetAlpha(spot.world) end
+        if spot and spot.mini then Tint(spot.mini) SetAlpha(spot.mini) end
         return
     end
     local primary = pins.world or pins.mini
@@ -383,10 +528,28 @@ end
 ---------------------------------------------------------------------------
 -- Build / update
 ---------------------------------------------------------------------------
+-- Every few seconds: cooldowns run out, and your skill may have gone up
+local greyRebuild = false
 local function UpdateAlpha()
+    local changed, greyChanged = CheckSkills()
+    -- hidden grey nodes: the pins themselves change, a moment later (not
+    -- right while you loot the node that gave the point)
+    if greyChanged and HideGrey() and not greyRebuild then
+        greyRebuild = true
+        C_Timer.After(5, function()
+            greyRebuild = false
+            RequestRebuild()
+        end)
+    end
     for _, pins in pairs(pinsByNode) do
-        if pins.world then SetAlpha(pins.world) end
-        if pins.mini then SetAlpha(pins.mini) end
+        if pins.world then
+            if changed then Tint(pins.world) end
+            SetAlpha(pins.world)
+        end
+        if pins.mini then
+            if changed then Tint(pins.mini) end
+            SetAlpha(pins.mini)
+        end
     end
 end
 
@@ -567,6 +730,7 @@ local function Rebuild()
     wipe(proxies) -- old reports (imported, expired) are let go here
     if target.node then PlaceTarget() end -- the pin size may have changed
     if not (WorldPinsShown() or MiniPinsShown()) then return end
+    CheckSkills()
     for mapID, list in pairs(ns.db.nodes) do
         for _, n in ipairs(list) do
             AddNodePins(mapID, n)
@@ -609,11 +773,54 @@ local function OnNodesChanged(kind, mapID, node)
         if others and #others > 0 and newPrimary then
             newPrimary.others = others
             for _, o in ipairs(others) do pinsByNode[o] = { sharedWith = newPrimary } end
+            if new.world then Tint(new.world) SetAlpha(new.world) end
+            if new.mini then Tint(new.mini) SetAlpha(new.mini) end
+        elseif others and #others > 0 then
+            -- the node got no pin now (hidden: grey, chests off, ...): the
+            -- other kinds of its spot need one of their own
+            RequestRebuild()
         end
         RemovePendingNear(mapID, node)
     else
         RequestRebuild()
     end
+end
+
+-- Into another zone of the same continent (Thunder Bluff <-> Mulgore): only
+-- the minimap pins move over, the world map pins stay as they are. A full
+-- rebuild would take all world map pins of every loaded zone off and on
+-- again for nothing. Another continent (grey report pins depend on it) or
+-- no world map pins (then the minimap pin holds a spot's kinds): rebuild.
+local function MovePlayerMap(old, new)
+    if not (old and WorldPinsShown()) or ns.GetContinent(old) ~= ns.GetContinent(new) then
+        RequestRebuild()
+        return
+    end
+    if not MiniPinsShown() then return end
+    local moved = { off = 0, on = 0 }
+    local function Each(mapID, fn)
+        for _, n in ipairs(ns.db.nodes[mapID] or {}) do fn(n) end
+        local pending = ns.db.sync and ns.db.sync.pending and ns.db.sync.pending[mapID]
+        for _, p in ipairs(pending or {}) do
+            if proxies[p] then fn(proxies[p]) end
+        end
+    end
+    Each(old, function(n)
+        local pins = pinsByNode[n]
+        if pins and pins.mini then
+            RemoveMiniPin(pins)
+            moved.off = moved.off + 1
+        end
+    end)
+    Each(new, function(n)
+        local pins = pinsByNode[n]
+        if pins and pins.world and not pins.mini then
+            pins.mini = AddMiniPin(new, n, pins.world)
+            moved.on = moved.on + 1
+        end
+    end)
+    ns.Debug(("minimap pins: zone %s -> %s, %d off, %d on (world map pins kept)"):format(
+        tostring(old), tostring(new), moved.off, moved.on))
 end
 
 ---------------------------------------------------------------------------
@@ -677,8 +884,9 @@ loader:SetScript("OnEvent", function(_, event)
     C_Timer.After(0.5, function()
         local mapID = ns.GetPlayerPos()
         if mapID and mapID ~= playerMap then
+            local old = playerMap
             playerMap = mapID
-            RequestRebuild()
+            MovePlayerMap(old, mapID)
         end
     end)
 end)

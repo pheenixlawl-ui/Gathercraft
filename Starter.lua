@@ -34,9 +34,10 @@ end
 
 -- Name of a known node kind in the client's language: herbs are called
 -- like the herb they give; others keep the English name until gathered once
--- shipped name in the chosen language (Data/NodeNames.lua, from Questie)
+-- shipped name in the game's language (Data/NodeNames.lua, from Questie):
+-- what the player reads on the node in the world, whatever the addon language
 local function ShippedNodeName(oid)
-    local lang = ns.Language and ns.Language() or "enUS"
+    local lang = ns.NameLanguage and ns.NameLanguage() or "enUS"
     if lang:sub(1, 2) == "en" then
         local data = GathercraftQuestieData
         local kind = data and data.kinds[oid]
@@ -47,7 +48,7 @@ local function ShippedNodeName(oid)
 end
 
 local function LocalKindName(oid, kind)
-    local lang = ns.Language and ns.Language() or "enUS"
+    local lang = ns.NameLanguage and ns.NameLanguage() or "enUS"
     if lang:sub(1, 2) ~= "en" then
         local shipped = ShippedNodeName(oid)
         if shipped then return shipped end
@@ -61,8 +62,9 @@ local function LocalKindName(oid, kind)
     return kind[3]
 end
 
--- Every stored node with a known object gets its name in the chosen
--- language (own nodes keep the name they were gathered with otherwise)
+-- Every stored node with a known object gets its name in the game's
+-- language (own nodes keep the name they were gathered with otherwise).
+-- Display only: kinds are keyed by the English name (ns.KindKey)
 local function LocalizeNodeNames()
     if not (ns.db and ns.db.nodes) then return end
     local changed = 0

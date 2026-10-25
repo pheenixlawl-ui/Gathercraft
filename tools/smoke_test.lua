@@ -147,6 +147,8 @@ function methods:GetName() return nil end
 function methods:SetAttribute(k, v) self.__attr = self.__attr or {} self.__attr[k] = v end
 function methods:GetAttribute(k) return self.__attr and self.__attr[k] end
 function methods:GetStringWidth() return 50 end
+function methods:SetPoint(p, ...) if p then self.__pts = self.__pts or {} self.__pts[p] = { ... } end end -- last anchor per point
+function methods:GetStringHeight() return self.__strH end
 function methods:GetMapID() return 1412 end
 function methods:SetRotation(r) self.__rot = r end
 function methods:IsMouseOver() return false end
@@ -160,6 +162,7 @@ function methods:CreateAnimationGroup() return newObject("AnimationGroup", nil, 
 function methods:CreateAnimation() return newObject("Animation", nil, self) end
 function methods:SetTexture(t) self.__tex = t end
 function methods:SetAlpha(a) self.__alpha = a end
+function methods:SetVertexColor(r, g, b) self.__color = { r, g, b } end
 function methods:GetAlpha() return self.__alpha or 1 end
 FrameMT.__index = function(t, k)
     if methods[k] then return methods[k] end
@@ -696,7 +699,9 @@ step("Pins: map and minimap apart, subtle style", function()
     for _, pin in ipairs(MINI_ICONS) do
         if pin.subtle then
             subtle = subtle + 1
-            assert(pin.ring and pin.ring:IsShown() and tostring(pin.ring.__tex):find("RingSilver"), "no silver ring")
+            -- silver, or white in the trainer colour (Leveling)
+            assert(pin.ring and pin.ring:IsShown() and (tostring(pin.ring.__tex):find("RingSilver")
+                or (pin.level and tostring(pin.ring.__tex):find("RingWhite"))), "no silver ring")
             assert((pin.icon.__masks or 0) == 1, "icon not round")
             assert(pin.icon.__alpha and pin.icon.__alpha < 1, "icon not see-through")
         end
@@ -1722,6 +1727,1637 @@ step("Sync: floods are cut off (v0.1.12)", function()
     assert(n.healMisses == 1 and not ns.IsParked(n), "old empty visits still counted")
     advance(5)
 end)
+step("Leveling: pin rings in the trainer colour for your skill (v0.1.14)", function()
+    local Z = 1449
+    local keep = ns.db.nodes[Z]
+    local herb, ore, herbMax = PROFS[1][2], PROFS[2][2], PROFS[1][3]
+    PROFS[1][3] = 300 -- skills up to 150 below: trained far enough (the rank cap is tested further down)
+    local function N(id, name, x, kind, src)
+        return { id = id, name = name, type = kind or "herb", x = x, y = 0.5, count = 1, last = 1, source = src }
+    end
+    local peace, earth, mage, briar, bruise, odd =
+        N("o1618", "Peacebloom", 0.1), N("o1619", "Earthroot", 0.2), N("o1620", "Mageroyal", 0.3),
+        N("o1621", "Briarthorn", 0.4), N("o1622", "Bruiseweed", 0.5), N("o999999", "Mystery Bloom", 0.6)
+    -- a known spot where Copper or Tin can be
+    local copper, tin = N("o1731", "Copper Vein", 0.7, "ore", "questie"), N("o1732", "Tin Vein", 0.7, "ore", "questie")
+    ns.db.nodes[Z] = { peace, earth, mage, briar, bruise, odd, copper, tin }
+    local pins = LibStub("HereBeDragons-Pins-2.0")
+    local add = pins.AddWorldMapIconMap
+    local pinOf = {}
+    pins.AddWorldMapIconMap = function(self, ref, frame, mapID, ...)
+        if ref == "Gathercraft" and mapID == Z and frame.node then pinOf[frame.node] = frame end
+        return add(self, ref, frame, mapID, ...)
+    end
+    local function Ring(n)
+        local pin = pinOf[n]
+        assert(pin and pin.node == n, "no pin for " .. n.name)
+        local c = pin.ring.__color or { 1, 1, 1 }
+        if pin.ring.__tex:find("RingSilver", 1, true) then return "silver" end
+        assert(pin.ring.__tex:find("RingWhite", 1, true), "ring texture " .. tostring(pin.ring.__tex))
+        for name, t in pairs({ orange = { 1, 0.55, 0.2 }, yellow = { 1, 0.95, 0.2 }, green = { 0.3, 0.95, 0.3 },
+            grey = { 0.6, 0.6, 0.6 }, red = { 1, 0.2, 0.2 } }) do
+            if math.abs(c[1] - t[1]) + math.abs(c[2] - t[2]) + math.abs(c[3] - t[3]) < 0.01 then return name end
+        end
+        return "?"
+    end
+    local function Expect(list)
+        for n, want in pairs(list) do
+            local got = Ring(n)
+            assert(got == want, ("%s: ring %s, expected %s"):format(n.name, got, want))
+        end
+    end
+    -- Herbalism 60, Mining 70
+    PROFS[1][2], PROFS[2][2] = 60, 70
+    ns.NotifyNodesChanged() advance(2)
+    Expect({ [peace] = "green", [earth] = "yellow", [mage] = "orange", [briar] = "red", [bruise] = "red",
+        [odd] = "silver", [copper] = "orange" }) -- Copper green, but Tin (orange) can be there too
+    -- Tin turns out to be somewhere else: the spot is Copper only, green
+    tin.x = 0.9
+    for _, f in ipairs(ns.nodeListeners) do f("update", Z, tin) end
+    advance(1)
+    Expect({ [copper] = "green", [tin] = "orange" })
+    -- skill goes up while you gather: the colours follow (same pins, no rebuild)
+    local peacePin, before = pinOf[peace], pinOf[peace]:GetAlpha()
+    PROFS[1][2] = 130
+    advance(4)
+    assert(pinOf[peace] == peacePin, "pins were rebuilt for a colour change")
+    Expect({ [peace] = "grey", [earth] = "grey", [mage] = "green", [briar] = "green", [bruise] = "yellow" })
+    assert(peacePin:GetAlpha() < before, "grey nodes do not step back")
+    -- hide grey ones
+    ns.db.hideGreyNodes = true
+    pinOf = {}
+    ns.NotifyNodesChanged() advance(2)
+    assert(not pinOf[peace] and not pinOf[earth], "grey nodes still on the map")
+    assert(pinOf[mage] and pinOf[bruise] and pinOf[odd], "too many nodes hidden")
+    -- a skill-up that makes a node grey: hidden a moment later (not while you loot)
+    PROFS[1][2] = 150 -- Mageroyal (50) turns grey
+    advance(4)
+    pinOf = {}
+    advance(6)
+    assert(not pinOf[mage] and pinOf[bruise], "Mageroyal not hidden after it turned grey")
+    -- at 300 nothing levels you any more: silver rings, nothing hidden
+    PROFS[1][2] = 300
+    pinOf = {}
+    ns.NotifyNodesChanged() advance(2)
+    assert(pinOf[peace], "at 300 grey nodes must not be hidden")
+    Expect({ [peace] = "silver", [bruise] = "silver" })
+    -- colours off
+    PROFS[1][2] = 60
+    ns.db.hideGreyNodes, ns.db.skillColorsOff = nil, true
+    pinOf = {}
+    ns.NotifyNodesChanged() advance(2)
+    Expect({ [mage] = "silver", [briar] = "silver" })
+    ns.db.skillColorsOff = nil
+    -- the tooltip says the same as the ring
+    assert(select(2, ns.SkillVerdict("herb", "Mageroyal", "o1620")) == ns.L["|cffff8040Skill-up guaranteed|r"], "tooltip verdict changed")
+    local function Verdict(n) return select(2, ns.SkillVerdict("herb", n.name, n.id)) end
+    -- end of a rank (75/75): nothing gives a point until you train, silver rings
+    PROFS[1][2], PROFS[1][3] = 75, 75
+    advance(4)
+    Expect({ [briar] = "silver", [peace] = "silver", [mage] = "silver" })
+    assert(Verdict(briar) == ns.L["|cffffd060No skill-ups until you train the next rank|r"], "75/75 tooltip: " .. Verdict(briar))
+    assert(Verdict(bruise) == (ns.L["|cffff5555Needs skill %d|r"]):format(100), "75/75: too high stays red in the tooltip")
+    -- trained to 75/150: the colours are back on the same pins
+    PROFS[1][3] = 150
+    advance(4)
+    Expect({ [briar] = "orange", [peace] = "green", [mage] = "yellow" })
+    assert(Verdict(briar) == ns.L["|cffff8040Skill-up guaranteed|r"], "75/150 tooltip: " .. Verdict(briar))
+    -- hide grey + 150/150: the cap hides nothing extra, Peacebloom (grey by skill) shows silver
+    ns.db.hideGreyNodes = true
+    PROFS[1][2], PROFS[1][3] = 150, 150
+    pinOf = {}
+    ns.NotifyNodesChanged() advance(2)
+    assert(pinOf[peace] and pinOf[mage], "the rank cap hid nodes")
+    Expect({ [peace] = "silver", [briar] = "silver" })
+    -- trained to 150/225: grey again, hidden after the delayed rebuild
+    PROFS[1][3] = 225
+    advance(4)
+    pinOf = {}
+    advance(6)
+    assert(not pinOf[peace] and not pinOf[mage] and pinOf[briar], "grey not hidden again after training")
+    Expect({ [briar] = "green" })
+    -- Herbalism unlearned (GetProfessions no longer lists it): silver, hidden grey nodes come back
+    local gp, gn, gi = GetProfessions, GetNumSkillLines, GetSkillLineInfo
+    GetProfessions = function() return nil, 2, nil, 4, nil, nil end
+    advance(4)
+    pinOf = {}
+    advance(6)
+    assert(pinOf[peace] and pinOf[mage], "unlearned: grey nodes still hidden")
+    Expect({ [peace] = "silver", [briar] = "silver" })
+    assert(Verdict(briar) == ns.L["|cffff5555Profession not learned|r"], "unlearned tooltip")
+    GetProfessions = gp
+    PROFS[1][2], PROFS[1][3] = 130, 150
+    advance(10) -- incl. the delayed rebuild (Peacebloom grey again)
+    Expect({ [mage] = "green", [briar] = "green" })
+    -- old skill list API: a collapsed header keeps the last skill, a real loss does not
+    local lines
+    GetProfessions = nil
+    GetNumSkillLines = function() return #lines end
+    GetSkillLineInfo = function(i) return unpack(lines[i]) end
+    lines = { { "Professions", true, true }, { "Herbalism", false, nil, 130, 0, 0, 150 } }
+    ns.db.hideGreyNodes = nil
+    pinOf = {}
+    ns.NotifyNodesChanged() advance(2)
+    Expect({ [mage] = "green", [briar] = "green" })
+    local magePin = pinOf[mage]
+    lines = { { "Professions", true, false } } -- header collapsed: Herbalism not listed
+    advance(4)
+    assert(pinOf[mage] == magePin, "collapsed header rebuilt the pins")
+    Expect({ [mage] = "green", [briar] = "green" })
+    lines = { { "Professions", true, true } } -- expanded, no Herbalism: unlearned
+    advance(4)
+    Expect({ [mage] = "silver", [briar] = "silver" })
+    GetProfessions, GetNumSkillLines, GetSkillLineInfo = gp, gn, gi
+    PROFS[1][3] = herbMax
+    pins.AddWorldMapIconMap = add
+    PROFS[1][2], PROFS[2][2] = herb, ore
+    ns.db.nodes[Z] = keep
+    ns.NotifyNodesChanged() advance(2)
+end)
+step("Options: the Leveling page flows again after a language or width change (v0.1.14)", function()
+    -- mock text layout: 5 px per character, wrapped at the page width (no real font metrics)
+    local opts = _G.GathercraftOptions
+    local function Find(key) -- in the language of this run
+        local found
+        for _, f in ipairs(allFrames) do
+            if f.__kind == "FontString" and f.__text == ns.L[key] then found = f end
+        end
+        return found
+    end
+    local colour, remind = Find("Color pins by skill-up chance"),
+        Find("Remind me to visit the trainer (5 points before the end of a rank)")
+    local hint = Find("Handy while you level - turn it off when you farm for gold.")
+    local hide = Find("Hide nodes that give no more skill-ups")
+    assert(colour and remind and hint and hide, "Leveling labels not found")
+    local page = colour.__parent
+    assert(colour.__pts.RIGHT and colour.__pts.RIGHT[1] == page, "checkbox label not limited to the page width")
+    local box = colour.__pts.TOPLEFT[1]
+    assert(box and box.__kind == "CheckButton", "checkbox label not anchored to its box")
+    local remindBox = remind.__pts.TOPLEFT[1]
+    local old = methods.GetStringHeight
+    local keepLang = ns.db.language
+    methods.GetStringHeight = function(self)
+        if self.__strH then return self.__strH end
+        local w = (self.__parent and self.__parent:GetWidth() or 200) - 30
+        local len = #((self.__text or ""):gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""))
+        return 12 * math.max(1, math.ceil(len * 5 / w))
+    end
+    local function Y(f) return f.__pts.TOPLEFT[2] end
+    page.__w = 470
+    opts:Refresh()
+    local y1 = Y(remindBox)
+    assert(Y(box) == -62, "first row moved")
+    -- another language whose texts wrap differently: the rows below move
+    local y2
+    for _, other in ipairs({ "frFR", "enUS", "esES", "deDE", "itIT", "ptBR" }) do
+        ns.db.language = other ns.ApplyLanguage() opts:Refresh()
+        y2 = Y(remindBox)
+        if y2 ~= y1 then break end
+    end
+    assert(y2 ~= y1, ("no language moved the trainer row (%s / %s)"):format(y1, y2))
+    -- narrower (another window): more lines, the size change alone lays it out again
+    page.__w = 300
+    page.__scripts.OnSizeChanged(page, 300, 400)
+    local y3 = Y(remindBox)
+    assert(y3 < y2, ("narrower: trainer row did not move down (%s / %s)"):format(y2, y3))
+    -- a checkbox label that wraps to 3 lines pushes the next row down by its height
+    hide.__strH = 36
+    opts:Refresh()
+    local gap = Y(hint) - Y(hide.__pts.TOPLEFT[1])
+    assert(gap == -(36 + 12) + 2, "hint under a wrapped label: gap " .. gap)
+    hide.__strH = nil
+    ns.db.language = keepLang ns.ApplyLanguage()
+    methods.GetStringHeight = old
+    page.__w = nil
+    opts:Refresh()
+end)
+-- Mock text layout for the layout tests: the real (translated) text, wrapped
+-- at the string's width; 6 px per Latin letter, 11 px per CJK sign, 12 px a
+-- line. No real font metrics: it shows whether the code makes room, not
+-- how the game draws it.
+local function TextHeight(self)
+    if self.__strH then return self.__strH end
+    local t = (self.__text or ""):gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")
+    local w, lines = self:GetWidth(), 0
+    for para in (t .. "\n"):gmatch("([^\n]*)\n") do
+        local px = 0
+        for ch in para:gmatch("[%z\1-\127\194-\244][\128-\191]*") do px = px + (#ch >= 3 and 11 or 6) end
+        lines = lines + math.max(1, math.ceil(px / w))
+    end
+    return 12 * lines
+end
+-- rows (frames with TOPLEFT y and a height) must not overlap
+local function NoOverlap(rows, what)
+    table.sort(rows, function(a, b) return a.__pts.TOPLEFT[2] > b.__pts.TOPLEFT[2] end)
+    for i = 2, #rows do
+        local above, row = rows[i - 1], rows[i]
+        assert(row.__pts.TOPLEFT[2] <= above.__pts.TOPLEFT[2] - above.__h,
+            ("%s: row %d overlaps the one above (y %s, above y %s h %s)"):format(what, i,
+                row.__pts.TOPLEFT[2], above.__pts.TOPLEFT[2], above.__h))
+    end
+end
+step("Overview: rows as high as their texts, in a scroll area (v0.1.14)", function()
+    local old, herb = methods.GetStringHeight, { PROFS[1][2], PROFS[1][3] }
+    methods.GetStringHeight = TextHeight
+    PROFS[1][2], PROFS[1][3] = 75, 75 -- end of a rank: the long trainer verdict
+    ns.ToggleMain("overview") advance(3)
+    local scroll = _G.GathercraftHereScroll
+    assert(scroll, "no scroll area for the zone's nodes")
+    local function Rows()
+        local rows = {}
+        for _, f in ipairs(allFrames) do
+            if f.__kind == "Frame" and f.__parent and f.__parent.__parent == scroll and f.__shown and f.__pts then rows[#rows + 1] = f end
+        end
+        return rows
+    end
+    local cap = ns.L["|cffffd060No skill-ups until you train the next rank|r"]
+    local function Check(what)
+        local rows, capped = Rows(), 0
+        assert(#rows > 0, what .. ": no rows")
+        for _, row in ipairs(rows) do
+            local name, info
+            for _, f in ipairs(allFrames) do
+                if f.__parent == row and f.__kind == "FontString" then
+                    if f.__pts.TOPLEFT[1] == row.icon then name = f else info = f end
+                end
+            end
+            assert(name.__w and info.__w and name.__w + 28 <= row.__w, what .. ": texts wider than the row")
+            assert(row.__h >= name:GetStringHeight() + info:GetStringHeight(), ("%s: row %s px for %s + %s px of text"):format(
+                what, row.__h, name:GetStringHeight(), info:GetStringHeight()))
+            if info.__text:find(cap, 1, true) then capped = capped + 1 end
+        end
+        assert(capped > 0, what .. ": no row with the trainer verdict")
+        NoOverlap(rows, what)
+        return rows
+    end
+    Check("overview")
+    -- the list ends above the run buttons (they sit 10 px up, 22 px high)
+    local br = scroll.__pts.BOTTOMRIGHT
+    assert(br and br[4] >= 34, "the list runs into the buttons below")
+    -- narrower: more lines, laid out again by the size change alone
+    local rowsBefore = Rows()
+    local hBefore = 0 for _, r in ipairs(rowsBefore) do hBefore = hBefore + r.__h end
+    scroll.__scripts.OnSizeChanged(scroll, 180, 300)
+    local hAfter = 0 for _, r in ipairs(Check("narrow")) do hAfter = hAfter + r.__h end
+    assert(hAfter > hBefore, "rows did not grow when the area got narrower")
+    scroll.__scripts.OnSizeChanged(scroll, 414, 300)
+    ns.HideMain()
+    methods.GetStringHeight = old
+    PROFS[1][2], PROFS[1][3] = herb[1], herb[2]
+end)
+step("Skills: long names and verdicts stay in their columns (v0.1.14)", function()
+    local old, herb = methods.GetStringHeight, { PROFS[1][2], PROFS[1][3] }
+    methods.GetStringHeight = TextHeight
+    PROFS[1][2], PROFS[1][3] = 75, 75
+    local stats = ns.KindStats()
+    local added = {
+        ["herb:briarthorn"] = { name = "Briarthorn", type = "herb", n = 3, ups = 2, minSkill = 70, maxUp = 74 },
+        ["ore:ooze covered rich thorium vein"] = { name = "Ooze Covered Rich Thorium Vein", type = "ore", n = 1, ups = 0, minSkill = 275 },
+    }
+    for k, s in pairs(added) do stats[k] = s end
+    ns.ToggleMain("skills") advance(1)
+    local scroll = _G.GathercraftSkillsScroll
+    local function Check(what)
+        local rows = {}
+        for _, f in ipairs(allFrames) do
+            if f.__kind == "Frame" and f.__parent and f.__parent.__parent == scroll and f.__shown and f.__pts then rows[#rows + 1] = f end
+        end
+        assert(#rows >= 2, what .. ": rows missing")
+        for _, row in ipairs(rows) do
+            local name, verdict, info
+            for _, f in ipairs(allFrames) do
+                if f.__parent == row and f.__kind == "FontString" then
+                    local a = f.__pts.TOPLEFT
+                    if a[1] == row.icon then name = f elseif a[1] == row then info = f else verdict = f end
+                end
+            end
+            assert(name and verdict and info, what .. ": texts not found")
+            assert(name.__w and verdict.__w and 32 + name.__w + 12 + verdict.__w <= row.__w,
+                what .. ": name + verdict wider than the row")
+            local top = math.max(name:GetStringHeight(), verdict:GetStringHeight())
+            assert(-info.__pts.TOPLEFT[4] >= top, what .. ": numbers overlap name or verdict")
+            assert(row.__h >= top + info:GetStringHeight(), what .. ": row lower than its texts")
+        end
+        NoOverlap(rows, what)
+    end
+    Check("skills")
+    local cap = ns.L["|cffffd060No skill-ups until you train the next rank|r"]
+    local found
+    for _, f in ipairs(allFrames) do if f.__text == cap then found = true end end
+    assert(found, "Briarthorn at 75/75 does not show the trainer verdict")
+    scroll.__scripts.OnSizeChanged(scroll, 420, 300) -- narrower: laid out again
+    Check("narrow")
+    scroll.__scripts.OnSizeChanged(scroll, 698, 300)
+    ns.HideMain()
+    for k in pairs(added) do stats[k] = nil end
+    methods.GetStringHeight = old
+    PROFS[1][2], PROFS[1][3] = herb[1], herb[2]
+end)
+step("Language change without reload: no English left, craft hint too (v0.1.14)", function()
+    local keep = ns.db.language
+    local target = ns.Language() == "deDE" and "frFR" or "deDE"
+    -- like the language buttons in Options: apply, then the options refresh
+    ns.db.language = target ns.ApplyLanguage() _G.GathercraftOptions:Refresh()
+    local L, dict = ns.L, ns.Locales[target]
+    local craft = L["Colored names: recipes you know (color = skill-up chance). Grey: not learned yet, with the skill it needs. "] ..
+        L["Hover a line for the reagents. \"Can make\" counts bags and bank. Visit trainers to add their recipes."]
+    local farm = L["~ = estimate from known spawn points, your skill and prices. After 10 minutes of farm runs "] ..
+        L["in a zone your real numbers are shown instead (green). Click a column title to sort."]
+    local gotCraft, gotFarm
+    for _, f in ipairs(allFrames) do
+        if f.__text == craft then gotCraft = true end
+        if f.__text == farm then gotFarm = true end
+    end
+    assert(gotCraft, "craft page hint not in " .. target .. " after the switch")
+    assert(gotFarm, "farm spots hint not in " .. target .. " after the switch")
+    -- every page as you see it: no label keeps an English text that has a
+    -- translation. The game runs OnShow of a shown frame's children too
+    -- (the mock only for the frame itself), so that is done here
+    local keys = {}
+    for k, v in pairs(dict) do if v ~= k and #k >= 3 then keys[#keys + 1] = k end end
+    local main, left, seen = _G.GathercraftMain, {}, {}
+    local function InMain(f)
+        while f do if f == main then return true end f = f.__parent end
+    end
+    for _, tab in ipairs({ "overview", "farm", "craft", "zones", "skills", "options" }) do
+        ns.ToggleMain(tab) advance(3)
+        for _, f in ipairs(allFrames) do
+            if f ~= main and f.__scripts.OnShow and InMain(f) and f:IsVisible() then f.__scripts.OnShow(f) end
+        end
+        for _, f in ipairs(allFrames) do
+            local t = f.__kind == "FontString" and type(f.__text) == "string" and f.__text
+            if t and not seen[t] and f:IsVisible() and InMain(f) then
+                for _, k in ipairs(keys) do
+                    if (#k >= 8 and t:find(k, 1, true)) or t == k then seen[t] = true left[#left + 1] = tab .. ": " .. t:sub(1, 60) break end
+                end
+            end
+        end
+    end
+    ns.HideMain()
+    ns.db.language = keep ns.ApplyLanguage()
+    assert(#left == 0, ("%d English texts after switching to %s: %s"):format(#left, target, table.concat(left, " | ")))
+end)
+step("Pins: a zone change on the same continent moves only the minimap pins (v0.1.14)", function()
+    -- Mulgore <-> The Barrens (both Kalimdor in the mock, like Thunder Bluff <-> Mulgore)
+    local pins = LibStub("HereBeDragons-Pins-2.0")
+    local keep = { pins.AddWorldMapIconMap, pins.RemoveWorldMapIcon, pins.AddMinimapIconMap, pins.RemoveMinimapIcon }
+    local world, mini, active = { add = 0, rem = 0 }, { add = 0, rem = 0 }, {}
+    pins.AddWorldMapIconMap = function(self, ref, icon, ...) if ref == "Gathercraft" then world.add = world.add + 1 end return keep[1](self, ref, icon, ...) end
+    pins.RemoveWorldMapIcon = function(self, ref, icon, ...) if ref == "Gathercraft" then world.rem = world.rem + 1 end return keep[2](self, ref, icon, ...) end
+    pins.AddMinimapIconMap = function(self, ref, icon, ...)
+        if ref == "Gathercraft" then mini.add = mini.add + 1 active[icon] = icon.node end
+        return keep[3](self, ref, icon, ...)
+    end
+    pins.RemoveMinimapIcon = function(self, ref, icon, ...)
+        if ref == "Gathercraft" then mini.rem = mini.rem + 1 active[icon] = nil end
+        return keep[4](self, ref, icon, ...)
+    end
+    local map = player.map
+    local function Go(mapID)
+        world.add, world.rem, mini.add, mini.rem = 0, 0, 0, 0
+        player.map = mapID
+        fire("ZONE_CHANGED_NEW_AREA") advance(1)
+    end
+    local function MiniNodes()
+        local set, n = {}, 0
+        for _, node in pairs(active) do set[node] = true n = n + 1 end
+        return set, n
+    end
+    ns.ImportQuestieZone(1412, true) ns.ImportQuestieZone(1413, true) advance(1)
+    -- Mining 110/150 and a known spot where Copper or Tin can be: Copper alone
+    -- is grey there, the spot shows Tin's yellow
+    local ore = { PROFS[2][2], PROFS[2][3] }
+    PROFS[2][2], PROFS[2][3] = 110, 150
+    local copper = { id = "o1731", name = "Copper Vein", type = "ore", x = 0.1234, y = 0.4567, count = 0, last = 0, source = "questie" }
+    local tin = { id = "o1732", name = "Tin Vein", type = "ore", x = 0.1234, y = 0.4567, count = 0, last = 0, source = "questie" }
+    table.insert(ns.db.nodes[1413], copper) table.insert(ns.db.nodes[1413], tin)
+    ns.TogglePins() ns.TogglePins() advance(4)
+    Go(1412) Go(1413)
+    assert(world.add == 0 and world.rem == 0, ("Mulgore -> Barrens: %d world map pins off, %d on"):format(world.rem, world.add))
+    assert(mini.add > 0 and mini.rem > 0, "minimap pins did not move")
+    local moved, count = MiniNodes()
+    local inBarrens = {}
+    for _, node in ipairs(ns.db.nodes[1413]) do inBarrens[node] = true end
+    for node in pairs(moved) do assert(node.pendingReport or inBarrens[node], "minimap pin of another zone: " .. tostring(node.name)) end
+    -- the same pins as a full rebuild: which nodes, the kinds sharing a spot,
+    -- ring texture and colour, alpha
+    local function Look()
+        local out = {}
+        for icon, node in pairs(active) do
+            local ring, c = icon.ring, icon.ring and icon.ring.__color
+            out[node] = ("%s|%s|%s|%.2f|%s"):format(tostring(ring and ring.__tex),
+                c and ("%.2f,%.2f,%.2f"):format(c[1], c[2], c[3]) or "-", tostring(icon.level), icon:GetAlpha(),
+                icon.othersOf and tostring(#(icon.othersOf.others or {})) or "no link")
+        end
+        return out
+    end
+    local afterMove = Look()
+    local spot = afterMove[copper] or afterMove[tin]
+    assert(spot and spot:find("|yellow|", 1, true), "Copper/Tin spot after the move: " .. tostring(spot))
+    ns.TogglePins() ns.TogglePins() advance(1)
+    local rebuilt, count2 = MiniNodes()
+    assert(count == count2, ("minimap pins after the move %d, after a rebuild %d"):format(count, count2))
+    for node in pairs(rebuilt) do assert(moved[node], "a node has a minimap pin only after the rebuild: " .. tostring(node.name)) end
+    for node, look in pairs(Look()) do
+        assert(afterMove[node] == look, ("%s: after the move %s, after a rebuild %s"):format(tostring(node.name), tostring(afterMove[node]), look))
+    end
+    for i = #ns.db.nodes[1413], 1, -1 do
+        if ns.db.nodes[1413][i] == copper or ns.db.nodes[1413][i] == tin then table.remove(ns.db.nodes[1413], i) end
+    end
+    PROFS[2][2], PROFS[2][3] = ore[1], ore[2]
+    -- another continent: rebuilt as before (grey report pins depend on it)
+    Go(1429)
+    assert(world.add > 0, "continent change: no rebuild")
+    Go(map)
+    pins.AddWorldMapIconMap, pins.RemoveWorldMapIcon, pins.AddMinimapIconMap, pins.RemoveMinimapIcon = keep[1], keep[2], keep[3], keep[4]
+    advance(1)
+end)
+step("Run: the empty check after arriving (20 yd) - gathers, other kinds, late records (v0.1.14)", function()
+    -- Mulgore in the mock: 1 yd = 0.0002 map x. A far Peacebloom keeps a next target.
+    local keepNodes, keepArrive, keepMap, keepX, keepY = ns.db.nodes[1412], ns.db.arriveDist, player.map, player.x, player.y
+    local OBJ = { Earthroot = { 1619, 2449, "herb" }, Peacebloom = { 1618, 2447, "herb" }, ["Copper Vein"] = { 1731, 2770, "ore" } }
+    local seq = 0
+    local function Node(name, xYd, extra)
+        local o = OBJ[name]
+        local n = { id = "o" .. o[1], name = name, type = o[3], item = o[2], x = 0.5 + xYd / 5000, y = 0.5, count = 1, last = 1 }
+        for k, v in pairs(extra or {}) do n[k] = v end
+        return n
+    end
+    local function At(xYd) player.map, player.x, player.y = 1412, 0.5 + xYd / 5000, 0.5 end
+    local function Wait(s) for _ = 1, s * 2 do advance(0.5) end end
+    local function Cast(name)
+        seq = seq + 1
+        local id = "emptycheck" .. seq
+        fire("UNIT_SPELLCAST_SENT", "player", name, id, OBJ[name][3] == "ore" and 2575 or 2366)
+        return id
+    end
+    local function Done(name, id, withLoot)
+        fire("UNIT_SPELLCAST_SUCCEEDED", "player", id, OBJ[name][3] == "ore" and 2575 or 2366)
+        if withLoot ~= false then
+            loot = { { guid = ("GameObject-0-1-1-1-%d-EC%06d"):format(OBJ[name][1], seq), item = OBJ[name][2], qty = 2 } }
+            fire("LOOT_READY") fire("LOOT_OPENED")
+            loot = {}
+        end
+    end
+    local function Run(nodes, filter)
+        ns.db.nodes[1412] = nodes
+        table.insert(nodes, Node("Peacebloom", 2500))
+        ns.NotifyNodesChanged() advance(1)
+        At(-200)
+        ns.StartRun(filter, 1412) Wait(1)
+        At(-19) Wait(1) -- the first point is reached (19 yd)
+    end
+    ns.db.arriveDist = 20
+    -- a gather still running when the 25 s are over: its result decides
+    local A = Node("Earthroot", 0)
+    Run({ A }, "herb")
+    At(-2) Wait(20)
+    local id = Cast("Earthroot") Wait(5) Done("Earthroot", id)
+    Wait(30)
+    assert(not A.misses and A.hits == 1, ("gather running at the check: misses %s"):format(tostring(A.misses)))
+    ns.StopRun(true)
+    -- a second try only after the 25 s: the miss is taken back when it works
+    A = Node("Earthroot", 0)
+    Run({ A }, "herb")
+    At(-2) Wait(10)
+    id = Cast("Earthroot") Wait(2) fire("UNIT_SPELLCAST_INTERRUPTED", "player", id, 2366)
+    Wait(14)
+    id = Cast("Earthroot") Wait(3) Done("Earthroot", id)
+    Wait(30)
+    assert((A.misses or 0) == 0 and A.hits == 1, ("late second try: misses %s"):format(tostring(A.misses)))
+    ns.StopRun(true)
+    -- another kind gathered 20 yd away says nothing: the empty Earthroot spot is learned
+    for _, other in ipairs({ { "Peacebloom", "herb" }, { "Copper Vein", nil } }) do
+        A = Node("Earthroot", 0)
+        local B = Node(other[1], 22)
+        Run({ A, B }, other[2])
+        At(20) Wait(2)
+        id = Cast(other[1]) Wait(3) Done(other[1], id)
+        At(80) Wait(30)
+        assert(A.emptyStreak == 1 and A.misses == 1, other[1] .. " next to it counted as an Earthroot harvest")
+        ns.StopRun(true)
+    end
+    -- the herb grows 12 yd from the known point; no loot event at all: since v0.1.14
+    -- (round 10) nothing is booked, and the gather without loot keeps the known
+    -- point from being called empty (it is not judged)
+    A = Node("Earthroot", 0, { source = "questie" })
+    Run({ A }, "herb")
+    At(12) Wait(2)
+    id = Cast("Earthroot") Wait(3) Done("Earthroot", id, false)
+    At(55) Wait(32)
+    assert(not A.misses, "a late record far away made the known point empty")
+    ns.StopRun(true)
+    -- unchanged: really empty target = learned; passed by in combat = short rest only
+    A = Node("Earthroot", 0)
+    Run({ A }, "herb")
+    At(-2) Wait(30)
+    assert(A.emptyStreak == 1 and A.misses == 1, "empty target not learned")
+    ns.StopRun(true)
+    A = Node("Earthroot", 0)
+    Run({ A }, "herb")
+    UnitAffectingCombat = function() return true end
+    Wait(15)
+    UnitAffectingCombat = nil
+    At(-2) Wait(15)
+    assert(not A.misses and ns.IsOnCooldown(A), "combat: should be a short rest only")
+    ns.StopRun(true)
+    ns.db.nodes[1412], ns.db.arriveDist = keepNodes, keepArrive
+    player.map, player.x, player.y = keepMap, keepX, keepY
+    ns.NotifyNodesChanged() advance(2)
+end)
+-- shared by the two steps below: a clean Mulgore with chosen nodes
+local function IdentityWorld()
+    local W = { keepNodes = ns.db.nodes[1412], keepArrive = ns.db.arriveDist, map = player.map, x = player.x, y = player.y, seq = 0 }
+    function W.P(xYd) return 0.5 + xYd / 5000, 0.5 end
+    function W.At(xYd) player.map = 1412 player.x, player.y = W.P(xYd) end
+    function W.Wait(s) for _ = 1, math.floor(s / 0.5 + 0.5) do advance(0.5) end end
+    function W.Node(id, name, xYd, extra)
+        local x, y = W.P(xYd)
+        local n = { id = id, name = name, type = "herb", x = x, y = y, count = 1, last = 1 }
+        for k, v in pairs(extra or {}) do n[k] = v end
+        return n
+    end
+    function W.Set(list)
+        table.insert(list, W.Node("o1618", "Peacebloom", 2500, { item = 2447 })) -- a far next target
+        ns.db.nodes[1412] = list
+        ns.NotifyNodesChanged() advance(1)
+    end
+    function W.Loot(objectID, item, tag, event)
+        loot = objectID and { { guid = ("GameObject-0-1-1-1-%d-%s"):format(objectID, tag or "ID0001"), item = item, qty = 2 } } or {}
+        fire(event or "LOOT_READY")
+        loot = {}
+    end
+    function W.Cast(target, spell)
+        W.seq = W.seq + 1
+        local id = "ident" .. W.seq
+        fire("UNIT_SPELLCAST_SENT", "player", target, id, spell or 2366)
+        return id
+    end
+    function W.Done(id, spell) fire("UNIT_SPELLCAST_SUCCEEDED", "player", id, spell or 2366) end
+    function W.Count(name)
+        local c = 0
+        for _, n in ipairs(ns.db.nodes[1412]) do if n.name == name then c = c + 1 end end
+        return c
+    end
+    function W.Restore()
+        if ns.run then ns.StopRun(true) end
+        ns.db.nodes[1412], ns.db.arriveDist = W.keepNodes, W.keepArrive
+        player.map, player.x, player.y = W.map, W.x, W.y
+        loot = {}
+        ns.NotifyNodesChanged() advance(2)
+    end
+    return W
+end
+step("Recorder: a gather keeps its identity - late, empty, repeated or crossed loot (v0.1.14)", function()
+    local W = IdentityWorld()
+    local unknown = ns.L["Unknown Herb"]
+    local function Fresh()
+        local s = W.Node("o1617", "Silverleaf", 0, { item = 765 })
+        W.Set({ s })
+        W.At(0)
+        return s
+    end
+    -- control: no target name, loot in time: it is the Silverleaf
+    local s = Fresh()
+    local id = W.Cast("") W.Wait(2) W.Done(id) advance(0.2) W.Loot(1617, 765, "C0001") W.Wait(3)
+    assert(s.count == 2 and W.Count(unknown) == 0, "control: no-name gather with loot not on the Silverleaf")
+    -- loot only 2.0 s after the cast (the recorder used to stop at 1.5 s): no Unknown Herb
+    s = Fresh()
+    id = W.Cast("") W.Wait(2) W.Done(id) advance(2.0) W.Loot(1617, 765, "C0002") W.Wait(3)
+    assert(W.Count(unknown) == 0, "late loot: an Unknown Herb was stored")
+    assert(s.count == 2 and (s.hits or 0) == 1, "late loot: the Silverleaf did not get its harvest")
+    -- R3, a SIMULATED special case (not seen in the real client): an empty loot event first
+    s = Fresh()
+    id = W.Cast("") W.Wait(2) W.Done(id) advance(0.1) W.Loot(nil) advance(0.2) W.Loot(1617, 765, "C0003", "LOOT_OPENED") W.Wait(3)
+    assert(W.Count(unknown) == 0 and s.count == 2, "empty first loot event: the identity got lost")
+    -- the same loot twice (LOOT_READY + LOOT_OPENED): one record
+    s = Fresh()
+    id = W.Cast("Silverleaf") W.Wait(2) W.Done(id) W.Loot(1617, 765, "C0004") W.Loot(1617, 765, "C0004", "LOOT_OPENED") W.Wait(3)
+    assert(s.count == 2 and (s.hits or 0) == 1, ("repeated loot event: count %d, hits %s"):format(s.count, tostring(s.hits)))
+    -- the other Silverleaf object (o3725) fits a Silverleaf gather: same kind, other ID
+    s = Fresh()
+    id = W.Cast("Silverleaf") W.Wait(2) W.Done(id) W.Loot(3725, 765, "C0005") W.Wait(3)
+    assert(W.Count("Silverleaf") >= 1 and W.Count(unknown) == 0, "second object of the same kind rejected")
+    local fitted = false
+    for _, n in ipairs(ns.db.nodes[1412]) do if n.id == "o3725" or (n == s and n.count == 2) then fitted = true end end
+    assert(fitted, "Silverleaf o3725 loot was not used")
+    -- no name and no loot at all: nothing recorded (after the 10 s upper bound)
+    s = Fresh()
+    local before = #ns.db.nodes[1412]
+    id = W.Cast("") W.Wait(2) W.Done(id) W.Wait(12)
+    assert(#ns.db.nodes[1412] == before and s.count == 1, "a gather without identity was stored")
+    -- interrupted: nothing
+    s = Fresh()
+    id = W.Cast("") W.Wait(1) fire("UNIT_SPELLCAST_INTERRUPTED", "player", id, 2366) W.Wait(12)
+    assert(#ns.db.nodes[1412] == before and s.count == 1, "an interrupted gather was stored")
+    -- crossed: the next gather (Peacebloom, 8 yd) starts before the Silverleaf loot came
+    s = Fresh()
+    local p = W.Node("o1618", "Peacebloom", 8, { item = 2447 })
+    table.insert(ns.db.nodes[1412], p) ns.NotifyNodesChanged() advance(1)
+    local sx = s.x
+    id = W.Cast("Silverleaf") W.Wait(2) W.Done(id)
+    W.At(8)
+    local id2 = W.Cast("Peacebloom")
+    W.Loot(1617, 765, "C0006") -- the Silverleaf loot arrives now
+    W.Wait(2) W.Done(id2) W.Loot(1618, 2447, "C0007") W.Wait(3)
+    assert(s.count == 2 and math.abs(s.x - sx) < 1e-9, "crossed: the Silverleaf was not booked at its own spot")
+    assert(p.count == 2, ("crossed: the Peacebloom was not booked (count %d)"):format(p.count))
+    -- crossed without a name: the loot fits both (the first could be any herb):
+    -- nobody can tell whose, so neither is booked
+    s = Fresh()
+    before = #ns.db.nodes[1412]
+    id = W.Cast("") W.Wait(2) W.Done(id)
+    id2 = W.Cast("Silverleaf") W.Wait(2) W.Done(id2) W.Loot(1617, 765, "C0008") W.Wait(12)
+    assert(#ns.db.nodes[1412] == before and s.count == 1, "crossed without a name: a gather of uncertain loot was booked")
+    -- only loot of another kind (a wrong name or someone else's loot): nothing rather than a wrong kind
+    s = Fresh()
+    before = #ns.db.nodes[1412]
+    id = W.Cast("Silverleaf") W.Wait(2) W.Done(id) W.Loot(1618, 2447, "C0009") W.Wait(12)
+    assert(#ns.db.nodes[1412] == before and s.count == 1, "loot of another kind: something was booked")
+    -- Wilted Peacebloom (o656160) is its own Forever herb, even though its loot
+    -- holds the Peacebloom item 2447 (the beta starter data says so)
+    local function WiltedWorld(wiltedYd)
+        local list = { W.Node("o1618", "Peacebloom", 5, { item = 2447 }) }
+        if wiltedYd then table.insert(list, W.Node("o656160", "Wilted Peacebloom", wiltedYd, { item = 2447, source = "starter" })) end
+        W.Set(list)
+        W.At(0)
+        return list[1], list[2]
+    end
+    local function Stats(key) local st = ns.KindStats()[key] return st and st.n or 0 end
+    -- (a) named: booked on the Wilted record, never on the Peacebloom 5 yd away
+    local pb, wp = WiltedWorld(3)
+    local pbStats, wpStats = Stats("herb:peacebloom"), Stats("herb:wilted peacebloom")
+    id = W.Cast("Wilted Peacebloom") W.Wait(2) W.Done(id) W.Loot(656160, 2447, "WP0001") W.Wait(3)
+    assert(wp.count == 2 and pb.count == 1, ("Wilted gather booked on: wilted %d, peacebloom %d"):format(wp.count, pb.count))
+    assert(Stats("herb:wilted peacebloom") == wpStats + 1 and Stats("herb:peacebloom") == pbStats, "Wilted skill stats mixed with Peacebloom")
+    -- (b) no name: the name our records give the object, not the item's
+    pb, wp = WiltedWorld(60)
+    before = #ns.db.nodes[1412]
+    id = W.Cast("") W.Wait(2) W.Done(id) W.Loot(656160, 2447, "WP0002") W.Wait(3)
+    local new = ns.db.nodes[1412][#ns.db.nodes[1412]]
+    assert(#ns.db.nodes[1412] == before + 1 and new.name == "Wilted Peacebloom" and new.id == "o656160" and pb.count == 1,
+        ("no-name Wilted gather: %s [%s], peacebloom count %d"):format(tostring(new.name), tostring(new.id), pb.count))
+    -- (c) no name, no record of the object in the zone: still not a Peacebloom
+    pb = WiltedWorld(nil)
+    id = W.Cast("") W.Wait(2) W.Done(id) W.Loot(656160, 2447, "WP0003") W.Wait(3)
+    new = ns.db.nodes[1412][#ns.db.nodes[1412]]
+    assert(pb.count == 1 and new.id == "o656160" and new.name ~= "Peacebloom", "unnamed Wilted gather became a Peacebloom")
+    -- (d) crossed: late Wilted loot does not fit a Peacebloom gather
+    pb, wp = WiltedWorld(3)
+    id = W.Cast("Wilted Peacebloom") W.Wait(2) W.Done(id)
+    W.At(5)
+    id2 = W.Cast("Peacebloom")
+    W.Loot(656160, 2447, "WP0004")
+    W.Wait(2) W.Done(id2) W.Loot(1618, 2447, "PB0004") W.Wait(3)
+    -- the Wilted loot fits only the Wilted gather still waiting: it is its own, booked there
+    assert(pb.count == 2 and pb.lastSpawn == "PB0004" and wp.count == 2 and wp.lastSpawn == "WP0004",
+        "crossed Wilted/Peacebloom: loot of the one booked on the other")
+    -- (e) a Peacebloom gather that only gets Wilted loot (no earlier gather waiting):
+    -- the kind check alone must reject it - nothing booked, no Peacebloom with o656160
+    pb, wp = WiltedWorld(3)
+    before = #ns.db.nodes[1412]
+    id = W.Cast("Peacebloom") W.Wait(2) W.Done(id) W.Loot(656160, 2447, "WP0005") W.Wait(12)
+    assert(#ns.db.nodes[1412] == before and pb.count == 1 and wp.count == 1 and pb.id == "o1618",
+        "a Peacebloom gather took Wilted Peacebloom loot")
+    -- crossed, same kind: Silverleaf A, then Silverleaf B 8 yd on before A's loot came.
+    -- Same kind is not enough to know whose loot it is: neither is booked (no
+    -- count, no spawn, no skill stat) rather than a guess
+    local a = W.Node("o1617", "Silverleaf", 0, { item = 765 })
+    local b = W.Node("o1617", "Silverleaf", 8, { item = 765 })
+    W.Set({ a, b })
+    local ax, bx = a.x, b.x
+    local slStats = Stats("herb:silverleaf")
+    W.At(0)
+    id = W.Cast("Silverleaf") W.Wait(2) W.Done(id)
+    W.At(8)
+    id2 = W.Cast("Silverleaf") W.Wait(2) W.Done(id2)
+    W.Loot(1617, 765, "SLA001") W.Loot(1617, 765, "SLA001", "LOOT_OPENED") -- A's loot, late, twice
+    W.Loot(1617, 765, "SLB001") W.Loot(1617, 765, "SLB001", "LOOT_OPENED") -- B's own, twice
+    W.Wait(12)
+    assert(a.count == 1 and b.count == 1 and Stats("herb:silverleaf") == slStats,
+        ("same kind crossed: A %d, B %d, stats +%d"):format(a.count, b.count, Stats("herb:silverleaf") - slStats))
+    assert(math.abs(a.x - ax) < 1e-9 and math.abs(b.x - bx) < 1e-9, "same kind crossed: a spot moved")
+    assert(not a.lastSpawn and not b.lastSpawn, "same kind crossed: a spawn of uncertain owner was booked")
+    -- three Silverleafs, each cast before the loot of the one before, every loot
+    -- twice: no count, hit or skill stat grows more than once per gather (here: none)
+    local three = { W.Node("o1617", "Silverleaf", 0, { item = 765 }), W.Node("o1617", "Silverleaf", 8, { item = 765 }),
+        W.Node("o1617", "Silverleaf", 16, { item = 765 }) }
+    W.Set({ three[1], three[2], three[3] })
+    slStats = Stats("herb:silverleaf")
+    for i = 1, 3 do
+        W.At((i - 1) * 8)
+        local c = W.Cast("Silverleaf") W.Wait(2) W.Done(c)
+        if i > 1 then W.Loot(1617, 765, "TRI" .. (i - 1)) W.Loot(1617, 765, "TRI" .. (i - 1), "LOOT_OPENED") end
+    end
+    W.Loot(1617, 765, "TRI3") W.Loot(1617, 765, "TRI3", "LOOT_OPENED")
+    W.Wait(13)
+    local grew = 0
+    for _, n in ipairs(three) do
+        assert(n.count <= 2 and (n.hits or 0) <= 1, "three crossed: a node grew more than once")
+        grew = grew + n.count - 1
+    end
+    assert(grew == Stats("herb:silverleaf") - slStats and grew <= 3, ("three crossed: counts +%d, stats +%d"):format(
+        grew, Stats("herb:silverleaf") - slStats))
+    -- one copper vein mined three times (one spawn), every loot twice: counted once
+    -- when the loot comes in time, at most once (here: dropped) when it comes late
+    for _, late in ipairs({ false, true }) do
+        local v = W.Node("o1731", "Copper Vein", 0, { type = "ore", item = 2770 })
+        W.Set({ v })
+        W.At(0)
+        local st = Stats("ore:copper vein")
+        for i = 1, 3 do
+            local c = W.Cast("Copper Vein", 2575) W.Wait(2) W.Done(c, 2575)
+            if not late then
+                W.Loot(1731, 2770, "VEIN01") W.Loot(1731, 2770, "VEIN01", "LOOT_OPENED") W.Wait(1)
+            elseif i > 1 then
+                W.Loot(1731, 2770, "VEIN01") W.Loot(1731, 2770, "VEIN01", "LOOT_OPENED")
+            end
+        end
+        if late then W.Loot(1731, 2770, "VEIN01") W.Loot(1731, 2770, "VEIN01", "LOOT_OPENED") end
+        W.Wait(13)
+        local grown = Stats("ore:copper vein") - st
+        assert(v.count - 1 <= 1 and (v.hits or 0) <= 1 and grown <= 1,
+            ("vein mined 3x (loot %s): count +%d, hits %s, stats +%d"):format(late and "late" or "in time", v.count - 1, tostring(v.hits), grown))
+        if not late then assert(v.count == 2 and grown == 1, "vein mined 3x, loot in time: not counted once") end
+    end
+    -- one rule: booked only with its own loot. The same vein mined three times
+    -- without any loot event: nothing booked, no count, hit or skill stat
+    do
+        local v = W.Node("o1731", "Copper Vein", 0, { type = "ore", item = 2770 })
+        W.Set({ v })
+        W.At(0)
+        local st = Stats("ore:copper vein")
+        for _ = 1, 3 do
+            local c = W.Cast("Copper Vein", 2575) W.Wait(2) W.Done(c, 2575) W.Wait(4)
+        end
+        W.Wait(12)
+        assert(v.count == 1 and not v.hits and Stats("ore:copper vein") == st and #ns.db.nodes[1412] == 2,
+            ("vein mined 3x without loot: count +%d, hits %s, stats +%d"):format(v.count - 1, tostring(v.hits), Stats("ore:copper vein") - st))
+    end
+    -- a single herb, its own loot late (5 s) but clear: booked once, with its spawn
+    do
+        local sl = W.Node("o1617", "Silverleaf", 0, { item = 765 })
+        W.Set({ sl })
+        W.At(0)
+        local st = Stats("herb:silverleaf")
+        local c = W.Cast("Silverleaf") W.Wait(2) W.Done(c) W.Wait(5)
+        W.Loot(1617, 765, "LATE01") W.Loot(1617, 765, "LATE01", "LOOT_OPENED") W.Wait(12)
+        assert(sl.count == 2 and sl.hits == 1 and sl.lastSpawn == "LATE01" and Stats("herb:silverleaf") == st + 1,
+            ("single herb, late loot: count +%d, hits %s, spawn %s, stats +%d"):format(sl.count - 1, tostring(sl.hits),
+                tostring(sl.lastSpawn), Stats("herb:silverleaf") - st))
+    end
+    -- unchanged: loot in time is booked at once (no 10 s wait), every loot event twice counts once
+    do
+        local sl = W.Node("o1617", "Silverleaf", 0, { item = 765 })
+        W.Set({ sl })
+        W.At(0)
+        local st = Stats("herb:silverleaf")
+        local c = W.Cast("Silverleaf") W.Wait(2) W.Done(c)
+        W.Loot(1617, 765, "NOW001") W.Loot(1617, 765, "NOW001", "LOOT_OPENED")
+        assert(sl.count == 2 and sl.lastSpawn == "NOW001", "loot in time: not booked at once")
+        W.Wait(12)
+        assert(sl.count == 2 and sl.hits == 1 and Stats("herb:silverleaf") == st + 1, "loot in time, twice: counted more than once")
+    end
+    -- the object name lookup uses the zone index: a new record's name is found
+    -- at once, and a renamed record too (index kept up to date)
+    local o = W.Node("o987654", "Shimmer Moss", 30, { item = 2447 })
+    W.Set({ o })
+    assert(ns.ObjectName(987654, 1412) == "Shimmer Moss", "object name not found")
+    local o2 = W.Node("o987655", "Glow Cap", 40, { item = 2447 })
+    table.insert(ns.db.nodes[1412], o2) ns.NotifyNodesChanged("add", 1412, o2)
+    assert(ns.ObjectName(987655, 1412) == "Glow Cap", "object name of a new record not found")
+    W.Restore()
+end)
+step("Run: points without identity learn nothing; known kinds stay apart (v0.1.14)", function()
+    local W = IdentityWorld()
+    ns.db.arriveDist = 20
+    local function Run(list)
+        W.Set(list)
+        W.At(-200) ns.StartRun("herb", 1412) W.Wait(1)
+        W.At(-15) W.Wait(1)
+    end
+    local function Harvest(objectID, item, name)
+        local id = W.Cast(name) W.Wait(2) W.Done(id) W.Loot(objectID, item, "R" .. W.seq) W.Wait(1)
+    end
+    -- the log case: Silverleaf gathered, an old Unknown Herb [nil] 8 yd away
+    local s = W.Node("o1617", "Silverleaf", 0, { item = 765, source = "questie", count = 0 })
+    local u = W.Node(nil, "Unknown Herb", 6)
+    Run({ s, u })
+    W.At(-1) W.Wait(10)
+    Harvest(1617, 765, "Silverleaf")
+    W.Wait(30)
+    assert(not u.misses and not u.emptyStreak and not u.hits, "unknown point next to a harvest learned something")
+    ns.StopRun(true)
+    -- nothing harvested: an unknown point only rests, it learns nothing
+    u = W.Node(nil, "Unknown Herb", 0)
+    Run({ u })
+    W.At(-1) W.Wait(30)
+    assert(not u.misses and not u.emptyStreak and ns.IsOnCooldown(u), "unknown point without harvest: should only rest")
+    ns.StopRun(true)
+    -- known kinds stay apart: an empty Peacebloom 8 yd from a harvested Silverleaf is empty
+    s = W.Node("o1617", "Silverleaf", 0, { item = 765 })
+    local pb = W.Node("o1618", "Peacebloom", 8, { item = 2447 })
+    Run({ s, pb })
+    W.At(-1) W.Wait(2)
+    Harvest(1617, 765, "Silverleaf")
+    W.At(60) W.Wait(30)
+    assert(pb.misses == 1, "an empty known Peacebloom next to a Silverleaf harvest was not learned")
+    ns.StopRun(true)
+    -- Wilted Peacebloom is another herb: its harvest does not cover an empty Peacebloom point
+    local wp = W.Node("o656160", "Wilted Peacebloom", 0, { item = 2447 })
+    pb = W.Node("o1618", "Peacebloom", 8, { item = 2447 })
+    Run({ wp, pb })
+    W.At(-1) W.Wait(2)
+    Harvest(656160, 2447, "Wilted Peacebloom")
+    W.At(60) W.Wait(30)
+    assert(pb.misses == 1 and not wp.misses, "a Wilted Peacebloom harvest counted for the Peacebloom point")
+    ns.StopRun(true)
+    -- an ore harvest does not cover an unknown herb point
+    u = W.Node(nil, "Unknown Herb", 0)
+    local v = W.Node("o1731", "Copper Vein", 8, { type = "ore", item = 2770 })
+    W.Set({ u, v })
+    W.At(-200) ns.StartRun(nil, 1412) W.Wait(1) W.At(-15) W.Wait(1)
+    W.At(8) W.Wait(2)
+    local id = W.Cast("Copper Vein", 2575) W.Wait(2) W.Done(id, 2575) W.Loot(1731, 2770, "R0") W.Wait(1)
+    W.At(60) W.Wait(30)
+    assert(not u.misses and ns.IsOnCooldown(u), "unknown herb: an ore harvest should not count, a rest only")
+    W.Restore()
+end)
+step("Sync: parking or unparking one node changes only its pins and the route list (v0.1.14)", function()
+    local Z = 1412
+    local pins = LibStub("HereBeDragons-Pins-2.0")
+    local keep = { pins.AddWorldMapIconMap, pins.RemoveWorldMapIcon, pins.AddMinimapIconMap, pins.RemoveMinimapIcon }
+    local adds, active = 0, {}
+    pins.AddWorldMapIconMap = function(self, ref, icon, ...)
+        if ref == "Gathercraft" then adds = adds + 1 active[icon] = "world" end
+        return keep[1](self, ref, icon, ...)
+    end
+    pins.RemoveWorldMapIcon = function(self, ref, icon, ...) if ref == "Gathercraft" then active[icon] = nil end return keep[2](self, ref, icon, ...) end
+    pins.AddMinimapIconMap = function(self, ref, icon, ...)
+        if ref == "Gathercraft" then adds = adds + 1 active[icon] = "mini" end
+        return keep[3](self, ref, icon, ...)
+    end
+    pins.RemoveMinimapIcon = function(self, ref, icon, ...) if ref == "Gathercraft" then active[icon] = nil end return keep[4](self, ref, icon, ...) end
+    local notified = {}
+    local Notify = ns.NotifyNodesChanged
+    ns.NotifyNodesChanged = function(kind, ...) notified[#notified + 1] = tostring(kind) return Notify(kind, ...) end
+    local function Count() adds = 0 wipe(notified) end
+    -- what the map shows: per node and pin kind ring, colour, level, alpha, kinds sharing the spot
+    local function Look()
+        local out = {}
+        for icon, where in pairs(active) do
+            local ring, c = icon.ring, icon.ring and icon.ring.__color
+            local key = tostring(icon.node and icon.node.name) .. "@" .. tostring(icon.node) .. ":" .. where
+            out[key] = ("%s|%s|%s|%.2f|%d"):format(tostring(ring and ring.__tex), c and ("%.2f,%.2f,%.2f"):format(c[1], c[2], c[3]) or "-",
+                tostring(icon.level), icon:GetAlpha(), #(icon.others or (icon.othersOf and icon.othersOf.others) or {}))
+        end
+        return out
+    end
+    local function RouteLook()
+        local set = {}
+        for _, p in ipairs(ns.run and ns.run.points or {}) do set[p.node] = true end
+        return set, ns.run and ns.run.target
+    end
+    -- the targeted update against a full rebuild of pins and route list
+    local function SameAsRebuild(what)
+        local look, route, tgt = Look(), RouteLook()
+        ns.TogglePins() ns.TogglePins()
+        if ns.run then ns.run.pointsDirty = true ns.RouteGoalChanged() end
+        advance(1)
+        local look2, route2, tgt2 = Look(), RouteLook()
+        for k, v in pairs(look) do assert(look2[k] == v, ("%s: %s is %s, after a rebuild %s"):format(what, k, v, tostring(look2[k]))) end
+        for k, v in pairs(look2) do assert(look[k] == v, ("%s: %s only after a rebuild (%s)"):format(what, k, v)) end
+        for n in pairs(route) do assert(route2[n], what .. ": in the route list only before the rebuild: " .. tostring(n.name)) end
+        for n in pairs(route2) do assert(route[n], what .. ": in the route list only after the rebuild: " .. tostring(n.name)) end
+        assert(tgt == tgt2, what .. ": another target after the rebuild")
+    end
+    local function AllUpdates(what)
+        for _, k in ipairs(notified) do assert(k == "update", what .. ": told everyone '" .. k .. "' (all pins are rebuilt)") end
+    end
+
+    local keepNodes = ns.db.nodes[Z]
+    ns.db.nodes[Z] = {}
+    ns.ImportQuestieZone(Z, true)
+    -- a node only other players reported, empty four times over 13 hours
+    local S = { id = "o1618", name = "Peacebloom", type = "herb", x = 0.3012, y = 0.2987, count = 1, last = time() - 50000,
+        item = 2447, source = "sync", heard = 1, heardBy = { Alice = true } }
+    local function Unlucky() S.healMisses, S.healFirst, S.healAt = 4, time() - 13 * 3600, time() - 700 end
+    Unlucky()
+    table.insert(ns.db.nodes[Z], S)
+    -- one of our own further on: the run keeps a target after S (the empty
+    -- check after arriving only runs while there is one)
+    table.insert(ns.db.nodes[Z], { id = "o1618", name = "Peacebloom", type = "herb", x = S.x + 300 / 5000, y = S.y, count = 2, last = 1, item = 2447 })
+    ns.NotifyNodesChanged() ns.ForgetSeenKinds()
+    player.map, player.x, player.y = Z, S.x + 30 / 5000, S.y
+    ns.StartRun("herb", Z) advance(1)
+    assert(ns.run and ns.run.target == S, "test setup: the shared node is the target")
+
+    -- (1) parked by SelfHeal: arrived, nothing there for 25 s
+    Count()
+    player.x = S.x advance(27)
+    assert(S.parked, "not parked after the fifth empty visit")
+    AllUpdates("parked")
+    assert(adds <= 2, ("parking one node registered %d pins"):format(adds))
+    local route = RouteLook()
+    assert(not route[S] and ns.run.target ~= S, "the parked node is still in the route list or the target")
+    local look = Look()
+    local w = look["Peacebloom@" .. tostring(S) .. ":world"]
+    assert(w and w:find("|0.25|", 1, true), "parked node not faded on the world map: " .. tostring(w))
+    SameAsRebuild("parked")
+    -- the same again: nothing changes
+    Count()
+    assert(not ns.SyncSelfHeal(S), "parked twice")
+    advance(1)
+    assert(adds == 0 and #notified == 0, "parking again changed something")
+
+    -- (2) back through sync: someone new reports it
+    local text = ("N:%d;o1618,h,%d,%d,2447"):format(Z, math.floor(S.x * 10000 + 0.5), math.floor(S.y * 10000 + 0.5))
+    Count()
+    fire("CHAT_MSG_ADDON", "Gathercraft", text, "CHANNEL", "Newcomer-Realm") advance(1)
+    assert(not S.parked, "not back after a new player reported it")
+    AllUpdates("back by sync")
+    assert(adds <= 2, ("unparking one node registered %d pins"):format(adds))
+    assert(RouteLook()[S], "the node is back but not in the route list")
+    SameAsRebuild("back by sync")
+    -- the same message again, and one more player: nothing to change
+    Count()
+    fire("CHAT_MSG_ADDON", "Gathercraft", text, "CHANNEL", "Newcomer-Realm") advance(2)
+    fire("CHAT_MSG_ADDON", "Gathercraft", text, "CHANNEL", "Another-Realm") advance(1)
+    assert(adds == 0 and #notified == 0, "a report of a node that is back changed something")
+
+    -- (3) parked again, back by a look on the minimap
+    Unlucky()
+    Count()
+    assert(ns.SyncSelfHeal(S) and S.parked, "test setup: parked again")
+    advance(1)
+    AllUpdates("parked again")
+    assert(adds <= 2 and not RouteLook()[S], "parked again: pins or route list")
+    advance(6)
+    Count()
+    ns.SeenOnMinimap(Z, S.x, S.y, S.name, 10) advance(1)
+    assert(not S.parked, "not back after a look on the minimap")
+    AllUpdates("back by a look")
+    assert(adds <= 4, ("unparking by a look registered %d pins"):format(adds))
+    assert(RouteLook()[S], "back by a look but not in the route list")
+    SameAsRebuild("back by a look")
+    -- seen with your own eyes: never parked again
+    Unlucky()
+    Count()
+    assert(not ns.SyncSelfHeal(S) and not S.parked, "a node seen on the minimap was parked")
+    advance(1)
+    assert(adds == 0 and #notified == 0, "a refused park changed something")
+
+    -- (4) the map follows the Zones tab and the zone is off: no pins, before and after
+    ns.StopRun() advance(1)
+    S.seenAt, S.upAt = nil, nil
+    ns.db.mapFollowsZones, ns.db.disabledZones[Z] = true, true
+    ns.TogglePins() ns.TogglePins() advance(1)
+    Unlucky()
+    Count()
+    assert(ns.SyncSelfHeal(S) and S.parked, "test setup: parked in a zone that is off")
+    advance(1)
+    assert(adds == 0, "a node of a zone that is off got pins")
+    SameAsRebuild("zone off")
+    ns.db.mapFollowsZones, ns.db.disabledZones[Z] = nil, nil
+
+    ns.NotifyNodesChanged = Notify
+    pins.AddWorldMapIconMap, pins.RemoveWorldMapIcon, pins.AddMinimapIconMap, pins.RemoveMinimapIcon = keep[1], keep[2], keep[3], keep[4]
+    ns.db.nodes[Z] = keepNodes
+    ns.NotifyNodesChanged() ns.ForgetSeenKinds()
+    player.map, player.x, player.y = 1412, 0.45, 0.72
+    advance(1)
+end)
+step("Run: checks after arriving come due also while the run has no target (v0.1.14)", function()
+    local Z = 1471
+    local saved = { debug = ns.db.debug, arrive = ns.db.arriveDist }
+    ns.db.debug, ns.db.arriveDist = true, 20
+    local seq = 0
+    -- one route point only: once it is reached, the run has no target
+    local function Setup()
+        ns.StopRun() advance(1)
+        local S = { id = "o1618", name = "Peacebloom", type = "herb", x = 0.50, y = 0.50, count = 3, last = 1, item = 2447 }
+        ns.db.nodes[Z] = { S }
+        ns.NotifyNodesChanged() ns.ForgetSeenKinds()
+        player.map, player.x, player.y = Z, 0.50 + 60 / 5000, 0.50
+        ns.StartRun("herb", Z) advance(1)
+        assert(ns.run and ns.run.target == S, "test setup: target")
+        player.x = 0.50 advance(1)
+        assert(not ns.run.target and #ns.run.checking == 1, "test setup: reached, no target, one check open")
+        return S, #log
+    end
+    local function Cast()
+        seq = seq + 1
+        fire("UNIT_SPELLCAST_SENT", "player", "Peacebloom", "nt" .. seq, 2366)
+        return "nt" .. seq
+    end
+    local function Loot(id)
+        fire("UNIT_SPELLCAST_SUCCEEDED", "player", id, 2366)
+        loot = { { guid = ("GameObject-0-1-1-1-1618-NT%04d"):format(seq), item = 2447, qty = 2 } }
+        fire("LOOT_READY") loot = {}
+    end
+    local function Said(text, from)
+        for i = from, #log do if log[i]:find(text, 1, true) then return true end end
+    end
+
+    -- (a) really empty: counted as empty, and the run goes on (it used to wait
+    -- for the open check until it gave up after 10 minutes)
+    local S, mark = Setup()
+    advance(30)
+    assert(S.misses == 1 and ns.IsOnCooldown(S), "an empty point was not counted as empty while the run had no target")
+    assert(Said("since arriving 25 s ago (target, no combat)", mark), "no check line for the empty point")
+    assert(#ns.run.checking == 0, "the check is still open")
+    advance(600)
+    assert(ns.run, "the run gave up although its point came back")
+
+    -- (b) harvested: the check closes as harvested, nothing counted as empty
+    S, mark = Setup()
+    local id = Cast() advance(2) Loot(id)
+    advance(30)
+    assert(S.hits == 1 and not S.misses and Said("harvested (this node", mark), "harvest without a target: not checked as harvested")
+    assert(#ns.run.checking == 0, "harvested: the check is still open")
+
+    -- (c) a gather still running when the check comes due: waited for, then harvested
+    S, mark = Setup()
+    advance(21)
+    id = Cast() advance(5)
+    assert(Said("still gathering", mark) and not S.misses, "a running gather was not waited for")
+    Loot(id) advance(5)
+    assert(S.hits == 1 and not S.misses and Said("harvested (this node", mark), "harvested after waiting: not checked as harvested")
+
+    -- (d) a gather that succeeded without loot of its own: not judged, nothing learned
+    S, mark = Setup()
+    id = Cast() advance(2) fire("UNIT_SPELLCAST_SUCCEEDED", "player", id, 2366)
+    advance(30)
+    assert(Said("not judged, nothing learned", mark) and not S.misses and not S.hits, "an uncertain gather was judged")
+
+    -- (e) stopped before the check came due: nothing is judged afterwards
+    S, mark = Setup()
+    advance(5)
+    ns.StopRun() advance(40)
+    assert(not S.misses and not ns.IsOnCooldown(S) and not Said("check Peacebloom", mark), "a check was judged after the run stopped")
+
+    ns.db.debug, ns.db.arriveDist = saved.debug, saved.arrive
+    ns.db.nodes[Z] = nil
+    ns.NotifyNodesChanged()
+    player.map, player.x, player.y = 1412, 0.45, 0.72
+    advance(1)
+end)
+step("Run: spots from other players are taken in together, ones the run can't use not at all (v0.1.14)", function()
+    local keep = { [1412] = ns.db.nodes[1412], [1413] = ns.db.nodes[1413], [1429] = ns.db.nodes[1429] }
+    local saved = { skill = PROFS[1][2], max = PROFS[1][3], disabled = ns.db.disabledZones[1413] }
+    ns.db.nodes[1412], ns.db.nodes[1413], ns.db.nodes[1429] = {}, {}, {}
+    -- a few of our own, so the run has something to do
+    for i = 1, 6 do
+        table.insert(ns.db.nodes[1412], { id = "o1618", name = "Peacebloom", type = "herb", x = 0.30 + i * 0.02, y = 0.30, count = 2, last = 1, item = 2447 })
+    end
+    ns.NotifyNodesChanged() ns.ForgetSeenKinds()
+    local briar
+    for id, k in pairs(GathercraftQuestieData.kinds) do if k[3] == "Briarthorn" then briar = id end end
+    -- the node list of the run: how often it was collected again
+    local collects, lastPoints = 0, nil
+    local watch = C_Timer.NewTicker(0.05, function()
+        local r = ns.run
+        if r and r.points ~= lastPoints then
+            if lastPoints then collects = collects + 1 end
+            lastPoints = r.points
+        end
+    end)
+    local function InRun(n)
+        for _, p in ipairs(ns.run and ns.run.points or {}) do if p.node == n then return true end end
+    end
+    local senders = 0
+    local function Import(mapID, entries)
+        senders = senders + 1 -- one guild member per message: the rate limit stays out of it
+        local parts = {}
+        for i, e in ipairs(entries) do
+            parts[i] = ("%s,%s,%d,%d,%d"):format(e[1], e[2], math.floor(e[3] * 10000 + 0.5), math.floor(e[4] * 10000 + 0.5), e[5] or 0)
+        end
+        fire("CHAT_MSG_ADDON", "Gathercraft", "N:" .. mapID .. ";" .. table.concat(parts, ";"), "GUILD", "Guild" .. senders .. "-Realm")
+    end
+    local function Find(mapID, id, x, y) return ns.FindNode(mapID, id, x, y, 5) end
+    local function Start(filter, zone)
+        ns.StopRun() advance(1)
+        player.map, player.x, player.y = 1412, 0.30, 0.32
+        ns.StartRun(filter, zone) advance(2)
+        assert(ns.run and ns.run.points, "test setup: no run")
+        lastPoints, collects = ns.run.points, 0
+    end
+
+    -- (1) spots this run can't use: stored and on the map, the run's list stays as it is
+    Start("herb", 1412)
+    PIN_ADDS = 0
+    Import(1412, { { "o1731", "o", 0.40, 0.40, 2770 } }) advance(1.2)  -- ore: another type
+    Import(1413, { { "o1618", "h", 0.40, 0.40, 2447 } }) advance(1.2)  -- herb, but another zone
+    Import(1429, { { "o1618", "h", 0.40, 0.40, 2447 } }) advance(1.2)  -- herb, another continent
+    advance(15)
+    assert(Find(1412, "o1731", 0.40, 0.40) and Find(1413, "o1618", 0.40, 0.40) and Find(1429, "o1618", 0.40, 0.40), "an import was not stored")
+    assert(PIN_ADDS >= 3, "an import was not shown on the map")
+    assert(collects == 0, ("spots the run can't use collected its list again %d times"):format(collects))
+    -- a run over all zones: another continent is another world (the mini WoW
+    -- has one world for all maps, so Elwynn Forest gets instance 0 here)
+    local HBD = LibStub("HereBeDragons-2.0")
+    local Coords = HBD.GetWorldCoordinatesFromZone
+    HBD.GetWorldCoordinatesFromZone = function(self, x, y, map)
+        local wx, wy, inst = Coords(self, x, y, map)
+        return wx, wy, map == 1429 and 0 or inst
+    end
+    Start("herb")
+    Import(1429, { { "o1618", "h", 0.45, 0.45, 2447 } }) advance(12)
+    HBD.GetWorldCoordinatesFromZone = Coords
+    assert(Find(1429, "o1618", 0.45, 0.45) and collects == 0, "a spot on another continent collected the list of a run over all zones")
+
+    -- (2) a stream of usable ones (30 s): taken in together, each at the latest 10 s after it came
+    local arrived, n = {}, 0
+    local late = 0
+    local check = C_Timer.NewTicker(0.5, function()
+        for node, t in pairs(arrived) do
+            if not InRun(node) and GetTime() - t > 10.5 then late = late + 1 arrived[node] = nil end
+            if InRun(node) then arrived[node] = nil end
+        end
+    end)
+    for k = 1, 25 do
+        local entries = {}
+        for j = 1, 6 do
+            n = n + 1
+            entries[j] = { "o1618", "h", 0.10 + (n % 30) * 0.02, 0.50 + math.floor(n / 30) * 0.02, 2447 }
+        end
+        Import(1412, entries)
+        for _, e in ipairs(entries) do
+            local node = Find(1412, e[1], e[3], e[4])
+            assert(node, "test setup: import not stored")
+            arrived[node] = GetTime()
+        end
+        advance(1.2)
+    end
+    advance(12)
+    check:Cancel()
+    assert(late == 0, late .. " imported spots were not in the run 10 s after they came")
+    assert(next(arrived) == nil, "imported spots never reached the run")
+    assert(collects >= 3 and collects <= 4, ("25 messages in 30 s: the list was collected %d times (expected 3-4)"):format(collects))
+
+    -- (3) spots that did not fit count once the run fits them: filter, zone, skill
+    Start("ore", 1412)
+    assert(InRun(Find(1412, "o1731", 0.40, 0.40)), "after a filter change: the ore vein that came during a herb run is missing")
+    Start("herb", 1413)
+    assert(InRun(Find(1413, "o1618", 0.40, 0.40)), "a run in the other zone: its imported herb is missing")
+    ns.db.disabledZones[1413] = true
+    Start("herb")
+    Import(1413, { { "o1618", "h", 0.60, 0.60, 2447 } }) advance(12)
+    assert(collects == 0, "a spot in a zone switched off collected the list again")
+    ns.db.disabledZones[1413] = nil
+    ns.NotifyNodesChanged() advance(1) -- the Zones tab: zone back on
+    assert(InRun(Find(1413, "o1618", 0.60, 0.60)), "zone switched on again: its imported herb is missing")
+    PROFS[1][2] = 40 -- Herbalism 40: Briarthorn (70) can't be gathered yet
+    Start("herb", 1412)
+    Import(1412, { { briar, "h", 0.70, 0.70, 2450 } }) advance(11)
+    local b = Find(1412, briar, 0.70, 0.70)
+    assert(InRun(b), "a Briarthorn import is not in the run's list")
+    local bp
+    for _, p in ipairs(ns.run.points) do if p.node == b then bp = p end end
+    assert((ns.run.weights[bp.kind] or 0) == 0, "test setup: Briarthorn at skill 40 is not left out")
+    -- the weights are worked out again with the next plan after 30 s (riding on)
+    PROFS[1][2], PROFS[1][3] = 100, 300 advance(31)
+    player.x = player.x + 60 / 5000 advance(1)
+    assert((ns.run.weights[bp.kind] or 0) > 0, "after the skill went up: the imported Briarthorn is still left out")
+
+    -- (4) our own harvest of a new spot: in the run at once, as before
+    Start("herb", 1412)
+    player.x, player.y = 0.90, 0.90
+    fire("UNIT_SPELLCAST_SENT", "player", "Peacebloom", "imp1", 2366)
+    fire("UNIT_SPELLCAST_SUCCEEDED", "player", "imp1", 2366)
+    loot = { { guid = "GameObject-0-1-1-1-1618-IMP001", item = 2447, qty = 2 } }
+    fire("LOOT_READY") loot = {} advance(1)
+    local own = Find(1412, "o1618", 0.90, 0.90)
+    assert(own and not own.source and InRun(own), "our own new spot is not in the run a second later")
+
+    watch:Cancel()
+    ns.StopRun()
+    for m, list in pairs(keep) do ns.db.nodes[m] = list end
+    ns.db.disabledZones[1413] = saved.disabled
+    PROFS[1][2], PROFS[1][3] = saved.skill, saved.max
+    ns.NotifyNodesChanged() ns.ForgetSeenKinds()
+    player.map, player.x, player.y = 1412, 0.45, 0.72
+    advance(1)
+end)
+step("Self-healing: one empty visit per stay at a spot, not one per check (v0.1.14)", function()
+    local Z = 1471
+    local saved = { arrive = ns.db.arriveDist }
+    ns.db.arriveDist = 25 -- gone from the spot = more than 2 x max(25, 30) = 60 yd
+    local S
+    local function Setup()
+        ns.StopRun() advance(1)
+        S = { id = "o1618", name = "Peacebloom", type = "herb", x = 0.50, y = 0.50, count = 1, last = 1, item = 2447,
+            source = "sync", heard = 1, heardBy = { Alice = true } }
+        ns.db.nodes[Z] = { S }
+        ns.NotifyNodesChanged() ns.ForgetSeenKinds()
+        player.map, player.x, player.y = Z, 0.50, 0.50
+        ns.StartRun("herb", Z) advance(30)
+        assert(S.healMisses == 1 and S.healStay, "test setup: the first empty visit did not count")
+    end
+    local function At(yards) player.x = 0.50 + yards / 5000 end
+
+    -- (1) standing there for two hours: the checks go on (each one gives the
+    -- point its rest), the point learns "empty" once (experiment O1), and
+    -- self-healing counts the stay once
+    local dbg = ns.db.debug
+    ns.db.debug = true
+    Setup()
+    local mark = #log
+    advance(7200)
+    ns.db.debug = dbg
+    local again = 0
+    for i = mark, #log do if log[i]:find("the same stay, rest only", 1, true) then again = again + 1 end end
+    assert(ns.run and again >= 10, "the checks stopped while standing there: " .. again .. " checks")
+    assert(S.misses == 1, "two hours at one spot: the point learned 'empty' " .. tostring(S.misses) .. " times")
+    assert(S.healMisses == 1 and not S.parked, ("two hours at one spot counted %d empty visits"):format(S.healMisses))
+
+    -- (2) moving about at the spot, also past the arrival radius (25 yd) and
+    -- the empty check radius (30 yd), but never 60 yd away: the same stay
+    Setup()
+    for _ = 1, 20 do
+        At(45) advance(150) At(55) advance(150) At(10) advance(150)
+    end
+    assert(S.healMisses == 1, ("small moves at the spot counted %d empty visits"):format(S.healMisses))
+
+    -- (3) gone and back: a new visit, under the old time limits
+    Setup()
+    At(100) advance(2) -- 100 yd away: gone
+    assert(not S.healStay, "100 yd away is not gone from the spot")
+    At(0) advance(30) -- back within 10 minutes of the counted visit: too soon
+    assert(S.healMisses == 1, "back after a minute counted a new empty visit (10 minutes apart at least)")
+    At(100) advance(700) -- away for longer than 10 minutes
+    At(0) advance(30)
+    assert(S.healMisses == 2, ("gone for 12 minutes and back: %s empty visits counted (expected 2)"):format(tostring(S.healMisses)))
+    advance(1800) -- and again a long stay: still 2
+    assert(S.healMisses == 2, "the second stay counted more than once")
+
+    -- (4) a stop and a new run at the same spot are still the same stay
+    Setup()
+    ns.StopRun() advance(700)
+    ns.StartRun("herb", Z) advance(60)
+    assert(S.healStay and S.healMisses == 1, "a new run at the same spot counted a new empty visit")
+    -- ... also without a run while you wait: only being seen away counts
+    ns.StopRun() At(200) advance(5) At(0) advance(700)
+    ns.StartRun("herb", Z) advance(60)
+    assert(S.healMisses == 1, "away and back without a run in between counted a new empty visit")
+    At(100) advance(2) At(0) advance(180) -- back; the point's 2 minute rest runs out, then it is checked
+    assert(S.healMisses == 2, "gone during a run and back: not counted")
+
+    ns.StopRun()
+    ns.db.arriveDist = saved.arrive
+    ns.db.nodes[Z] = nil
+    ns.NotifyNodesChanged()
+    player.map, player.x, player.y = 1412, 0.45, 0.72
+    advance(1)
+end)
+step("Experiment O1: a point learns 'empty' once per stay, the checks and rests go on", function()
+    local Z = 1471
+    local saved = { arrive = ns.db.arriveDist, debug = ns.db.debug }
+    ns.db.arriveDist, ns.db.debug = 25, true -- gone from the spot = more than 60 yd
+    local S, seq = nil, 0
+    local function At(yards) player.x = 0.50 + yards / 5000 end
+    -- one point of our own: once it is reached, the run has no target
+    local function Setup()
+        ns.StopRun() advance(1)
+        S = { id = "o1618", name = "Peacebloom", type = "herb", x = 0.50, y = 0.50, count = 3, last = 1, item = 2447 }
+        ns.db.nodes[Z] = { S }
+        ns.NotifyNodesChanged() ns.ForgetSeenKinds()
+        player.map, player.y = Z, 0.50 At(60)
+        ns.StartRun("herb", Z) advance(1)
+        At(0) advance(30)
+        assert(S.misses == 1 and S.learnStay, "test setup: the first empty visit was not learned")
+    end
+    local function Harvest()
+        seq = seq + 1
+        local id = "o1x" .. seq
+        fire("UNIT_SPELLCAST_SENT", "player", "Peacebloom", id, 2366) advance(2)
+        fire("UNIT_SPELLCAST_SUCCEEDED", "player", id, 2366)
+        loot = { { guid = ("GameObject-0-1-1-1-1618-O1%04d"):format(seq), item = 2447, qty = 2 } }
+        fire("LOOT_READY") loot = {}
+    end
+
+    -- (1) an hour standing there: checked again and again (each one gives the
+    -- point its rest), learned once; its chance only comes back, never drops again
+    Setup()
+    local c1 = ns.NodeChance(S)
+    local mark = #log
+    advance(3600)
+    local again = 0
+    for i = mark, #log do if log[i]:find("the same stay, rest only", 1, true) then again = again + 1 end end
+    assert(again >= 10, "standing there: only " .. again .. " checks")
+    assert(S.misses == 1 and (S.emptyStreak or 0) == 1, "an hour at one spot learned 'empty' " .. tostring(S.misses) .. " times")
+    assert(ns.NodeChance(S) >= c1, "standing there lowered the chance again")
+    assert(ns.IsOnCooldown(S) or S.emptyUntil, "no rest any more while standing there")
+
+    -- (2) small moves at the spot (never 60 yd away): still the same stay
+    Setup()
+    for _ = 1, 8 do At(45) advance(150) At(55) advance(150) At(10) advance(150) end
+    assert(S.misses == 1, "small moves at the spot learned 'empty' " .. tostring(S.misses) .. " times")
+
+    -- (3) gone (100 yd) and back: a new visit, learned again
+    Setup()
+    At(100) advance(2)
+    assert(not S.learnStay, "100 yd away is not gone from the spot")
+    At(0) advance(180)
+    assert(S.misses == 2, "gone and back: " .. tostring(S.misses) .. " learned (expected 2)")
+
+    -- (4) a stop and a new run at the same spot: the same stay
+    Setup()
+    ns.StopRun() advance(300)
+    ns.StartRun("herb", Z) advance(200)
+    assert(S.misses == 1 and S.learnStay, "a new run at the same spot learned 'empty' again")
+
+    -- (5) a real find later: counted, and a check of the same stay that
+    -- learned nothing is not "taken back" (the miss of the first visit stays)
+    Setup()
+    advance(150) -- the next check of this stay: rest only
+    assert(S.misses == 1, "test setup: the second check learned")
+    Harvest() advance(5)
+    assert(S.hits == 1 and S.misses == 1, ("found after a check that learned nothing: hits %s, misses %s (expected 1, 1)"):format(tostring(S.hits), tostring(S.misses)))
+    assert(not S.learnStay, "a find did not end the empty stay")
+
+    -- (6) a gather without loot of its own (uncertain): not judged, nothing learned
+    Setup()
+    At(100) advance(2) At(0) advance(150) -- a new visit: the check comes in 25 s
+    local before = S.misses
+    seq = seq + 1
+    fire("UNIT_SPELLCAST_SENT", "player", "Peacebloom", "o1u" .. seq, 2366) advance(2)
+    fire("UNIT_SPELLCAST_SUCCEEDED", "player", "o1u" .. seq, 2366)
+    advance(40)
+    assert(S.misses == before, "an uncertain gather was learned as empty")
+
+    ns.StopRun()
+    ns.db.arriveDist, ns.db.debug = saved.arrive, saved.debug
+    ns.db.nodes[Z] = nil
+    ns.NotifyNodesChanged()
+    player.map, player.x, player.y = 1412, 0.45, 0.72
+    advance(1)
+end)
+step("Skill plan: unknown prices, fees, training, what you can make yourself (v0.1.14)", function()
+    local d = ns.CraftData
+    local saved = { known = d.Known, have = d.Have, rank = ns.ProfessionRank, price = ns.GetPrice, vendor = ns.db.vendorPrices }
+    local recipes = GathercraftRecipeData.professions
+    local knownBy = {} -- profession -> { recipe name -> packed }
+    d.Known = function(p) return knownBy[p] or {} end
+    d.Have = function() return 0 end
+    local ranks = {} -- profession -> { rank, maxRank }
+    ns.ProfessionRank = function(p) local r = ranks[p] if r then return r[1], r[2] end end
+    ns.db.vendorPrices = {}
+    local function Texts()
+        local list = {}
+        for _, o in ipairs(allFrames) do
+            local t = o.GetText and o:GetText()
+            if type(t) == "string" and o.IsShown and o:IsShown() then list[#list + 1] = t end
+        end
+        return list
+    end
+    local function Shows(text)
+        for _, t in ipairs(Texts()) do if t:find(text, 1, true) then return t end end
+    end
+    local function Mat(mats, id) for _, m in ipairs(mats) do if m.id == id then return m end end end
+
+    -- (1) no prices at all: the missing materials count as unknown, never as 0
+    ns.GetPrice = function() end
+    local steps, mats, total, _, unknown, info = ns.SkillPlan("Blacksmithing", 1, 75)
+    local noPrice = 0
+    for _, m in ipairs(mats) do if m.missing > 0 and not m.cost then noPrice = noPrice + 1 end end
+    assert(#steps > 0 and noPrice > 0 and unknown, "test setup: a plan without prices")
+    assert(info.matsUnknown == noPrice and total == 0, ("%d missing materials without a price counted as %d"):format(noPrice, info.matsUnknown))
+    ranks.Blacksmithing = { 1, 75 }
+    ns.ShowSkillPlan("Blacksmithing") advance(1)
+    assert(Shows((ns.L["Missing materials cost: unknown (%d without a price)"]):format(noPrice)), "the total shows a price where none is known")
+    assert(Shows(ns.L["~ = planned with an estimated price."]), "estimated prices are not explained")
+
+    -- (2) every price known: the total is the sum by hand
+    ns.GetPrice = function() return 100, "AH scan" end
+    steps, mats, total, _, _, info = ns.SkillPlan("Blacksmithing", 1, 75)
+    local sum = 0
+    for _, m in ipairs(mats) do if not m.madeFrom then sum = sum + m.missing * 100 end end
+    assert(info.matsUnknown == 0 and total == sum and sum > 0, ("total %d, by hand %d"):format(total, sum))
+
+    -- (3) trainer fees of the recipes you don't know yet, once each; a known one costs nothing
+    local fees, seen, firstTrainer = 0, {}, nil
+    for _, s in ipairs(steps) do
+        local r = s.recipe
+        if r.how == "trainer" and not seen[r] then seen[r] = true fees = fees + r.fee firstTrainer = firstTrainer or r end
+    end
+    assert(firstTrainer and info.fees == fees and info.feesUnknown == 0, ("fees %d, by hand %d"):format(info.fees, fees))
+    knownBy.Blacksmithing = { [firstTrainer.key] = recipes.Blacksmithing[firstTrainer.key] }
+    local steps2, _, _, _, _, info2 = ns.SkillPlan("Blacksmithing", 1, 75)
+    assert(info2.fees == fees - firstTrainer.fee, "a recipe you know still costs its trainer fee")
+    for i, s in ipairs(steps2) do -- knowing it changes how you learn it, not the choice
+        assert(s.recipe.key == steps[i].recipe.key and s.crafts == steps[i].crafts, "knowing a recipe changed the plan")
+    end
+    knownBy.Blacksmithing = nil
+    -- recipe items from vendors: counted, with a price only where a vendor showed one
+    local csteps, _, _, _, _, cinfo = ns.SkillPlan("Cooking", 1, 75)
+    local items, oneItem = 0, nil
+    seen = {}
+    for _, s in ipairs(csteps) do
+        local r = s.recipe
+        if r.how == "vendor" and not seen[r] then seen[r] = true items = items + 1 oneItem = oneItem or r.recipeItem end
+    end
+    assert(items > 0 and cinfo.items == items and cinfo.itemsUnknown == items and cinfo.itemCost == 0, "recipe items to buy")
+    ns.db.vendorPrices[oneItem] = 500
+    _, _, _, _, _, cinfo = ns.SkillPlan("Cooking", 1, 75)
+    assert(cinfo.itemCost == 500 and cinfo.itemsUnknown == items - 1, "a recipe item price a vendor showed")
+    ns.db.vendorPrices[oneItem] = nil
+
+    -- (4) training: your own maximum, else the usual caps (assumed)
+    ranks.Blacksmithing = { 75, 75 }
+    ns.ShowSkillPlan("Blacksmithing") advance(1)
+    assert(Shows((ns.L["Train the next rank at your trainer (needed at %d)."]):format(75)), "no training step at your maximum")
+    assert(Shows((ns.L["Your skill: %d / %d"]):format(75, 75)), "your maximum is not shown")
+    ranks.Blacksmithing = { 75 } -- the maximum is unknown
+    ns.ShowSkillPlan("Blacksmithing") advance(1)
+    assert(Shows((ns.L["Train the next rank at your trainer (at ~%d, cap assumed)."]):format(75)) and Shows("~150"), "assumed caps are not marked")
+
+    -- (5) what you can make yourself: profession, known recipe and its skill
+    -- (smelting for a blacksmith)
+    local cheap = { [2842] = 1, [3470] = 1, [2840] = 1, [2841] = 1, [2775] = 1, [2770] = 1, [2771] = 1 }
+    ns.GetPrice = function(id) return cheap[id] or 1000, "AH scan" end
+    local function Bars(from, to)
+        local _, m = ns.SkillPlan("Blacksmithing", from, to)
+        return Mat(m, 2840), Mat(m, 2841), Mat(m, 3470), m
+    end
+    local copper, bronze, _, m = Bars(75, 150)
+    assert(bronze and not bronze.madeFrom and bronze.missing > 0, "no Mining: bronze bars are not bought")
+    assert(not copper and not Mat(m, 2770) and not Mat(m, 2771), "no Mining: bars broken down into ore anyway")
+    knownBy.Mining = recipes.Mining
+    ranks.Mining = { 30, 75 } -- Smelt Bronze needs 65
+    copper, bronze = Bars(75, 150)
+    assert(bronze and not bronze.madeFrom, "Mining 30: bronze bars (65) are made")
+    ranks.Mining = { 150, 150 }
+    copper, bronze = Bars(75, 150)
+    assert(bronze and bronze.madeFrom and bronze.madeFrom.prof == "Mining", "Mining 150: bronze bars are not made")
+    assert(copper and copper.madeFrom, "Mining 150: the copper bars inside the bronze are not made")
+    ranks.Mining = nil -- learned recipes, but the profession is gone
+    _, bronze = Bars(75, 150)
+    assert(bronze and not bronze.madeFrom, "without the profession: bars are made")
+    knownBy.Mining = nil
+    -- the same profession: Rough Grinding Stone (25) for Silver Skeleton Keys
+    local _, _, stone = Bars(75, 90)
+    assert(stone and not stone.madeFrom and stone.missing > 0, "an unknown recipe of your own profession is made")
+    knownBy.Blacksmithing = { ["Rough Grinding Stone"] = recipes.Blacksmithing["Rough Grinding Stone"] }
+    _, _, stone = Bars(75, 90)
+    assert(stone and stone.madeFrom and stone.madeFrom.prof == "Blacksmithing", "a known recipe of your profession is not made")
+    _, _, stone = Bars(20, 90)
+    assert(stone and not stone.madeFrom, "made below its required skill (25)")
+    knownBy.Blacksmithing = nil
+
+    -- (6) a recipe you learned from a quest stays usable; not learned, it is left
+    -- out. Kaldorei Spider Kabob (quest reward, needs 10): its one ingredient is
+    -- cheap, everything else expensive
+    cheap = { [5465] = 1 }
+    local function Uses(name)
+        for _, s in ipairs(ns.SkillPlan("Cooking", 15, 40)) do if s.recipe.key == name then return s.recipe.how end end
+    end
+    assert(not Uses("Kaldorei Spider Kabob"), "a quest recipe you don't have is planned")
+    knownBy.Cooking = { ["Kaldorei Spider Kabob"] = recipes.Cooking["Kaldorei Spider Kabob"] }
+    assert(Uses("Kaldorei Spider Kabob") == "known", "a quest recipe you learned is not used")
+    knownBy.Cooking = nil
+
+    d.Known, d.Have, ns.ProfessionRank, ns.GetPrice, ns.db.vendorPrices = saved.known, saved.have, saved.rank, saved.price, saved.vendor
+    if _G.GathercraftSkillPlan then _G.GathercraftSkillPlan:Hide() end
+end)
+step("Skill plan: hints, fees and totals fit, also long translations and big amounts (v0.1.14)", function()
+    -- no real font metrics: the estimate of TextHeight (6 px a letter, 11 px
+    -- a CJK sign) shows whether the window makes room, not how the game draws it
+    local function Px(t)
+        t = (t or ""):gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")
+        local px = 0
+        for ch in t:gmatch("[%z\1-\127\194-\244][\128-\191]*") do px = px + (#ch >= 3 and 11 or 6) end
+        return px
+    end
+    local d = ns.CraftData
+    local saved = { known = d.Known, have = d.Have, rank = ns.ProfessionRank, price = ns.GetPrice, vendor = ns.db.vendorPrices,
+        height = methods.GetStringHeight }
+    methods.GetStringHeight = TextHeight
+    d.Known = function() return {} end
+    d.Have = function() return 0 end
+    ns.GetPrice = function() end -- no prices: estimated steps, unknown totals
+    ns.db.vendorPrices = {}
+    local rank = {}
+    ns.ProfessionRank = function(p) if p == rank.prof then return rank[1], rank[2] end end
+    local scroll = _G.GathercraftSkillPlanScroll
+    local function Check(what)
+        local win = _G.GathercraftSkillPlan
+        local content
+        for _, o in ipairs(allFrames) do if o.__parent == scroll and o.__kind == "Frame" then content = o end end
+        assert(content, "test setup: the list of the planner")
+        local rows = {}
+        for _, o in ipairs(allFrames) do
+            if o.__parent == content and o.left and o:IsShown() and o.__pts and o.__pts.TOPLEFT then rows[#rows + 1] = o end
+        end
+        table.sort(rows, function(a, b) return a.__pts.TOPLEFT[2] > b.__pts.TOPLEFT[2] end)
+        local hints = 0
+        for i, row in ipairs(rows) do
+            local text, y, h = row.left:GetText() or "", -row.__pts.TOPLEFT[2], row.__h or 18
+            if (row.right:GetText() or "") == "" then
+                -- a hint: the whole width, and as high as its wrapped text
+                hints = hints + 1
+                assert(row.left.__w >= 480, ("%s: a hint in a narrow column (%d px): %s"):format(what, row.left.__w or 0, text))
+                assert(h >= TextHeight(row.left), ("%s: %d px row for %d px of text: %s"):format(what, h, TextHeight(row.left), text))
+            end
+            local nextRow = rows[i + 1]
+            if nextRow then
+                assert(y + h <= -nextRow.__pts.TOPLEFT[2], ("%s: rows overlap at %q"):format(what, text))
+            end
+        end
+        assert(hints > 0, what .. ": test setup: no hints")
+        -- the note and the total at the bottom of the card (by their place, any language)
+        local note, total
+        for _, o in ipairs(allFrames) do
+            local at = o.__parent == win and o.__kind == "FontString" and o.__pts and o.__pts.BOTTOMLEFT
+            if at and at[2] == 24 then note = o elseif at and at[2] == 42 then total = o end
+        end
+        assert(note and total, what .. ": test setup: note and total")
+        local nt, tt = note:GetText() or "", total:GetText() or ""
+        assert(Px(nt) <= 500, ("%s: the note at the bottom needs %d px of 500: %s"):format(what, Px(nt), nt))
+        assert(tt ~= "" and total.__w and Px(tt) <= total.__w, ("%s: the total needs %d px of %s: %s"):format(what, Px(tt), tostring(total.__w), tt))
+    end
+    -- training at your maximum, fees, estimated prices, unknown total
+    rank.prof, rank[1], rank[2] = "Blacksmithing", 75, 75
+    ns.ShowSkillPlan("Blacksmithing") advance(1)
+    Check("Blacksmithing 75/75")
+    -- caps assumed (no maximum)
+    rank[2] = nil
+    ns.ShowSkillPlan("Blacksmithing") advance(1)
+    Check("Blacksmithing, cap assumed")
+    -- recipe items with a big price and without one
+    rank.prof, rank[1], rank[2] = "Cooking", 1, 75
+    local _, _, _, _, _, info = ns.SkillPlan("Cooking", 1, 75)
+    for _, s in ipairs((ns.SkillPlan("Cooking", 1, 75))) do
+        if s.recipe.how == "vendor" then ns.db.vendorPrices[s.recipe.recipeItem] = 12345678 break end
+    end
+    assert(info.items > 1, "test setup: recipe items")
+    ns.ShowSkillPlan("Cooking") advance(1)
+    Check("Cooking, recipe items 1234g")
+
+    d.Known, d.Have, ns.ProfessionRank, ns.GetPrice, ns.db.vendorPrices = saved.known, saved.have, saved.rank, saved.price, saved.vendor
+    methods.GetStringHeight = saved.height
+    _G.GathercraftSkillPlan:Hide()
+end)
+step("Farm Spots: the Go buttons of reused rows follow a language change (v0.1.14)", function()
+    -- rows are made once and reused: their buttons must keep the English key, so
+    -- a switch without reload relabels them (both ways: de -> en and en -> de)
+    local keep = ns.db.language
+    local scroll = _G.GathercraftFarmScroll
+    local function GoButtons()
+        local list = {}
+        for _, f in ipairs(allFrames) do
+            local row = f.__kind == "Button" and f.__parent
+            if row and row.go == f and row.__parent and row.__parent.__parent == scroll then list[#list + 1] = f end
+        end
+        return list
+    end
+    local function Switch(lang)
+        ns.db.language = lang ns.ApplyLanguage() _G.GathercraftOptions:Refresh()
+        ns.ToggleMain("overview") advance(1) ns.ToggleMain("farm") advance(1)
+        local list = GoButtons()
+        assert(#list > 0, "no zone rows on Farm Spots")
+        for _, b in ipairs(list) do
+            assert(b.__text == ns.L["Go"], ("%s: Go button shows %q, expected %q"):format(lang, tostring(b.__text), ns.L["Go"]))
+        end
+    end
+    -- like a German player at login: new rows are made while German is on
+    -- ("Los"). 40 more Kalimdor zones (mock) need more rows; you stand in
+    -- Mulgore, so Kalimdor is the continent shown
+    local start, map = ns.Language(), player.map
+    player.map = 1412
+    local info = C_Map.GetMapInfo
+    C_Map.GetMapInfo = function(id)
+        if id >= 1460 and id <= 1499 then return { mapID = id, name = "Extra" .. id, mapType = 3, parentMapID = 1414 } end
+        return info(id)
+    end
+    -- the rows of the zones known so far (past the 60 s list cache), then German,
+    -- then the new zones: their rows are made in German
+    ns.ToggleMain("overview") advance(61) ns.ToggleMain("farm") advance(1)
+    local before = #GoButtons()
+    ns.db.language = "deDE" ns.ApplyLanguage() _G.GathercraftOptions:Refresh()
+    for id = 1460, 1499 do
+        local list = {}
+        for k = 1, 8 do list[k] = { id = "o1618", name = "Peacebloom", type = "herb", x = 0.1 * k, y = 0.5, count = 3, last = 1 } end
+        ns.db.nodes[id] = list
+    end
+    ns.ToggleMain("overview") advance(61) ns.ToggleMain("farm") advance(1)
+    assert(#GoButtons() > before, "no new rows made while German was on")
+    -- then every language this client offers, de -> en and en -> de included,
+    -- and back to the start
+    local order = { start:sub(1, 2) == "en" and "deDE" or "enUS", start:sub(1, 2) == "en" and "enUS" or "deDE" }
+    for _, lang in ipairs(ns.UsableLanguages()) do
+        if lang.code ~= "auto" and lang.code ~= order[1] and lang.code ~= order[2] then order[#order + 1] = lang.code end
+    end
+    order[#order + 1] = "deDE"
+    order[#order + 1] = start
+    for _, lang in ipairs(order) do Switch(lang) end
+    ns.HideMain()
+    for id = 1460, 1499 do ns.db.nodes[id] = nil end
+    C_Map.GetMapInfo = info
+    player.map = map
+    ns.db.language = keep ns.ApplyLanguage()
+    ns.NotifyNodesChanged() advance(2)
+end)
 step("Sharing shows what it does; chests can be hidden", function()
     slash("sync on")
     local function said(text)
@@ -2165,10 +3801,19 @@ step("Crafting: where to learn a recipe (tooltip)", function()
     ns.HideMain()
 end)
 step("Language: switch to German and back", function()
+    local function Peacebloom()
+        for _, n in ipairs(ns.db.nodes[1412]) do if n.id == "o1618" then return n.name end end
+    end
+    local before = Peacebloom()
     ns.db.language = "deDE" ns.ApplyLanguage()
-    local de
-    for _, n in ipairs(ns.db.nodes[1412]) do if n.id == "o1618" then de = n.name end end
-    assert(de == "Friedensblume", "node name in German: " .. tostring(de))
+    -- node names follow the game's language (what you read in the world), not the
+    -- addon's: the switch leaves them; shipped name where the game's language has one
+    -- (Data/NodeNames.lua has none for itIT: the name stays as it was)
+    local de = Peacebloom()
+    local shipped = (GathercraftNodeNames[LOCALE] or {})[1618]
+    local want = LOCALE:sub(1, 2) == "en" and "Peacebloom" or shipped or before
+    assert(de == want and de == before, ("node name in the game's language: %s (before %s), expected %s"):format(
+        tostring(de), tostring(before), tostring(want)))
     assert(ns.L["Overview"] == "Overview" and ns.L["Show route line"] == "Routenlinie zeigen", "German not active")
     ns.ToggleMain("options") advance(1) ns.ToggleMain("craft") advance(1) ns.HideMain()
     slash("stats")
@@ -2494,7 +4139,13 @@ step("Skill plan: steps and material list (v0.1.13)", function()
         end
         assert(at == 300, prof .. ": plan ends at " .. at)
     end
-    -- bars you don't have are broken down into ore, and ore gets a farm run
+    -- a blacksmith who smelts (Mining 150, the smelting recipes known): bars
+    -- you don't have are broken down into ore, and ore gets a farm run
+    -- (without Mining they are bought: see the step for v0.1.14)
+    local Known, Rank = ns.CraftData.Known, ns.ProfessionRank
+    local smelts = GathercraftRecipeData.professions.Mining
+    ns.CraftData.Known = function(p) if p == "Mining" then return smelts end return Known(p) end
+    ns.ProfessionRank = function(p) if p == "Mining" then return 150, 150 end return Rank(p) end
     local _, mats = ns.SkillPlan("Blacksmithing", 1, 150)
     local ore
     for _, m in ipairs(mats) do if m.id == 2770 then ore = m end end
@@ -2515,6 +4166,7 @@ step("Skill plan: steps and material list (v0.1.13)", function()
     bars = bars + math.ceil(bronze / 2) -- one smelt: 1 copper + 1 tin bar -> 2 bronze bars
     for _, m in ipairs(mats150) do if m.id == 2770 then ore2 = m.need end end
     assert(ore2 >= bars, ("copper ore %d for at least %d copper bars"):format(ore2, bars))
+    ns.CraftData.Known, ns.ProfessionRank = Known, Rank
     -- a recipe read from a profession window has no required skill: the shipped one counts
     ns.db.recipeDB = ns.db.recipeDB or {}
     ns.db.recipeDB.Tailoring = ns.db.recipeDB.Tailoring or {}
@@ -2686,6 +4338,226 @@ step("Zones tab run over picked zones far apart: the group near you (v0.1.13)", 
     ns.db.disabledZones = disabled
     for z, v in pairs(keep) do ns.db.nodes[z] = v end
     player.map, player.x, player.y = 1412, 0.45, 0.72
+end)
+step("Soft target: only observed, bounded, nothing else changes", function()
+    local seen, count, stats, registered = ns.SoftTargetState()
+    assert(registered, "PLAYER_SOFT_INTERACT_CHANGED not registered")
+    local Z = 1471
+    local saved = { guid = UnitGUID, cvar = GetCVar, debug = ns.db.debug, arrive = ns.db.arriveDist, hbd = LibStub("HereBeDragons-2.0").GetPlayerWorldPosition }
+    local soft
+    UnitGUID = function(u) if u == "softinteract" then return soft end return saved.guid(u) end
+    local cv = { SoftTargetInteract = "3", SoftTargetInteractRange = "20", SoftTargetInteractArc = "0" }
+    GetCVar = function(k) if cv[k] then return cv[k] end return saved.cvar(k) end
+    ns.db.debug, ns.db.arriveDist = true, 20
+    local function Look(g) soft = g fire("PLAYER_SOFT_INTERACT_CHANGED", g, nil) end
+    local function G(oid, spawn) return ("GameObject-0-70-1-0-%d-%s"):format(oid, spawn) end
+    local function Lines(from, what)
+        local n = 0
+        for i = from + 1, #log do if log[i]:find("debug|r: SOFT" .. (what or ""), 1, true) then n = n + 1 end end
+        return n
+    end
+    local function Count() local _, c = ns.SoftTargetState() return c end
+    -- deep dump in a fixed order (a table met again is only named)
+    local function Dump(v, out, met)
+        local t = type(v)
+        if t ~= "table" then out[#out + 1] = t == "function" and "fn" or tostring(v) return end
+        if met[v] then out[#out + 1] = "<ref>" return end
+        met[v] = true
+        local keys = {}
+        for k in pairs(v) do keys[#keys + 1] = k end
+        table.sort(keys, function(a, b) return tostring(a) < tostring(b) end)
+        out[#out + 1] = "{"
+        for _, k in ipairs(keys) do out[#out + 1] = tostring(k) .. "=" Dump(v[k], out, met) end
+        out[#out + 1] = "}"
+    end
+    local function Snapshot()
+        local out, met = {}, {}
+        Dump(ns.db, out, met) Dump(ns.run, out, met)
+        local cvars = 0
+        for _, l in ipairs(log) do if l:find("^CVAR") then cvars = cvars + 1 end end
+        return table.concat(out, " ") .. ("|sent %d pins %d adds %s dots %s cvar %d"):format(#sentMessages, pinCount,
+            tostring(PIN_ADDS), tostring(LINE_DOTS), cvars)
+    end
+
+    ns.StopRun(true) advance(1)
+    ns.db.nodes[Z] = {
+        { id = "o1618", name = "Peacebloom", type = "herb", x = 0.500, y = 0.50, count = 3, last = 1, item = 2447 },
+        { id = "o1618", name = "Peacebloom", type = "herb", x = 0.506, y = 0.50, count = 3, last = 1, item = 2447 },
+        { id = "o1617", name = "Silverleaf", type = "herb", x = 0.502, y = 0.50, count = 3, last = 1, item = 765 },
+    }
+    ns.NotifyNodesChanged() ns.ForgetSeenKinds()
+    player.map, player.x, player.y = Z, 0.50, 0.50
+    ns.StartRun("herb", Z) advance(3)
+    assert(ns.run, "test setup: no run")
+
+    -- (1) many looks at once: the only effect is the small memory and a few debug lines
+    local before, mark = Snapshot(), #log
+    for i = 1, 30 do Look(G(1618, ("SP%04d"):format(i))) end
+    Look(G(1618, "SP0030")) -- the same object again: no change, not counted
+    Look(nil) Look(G(1618, "SP0030")) -- away and back
+    Look(G(1617, "SL0001"))
+    Look(G(35591, "BOB001")) Look("Creature-0-70-1-0-3099-ABC") Look("Player-70-0001")
+    Look(nil)
+    local after = Snapshot()
+    assert(before == after, "looking at objects changed the saved data, the run, sync, pins or settings")
+    seen, count, stats = ns.SoftTargetState()
+    assert(count == 20, "remembered " .. count .. " objects, not at most 20")
+    local s30 = seen[G(1618, "SP0030")]
+    assert(s30 and s30.looks == 2 and s30.lost == 2, "away and back: looks/lost not counted on the one entry: " .. tostring(s30 and s30.looks) .. "/" .. tostring(s30 and s30.lost))
+    assert(not seen[G(1618, "SP0001")], "the oldest one was not pushed out")
+    assert(seen[G(1617, "SL0001")] and seen[G(1617, "SL0001")].type == "herb", "Silverleaf not kept apart")
+    assert(not seen[G(35591, "BOB001")], "a non-gathering object was remembered")
+    assert(stats.notObject >= 2 and stats.other >= 1, "other objects/units not counted")
+    local said = Lines(mark)
+    assert(said == 5, "debug lines while looking around: " .. said .. ", not at most 5 in 10 s")
+    advance(11)
+    mark = #log
+    Look(G(1617, "SL0002"))
+    assert(Lines(mark) == 1 and log[#log]:find("held back", 1, true), "the held back lines are not named")
+    assert(log[#log]:find("somewhere within ~20 yd", 1, true) and not log[#log]:find("at the object", 1, true),
+        "the debug line does not say the object is only within the range")
+    -- the same object for a while: a line at most every 30 s
+    mark = #log
+    for _ = 1, 10 do Look(nil) advance(2) Look(G(1617, "SL0002")) end
+    assert(Lines(mark) <= 1, "the same object looked at again and again: " .. Lines(mark) .. " lines in 20 s")
+    -- nothing in the soft target, or no answer at all: nothing happens
+    mark = #log
+    soft = nil fire("PLAYER_SOFT_INTERACT_CHANGED")
+    UnitGUID = function(u) if u == "softinteract" then error("no such unit") end return saved.guid(u) end
+    fire("PLAYER_SOFT_INTERACT_CHANGED")
+    UnitGUID = function(u) if u == "softinteract" then return soft end return saved.guid(u) end
+    assert(Lines(mark) == 0, "debug lines without anything in the soft target")
+
+    -- (2) forgotten 60 s after the last look
+    Look(nil) Look(G(1618, "KEEP01")) Look(nil)
+    advance(55)
+    assert(ns.SoftTargetState()[G(1618, "KEEP01")], "forgotten before 60 s")
+    advance(10)
+    assert(not ns.SoftTargetState()[G(1618, "KEEP01")], "still remembered after 65 s")
+
+    -- (3) another zone of the same continent keeps them, another continent not
+    Look(G(1618, "ZONE01")) Look(nil)
+    player.map = 1413
+    assert(ns.SoftTargetState()[G(1618, "ZONE01")], "lost on a zone change on the same continent")
+    player.map = Z
+    LibStub("HereBeDragons-2.0").GetPlayerWorldPosition = function() return 1, 1, 0 end
+    assert(Count() == 0, "kept on another continent")
+    LibStub("HereBeDragons-2.0").GetPlayerWorldPosition = saved.hbd
+
+    -- (4) stop and start: everything forgotten
+    Look(G(1618, "RUN001")) Look(nil)
+    assert(Count() == 1, "test setup: not remembered")
+    ns.StopRun(true)
+    assert(Count() == 0, "kept after the run stopped")
+    Look(G(1618, "IDLE01")) Look(nil)
+    assert(Count() == 1, "not remembered without a run")
+    ns.StartRun("herb", Z) advance(1)
+    assert(Count() == 0, "a new run starts with old sightings")
+
+    -- (5) /gcr softtest only reports
+    before = Snapshot()
+    slash("softtest")
+    assert(Snapshot() == before, "/gcr softtest changed something")
+    local shown = false
+    for i = #log - 12, #log do if log[i] and log[i]:find("SoftTargetInteract 3", 1, true) then shown = true end end
+    assert(shown, "/gcr softtest does not show the settings")
+
+    -- (6) the gather afterwards: the same spawn as seen, or not
+    local function Harvest(spawn, cast)
+        fire("UNIT_SPELLCAST_SENT", "player", "Peacebloom", cast, 2366) advance(2)
+        fire("UNIT_SPELLCAST_SUCCEEDED", "player", cast, 2366)
+        loot = { { guid = G(1618, spawn), item = 2447, qty = 2 } }
+        fire("LOOT_READY") fire("LOOT_OPENED") loot = {} advance(1)
+    end
+    Look(G(1618, "LOOT01")) Look(nil)
+    _, _, stats = ns.SoftTargetState()
+    local same, other, unseen = stats.lootSame, stats.lootOther, stats.lootUnseen
+    mark = #log
+    Harvest("LOOT01", "softc1")
+    assert(stats.lootSame == same + 1, "the gather of the seen object was not matched")
+    assert(Lines(mark, " loot of") == 1, "no debug line for the matched gather")
+    assert(ns.SoftTargetState()[G(1618, "LOOT01")].looted == 1, "gathered not noted on the sighting")
+    advance(400) -- the cooldown of that spot runs out
+    player.x = 0.506
+    Look(G(1618, "LOOT03")) Look(nil) -- a fresh sighting of the same herb, another spawn
+    Harvest("LOOT02", "softc2")
+    assert(stats.lootOther == other + 1 and stats.lootSame == same + 1,
+        "a gather of another spawn counted as the seen object")
+
+    ns.StopRun(true)
+    UnitGUID, GetCVar = saved.guid, saved.cvar
+    ns.db.debug, ns.db.arriveDist = saved.debug, saved.arrive
+    ns.db.nodes[Z] = nil
+    ns.NotifyNodesChanged() ns.ForgetSeenKinds()
+    player.map, player.x, player.y = 1412, 0.45, 0.72
+    advance(1)
+end)
+step("Soft target: the same run with and without looks", function()
+    -- a run with the soft target looking at every herb on the way, and the
+    -- same run without: gathers, empty checks and the route are the same
+    local Z = 1471
+    local saved = { guid = UnitGUID, cvar = GetCVar, debug = ns.db.debug, arrive = ns.db.arriveDist }
+    local function Run(withLooks)
+        ns.StopRun(true) advance(1)
+        local nodes = {}
+        for i = 0, 5 do
+            nodes[#nodes + 1] = { id = "o1618", name = "Peacebloom", type = "herb", x = 0.50 + i * 0.01, y = 0.50, count = 3, last = 1, item = 2447 }
+        end
+        ns.db.nodes[Z] = nodes
+        ns.NotifyNodesChanged() ns.ForgetSeenKinds()
+        ns.db.debug, ns.db.arriveDist = false, 20
+        player.map, player.x, player.y = Z, 0.49, 0.50
+        local soft
+        UnitGUID = function(u) if u == "softinteract" then return soft end return saved.guid(u) end
+        GetCVar = function(k) if k == "SoftTargetInteract" then return "3" end return saved.cvar(k) end
+        ns.StartRun("herb", Z)
+        local t0 = time()
+        local trace = {}
+        for t = 1, 240 do
+            -- walk along the row; every second herb is there and gathered
+            player.x = 0.49 + t * 0.0003
+            local near
+            for i, n in ipairs(nodes) do if math.abs(n.x - player.x) < 0.002 then near = i end end
+            if withLooks then
+                soft = near and ("GameObject-0-70-1-0-1618-ROW%03d"):format(near) or nil
+                local m = #sentMessages
+                fire("PLAYER_SOFT_INTERACT_CHANGED")
+                assert(#sentMessages == m, "a look sent a sync message")
+            end
+            if near and near % 2 == 0 and not nodes[near].done then
+                nodes[near].done = true
+                fire("UNIT_SPELLCAST_SENT", "player", "Peacebloom", "row" .. t, 2366)
+                fire("UNIT_SPELLCAST_SUCCEEDED", "player", "row" .. t, 2366)
+                loot = { { guid = ("GameObject-0-70-1-0-1618-ROW%03d"):format(near), item = 2447, qty = 2 } }
+                fire("LOOT_READY") fire("LOOT_OPENED") loot = {}
+            end
+            advance(1)
+            local r = ns.run
+            trace[#trace + 1] = ("%s %s %s"):format(r and r.target and r.target.x or "-", r and r.done or "-", r and #r.checking or "-")
+        end
+        local out = {}
+        for i, n in ipairs(nodes) do
+            out[#out + 1] = ("%d:%s/%s/%s/%s/%s/%s"):format(i, tostring(n.hits), tostring(n.misses), tostring(n.emptyUntil and n.emptyUntil - t0),
+                tostring(n.emptyStreak), tostring(n.learnStay and "stay"), tostring(n.count))
+        end
+        ns.StopRun(true)
+        return table.concat(trace, ";") .. "|" .. table.concat(out, ";") .. "|sent " .. #sentMessages
+    end
+    local matched = select(3, ns.SoftTargetState()).lootSame
+    local without = Run(false)
+    local with = Run(true)
+    -- (sync sends depend on what was shared before, so only the looks themselves are checked for that)
+    assert(with:gsub("|sent %d+$", "") == without:gsub("|sent %d+$", ""), "gathers, empty checks or the route differ with looks")
+    local _, _, stats = ns.SoftTargetState()
+    assert(stats.lootSame - matched == 3, "the row's 3 gathers were not matched to their sightings: " .. stats.lootSame - matched)
+    note("soft row", with:match("|(.-)|"))
+
+    UnitGUID, GetCVar = saved.guid, saved.cvar
+    ns.db.debug, ns.db.arriveDist = saved.debug, saved.arrive
+    ns.db.nodes[Z] = nil
+    ns.NotifyNodesChanged() ns.ForgetSeenKinds()
+    player.map, player.x, player.y = 1412, 0.45, 0.72
+    advance(1)
 end)
 step("Long run (10 min) for leaks", function() slash("run herb") advance(600) slash("stop") end)
 

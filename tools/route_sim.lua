@@ -171,8 +171,13 @@ local function RunOnce(seed)
             end
         end
     end
-    -- which spawn points hold a node right now
-    for _, list in pairs(byKind) do
+    -- which spawn points hold a node right now (kinds in a fixed order: the
+    -- order of pairs() changes from run to run, and with it the world of a seed)
+    local kindIds = {}
+    for id in pairs(byKind) do kindIds[#kindIds + 1] = id end
+    table.sort(kindIds)
+    for _, id in ipairs(kindIds) do
+        local list = byKind[id]
         local live = 0
         for _, p in ipairs(list) do if p.weight > 0 then live = live + 1 end end
         local want = math.floor(#list * opts.active + 0.5)
@@ -260,8 +265,9 @@ local function RunOnce(seed)
     end
 
     -- ride
-    local stats = { gathered = 0, distance = 0, idle = 0, arrivals = 0, emptyArrivals = 0, detours = 0 }
-    local lastTarget
+    local stats = { gathered = 0, distance = 0, idle = 0, arrivals = 0, emptyArrivals = 0, detours = 0,
+        targetChanges = 0 }
+    local lastTarget, heldTarget
     ns.StartRun(opts.mode, opts.zone)
     h.advance(1)
     local start = h.now() + opts.warm * 60
@@ -277,6 +283,12 @@ local function RunOnce(seed)
         end
         Respawn(now)
         MoveRivals(now)
+        -- every time the arrow points at another node
+        local held = ns.run and ns.run.target
+        if held and held ~= heldTarget then
+            if heldTarget then stats.targetChanges = stats.targetChanges + 1 end
+            heldTarget = held
+        end
         if now >= busyUntil then
             local px, py = player.x * WORLD_W + OffsetX(opts.zone), player.y * WORLD_H
             -- a node in sight: take it
@@ -356,12 +368,13 @@ out(("Route simulator: zone %s, %s, %d min, speed %.1f yd/s, %d%% of spawn point
 local sum = {}
 for r = 0, opts.runs - 1 do
     local s = RunOnce(opts.seed + r)
-    out(("  seed %d: %d nodes (%.0f/h), %.0f skill-ups/h (skill %d at the end), %.1fg/h, %.0f yd ridden, %.0f s idle, %d empty arrivals, %d spawn points\n")
-        :format(opts.seed + r, s.gathered, s.perHour, s.skillUpsPerHour, s.skillEnd, s.goldPerHour, s.distance, s.idle, s.emptyArrivals, s.points))
+    out(("  seed %d: %d nodes (%.0f/h), %.0f skill-ups/h (skill %d at the end), %.1fg/h, %.0f yd ridden, %.0f s idle, %d empty arrivals, %d spawn points, %d target changes\n")
+        :format(opts.seed + r, s.gathered, s.perHour, s.skillUpsPerHour, s.skillEnd, s.goldPerHour, s.distance, s.idle, s.emptyArrivals, s.points,
+            s.targetChanges))
     for k, v in pairs(s) do sum[k] = (sum[k] or 0) + v end
 end
 if opts.runs > 1 then
-    out(("  average: %.1f nodes/h, %.1f skill-ups/h, %.1fg/h, %.0f yd ridden, %.1f empty arrivals\n")
+    out(("  average: %.1f nodes/h, %.1f skill-ups/h, %.1fg/h, %.0f yd ridden, %.1f empty arrivals, %.1f target changes\n")
         :format(sum.perHour / opts.runs, sum.skillUpsPerHour / opts.runs, sum.goldPerHour / opts.runs,
-            sum.distance / opts.runs, sum.emptyArrivals / opts.runs))
+            sum.distance / opts.runs, sum.emptyArrivals / opts.runs, sum.targetChanges / opts.runs))
 end

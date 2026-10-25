@@ -17,6 +17,7 @@ local ARRIVE_MIN, ARRIVE_MAX = 10, 40
 local SKIP_TIME = 300        -- seconds a skipped (empty) node stays out of runs
 local EMPTY_GRACE = 25       -- seconds after arriving: no harvest by then = the node wasn't there
 local EMPTY_NEAR = 30        -- yards: a harvest this close counts for the node we arrived at
+local GATHER_WAIT = 15       -- seconds: a gather started this recently near the node is waited for
 local WAIT_RETRY = 5         -- seconds between retries while all nodes are on cooldown
 local WAIT_GIVE_UP = 600     -- nothing to ride to for this long: the run stops
 local TICK = 0.5             -- seconds between arrival checks
@@ -109,6 +110,7 @@ local headTicker
 local preview -- plan shown with /gcr route (no run)
 local Plan    -- forward declaration
 local MarkEmpty
+local learnStays = {} -- nodes with a learnStay (MarkEmpty), looked at while you move
 
 ---------------------------------------------------------------------------
 -- World coordinates (yards, work across zone borders)
@@ -293,17 +295,26 @@ local function PickGroup(points, px, py)
     return chosen, left
 end
 
+-- What a run takes: its zone (or the zones not switched off), and nodes that
+-- match its filter, are picked in the Zones tab and not parked
+local function ZoneTaken(mapID, zone)
+    return (not zone or mapID == zone) and (zone or not ns.db.disabledZones[mapID])
+end
+local function NodeTaken(n, mapID, filter, quick)
+    return MatchesFilter(n, filter) and (quick or ns.IsNodeEnabled(n, mapID)) and not (ns.IsParked and ns.IsParked(n))
+end
+
 -- quick = a run started where you are: your Zones tab selection doesn't count
 local function CollectPoints(filter, instance, zone, quick)
     local points = {}
     for mapID, nodes in pairs(ns.db.nodes) do
-        if (not zone or mapID == zone) and (zone or not ns.db.disabledZones[mapID]) then
+        if ZoneTaken(mapID, zone) then
             for _, n in ipairs(nodes) do
-                if MatchesFilter(n, filter) and (quick or ns.IsNodeEnabled(n, mapID))
-                    and not (ns.IsParked and ns.IsParked(n)) then
+                if NodeTaken(n, mapID, filter, quick) then
                     local wx, wy, inst = WorldPos(n, mapID)
                     if wx and inst == instance then
                         points[#points + 1] = { node = n, mapID = mapID, wx = wx, wy = wy }
+                        if n.learnStay then learnStays[n] = true end
                     end
                 end
             end
@@ -1291,6 +1302,7 @@ Plan = function(quick)
             if kept then run.points = kept end
         end
         run.pointsDirty, run.pointsInstance = false, instance
+        run.importAt = nil -- imports waiting to be taken in are in now
         run.pointsChanged = true
         run.loopDirty = true
     end
@@ -1517,8 +1529,34 @@ Plan = function(quick)
 end
 
 -- Re-plan a moment later (several changes in a row only cause one plan)
+-- Spots from other players come in bursts (a zone answer is about 25
+-- messages, 1.2 s apart). One this run can't use (another continent, type
+-- or zone) changes nothing for it; the others are taken in together, at the
+-- latest IMPORT_BUNDLE seconds after the first, however long the stream goes
+-- on. Stored and shown on the map either way.
+local IMPORT_BUNDLE = 10
+local function ImportFor(run, mapID, node)
+    if run.pointsInstance and mapID then
+        if not (ZoneTaken(mapID, run.zone) and NodeTaken(node, mapID, run.filter, run.quick)) then return end
+        local wx, _, inst = WorldPos(node, mapID)
+        if not wx or inst ~= run.pointsInstance then return end
+    end
+    if run.importAt then return end
+    run.importAt = time()
+    C_Timer.After(IMPORT_BUNDLE, function()
+        if ns.run ~= run or not run.importAt then return end -- stopped, or taken in meanwhile
+        run.importAt = nil
+        run.pointsDirty = true
+        Plan(true)
+    end)
+end
+
 local function RequestPlan(kind, mapID, node)
     local run = ns.run
+    if run and kind == "add" and node and node.source == "sync" then
+        ImportFor(run, mapID, node)
+        return
+    end
     -- the node list changes when nodes are added or removed, not when one is
     -- harvested or nudged a little ("update", "harvest") - unless it is the
     -- target: a guess from the minimap can move a good bit with a new look
@@ -1533,13 +1571,23 @@ local function RequestPlan(kind, mapID, node)
     end
 end
 
+-- A node went out of what routes may use or came back (parked by Sync.lua):
+-- the node list is collected again with the next plan
+ns.RouteNodeListChanged = function()
+    if ns.run then ns.run.pointsDirty = true end
+end
+
 -- Found empty: out for a short while, then its chance comes back slowly.
 -- mode "full": the point also learns that it was empty (see Chance), and a
 --   node only others reported counts towards self-healing (Sync.lua)
 -- mode "learn": learns, no self-healing (skipped by you: says little)
 -- mode "rest": only the short rest (passed by on the way, or in combat:
 --   you may simply not have stopped for it)
-MarkEmpty = function(n, why, mode)
+-- at: { wx, wy, inst } of the spot (self-healing counts one visit per stay there)
+-- Experiment (O1): a point learns "empty" once per stay too. Standing there,
+-- the route checks it again after every rest; that is not a visit of its
+-- own (see learnStays). Returns true when the point learned something.
+MarkEmpty = function(n, why, mode, at)
     n.upAt = nil -- seen on the minimap, but gone by now
     if ns.IsOnCooldown(n) then return end
     mode = mode or "full"
@@ -1547,6 +1595,18 @@ MarkEmpty = function(n, why, mode)
         n.emptyUntil = time() + TUNE.emptyRest
         ns.Debug(("%s passed without harvest (%s): short rest only"):format(n.name, why))
         return
+    end
+    if n.learnStay then
+        -- the same stay as the last empty visit it learned from: rest only
+        n.emptyUntil = time() + TUNE.emptyRest
+        learnStays[n] = true
+        if mode == "full" and ns.SyncSelfHeal and ns.SyncSelfHeal(n, at) then return end
+        ns.Debug(("%s still empty (%s): the same stay, rest only, nothing learned"):format(n.name, why))
+        return
+    end
+    if at and at.wx then
+        n.learnStay = { wx = at.wx, wy = at.wy, inst = at.inst }
+        learnStays[n] = true
     end
     n.emptyStreak = (n.emptyStreak or 0) + 1
     n.misses = (n.misses or 0) + 1
@@ -1556,14 +1616,158 @@ MarkEmpty = function(n, why, mode)
     n.emptyAt = time()
     n.emptyUntil = time() + TUNE.emptyRest
     -- only shared by others and never there: it is parked (Sync.lua)
-    if mode == "full" and ns.SyncSelfHeal and ns.SyncSelfHeal(n) then return end
+    if mode == "full" and ns.SyncSelfHeal and ns.SyncSelfHeal(n, at) then return true end
     ns.Debug(("%s was empty (%s, %dx in a row, chance in 10 min %d%%)"):format(n.name, why, n.emptyStreak,
         Chance(n, time() + 600) * 100))
+    return true
+end
+
+-- Every check of a run: gone from the spot of a learned empty visit
+-- (further than LeaveYards, like self-healing) = its next visit learns again
+local function NoteLearnLeave(leave)
+    if not next(learnStays) then return end
+    local px, py, inst = HBD:GetPlayerWorldPosition()
+    if not px then return end
+    for n in pairs(learnStays) do
+        local s = n.learnStay
+        if not s or s.inst ~= inst or (px - s.wx) ^ 2 + (py - s.wy) ^ 2 > leave * leave then
+            n.learnStay, learnStays[n] = nil, nil
+        end
+    end
+end
+
+-- A harvest that tells a reached node was there: the node itself, or one of
+-- its kind close by (the same herb under two records). Another kind nearby
+-- (a Peacebloom next to an empty Earthroot spot, a vein) says nothing about it.
+local function HarvestFor(c, harvests)
+    local kind = ns.KindKey(c.node)
+    for _, h in ipairs(harvests) do
+        if h.t >= c.at - 2 and (h.node == c.node or (h.kind == kind and WDist(h.wx, h.wy, c.wx, c.wy) <= EMPTY_NEAR)) then
+            return h
+        end
+    end
+end
+
+-- A harvest of the node's type close by since arriving (any kind), or with
+-- onlyUncertain a gather that succeeded but was not booked (no own loot)
+local function NearOfType(c, harvests, onlyUncertain)
+    for _, e in ipairs(harvests) do
+        if e.t >= c.at - 2 and (not onlyUncertain or e.uncertain)
+            and (e.node and e.node.type or e.type) == c.node.type
+            and WDist(e.wx, e.wy, c.wx, c.wy) <= EMPTY_NEAR then
+            return e
+        end
+    end
+end
+
+-- A gather of this type started close to the node a moment ago and is not
+-- done yet (cast or loot still running): its result decides. Old ones count
+-- no more, so a lost cast event never blocks the check.
+local function GatheringAt(c)
+    local p = ns.pending
+    if not (p and not p.done and p.type == c.node.type and p.mapID and p.sentAt) then return end
+    if GetTime() - p.sentAt > GATHER_WAIT then return end
+    local wx, wy = HBD:GetWorldCoordinatesFromZone(p.x, p.y, p.mapID)
+    local d = wx and WDist(wx, wy, c.wx, c.wy)
+    if d and d <= EMPTY_NEAR then return d, GetTime() - p.sentAt end
+end
+
+local function PointText(n, mapID)
+    return ("%s [%s] map %s %.1f,%.1f"):format(n.name, tostring(n.id), tostring(mapID), (n.x or 0) * 100, (n.y or 0) * 100)
+end
+
+-- Nodes we reached a moment ago: no harvest close by = nothing was there.
+-- Mark them empty so later rounds don't send you back right away. Also
+-- while the run has no target (waiting for respawns): the checks still
+-- come due, and a point that stays "being checked" blocks the next round.
+local function CheckPending(run)
+    local fighting = UnitAffectingCombat and UnitAffectingCombat("player")
+    local debug = ns.db.debug
+    for i = #run.checking, 1, -1 do
+        local c = run.checking[i]
+        if fighting then c.combat = true end
+        if time() - c.at >= EMPTY_GRACE then
+            local h = HarvestFor(c, run.harvests)
+            local gd, gt = GatheringAt(c)
+            if not h and gd then
+                -- still gathering it: wait for the result (at most GATHER_WAIT)
+                if debug and not c.waitSaid then
+                    c.waitSaid = true
+                    ns.Debug(("check %s: still gathering %d yd away (started %.1f s ago): waiting"):format(
+                        PointText(c.node, c.mapID), gd, gt))
+                end
+            else
+                table.remove(run.checking, i)
+                if h then
+                    if debug then
+                        ns.Debug(("check %s: harvested (%s, %d yd, %d s after arriving)"):format(PointText(c.node, c.mapID),
+                            h.node == c.node and "this node" or h.node.name, WDist(h.wx, h.wy, c.wx, c.wy), h.t - c.at))
+                    end
+                elseif not c.node.id then
+                    -- a point without identity (an old "Unknown Herb"): what it is
+                    -- is not known, so it learns nothing either way. A harvest of
+                    -- its type close by only keeps it from being called empty.
+                    local near = NearOfType(c, run.harvests)
+                    if near then
+                        if debug then
+                            ns.Debug(("check %s: no identity; %s %d yd away: not empty, nothing learned"):format(
+                                PointText(c.node, c.mapID), near.node and (near.node.name .. " harvested") or "a gather without loot",
+                                WDist(near.wx, near.wy, c.wx, c.wy)))
+                        end
+                    else
+                        if debug then
+                            ns.Debug(("check %s: no identity and no %s harvest within %d yd: short rest only, nothing learned"):format(
+                                PointText(c.node, c.mapID), tostring(c.node.type), EMPTY_NEAR))
+                        end
+                        MarkEmpty(c.node, L["nothing harvested"], "rest")
+                    end
+                elseif NearOfType(c, run.harvests, true) then
+                    -- a gather of its type close by succeeded but could not be
+                    -- booked (no loot of its own): not judged, nothing learned
+                    if debug then
+                        local u = NearOfType(c, run.harvests, true)
+                        ns.Debug(("check %s: a %s gather without loot %d yd away: not judged, nothing learned"):format(
+                            PointText(c.node, c.mapID), tostring(c.node.type), WDist(u.wx, u.wy, c.wx, c.wy)))
+                    end
+                else
+                    if debug then
+                        -- the last harvest of its kind before arriving (another record of the same herb?)
+                        local kind, before = ns.KindKey(c.node), ""
+                        for _, e in ipairs(run.harvests) do
+                            if e.kind == kind and e.t < c.at - 2 then
+                                before = (", last one of its kind %d yd away, %d s before arriving"):format(
+                                    WDist(e.wx, e.wy, c.wx, c.wy), c.at - e.t)
+                            end
+                        end
+                        ns.Debug(("check %s: no harvest of its kind within %d yd since arriving %d s ago (%s, %s%s)"):format(
+                            PointText(c.node, c.mapID), EMPTY_NEAR, time() - c.at, c.target and "target" or "passed by",
+                            c.combat and "combat" or "no combat", before))
+                    end
+                    local mode = (c.target and not c.combat) and "full" or "rest"
+                    local learned = MarkEmpty(c.node, L["nothing harvested"], mode, { wx = c.wx, wy = c.wy, inst = run.instance })
+                    if mode == "full" and learned then
+                        run.emptied = run.emptied or {}
+                        run.emptied[c.node] = time()
+                    end
+                end
+            end
+        end
+    end
+end
+
+-- Self-healing (Sync.lua) counts one empty visit per stay at a spot. Gone
+-- from it = further than twice the larger of the arrival radius ("Next node
+-- at") and the empty check radius: moving about at the spot, also right at
+-- the edge of those circles, is still the same stay.
+local function LeaveYards()
+    return 2 * math.max(ns.ArriveDistance(), EMPTY_NEAR)
 end
 
 local function CheckArrival()
     local run = ns.run
     if not run then return end
+    if ns.SyncNoteWhere then ns.SyncNoteWhere(PlayerWorld, LeaveYards()) end
+    NoteLearnLeave(LeaveYards())
 
     -- put on gloves or drank Goldthorn Tea: other nodes are in reach now
     if time() - (run.skillCheckAt or 0) >= SKILL_CHECK then
@@ -1579,6 +1783,7 @@ local function CheckArrival()
     end
 
     if not run.target then
+        CheckPending(run)
         if run.waitingSince and time() - run.waitingSince >= WAIT_GIVE_UP then
             ns.Print(L["Nothing to farm for 10 minutes: run stopped. Start it again any time."])
             StopRun(true, true)
@@ -1662,26 +1867,10 @@ local function CheckArrival()
         end
     end
 
-    -- Nodes we reached a moment ago: no harvest close by = nothing was there.
-    -- Mark them empty so later rounds don't send you back right away.
+    CheckPending(run)
+
     local fighting = UnitAffectingCombat and UnitAffectingCombat("player")
-    for i = #run.checking, 1, -1 do
-        local c = run.checking[i]
-        if fighting then c.combat = true end
-        if time() - c.at >= EMPTY_GRACE then
-            table.remove(run.checking, i)
-            local found = false
-            for _, h in ipairs(run.harvests) do
-                if h.t >= c.at - 2 and WDist(h.wx, h.wy, c.wx, c.wy) <= EMPTY_NEAR then
-                    found = true
-                    break
-                end
-            end
-            if not found then
-                MarkEmpty(c.node, L["nothing harvested"], (c.target and not c.combat) and "full" or "rest")
-            end
-        end
-    end
+    local debug = ns.db.debug
 
     -- Every node of the plan you get close to counts as checked, not only the
     -- target. "Close" = where you can see whether it is there (Options).
@@ -1691,8 +1880,12 @@ local function CheckArrival()
         if not run.visited[p.node] and WDist(px, py, p.wx, p.wy) <= arrive then
             run.visited[p.node] = true
             run.done = run.done + 1
-            run.checking[#run.checking + 1] = { node = p.node, wx = p.wx, wy = p.wy, at = time(),
+            run.checking[#run.checking + 1] = { node = p.node, mapID = p.mapID, wx = p.wx, wy = p.wy, at = time(),
                 target = p.node == run.target, combat = fighting or nil }
+            if debug then
+                ns.Debug(("reached %s at %d yd (radius %d, %s)"):format(PointText(p.node, p.mapID),
+                    WDist(px, py, p.wx, p.wy), arrive, p.node == run.target and "target" or "on the way"))
+            end
             reached = true
             if p.node == run.target then reachedTarget = true end
         end
@@ -1861,11 +2054,25 @@ local function UnreachableNode()
 end
 ns.UnreachableNode = UnreachableNode
 
+-- Called by the recorder for a gather that succeeded but was not booked (no
+-- loot of its own, or loot it can't be sure of): an uncertain observation.
+-- It never counts as a harvest; it only keeps a spot of its type close by
+-- from being called empty.
+local function OnGatherUncertain(p)
+    local run = ns.run
+    if not (run and p and p.mapID and p.type) then return end
+    local wx, wy = HBD:GetWorldCoordinatesFromZone(p.x, p.y, p.mapID)
+    if not wx then return end
+    table.insert(run.harvests, { wx = wx, wy = wy, t = time(), type = p.type, uncertain = true })
+    if #run.harvests > 20 then table.remove(run.harvests, 1) end
+end
+
 -- Called by the recorder after a node was harvested (it is on cooldown now)
-local function OnHarvested(node, spawn)
+local function OnHarvested(node, spawn, p)
     node.upAt = nil
     node.reachMiss, node.unreachUntil = nil, nil -- you got there after all
     node.emptyStreak, node.emptyAt = nil, nil -- it had something: back to normal
+    node.learnStay = nil -- and a later empty visit is a new observation
     -- the same vein mined two or three times counts once
     if not spawn or node.lastHitSpawn ~= spawn then
         node.lastHitSpawn = spawn
@@ -1879,9 +2086,25 @@ local function OnHarvested(node, spawn)
         if run.harvestAt then run.harvestAt[node] = time() end
         run.visited[node] = true
         local px, py = PlayerWorld()
-        if px then
-            table.insert(run.harvests, { wx = px, wy = py, t = time() })
+        -- where the gather started (the node is right there), else where you are now
+        local hx, hy = px, py
+        if p and p.mapID then
+            local wx, wy = HBD:GetWorldCoordinatesFromZone(p.x, p.y, p.mapID)
+            if wx then hx, hy = wx, wy end
+        end
+        if hx then
+            table.insert(run.harvests, { wx = hx, wy = hy, t = time(), node = node, kind = ns.KindKey(node) })
             if #run.harvests > 20 then table.remove(run.harvests, 1) end
+        end
+        -- marked empty a moment ago, and now gathered after all (a late second
+        -- try): that miss was wrong
+        local emptied = run.emptied and run.emptied[node]
+        if emptied then
+            run.emptied[node] = nil
+            if time() - emptied <= EMPTY_GRACE then
+                node.misses = math.max(0, (node.misses or 1) - 1)
+                ns.Debug(("%s: gathered %d s after it was marked empty: miss taken back"):format(node.name, time() - emptied))
+            end
         end
         -- harvested something off the route (you saw it and rode there): the
         -- old target may be behind you now, so pick the next one fresh
@@ -2036,5 +2259,6 @@ ns.SkipNode = SkipNode
 ns.PreviewRoute = PreviewRoute
 ns.ToggleRouteLine = ToggleRouteLine
 ns.OnHarvested = OnHarvested
+ns.OnGatherUncertain = OnGatherUncertain
 ns.DistanceToTarget = DistanceToTarget
 table.insert(ns.nodeListeners, RequestPlan)

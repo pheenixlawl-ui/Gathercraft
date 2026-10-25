@@ -54,6 +54,12 @@ function ns.Language()
     return GameLanguage()
 end
 
+-- Names of zones, materials, nodes and recipes follow the game's own
+-- language (what the player reads in the world), not the addon language
+function ns.NameLanguage()
+    return GetLocale and GetLocale() or "enUS"
+end
+
 local current, dict
 local function Dict()
     local lang = ns.Language()

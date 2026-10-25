@@ -18,6 +18,7 @@ local SUMMARY_MIN_NODES = 1
 -- Highlights per version, one line each (translated in Locales)
 local WHATS_NEW = {
     ["0.1.13"] = "A skill plan with a material list (Crafting tab), a summary at the end of every farm run, and right-click farms the zone you are in.",
+    ["0.1.14"] = "While you level, pins show in the trainer colour what they do for your skill (Options, page Leveling).",
 }
 
 local function Version()

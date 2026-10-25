@@ -404,7 +404,7 @@ ns.BuildFarmPage = function(page, style)
         row.skill:SetPoint("LEFT", 496, 0)
         row.skill:SetWidth(80)
         row.skill:SetJustifyH("LEFT")
-        row.go = style.button(row, L["Go"], 50)
+        row.go = style.button(row, "Go", 50) -- the English key: style.button translates (and follows a language change)
         row.go:SetHeight(20)
         row.go:SetPoint("RIGHT", -4, 0)
         row.go:SetScript("OnClick", function()
@@ -455,8 +455,17 @@ ns.BuildFarmPage = function(page, style)
     hint:SetPoint("BOTTOMLEFT", 6, 6)
     hint:SetWidth(710)
     hint:SetJustifyH("LEFT")
-    hint:SetText(L["~ = estimate from known spawn points, your skill and prices. After 10 minutes of farm runs "] ..
-        L["in a zone your real numbers are shown instead (green). Click a column title to sort."])
+    -- two texts in one line: set again on a language change, and what is
+    -- above moves up when a translation needs more lines
+    local function HintText()
+        hint:SetText(L["~ = estimate from known spawn points, your skill and prices. After 10 minutes of farm runs "] ..
+            L["in a zone your real numbers are shown instead (green). Click a column title to sort."])
+        local h = hint:GetStringHeight() or 0
+        hot:SetPoint("BOTTOMLEFT", 6, math.max(34, h + 12))
+        scroll:SetPoint("BOTTOMRIGHT", -24, math.max(50, h + 28))
+    end
+    HintText()
+    table.insert(ns.languageListeners, HintText)
 
     local SORTS = {
         zone = function(a, b) return ns.GetZoneName(a.mapID) < ns.GetZoneName(b.mapID) end,
