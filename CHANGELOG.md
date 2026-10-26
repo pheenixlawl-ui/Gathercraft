@@ -8,14 +8,14 @@
 
 ### Changed
 - **Smoother zone borders:** crossing from one zone into the next (Thunder Bluff and Mulgore, for example) no longer rebuilds every map pin – only the minimap pins move.
-- **Only your own loot counts:** a gather is recorded only when its own loot arrives. A gather whose loot can't be told apart from another one is left out instead of guessed, so no more "Unknown Herb" entries and no counting the same spawn twice.
+- **Only your own loot counts:** a gather is recorded only when its own loot arrives. A gather whose loot can't be told apart from another one is left out instead of guessed, so it no longer becomes an "Unknown Herb" entry and the same spawn isn't counted twice. (A new object nobody has a name for yet can still show up as "Unknown Herb".)
 - **Better "was it there?" check after you arrive:** a gather you started is waited for, a different herb or vein next to the spot doesn't count as a find, and a late second try takes back an "empty".
 - **Standing still counts once:** waiting at one spot no longer teaches a node "empty" again and again, and it counts as a single visit for the self-healing of shared nodes.
 - **Shared finds during a run are bundled:** reports from other players that your run can use are taken over together, at most every 10 seconds; others no longer redraw your route. Parking or reactivating a shared node updates just that node.
-- **Skip leaves a node out without learning it was empty:** you can skip a node because of a cliff or a mob in the way – it stays out of the run for 5 minutes, but its chance and the self-healing count are no longer touched.
+- **Skip leaves a node out without learning it was empty:** you can skip a node because of a cliff or a mob in the way – it stays out of the run for 5 minutes, but it no longer counts as an empty visit: the hit statistics it has learned stay as they are.
 - **Skill plan is more honest:** the total no longer shows "0c" when prices are missing but says how many have no price; trainer fees and recipes from vendors are listed on their own; a training step appears where your rank ends; you only make intermediate items yourself when you have the profession, the recipe and the skill; estimated prices are marked with "~".
 
 ### Fixed
-- **Fishing gives your interact settings back:** the wider interact range used for the bobber is now remembered across /reload and logout and put back on the next login. A setting you change yourself while the line is out stays as you set it. (After a game crash this can't always be done.)
-- **Skill-up statistics at the end of a rank:** gathers at 75/75, 150/150 or 225/225 – where no point is possible until you train – no longer lower the skill-up chance shown for a node kind.
+- **Fishing gives your interact settings back:** the wider interact range used for the bobber is now remembered across /reload and logout and put back on the next login. A setting you change yourself while the line is out stays as you set it. If you set exactly the same value Gathercraft uses, it can't tell the difference. (After a game crash this can't always be done.)
+- **Skill-up statistics at the end of a rank:** gathers at 75/75, 150/150 or 225/225 – where no point is possible until you train – no longer count in the skill-up statistics for that node kind.
 - **A run no longer gets stuck waiting:** checks for nodes you reached now also finish while the run has no target, so one empty node can't block the run until it stops by itself.
