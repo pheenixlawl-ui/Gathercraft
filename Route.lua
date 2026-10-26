@@ -2022,7 +2022,7 @@ local function SkipNode()
     node.upAt = nil
     node.emptyUntil = math.max(node.emptyUntil or 0, time() + SKIP_TIME)
     run.visited[node] = true
-    ns.Print((L["%s marked empty for %d min."]):format(node.name, SKIP_TIME / 60))
+    ns.Print((L["%s left out for %d min."]):format(node.name, SKIP_TIME / 60))
     Plan(true)
 end
 

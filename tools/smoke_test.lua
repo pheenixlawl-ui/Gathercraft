@@ -454,7 +454,18 @@ step("Farm run herbs: plan, move, skip, stop", function()
     slash("run herb") advance(2)
     assert(ns.run and ns.run.target, "no target")
     for i = 1, 6 do player.x = player.x - 0.01 advance(1) end
+    local target, mark = ns.run.target, #log
     slash("skip") advance(2)
+    -- skip learns nothing: it says "left out", not "marked empty"
+    local want = (ns.L["%s left out for %d min."]):format(target.name, 5)
+    if LOCALE == "enUS" then assert(want == target.name .. " left out for 5 min.", "English skip text: " .. want) end
+    if LOCALE == "deDE" then assert(want == target.name .. " für 5 Min. ausgelassen.", "German skip text: " .. want) end
+    local said
+    for i = mark + 1, #log do
+        if log[i]:find(want, 1, true) then said = true end
+        assert(not log[i]:find("marked empty", 1, true), "the old skip text: " .. log[i])
+    end
+    assert(said, "skip did not say: " .. want)
     slash("stop") advance(1)
 end)
 step("Farm run: target stays while walking to it", function()
