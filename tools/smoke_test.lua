@@ -4705,6 +4705,34 @@ step("Run counter: the same spawn opened again counts once, its value too", func
     SendChatMessage = oldSend
     W.Restore()
 end)
+step("Recorder: a placeholder name never blocks a later gather with the real name", function()
+    local W = IdentityWorld()
+    W.Set({})
+    local function Gather(target, id, tag, xYd)
+        W.At(xYd)
+        local c = W.Cast(target) W.Wait(2) W.Done(c) W.Loot(id, 2447, tag) W.Wait(12)
+    end
+    local function Booked(id, tag)
+        for _, n in ipairs(ns.db.nodes[1412]) do if n.id == "o" .. id and n.lastSpawn == tag then return n end end
+    end
+    -- (a) a new object gathered without any name (no target, no tooltip),
+    -- then the same object with its name at another spawn: both are booked
+    Gather("", 7999998, "PH0001", 0)
+    local first = Booked(7999998, "PH0001")
+    assert(first and first.name == ns.L["Unknown Herb"], "test setup: the gather without a name was not stored as Unknown Herb")
+    Gather("New Forever Herb", 7999998, "PH0002", 100)
+    assert(Booked(7999998, "PH0002"), "a placeholder blocked the gather with the real name")
+    -- (b) a placeholder already saved: the name lookup is built from it
+    W.Set({ W.Node("o7999996", ns.L["Unknown Herb"], 0, { item = 2447, lastSpawn = "OLD001" }) })
+    Gather("New Forever Herb", 7999996, "PH0003", 100)
+    assert(Booked(7999996, "PH0003"), "a saved placeholder blocked the gather with the real name")
+    -- (c) a placeholder saved under another language
+    local other = LOCALE == "deDE" and "Unknown Herb" or ns.Locales.deDE["Unknown Herb"]
+    W.Set({ W.Node("o7999994", other, 0, { item = 2447, lastSpawn = "OLD002" }) })
+    Gather("New Forever Herb", 7999994, "PH0004", 100)
+    assert(Booked(7999994, "PH0004"), "a placeholder of another language (" .. other .. ") blocked the gather with the real name")
+    W.Restore()
+end)
 step("SoftTarget is not in the release: no event, /gcr softtest only shows the help", function()
     assert(ns.SoftTargetTest == nil and ns.SoftTargetState == nil, "SoftTarget code is still loaded")
     assert(not next(eventFrames["PLAYER_SOFT_INTERACT_CHANGED"] or {}), "something still listens to PLAYER_SOFT_INTERACT_CHANGED")

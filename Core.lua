@@ -256,15 +256,31 @@ local function FindNode(mapID, id, x, y, radius)
     return best
 end
 
+-- "Unknown Herb" / "Unknown Ore" in any language (a gather that had no name,
+-- saved under the language of then): a placeholder, no name of the object
+local placeholders
+local function IsPlaceholder(name)
+    if not placeholders then
+        placeholders = { ["unknown herb"] = true, ["unknown ore"] = true }
+        for _, t in pairs(ns.Locales or {}) do
+            for _, key in ipairs({ "Unknown Herb", "Unknown Ore" }) do
+                if type(t[key]) == "string" then placeholders[t[key]:lower()] = true end
+            end
+        end
+    end
+    return name ~= nil and placeholders[name:lower()] == true
+end
+
 -- Name of a node kind in our own language, if we harvested it ourselves.
 -- A name that only came from the item (a node from sync, n.itemName) is no
--- name of the object, even once we harvested that node ourselves
+-- name of the object, even once we harvested that node ourselves; neither
+-- is a placeholder
 local function KnownName(id)
     if not nameCache then
         nameCache = {}
         for _, list in pairs(ns.db.nodes) do
             for _, n in ipairs(list) do
-                if n.id and not n.source and not n.itemName and not nameCache[n.id] then
+                if n.id and not n.source and not n.itemName and not IsPlaceholder(n.name) and not nameCache[n.id] then
                     nameCache[n.id] = n.name
                 end
             end
@@ -695,7 +711,8 @@ end
 -- Never a name that only came from the item: sync sends no object names, so
 -- a node from sync is named after its loot (Peacebloom for a Wilted
 -- Peacebloom) and would make our own gather of it look like another kind.
--- Sync nodes from before n.itemName existed are skipped as well.
+-- Sync nodes from before n.itemName existed are skipped as well, and so is a
+-- placeholder ("Unknown Herb" of a gather that had no name).
 -- Both lookups use indexes (KnownName's cache, the zone index of FindNode):
 -- no walk over a zone's nodes per loot.
 local function ObjectName(objectID, mapID)
@@ -704,7 +721,7 @@ local function ObjectName(objectID, mapID)
     if known then return known end
     local byId = mapID and ZoneIndex(mapID)
     for _, n in ipairs(byId and byId[oid] or {}) do
-        if not n.itemName and n.source ~= "sync" then return n.name end
+        if not n.itemName and n.source ~= "sync" and not IsPlaceholder(n.name) then return n.name end
     end
     return nil
 end
