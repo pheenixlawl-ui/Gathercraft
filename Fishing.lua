@@ -175,16 +175,26 @@ local function SetOurs(saved, name, value)
     end
 end
 
-local function WidenInteract()
+-- debug: one setting of the saved list (what we found, what we kept)
+local function DebugEntry(what, event, name, s, now, result)
+    ns.Debug(("FISH %s (%s): %s orig %s, ours %s, now %s -> %s"):format(what, event, name,
+        tostring(s.orig), tostring(s.ours), tostring(now), result))
+end
+
+local function WidenInteract(event)
     if not (GetCVar and SetCVar and ns.db) then return end
     ns.db.fishingCVars = ns.db.fishingCVars or {}
     local saved = ns.db.fishingCVars
+    if not next(saved) then ns.Debug(("FISH start (%s): no entry of an earlier cast"):format(event)) end
     -- cast again before the last one was put back: a setting you changed
     -- since is yours now (it is what we put back, or stays if wide enough)
     for name, s in pairs(saved) do
-        if not SameValue(GetCVar(name), s.ours) then
-            ns.Debug(("FISH %s is %s now, not our %s: yours from now on"):format(name, tostring(GetCVar(name)), tostring(s.ours)))
+        local now = GetCVar(name)
+        if not SameValue(now, s.ours) then
+            DebugEntry("start", event, name, s, now, "changed by you, yours from now on")
             saved[name] = nil
+        else
+            DebugEntry("start", event, name, s, now, "still ours, kept")
         end
     end
     -- 0 = off, 1 = gamepad only, 2 = keyboard/mouse only, 3 = both:
@@ -201,18 +211,23 @@ end
 -- Puts back what we changed (end of the cast, or the next login after a
 -- /reload with the line out). A setting you changed meanwhile stays. One
 -- that could not be set stays in the list: the next login tries again.
-local function RestoreInteract()
+local function RestoreInteract(event)
     local saved = ns.db and ns.db.fishingCVars
-    if not saved then return end
+    if not saved then
+        ns.Debug(("FISH restore (%s): nothing of ours to put back"):format(event))
+        return
+    end
     for name, s in pairs(saved) do
-        if SameValue(GetCVar(name), s.ours) then
+        local now = GetCVar(name)
+        if SameValue(now, s.ours) then
             if s.orig == nil or (pcall(SetCVar, name, s.orig) and SameValue(GetCVar(name), s.orig)) then
+                DebugEntry("restore", event, name, s, now, "put back")
                 saved[name] = nil
             else
-                ns.Debug(("FISH %s could not be put back to %s: tried again at the next login"):format(name, tostring(s.orig)))
+                DebugEntry("restore", event, name, s, now, "could not be put back, tried again at the next login")
             end
         else
-            ns.Debug(("FISH %s is %s now, not our %s: left as you set it"):format(name, tostring(GetCVar(name)), tostring(s.ours)))
+            DebugEntry("restore", event, name, s, now, "changed by you, left as you set it")
             saved[name] = nil
         end
     end
@@ -254,7 +269,7 @@ events:SetScript("OnEvent", function(_, event, _, _, spellID)
             fishing.last = GetTime()
             lineOut = true
             SetReelBinding(true)
-            WidenInteract()
+            WidenInteract(event)
             ns.Debug(("FISH line out (spell %s), reel key: %s, interact %s range %s arc %s"):format(
                 tostring(spellID), tostring(GetBindingKey(BINDING)), tostring(GetCVar("SoftTargetInteract")),
                 tostring(GetCVar("SoftTargetInteractRange")), tostring(GetCVar("SoftTargetInteractArc"))))
@@ -264,7 +279,7 @@ events:SetScript("OnEvent", function(_, event, _, _, spellID)
             lineOut = false
             fishing.reeledAt = GetTime()
             SetReelBinding(false)
-            RestoreInteract()
+            RestoreInteract(event)
             C_Timer.After(0.3, Prepare)
         end
     elseif event == "PLAYER_REGEN_ENABLED" then
@@ -274,7 +289,7 @@ events:SetScript("OnEvent", function(_, event, _, _, spellID)
         -- left over from a /reload or logout with the line out: put it back
         if not lineOut and ns.db and ns.db.fishingCVars then
             ns.Debug("FISH interact settings of an earlier cast found at login: putting yours back")
-            RestoreInteract()
+            RestoreInteract(event)
         end
         Prepare()
     else

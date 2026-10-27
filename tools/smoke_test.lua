@@ -4047,31 +4047,56 @@ step("Fishing: your interact settings come back (end, abort, /reload, login, own
     new.__scripts.OnEvent(new, "PLAYER_LOGIN")
     Is("3", "30", "2", "login without an entry")
 
+    -- the debug lines of cases 8-10 say what was found and done (/gcr debug)
+    local wasDebug, mark = ns.db.debug, #log
+    ns.db.debug = true
+    local function Said(text)
+        for i = mark + 1, #log do if log[i]:find(text, 1, true) then return true end end
+        error("debug line missing: " .. text)
+    end
+    local START, STOP = "(UNIT_SPELLCAST_CHANNEL_START): SoftTargetInteractRange", "(UNIT_SPELLCAST_CHANNEL_STOP): SoftTargetInteractRange"
+
     -- (8) cast again before the line came in, you changed one in between:
     -- your value is what comes back, not the one from before
     Reset() Cast()
+    Said("FISH start (UNIT_SPELLCAST_CHANNEL_START): no entry of an earlier cast")
     store.SoftTargetInteractRange = "25"
+    mark = #log
     Cast()
+    Said("FISH start " .. START .. " orig 10, ours 30, now 25 -> changed by you, yours from now on")
     Is("3", "30", "2", "second cast after your change")
+    mark = #log
     Stop()
+    Said("FISH restore " .. STOP .. " orig 25, ours 30, now 30 -> put back")
     Is("1", "25", "0", "second cast after your change, then the catch")
     assert(ns.db.fishingCVars == nil, "the saved entry is left after a second cast")
 
     -- (9) cast twice without a change: your original values come back
-    Reset() Cast() Cast() Stop()
+    Reset() Cast()
+    mark = #log
+    Cast()
+    Said("FISH start " .. START .. " orig 10, ours 30, now 30 -> still ours, kept")
+    mark = #log
+    Stop()
+    Said("FISH restore " .. STOP .. " orig 10, ours 30, now 30 -> put back")
     Is("1", "10", "0", "two casts, no change")
 
     -- (10) putting one back fails: its entry stays, the next login puts it back
     Reset() Cast()
     SetCVar = function(k, v) if k == "SoftTargetInteractRange" then error("blocked") end store[k] = tostring(v) return true end
+    mark = #log
     Stop()
+    Said("FISH restore " .. STOP .. " orig 10, ours 30, now 30 -> could not be put back, tried again at the next login")
     Is("1", "30", "0", "a value that could not be put back")
     assert(ns.db.fishingCVars and ns.db.fishingCVars.SoftTargetInteractRange and not ns.db.fishingCVars.SoftTargetInteract,
         "a failed restore: its entry is gone, or the others stayed")
     SetCVar = function(k, v) store[k] = tostring(v) return true end
+    mark = #log
     new.__scripts.OnEvent(new, "PLAYER_LOGIN")
+    Said("FISH restore (PLAYER_LOGIN): SoftTargetInteractRange orig 10, ours 30, now 30 -> put back")
     Is("1", "10", "0", "the next login after a failed restore")
     assert(ns.db.fishingCVars == nil, "the entry is left after the login put it back")
+    ns.db.debug = wasDebug
 
     GetCVar, SetCVar = saved.get, saved.set
     ns.db.fishingCVars = nil
