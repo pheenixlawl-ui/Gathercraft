@@ -4626,6 +4626,60 @@ step("Sync: your own gather of a node that came from sync is booked and shared",
     assert(after == before and W.Count("Glow Cap") == 0, "loot of another kind was booked")
     W.Restore()
 end)
+step("Run counter: the same spawn opened again counts once, its value too", function()
+    -- found in testing: a vein whose loot window was closed with loot left
+    -- in it and mined again - the node and skill stats said "not counted",
+    -- the run's gathered, per hour and gold went up every time
+    local W = IdentityWorld()
+    local v = W.Node("o1731", "Copper Vein", 0, { type = "ore", item = 2770 })
+    W.Set({ v })
+    W.At(-200) ns.StartRun("ore", 1412) W.Wait(1)
+    W.At(0)
+    local function KindValue()
+        local n = 0
+        for _, kv in pairs(ns.db.kindValue or {}) do n = n + kv.n end
+        return n
+    end
+    local function Mine(tag)
+        local c = W.Cast("Copper Vein", 2575) W.Wait(2) W.Done(c, 2575) W.Loot(1731, 2770, tag) W.Wait(3)
+    end
+    local s0, sv0, k0 = ns.RunSnapshot(), ns.SessionValue(), KindValue()
+    assert(s0, "test setup: no run")
+    Mine("SAME01")
+    local s1, sv1 = ns.RunSnapshot(), ns.SessionValue()
+    local one = s1.value - s0.value
+    assert(s1.nodes == s0.nodes + 1 and one > 0 and sv1 - sv0 == one, "test setup: the first gather was not counted with its value")
+    -- the same spawn twice more, its loot never emptied
+    Mine("SAME01") Mine("SAME01")
+    local s2, sv2 = ns.RunSnapshot(), ns.SessionValue()
+    assert(s2.nodes == s0.nodes + 1, ("the same spawn counted %d times in the run"):format(s2.nodes - s0.nodes))
+    assert(s2.value == s1.value and sv2 == sv1, "the value of the same spawn was booked again")
+    assert(KindValue() == k0 + 1, "the same spawn counted again in the value per kind")
+    -- another spawn: counts
+    Mine("OTHER1")
+    local s3 = ns.RunSnapshot()
+    assert(s3.nodes == s0.nodes + 2 and s3.value > s2.value, "another spawn of the vein was not counted")
+    -- a gather that failed or was interrupted: nothing
+    local c = W.Cast("Copper Vein", 2575) W.Wait(1)
+    fire("UNIT_SPELLCAST_INTERRUPTED", "player", c, 2575) W.Wait(12)
+    local s4 = ns.RunSnapshot()
+    assert(s4.nodes == s3.nodes and s4.value == s3.value, "an interrupted gather was counted")
+    -- the summary when the run ends and the line shared from it: the same 2
+    local sent = {}
+    local oldSend = SendChatMessage
+    SendChatMessage = function(msg, chatType) sent[#sent + 1] = msg end
+    W.Wait(130)
+    ns.StopRun()
+    local card = _G.GathercraftRunSummary
+    assert(card and card:IsShown(), "no summary after the run")
+    ns.ShareRunSummary("GUILD")
+    local fmt = ns.L["[Gathercraft] Farm run: %d nodes in %s (%d per hour, %s per hour, +%d skill)"]
+    local head = fmt:match("^(.-)%%d")
+    local msg = sent[1] or ""
+    assert(msg:sub(1, #head) == head and msg:sub(#head + 1):match("^2%D"), "shared line: " .. msg .. ", expected 2 nodes")
+    SendChatMessage = oldSend
+    W.Restore()
+end)
 step("SoftTarget is not in the release: no event, /gcr softtest only shows the help", function()
     assert(ns.SoftTargetTest == nil and ns.SoftTargetState == nil, "SoftTarget code is still loaded")
     assert(not next(eventFrames["PLAYER_SOFT_INTERACT_CHANGED"] or {}), "something still listens to PLAYER_SOFT_INTERACT_CHANGED")

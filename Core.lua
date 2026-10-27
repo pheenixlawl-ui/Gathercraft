@@ -818,6 +818,10 @@ local function TryRecord(p)
     -- new for routes or sync; skill stats still look at it (spawn-checked there)
     if again then
         if ns.OnGathered then ns.OnGathered(node, p) end
+        -- the same spawn again (its loot window opened once more, a vein
+        -- mined again): counted once already, so the run, session and value
+        -- counts leave it out. A cultivated copy is another spawn and counts.
+        if p.spawn and node.lastSpawn == p.spawn then return end
         for _, fn in ipairs(ns.gatherListeners) do fn(node, p) end
         return
     end
