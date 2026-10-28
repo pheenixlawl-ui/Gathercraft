@@ -23,7 +23,7 @@
 
 | Without | With Gathercraft |
 |---|---|
-| "Wasn't there a vein around here somewhere?" | Every node is pinned on your map and minimap, plus **25,000+ known spawn points** from day one. |
+| "Wasn't there a vein around here somewhere?" | Every node is pinned on your map and minimap, plus **16,000+ known spawn points** from day one. |
 | You arrive, the herb is gone, you guess where to go next | Your route **re-plans while you ride** – and keeps its target until you get there. Empty? One key, next node. |
 | You farm nodes that stopped giving skill-ups 20 points ago | You see **which nodes still level you** – and your route goes there first. |
 | "Is this zone even worth it?" | **Farm Spots** ranks every zone by **gold per hour** – estimated first, your real numbers after 10 minutes. |
@@ -36,7 +36,7 @@
 
 **🗺️ The Map That Never Forgets**
 
-Herbs and ores are recorded the moment you gather them, no setup. On top of that, **25,000+ known herb, ore and chest spawn points** across Kalimdor and the Eastern Kingdoms load as you explore. Spots where Copper *or* Tin can spawn get one pin, harvested nodes fade until they respawn. Chests show on the map only – they never clutter your routes.
+Herbs and ores are recorded the moment you gather them, no setup. On top of that, **16,000+ known herb, ore and chest spawn points** across Kalimdor and the Eastern Kingdoms load as you explore. Spots where Copper *or* Tin can spawn get one pin, harvested nodes fade until they respawn. Chests show on the map only – they never clutter your routes.
 
 <p align="center"><img src="docs/map.jpg" width="70%" alt="Every node on your map"></p>
 
@@ -142,7 +142,7 @@ Gathercraft is **actively developed** – during the Forever launch weeks expect
 
 **✅ Live now**
 
-- Node recording, map & minimap pins, 25,000+ known spawn points
+- Node recording, map & minimap pins, 16,000+ known spawn points
 - Live farm routes with the Gathercraft arrow and farm panel
 - Own auction house scan, prices in tooltips, price alerts, **gold per hour**
 - **Farm Spots** – best zones by gold per hour

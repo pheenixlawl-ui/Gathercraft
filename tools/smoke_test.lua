@@ -4756,6 +4756,17 @@ step("Sync: your own gather of a node from sync keeps what you saw, not what the
     assert(m.lastSpawn == "OWNOK1" and m.type == "herb" and m.item == 2447 and not m.source, "a fitting report changed with your own gather")
     W.Restore()
 end)
+step("Welcome: the map step counts spots (16,000+ positions), not entries", function()
+    local key = "16,000+ herb and ore spots are already on your map and minimap. The Zones tab picks what you see."
+    local t = ns.L[key]
+    assert(t and not t:find("25", 1, true), "welcome text still says 25,000: " .. tostring(t))
+    if LOCALE == "enUS" then assert(t == key, "English welcome text: " .. t) end
+    if LOCALE == "deDE" then assert(t:find("Über 16.000", 1, true), "German welcome text: " .. t) end
+    if LOCALE ~= "enUS" then assert(t ~= key, "welcome text not translated: " .. t) end
+    local f = assert(io.open(ROOT .. "/Welcome.lua"))
+    local src = f:read("*a") f:close()
+    assert(src:find(key, 1, true) and not src:find("25,000", 1, true), "Welcome.lua does not use the 16,000+ text")
+end)
 step("SoftTarget is not in the release: no event, /gcr softtest only shows the help", function()
     assert(ns.SoftTargetTest == nil and ns.SoftTargetState == nil, "SoftTarget code is still loaded")
     assert(not next(eventFrames["PLAYER_SOFT_INTERACT_CHANGED"] or {}), "something still listens to PLAYER_SOFT_INTERACT_CHANGED")
