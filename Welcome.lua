@@ -94,7 +94,7 @@ end
 ---------------------------------------------------------------------------
 local STEPS = {
     { icon = "Interface\\Icons\\INV_Misc_Map_01", title = "Your map is ready",
-      text = "16,000+ herb and ore spots are already on your map and minimap. The Zones tab picks what you see." },
+      text = "15,000+ herb and ore spots are already on your map and minimap. The Zones tab picks what you see." },
     { icon = "Interface\\Icons\\Ability_Mount_RidingHorse", title = "Start a farm run",
       text = "Click the emblem at your minimap: Farm run - Herbs, Ores or both. Ride to the gold ring; the route plans itself." },
     { icon = "Interface\\Icons\\INV_Misc_Spyglass_02", title = "Point at the minimap",

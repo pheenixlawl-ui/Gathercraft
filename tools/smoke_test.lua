@@ -4824,16 +4824,33 @@ step("Sync: your own gather of a node from sync keeps what you saw, not what the
     assert(m.lastSpawn == "OWNOK1" and m.type == "herb" and m.item == 2447 and not m.source, "a fitting report changed with your own gather")
     W.Restore()
 end)
-step("Welcome: the map step counts spots (16,000+ positions), not entries", function()
-    local key = "16,000+ herb and ore spots are already on your map and minimap. The Zones tab picks what you see."
-    local t = ns.L[key]
-    assert(t and not t:find("25", 1, true), "welcome text still says 25,000: " .. tostring(t))
-    if LOCALE == "enUS" then assert(t == key, "English welcome text: " .. t) end
-    if LOCALE == "deDE" then assert(t:find("Über 16.000", 1, true), "German welcome text: " .. t) end
-    if LOCALE ~= "enUS" then assert(t ~= key, "welcome text not translated: " .. t) end
+step("Welcome: the herb and ore count is covered by the shipped data (v0.1.14)", function()
+    -- the welcome's text, wherever it says how many herb and ore spots there are
     local f = assert(io.open(ROOT .. "/Welcome.lua"))
     local src = f:read("*a") f:close()
-    assert(src:find(key, 1, true) and not src:find("25,000", 1, true), "Welcome.lua does not use the 16,000+ text")
+    local key = src:match('text = "(%d[^"]-herb and ore spots[^"]*)"')
+    assert(key, "test setup: no herb and ore count in Welcome.lua")
+    local t = ns.L[key]
+    -- herb and ore positions in Data/QuestieNodes.lua (a place counts once,
+    -- chests do not count): the number said may not be more
+    local data = GathercraftQuestieData
+    local seen, n = {}, 0
+    for map, packed in pairs(data.zones) do
+        for id, x, y in packed:gmatch("(%d+),(%d+),(%d+)") do
+            local kind = data.kinds["o" .. id]
+            if kind and (kind[1] == "h" or kind[1] == "o") and not seen[map .. ":" .. x .. ":" .. y] then
+                seen[map .. ":" .. x .. ":" .. y] = true
+                n = n + 1
+            end
+        end
+    end
+    local digits = (t:match("%d[%d%.,%s]*%d") or ""):gsub("%D", "")
+    local said = tonumber(digits)
+    assert(said and said <= n, ("the welcome says %s herb and ore spots, the data has %d: %s"):format(tostring(said), n, t))
+    assert(said >= 1000 and n - said < 1000, ("the welcome's %s is far below the %d herb and ore spots"):format(tostring(said), n))
+    if LOCALE == "enUS" then assert(t == key, "English welcome text: " .. t) end
+    if LOCALE == "deDE" then assert(t:find("Über 15.000 Kräuter- und Erzfundorte", 1, true), "German welcome text: " .. t) end
+    if LOCALE ~= "enUS" then assert(t ~= key, "welcome text not translated: " .. t) end
 end)
 step("SoftTarget is not in the release: no event, /gcr softtest only shows the help", function()
     assert(ns.SoftTargetTest == nil and ns.SoftTargetState == nil, "SoftTarget code is still loaded")
