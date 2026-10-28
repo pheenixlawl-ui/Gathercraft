@@ -1144,7 +1144,8 @@ local function CraftTest()
     local rows = Evaluate()
     for i = 1, math.min(3, #rows) do
         local r = rows[i]
-        print(("  %d. %s: profit %s (sells %s, costs %s)"):format(i, r.name, ns.Money(r.profit), ns.Money(r.value), ns.Money(r.cost)))
+        print(("  %d. %s: profit %s (sells %s, costs %s)"):format(i, r.name, r.missing and "?" or ns.Money(r.profit),
+            ns.Money(r.value), CostText(r)))
     end
 end
 

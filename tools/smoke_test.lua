@@ -4881,6 +4881,24 @@ step("Run counter: a cultivated copy counts once, the first one still counts (v0
     UnitRace = oldRace
     W.Restore()
 end)
+step("Crafting: /gcr crafttest marks unknown costs like the list (v0.1.14)", function()
+    -- every reagent without a price for a moment: the diagnosis says ?, not 0c
+    local oldPrice, oldVendor = ns.GetPrice, ns.db.vendorPrices
+    ns.GetPrice = function() return nil end
+    ns.db.vendorPrices = {}
+    local mark = #log
+    slash("crafttest")
+    ns.GetPrice, ns.db.vendorPrices = oldPrice, oldVendor
+    local lines = 0
+    for i = mark + 1, #log do
+        local costs = log[i]:match("costs (.-)%)$")
+        if costs and log[i]:find("profit", 1, true) then
+            lines = lines + 1
+            assert(costs:find("?", 1, true), "crafttest shows a known cost without any price: " .. log[i])
+        end
+    end
+    assert(lines > 0, "test setup: crafttest listed no recipe")
+end)
 step("SoftTarget is not in the release: no event, /gcr softtest only shows the help", function()
     assert(ns.SoftTargetTest == nil and ns.SoftTargetState == nil, "SoftTarget code is still loaded")
     assert(not next(eventFrames["PLAYER_SOFT_INTERACT_CHANGED"] or {}), "something still listens to PLAYER_SOFT_INTERACT_CHANGED")
