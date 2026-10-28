@@ -4852,6 +4852,35 @@ step("Welcome: the herb and ore count is covered by the shipped data (v0.1.14)",
     if LOCALE == "deDE" then assert(t:find("Über 15.000 Kräuter- und Erzfundorte", 1, true), "German welcome text: " .. t) end
     if LOCALE ~= "enUS" then assert(t ~= key, "welcome text not translated: " .. t) end
 end)
+step("Run counter: a cultivated copy counts once, the first one still counts (v0.1.14)", function()
+    -- found in review: the same copy gathered again counted again
+    local W = IdentityWorld()
+    local e = W.Node("o1619", "Earthroot", 0, { item = 2449 })
+    W.Set({ e })
+    local oldRace = UnitRace
+    UnitRace = function() return "Tauren", "Tauren" end
+    W.At(-200) ns.StartRun("herb", 1412) W.Wait(1)
+    W.At(0)
+    local function Pick(tag)
+        local c = W.Cast("Earthroot") W.Wait(2) W.Done(c) W.Loot(1619, 2449, tag) W.Wait(3)
+    end
+    local s0 = ns.RunSnapshot()
+    Pick("BASE01")
+    local one = ns.RunSnapshot().value - s0.value
+    assert(one > 0, "test setup: the first pick has no value")
+    Pick("COPY01")
+    local s1 = ns.RunSnapshot()
+    assert(s1.nodes == s0.nodes + 2 and s1.value == s0.value + 2 * one, "the first cultivated copy did not count")
+    Pick("COPY01")
+    local s2 = ns.RunSnapshot()
+    assert(s2.nodes == s0.nodes + 2 and s2.value == s0.value + 2 * one,
+        ("the same copy counted again: %d gathered, value %d (want 2, %d)"):format(s2.nodes - s0.nodes, s2.value - s0.value, 2 * one))
+    local n = 0
+    for _, x in ipairs(ns.db.nodes[1412]) do if x.id == "o1619" then n = n + 1 end end
+    assert(n == 1, "the copy became a node of its own")
+    UnitRace = oldRace
+    W.Restore()
+end)
 step("SoftTarget is not in the release: no event, /gcr softtest only shows the help", function()
     assert(ns.SoftTargetTest == nil and ns.SoftTargetState == nil, "SoftTarget code is still loaded")
     assert(not next(eventFrames["PLAYER_SOFT_INTERACT_CHANGED"] or {}), "something still listens to PLAYER_SOFT_INTERACT_CHANGED")

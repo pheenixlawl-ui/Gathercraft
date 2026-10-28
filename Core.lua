@@ -845,6 +845,14 @@ local function TryRecord(p)
         -- mined again): counted once already, so the run, session and value
         -- counts leave it out. A cultivated copy is another spawn and counts.
         if p.spawn and node.lastSpawn == p.spawn then return end
+        -- a cultivated copy (another spawn on top of this node) counts once:
+        -- its spawn is remembered with the pick it grew from (this session)
+        local lp = p.spawn and lastPick[node]
+        if lp then
+            lp.copies = lp.copies or {}
+            if lp.copies[p.spawn] then return end
+            lp.copies[p.spawn] = true
+        end
         for _, fn in ipairs(ns.gatherListeners) do fn(node, p) end
         return
     end
