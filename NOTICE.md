@@ -26,27 +26,32 @@ docs/icon.png, docs/banner.png) as the name or branding of your own version.
 
 ## Third-party content
 
-- **Data/QuestieNodes.lua** - herb, ore and chest spawn coordinates from the
-  Questie database (QuestieDB, https://github.com/Questie/Questie), licensed
-  under the GPLv3. Converted (filtered to gathering objects, reformatted) by
-  tools/import_questie.py. The name "Questie" and its logo belong to the
-  Questie team and are not covered by this license.
-- **Data/ItemNames.lua** - item names and IDs from the same Questie database
-  (GPLv3), converted by tools/import_item_names.py.
+- **Data/QuestieNodes.lua** - herb, ore and chest object spawn coordinates
+  (object IDs and positions) from the Questie database (QuestieDB, Forever
+  data, https://github.com/Questie/QuestieDB; Questie:
+  https://github.com/Questie/Questie), used under the terms of the GPLv3 with
+  the permission of the Questie team. See their LICENSE.md. Converted (filtered
+  to gathering objects, reformatted) by tools/import_questie.py. The name
+  "Questie" and its logo belong to the Questie team and are not covered by
+  this license.
+- **Data/ItemNames.lua** - item names and IDs from the same Questie database,
+  used on the same terms, converted by tools/import_item_names.py.
 - **Data/NodeNames.lua** - herb, ore and chest names in other languages from
-  Questie's object lookups (GPLv3), converted by tools/import_node_names.py.
+  QuestieDB's object lookups, used on the same terms, converted by
+  tools/import_node_names.py.
 - **Data/RecipeData.lua** - recipes (product, amount, required skill, reagents)
   from SkillUp Forever by Cillian Berragan (https://github.com/cjber/skillup-forever),
   GPL-3.0-or-later, which reads them from the WoW: Forever client tables
   (via wago.tools) and CMaNGOS classic-db (GPL-3.0). Converted by
   tools/import_skillup.lua.
 - **Data/AreaMaps.lua** - zone area IDs and their map IDs from the Questie
-  database (GPLv3), converted by tools/import_area_maps.py (for waypoints to
-  recipe vendors).
+  database, used on the same terms, converted by tools/import_area_maps.py
+  (for waypoints to recipe vendors).
 - **Data/RecipeSources.lua** - where recipes are learned: trainer fees, recipe
   items and their likeliest drops from SkillUp Forever (GPL-3.0-or-later, see
   above); vendors, quest rewards and NPC names and zones from the Questie
-  database (GPLv3). Converted by tools/import_recipe_sources.py.
+  database, used on the same terms as above. Converted by
+  tools/import_recipe_sources.py.
 - **Libs/HereBeDragons** - HereBeDragons by Nevcairiel, BSD license, bundled
   with CallbackHandler-1.0 (BSD) and LibStub (public domain).
 - **Libs/LibDataBroker-1.1** - LibDataBroker by tekkub, under its own license.

@@ -182,12 +182,12 @@ But every route needs a smith – and every smith needs coffee.
 
 Gathercraft is free software under the [GNU General Public License v3](LICENSE) (GPLv3): you may use, change and share it, as long as what you share stays under the GPLv3 with its source available.
 The name "Gathercraft" and its emblem, logo and banner are not part of that license: a changed version you share needs its own name and icon (see [NOTICE.md](NOTICE.md)). "Based on Gathercraft" with a link is welcome.
-The spawn data in `Data/QuestieNodes.lua` and the item names in `Data/ItemNames.lua` come from [Questie](https://github.com/Questie/Questie) (GPLv3) and were converted for Gathercraft by `tools/import_questie.py` and `tools/import_item_names.py`. The recipes in `Data/RecipeData.lua` come from [SkillUp Forever](https://github.com/cjber/skillup-forever) (GPL-3.0-or-later), converted by `tools/import_skillup.lua`. "Questie" and its logo belong to the Questie team and are not part of this license. Libraries in `Libs/` keep their own licenses (see [NOTICE.md](NOTICE.md)).
+The spawn data in `Data/QuestieNodes.lua` and the item names in `Data/ItemNames.lua` come from the Questie database ([QuestieDB](https://github.com/Questie/QuestieDB), [Questie](https://github.com/Questie/Questie)), used under the terms of the GPLv3 with the Questie team's permission, and were converted for Gathercraft by `tools/import_questie.py` and `tools/import_item_names.py`. The recipes in `Data/RecipeData.lua` come from [SkillUp Forever](https://github.com/cjber/skillup-forever) (GPL-3.0-or-later), converted by `tools/import_skillup.lua`. "Questie" and its logo belong to the Questie team and are not part of this license. Libraries in `Libs/` keep their own licenses (see [NOTICE.md](NOTICE.md)).
 
 ## ❤️ Credits
 
 - Made by **pheenixlawl**
-- Spawn data from [Questie](https://github.com/Questie/Questie) (QuestieDB), GPLv3 – thanks to the Questie team for the OK
+- Spawn data from the Questie database ([QuestieDB](https://github.com/Questie/QuestieDB), [Questie](https://github.com/Questie/Questie)), used under the terms of the GPLv3 with their permission – thanks to the Questie team for the OK
 - Recipe data from [SkillUp Forever](https://github.com/cjber/skillup-forever) by Cillian Berragan, GPLv3
 - [HereBeDragons](https://github.com/Nevcairiel/HereBeDragons), [LibDataBroker](https://github.com/tekkub/libdatabroker-1-1) and LibDBIcon
 
