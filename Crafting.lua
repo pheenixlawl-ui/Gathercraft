@@ -1067,10 +1067,11 @@ local function Evaluate(profFilter, mineOnly)
                 if product and #reagents > 0 then
                     local value = (price or 0) * made * (source == "vendor" and 1 or AH_CUT)
                     local cost, missing, guessed, canMake = 0, not price and not enchant, false, math.huge
+                    local costUnknown = 0 -- reagents without a price: their part of the costs is unknown
                     local parts = {}
                     for _, r in ipairs(reagents) do
                         local c, from, guess = ReagentCost(r.id)
-                        if c then cost = cost + c * r.n else missing = true end
+                        if c then cost = cost + c * r.n else missing, costUnknown = true, costUnknown + 1 end
                         guessed = guessed or guess
                         local have = Have(r.id)
                         canMake = math.min(canMake, math.floor(have / r.n))
@@ -1084,7 +1085,7 @@ local function Evaluate(profFilter, mineOnly)
                     rows[#rows + 1] = {
                         prof = prof, name = DisplayName(prof, name), key = name, product = product, made = made, diff = diff, req = req, reqGuessed = reqGuessed,
                         learned = learned, value = value, valueSource = source, cost = cost, enchant = enchant,
-                        profit = value - cost, missing = missing, guessed = guessed,
+                        profit = value - cost, missing = missing, guessed = guessed, costUnknown = costUnknown,
                         canMake = canMake == math.huge and 0 or canMake, reagents = parts,
                     }
                 end
@@ -1094,10 +1095,19 @@ local function Evaluate(profFilter, mineOnly)
     table.sort(rows, function(a, b)
         if a.missing ~= b.missing then return not a.missing end
         if a.enchant ~= b.enchant then return not a.enchant end
-        if math.abs(a.profit - b.profit) > 0.5 then return a.profit > b.profit end
+        -- a profit with an unknown price is no number to rank by: by name
+        if not a.missing and math.abs(a.profit - b.profit) > 0.5 then return a.profit > b.profit end
         return a.name < b.name
     end)
     return rows
+end
+
+-- The costs of a recipe as text: "?" when no reagent has a price, "~" in
+-- front when some have none (or a vendor price is estimated). "0c" only
+-- when the materials really cost nothing.
+local function CostText(r, short)
+    if r.costUnknown > 0 and r.costUnknown >= #r.reagents then return L["|cff777777?|r"] end
+    return ((r.guessed or r.costUnknown > 0) and "~" or "") .. ns.Money(r.cost, short)
 end
 
 local function Professions()
@@ -1402,8 +1412,10 @@ ns.BuildCraftPage = function(page, style)
                 1, 1, 1, 1, 1, 1)
         end
         GameTooltip:AddLine(" ")
-        if r.enchant then
-            GameTooltip:AddDoubleLine(L["Materials"], ns.Money(r.cost), 1, 0.82, 0, 1, 1, 1)
+        GameTooltip:AddDoubleLine(L["Materials"], CostText(r) .. (r.costUnknown > 0
+            and ("  |cffff7070" .. (L["(+%d without a price)"]):format(r.costUnknown) .. "|r") or ""), 1, 0.82, 0, 1, 1, 1)
+        if r.enchant then -- makes nothing to sell: the materials are all there is
+        elseif r.missing then GameTooltip:AddDoubleLine(L["Profit per craft"], L["|cff777777?|r"], 1, 0.82, 0, 1, 1, 1)
         else GameTooltip:AddDoubleLine(L["Profit per craft"], (r.profit >= 0 and "|cff55ff55" or "|cffff7070") .. ns.Money(math.abs(r.profit))
             .. (r.profit < 0 and L[" loss"] or "") .. "|r", 1, 0.82, 0, 1, 1, 1) end
         if r.guessed then GameTooltip:AddLine(L["Vendor price estimated: visit a vendor that sells it to learn the real one."], 0.6, 0.6, 0.6, true) end
@@ -1522,7 +1534,7 @@ ns.BuildCraftPage = function(page, style)
                 row.profit:SetText(L["|cffff7070-"] .. ns.Money(-r.profit, true) .. "|r")
             end
             row.value:SetText(r.enchant and L["|cff99ccffEnchant|r"] or ns.Money(r.value, true))
-            row.cost:SetText((r.guessed and "~" or "") .. ns.Money(r.cost, true))
+            row.cost:SetText(CostText(r, true))
             row.can:SetText(r.canMake > 0 and (L["|cffffffff%d|r"]):format(r.canMake) or L["|cff7777770|r"])
             row:Show()
         end
@@ -1580,6 +1592,7 @@ ns.RecipeTest = function()
 end
 
 ns.CraftAdvice = Evaluate
+ns.CraftCostText = CostText -- for the tests (tools/smoke_test.lua)
 
 -- Your skill in a profession: the skill list, else what the profession
 -- window showed last time

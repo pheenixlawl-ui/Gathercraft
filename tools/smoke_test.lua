@@ -3660,6 +3660,74 @@ step("Crafting: learn recipes, profit, can make", function()
     slash("crafttest")
     ns.HideMain()
 end)
+step("Crafting: costs without a price show ? or ~, never 0c (v0.1.14)", function()
+    -- found in testing: Smelting showed "Costs 0c" for every recipe whose ores had no price yet
+    local T, Q = ns.CraftCostText, ns.L["|cff777777?|r"]
+    local function R(cost, unknown, n, guessed)
+        local rs = {}
+        for i = 1, n do rs[i] = {} end
+        return { cost = cost, costUnknown = unknown, reagents = rs, guessed = guessed }
+    end
+    assert(T(R(0, 2, 2)) == Q, "no reagent has a price: " .. T(R(0, 2, 2)))
+    local part = T(R(40, 1, 3))
+    assert(part:sub(1, 1) == "~" and part:find(ns.Money(40), 1, true), "some reagents have a price: " .. part)
+    assert(T(R(40, 0, 3)) == ns.Money(40), "all reagents have a price: " .. T(R(40, 0, 3)))
+    assert(T(R(0, 0, 2)) == ns.Money(0), "materials that really cost nothing: " .. T(R(0, 0, 2)))
+    assert(T(R(40, 0, 3, true)):sub(1, 1) == "~", "an estimated vendor price lost its ~")
+    -- Peacebloom has no price for a moment: Minor Healing Potion has one
+    -- reagent without a price
+    local oldPrice, oldVendor = ns.GetPrice, ns.db.vendorPrices and ns.db.vendorPrices[2447]
+    ns.GetPrice = function(id, ...) if id == 2447 then return nil end return oldPrice(id, ...) end
+    if ns.db.vendorPrices then ns.db.vendorPrices[2447] = nil end
+    -- the rows: the count fits their reagents; nothing with an unknown price
+    -- ranks among the known ones, and those are in name order
+    local rows = ns.CraftAdvice()
+    local seenMissing, lastName, partial
+    for _, r in ipairs(rows) do
+        local u = 0
+        for _, p in ipairs(r.reagents) do if not p.cost then u = u + 1 end end
+        assert(r.costUnknown == u, ("%s: %d reagents without a price counted, %d really"):format(r.name, r.costUnknown, u))
+        if r.missing then
+            assert(not seenMissing or not lastName or r.enchant or lastName <= r.name, "unknown prices not in name order: " .. r.name)
+            seenMissing, lastName = true, r.name
+        else
+            assert(not seenMissing, "a recipe with a known profit after one with an unknown price: " .. r.name)
+        end
+        if r.costUnknown > 0 and r.costUnknown < #r.reagents and not r.enchant and r.learned then partial = partial or r end
+    end
+    assert(partial, "test setup: no learned recipe with some reagents without a price")
+    assert(T(partial):sub(1, 1) == "~", partial.name .. ": costs with a reagent without a price: " .. T(partial))
+    -- its tooltip: materials not as a plain sum, the count without a price, profit ?
+    local oldTab = ns.db.craftTab
+    ns.ToggleMain("craft") advance(1)
+    for _, f in ipairs(allFrames) do -- the "Mine" tab: the recipes you know
+        if f.full == "Mine" and f.__scripts and f.__scripts.OnClick then f.__scripts.OnClick(f) end
+    end
+    local row
+    for _, f in ipairs(allFrames) do
+        if f.data == partial or (f.data and f.data.key == partial.key and f:IsShown()) then
+            if f.__scripts and f.__scripts.OnEnter then row = f end
+        end
+    end
+    assert(row, "test setup: no row for " .. partial.name)
+    local shown = row.cost and row.cost:GetText() or ""
+    assert(shown:sub(1, 1) == "~", "Costs column with a reagent without a price: " .. shown)
+    local oldDouble, mats, profit = GameTooltip.AddDoubleLine, nil, nil
+    GameTooltip.AddDoubleLine = function(_, l, r)
+        if l == ns.L["Materials"] then mats = r end
+        if l == ns.L["Profit per craft"] then profit = r end
+    end
+    row.__scripts.OnEnter(row)
+    GameTooltip.AddDoubleLine = oldDouble
+    local without = (ns.L["(+%d without a price)"]):format(partial.costUnknown)
+    assert(mats and mats:find(without, 1, true) and (mats:find(Q, 1, true) or mats:find("~", 1, true)), "materials line: " .. tostring(mats))
+    assert(profit and profit:find(Q, 1, true), "profit with an unknown price: " .. tostring(profit))
+    if row.__scripts.OnLeave then row.__scripts.OnLeave(row) end
+    ns.GetPrice = oldPrice
+    if ns.db.vendorPrices then ns.db.vendorPrices[2447] = oldVendor end
+    ns.db.craftTab = oldTab
+    ns.HideMain()
+end)
 step("Crafting: trainer without links (Forever), tooltip reagents", function()
     local oldName = C_Item.GetItemNameByID
     local names = { [2996] = "Bolt of Linen Cloth", [2320] = "Coarse Thread", [4307] = "Heavy Linen Gloves" }
