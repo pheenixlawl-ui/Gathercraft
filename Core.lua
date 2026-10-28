@@ -454,6 +454,12 @@ local function AddNodeAt(mapID, x, y, name, nodeType, id, spawn, item)
         n.id = n.id or id
         n.type = n.type or nodeType
         n.item = n.item or item
+        -- harvested ourselves a node that came from sync: what we saw (the
+        -- gathering spell's kind, the loot's item) beats what the report said
+        if spawn and n.source == "sync" then
+            n.type = nodeType or n.type
+            n.item = item or n.item
+        end
         n.lastSpawn = spawn or n.lastSpawn
         if spawn then n.source = nil end -- harvested ourselves: our own node now
         Debug(("Merged %s%s (seen %d times)."):format(n.name, TypeTag(n.type), n.count))
