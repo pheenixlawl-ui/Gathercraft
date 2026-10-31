@@ -399,6 +399,11 @@ local function CultivatedCopy(mapID, x, y, nodeType, id, nameKey, spawn)
     end
 end
 
+-- Nodes whose lastSpawn was seen in this session. Forever keeps a spawn's ID
+-- only for one session: an ID saved from an earlier one says nothing about
+-- the spawn there now
+local spawnThisSession = setmetatable({}, { __mode = "k" })
+
 local function AddNodeAt(mapID, x, y, name, nodeType, id, spawn, item)
     local list = GetZoneNodes(mapID, true)
     local nameKey = name:lower()
@@ -411,7 +416,7 @@ local function AddNodeAt(mapID, x, y, name, nodeType, id, spawn, item)
     end
 
     -- Find the closest existing node of the same kind that this gather can belong to
-    local best, bestDist
+    local best, bestDist, bestResumed
     for _, n in ipairs(list) do
         if SameKind(n, id, nameKey, canonKey) then
             local d = n.seenOnly and ns.Yards(mapID, x, y, n.x, n.y) or Distance(mapID, x, y, n.x, n.y)
@@ -420,17 +425,29 @@ local function AddNodeAt(mapID, x, y, name, nodeType, id, spawn, item)
                 if spawn and n.lastSpawn == spawn then
                     -- Same spawn gathered again (e.g. a vein mined twice): don't count it again
                     n.last = time()
+                    spawnThisSession[n] = true
                     Debug(("Same spawn of %s gathered again, not counted."):format(n.name))
                     return n, true
                 end
                 -- A different spawn next to a node harvested minutes ago can't be its
-                -- respawn: it is a neighbour node (e.g. two veins close together)
+                -- respawn: it is a neighbour node (e.g. two veins close together).
+                -- Not so with an ID from an earlier session: the spawn there,
+                -- still resting, can have a new ID now. It is that same spawn.
                 local tooSoon = spawn and n.lastSpawn and IsOnCooldown(n)
-                if not tooSoon and (not bestDist or d < bestDist) then
-                    best, bestDist = n, d
+                local resumed = tooSoon and not spawnThisSession[n]
+                if (resumed or not tooSoon) and (not bestDist or d < bestDist) then
+                    best, bestDist, bestResumed = n, d, resumed
                 end
             end
         end
+    end
+
+    if best and bestResumed then
+        -- counted when it was gathered first; from now on known by its new ID
+        best.lastSpawn, best.last = spawn, time()
+        spawnThisSession[best] = true
+        Debug(("Resting %s gathered again under a new spawn ID, not counted."):format(best.name))
+        return best, true, true
     end
 
     if best then
@@ -461,7 +478,10 @@ local function AddNodeAt(mapID, x, y, name, nodeType, id, spawn, item)
             n.item = item or n.item
         end
         n.lastSpawn = spawn or n.lastSpawn
-        if spawn then n.source = nil end -- harvested ourselves: our own node now
+        if spawn then
+            spawnThisSession[n] = true
+            n.source = nil -- harvested ourselves: our own node now
+        end
         Debug(("Merged %s%s (seen %d times)."):format(n.name, TypeTag(n.type), n.count))
         NodesChanged("update", mapID, n)
         return n
@@ -472,6 +492,7 @@ local function AddNodeAt(mapID, x, y, name, nodeType, id, spawn, item)
         count = 1, last = time(), lastSpawn = spawn, item = item,
     }
     table.insert(list, node)
+    if spawn then spawnThisSession[node] = true end
     Debug(("Added %s%s at %.1f / %.1f (%d nodes in %s)."):format(
         name, TypeTag(nodeType), x * 100, y * 100, #list, GetZoneName(mapID)))
     NodesChanged("add", mapID, node)
@@ -831,10 +852,10 @@ local function TryRecord(p)
     Debug(("RECORD name=%s type=%s id=%s spawn=%s item=%s"):format(
         p.name, p.type, tostring(id), tostring(p.spawn), tostring(p.itemID)))
 
-    local node, again = AddNodeAt(p.mapID, p.x, p.y, p.name, p.type, id, p.spawn, p.itemID)
+    local node, again, resumed = AddNodeAt(p.mapID, p.x, p.y, p.name, p.type, id, p.spawn, p.itemID)
     if not node then return end
     node.emptyUntil = time() + (RESPAWN_BY_TYPE[node.type] or RESPAWN_TIME)
-    if not again then
+    if not again or resumed then
         lastPick[node] = { mapID = p.mapID, x = p.x, y = p.y, t = time(), spawn = p.spawn }
     end
     -- the same node a second time (vein mined again, cultivated herb): nothing

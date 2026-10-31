@@ -4881,6 +4881,125 @@ step("Run counter: a cultivated copy counts once, the first one still counts (v0
     UnitRace = oldRace
     W.Restore()
 end)
+-- A1: spawn IDs on Forever hold for one session only. A node from the saved
+-- data (a plain table, as an older save has it, with no session mark) still
+-- resting from a gather in an earlier session
+local function SpawnWorld()
+    local W = IdentityWorld()
+    function W.Saved(xYd, spawn, rest, extra)
+        local v = W.Node("o1731", "Copper Vein", xYd, { type = "ore", item = 2770, lastSpawn = spawn,
+            emptyUntil = rest and time() + rest or nil })
+        for k, val in pairs(extra or {}) do v[k] = val end
+        return v
+    end
+    function W.Mine(tag, xYd)
+        W.At(xYd or 0)
+        local c = W.Cast("Copper Vein", 2575) W.Wait(2) W.Done(c, 2575) W.Loot(1731, 2770, tag) W.Wait(3)
+    end
+    function W.Veins()
+        local n = 0
+        for _, x in ipairs(ns.db.nodes[1412]) do if x.id == "o1731" then n = n + 1 end end
+        return n
+    end
+    function W.Hits()
+        local h = 0
+        for _, x in ipairs(ns.db.nodes[1412]) do if x.id == "o1731" then h = h + (x.hits or 0) end end
+        return h
+    end
+    function W.Run(list)
+        W.Set(list)
+        W.At(-200) ns.StartRun("ore", 1412) W.Wait(1)
+        local s = ns.RunSnapshot()
+        assert(s, "test setup: no run")
+        return s
+    end
+    return W
+end
+step("A1: a spawn ID from an earlier session is no new spot (Codex' three cases)", function()
+    local W = SpawnWorld()
+    -- (1) the old ID again, still resting: one node, not counted
+    local v = W.Saved(0, "OLDID1", 200)
+    local s0 = W.Run({ v })
+    W.Mine("OLDID1")
+    assert(W.Veins() == 1 and v.count == 1 and ns.RunSnapshot().nodes == s0.nodes,
+        ("old ID again: %d nodes, count %d"):format(W.Veins(), v.count))
+    W.Restore()
+    -- (2) a new ID, still resting, same spot and object: the same node, not counted
+    W = SpawnWorld()
+    v = W.Saved(0, "OLDID1", 200)
+    s0 = W.Run({ v })
+    W.Mine("NEWID1")
+    assert(W.Veins() == 1, ("new ID while resting: %d nodes at the same spot (want 1)"):format(W.Veins()))
+    assert(v.count == 1 and v.lastSpawn == "NEWID1", ("new ID while resting: count %d, spawn %s"):format(v.count, tostring(v.lastSpawn)))
+    assert(ns.RunSnapshot().nodes == s0.nodes, "new ID while resting: counted in the run again")
+    -- the new ID holds from now on in this session: once more, still nothing
+    W.Mine("NEWID1")
+    assert(W.Veins() == 1 and v.count == 1 and ns.RunSnapshot().nodes == s0.nodes, "the new ID again: counted")
+    W.Restore()
+    -- (3) a new ID, the rest is over: the same node, counted (as before)
+    W = SpawnWorld()
+    v = W.Saved(0, "OLDID1", -10)
+    s0 = W.Run({ v })
+    W.Mine("NEWID2")
+    assert(W.Veins() == 1 and v.count == 2 and ns.RunSnapshot().nodes == s0.nodes + 1,
+        ("new ID after the rest: %d nodes, count %d"):format(W.Veins(), v.count))
+    W.Restore()
+end)
+step("A1: earlier session, a few yards off or a real neighbour; this session as before", function()
+    -- (2) new session, new ID, you stand 4 yards from where you mined before: one node
+    local W = SpawnWorld()
+    local v = W.Saved(0, "OLDID1", 200)
+    W.Run({ v })
+    W.Mine("NEWID3", 4)
+    assert(W.Veins() == 1 and v.lastSpawn == "NEWID3", ("4 yd off, new session: %d nodes (want 1)"):format(W.Veins()))
+    W.Restore()
+    -- (3) this session: a vein mined, a neighbour 8 yards away with its own ID: two spots (as before)
+    W = SpawnWorld()
+    local s0 = W.Run({ W.Saved(1000) }) -- a vein far away: the run has a target
+    W.Mine("SESS01", 0)
+    W.Mine("SESS02", 8)
+    assert(W.Veins() == 3 and ns.RunSnapshot().nodes == s0.nodes + 2, -- with the far one
+        ("this session, neighbour at 8 yd: %d new nodes, %d counted (want 2, 2)"):format(W.Veins() - 1, ns.RunSnapshot().nodes - s0.nodes))
+    W.Restore()
+    -- (4) new session, a real neighbour at a usual spawn distance (15 yd; half of
+    -- all same-object neighbours in the spawn data are 43 yd or more apart): two spots
+    W = SpawnWorld()
+    v = W.Saved(0, "OLDID1", 200)
+    s0 = W.Run({ v })
+    W.Mine("NEWID4", 15)
+    assert(W.Veins() == 2 and v.count == 1 and ns.RunSnapshot().nodes == s0.nodes + 1,
+        ("new session, neighbour at 15 yd: %d nodes (want 2)"):format(W.Veins()))
+    W.Restore()
+    -- (5) this session, the same ID three times: one node, counted once
+    W = SpawnWorld()
+    s0 = W.Run({ W.Saved(1000) })
+    W.Mine("SESS03") W.Mine("SESS03") W.Mine("SESS03")
+    assert(W.Veins() == 2 and ns.RunSnapshot().nodes == s0.nodes + 1, -- with the far one
+        ("this session, same ID 3x: %d new nodes, %d counted"):format(W.Veins() - 1, ns.RunSnapshot().nodes - s0.nodes))
+    W.Restore()
+    -- (6) saved nodes with only part of it (old saves): no Lua error
+    W = SpawnWorld()
+    local before = #errors
+    W.Run({ W.Saved(0, "OLDID1", nil), W.Saved(30, nil, 200), W.Saved(60, "OLDID2", 200, { count = 0 }) })
+    W.Mine("NEWID5", 0) W.Mine("NEWID6", 30) W.Mine("NEWID7", 60)
+    assert(#errors == before and W.Veins() == 3, ("partial saves: %d errors, %d nodes (want 0, 3)"):format(#errors - before, W.Veins()))
+    W.Restore()
+end)
+step("A1: route hits after a new session (lastHitSpawn)", function()
+    -- (7) the hit a resting spot got in an earlier session is not taken again
+    -- under its new ID; after the rest a new ID is a new hit
+    local W = SpawnWorld()
+    local v = W.Saved(0, "OLDID1", 200, { hits = 1, lastHitSpawn = "OLDID1" })
+    W.Run({ v })
+    W.Mine("NEWID8")
+    assert(W.Hits() == 1, ("new ID while resting: %d hits (want 1)"):format(W.Hits()))
+    v.emptyUntil = time() - 1
+    W.Mine("NEWID9")
+    assert(v.hits == 2 and v.lastHitSpawn == "NEWID9", ("new ID after the rest: %d hits (want 2)"):format(v.hits or 0))
+    W.Mine("NEWID9")
+    assert(v.hits == 2, "the same ID again in this session: another hit")
+    W.Restore()
+end)
 step("Crafting: /gcr crafttest marks unknown costs like the list (v0.1.14)", function()
     -- every reagent without a price for a moment: the diagnosis says ?, not 0c
     local oldPrice, oldVendor = ns.GetPrice, ns.db.vendorPrices
