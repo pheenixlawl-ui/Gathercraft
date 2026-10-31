@@ -1110,6 +1110,14 @@ local function CostText(r, short)
     return ((r.guessed or r.costUnknown > 0) and "~" or "") .. ns.Money(r.cost, short)
 end
 
+-- What a recipe's product sells for as text: "?" while the product has no
+-- price (not in the client's item cache yet, or no price source knows it).
+-- "0c" only when a source really says it is worth nothing.
+local function ValueText(r, short)
+    if not r.valueSource then return L["|cff777777?|r"] end
+    return ns.Money(r.value, short)
+end
+
 local function Professions()
     local list = {}
     for prof in pairs(CharRecipes()) do list[#list + 1] = prof end
@@ -1145,7 +1153,7 @@ local function CraftTest()
     for i = 1, math.min(3, #rows) do
         local r = rows[i]
         print(("  %d. %s: profit %s (sells %s, costs %s)"):format(i, r.name, r.missing and "?" or ns.Money(r.profit),
-            ns.Money(r.value), CostText(r)))
+            ValueText(r), CostText(r)))
     end
 end
 
@@ -1402,8 +1410,8 @@ ns.BuildCraftPage = function(page, style)
         if r.enchant then
             GameTooltip:AddLine(L["Enchant: makes no item. Below is what the materials cost, handy for pricing your service."], 0.6, 0.8, 1, true)
         end
-        if not r.enchant then GameTooltip:AddDoubleLine(L["Sells for"], ns.Money(r.value) .. "  |cff999999(" .. tostring(r.valueSource)
-            .. (r.valueSource ~= "vendor" and L[", after 5% AH cut"] or "") .. ")|r", 1, 0.82, 0, 1, 1, 1) end
+        if not r.enchant then GameTooltip:AddDoubleLine(L["Sells for"], r.valueSource and (ns.Money(r.value) .. "  |cff999999(" .. r.valueSource
+            .. (r.valueSource ~= "vendor" and L[", after 5% AH cut"] or "") .. ")|r") or L["|cffff7070no price|r"], 1, 0.82, 0, 1, 1, 1) end
         GameTooltip:AddLine(" ")
         for _, p in ipairs(r.reagents) do
             local name = ns.ItemName and ns.ItemName(p.id) or (L["item "] .. p.id)
@@ -1534,7 +1542,7 @@ ns.BuildCraftPage = function(page, style)
             else
                 row.profit:SetText(L["|cffff7070-"] .. ns.Money(-r.profit, true) .. "|r")
             end
-            row.value:SetText(r.enchant and L["|cff99ccffEnchant|r"] or ns.Money(r.value, true))
+            row.value:SetText(r.enchant and L["|cff99ccffEnchant|r"] or ValueText(r, true))
             row.cost:SetText(CostText(r, true))
             row.can:SetText(r.canMake > 0 and (L["|cffffffff%d|r"]):format(r.canMake) or L["|cff7777770|r"])
             row:Show()
@@ -1594,6 +1602,7 @@ end
 
 ns.CraftAdvice = Evaluate
 ns.CraftCostText = CostText -- for the tests (tools/smoke_test.lua)
+ns.CraftValueText = ValueText
 
 -- Your skill in a profession: the skill list, else what the profession
 -- window showed last time

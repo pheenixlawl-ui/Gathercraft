@@ -3728,6 +3728,56 @@ step("Crafting: costs without a price show ? or ~, never 0c (v0.1.14)", function
     ns.db.craftTab = oldTab
     ns.HideMain()
 end)
+step("V: a product without a price sells for ?, never 0c (v0.1.14)", function()
+    -- found in testing: Crafting > Leather showed "Sells for 0c" in every row
+    -- while no price source knew the products yet
+    local V, Q = ns.CraftValueText, ns.L["|cff777777?|r"]
+    assert(V({ value = 0 }) == Q, "no price source: " .. V({ value = 0 }))
+    assert(V({ value = 0, valueSource = "vendor" }) == ns.Money(0), "a vendor price of 0 is a known value: " .. V({ value = 0, valueSource = "vendor" }))
+    assert(V({ value = 1234, valueSource = "AH scan" }, true) == ns.Money(1234, true), "a known price: " .. V({ value = 1234, valueSource = "AH scan" }, true))
+    -- a learned recipe whose product has no price for a moment
+    local pick
+    for _, r in ipairs(ns.CraftAdvice()) do
+        if r.learned and not r.enchant and r.product and r.valueSource then pick = r break end
+    end
+    assert(pick, "test setup: no learned recipe with a priced product")
+    local oldPrice = ns.GetPrice
+    ns.GetPrice = function(id, ...) if id == pick.product then return nil end return oldPrice(id, ...) end
+    local again
+    for _, r in ipairs(ns.CraftAdvice()) do if r.key == pick.key and r.prof == pick.prof then again = r end end
+    assert(again and again.missing and not again.valueSource, pick.name .. ": a product without a price still has a value source")
+    assert(V(again, true) == Q, pick.name .. ": sells for " .. V(again, true))
+    -- its row says ?, its tooltip "no price"
+    local oldTab = ns.db.craftTab
+    local function Row()
+        ns.ToggleMain("craft") advance(1)
+        for _, f in ipairs(allFrames) do -- the "Mine" tab: the recipes you know
+            if f.full == "Mine" and f.__scripts and f.__scripts.OnClick then f.__scripts.OnClick(f) end
+        end
+        for _, f in ipairs(allFrames) do
+            if f.data and f.data.key == pick.key and f.data.prof == pick.prof and f:IsShown() and f.__scripts and f.__scripts.OnEnter then return f end
+        end
+    end
+    local row = Row()
+    assert(row, "test setup: no row for " .. pick.name)
+    local shown = row.value and row.value:GetText() or ""
+    assert(shown == Q, "Sells for column without a price: " .. shown)
+    local oldDouble, sells = GameTooltip.AddDoubleLine, nil
+    GameTooltip.AddDoubleLine = function(_, l, r) if l == ns.L["Sells for"] then sells = r end end
+    row.__scripts.OnEnter(row)
+    GameTooltip.AddDoubleLine = oldDouble
+    assert(sells == ns.L["|cffff7070no price|r"], "Sells for in the tooltip without a price: " .. tostring(sells))
+    if row.__scripts.OnLeave then row.__scripts.OnLeave(row) end
+    -- the price is known again: the real value is back
+    ns.GetPrice = oldPrice
+    ns.HideMain()
+    row = Row()
+    assert(row, "test setup: no row for " .. pick.name .. " with its price back")
+    shown = row.value and row.value:GetText() or ""
+    assert(shown == ns.Money(pick.value, true), "Sells for with the price back: " .. shown)
+    ns.db.craftTab = oldTab
+    ns.HideMain()
+end)
 step("Crafting: trainer without links (Forever), tooltip reagents", function()
     local oldName = C_Item.GetItemNameByID
     local names = { [2996] = "Bolt of Linen Cloth", [2320] = "Coarse Thread", [4307] = "Heavy Linen Gloves" }
@@ -5102,6 +5152,8 @@ step("Crafting: /gcr crafttest marks unknown costs like the list (v0.1.14)", fun
         if costs and log[i]:find("profit", 1, true) then
             lines = lines + 1
             assert(costs:find("?", 1, true), "crafttest shows a known cost without any price: " .. log[i])
+            local sells = log[i]:match("sells (.-), costs")
+            assert(sells and sells:find("?", 1, true), "crafttest shows a sale value without any price: " .. log[i])
         end
     end
     assert(lines > 0, "test setup: crafttest listed no recipe")

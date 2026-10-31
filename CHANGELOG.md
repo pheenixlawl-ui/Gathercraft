@@ -21,5 +21,6 @@
 - **The same node counts once in your run:** opening a node's loot again (or mining the same vein again) no longer adds to gathered, per hour and gold of the farm run, its summary and the line you share, or to the session totals.
 - **No second spot after logging out:** gathering the same vein again after you log out and back in no longer creates a second spot on the map.
 - **Crafting costs without a price:** when reagents have no price yet, "Costs" shows "?" (or "~" when only some have one, the tooltip says how many have none) instead of "0c", and such recipes are no longer ranked by a profit nobody knows.
+- **Crafting "Sells for" without a price:** while the item you make has no price yet, the column and the tooltip say so instead of "0c".
 - **Welcome window numbers:** it now says 15,000+ herb and ore spots – the old 25,000+ counted every spawn entry, not places on the map.
 - **A run no longer gets stuck waiting:** checks for nodes you reached now also finish while the run has no target, so one empty node can't block the run until it stops by itself.
