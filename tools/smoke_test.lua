@@ -4961,14 +4961,26 @@ step("A1: earlier session, a few yards off or a real neighbour; this session as 
     assert(W.Veins() == 3 and ns.RunSnapshot().nodes == s0.nodes + 2, -- with the far one
         ("this session, neighbour at 8 yd: %d new nodes, %d counted (want 2, 2)"):format(W.Veins() - 1, ns.RunSnapshot().nodes - s0.nodes))
     W.Restore()
-    -- (4) new session, a real neighbour at a usual spawn distance (15 yd; half of
-    -- all same-object neighbours in the spawn data are 43 yd or more apart): two spots
+    -- (4) new session, a real neighbour at a usual spawn distance (15 yd; for about
+    -- half of the spawn data entries the next one of the same object is 43-45 yd
+    -- or more away, an approximation): two spots
     W = SpawnWorld()
     v = W.Saved(0, "OLDID1", 200)
     s0 = W.Run({ v })
     W.Mine("NEWID4", 15)
     assert(W.Veins() == 2 and v.count == 1 and ns.RunSnapshot().nodes == s0.nodes + 1,
         ("new session, neighbour at 15 yd: %d nodes (want 2)"):format(W.Veins()))
+    W.Restore()
+    -- (4b) known limit A1-N, accepted on 31.10.2026: new session, a real neighbour
+    -- 8 yd away while the first one rests. It can't be told from the resting
+    -- spot under a new ID: one node, not counted. A change here must be on purpose
+    W = SpawnWorld()
+    v = W.Saved(0, "OLDID1", 200)
+    s0 = W.Run({ v })
+    W.Mine("NEWID5", 8)
+    assert(W.Veins() == 1 and v.count == 1 and v.lastSpawn == "NEWID5" and ns.RunSnapshot().nodes == s0.nodes,
+        ("known limit A1-N changed: new session, neighbour at 8 yd while resting: %d nodes, %d counted (accepted: 1, 0)")
+            :format(W.Veins(), ns.RunSnapshot().nodes - s0.nodes))
     W.Restore()
     -- (5) this session, the same ID three times: one node, counted once
     W = SpawnWorld()
