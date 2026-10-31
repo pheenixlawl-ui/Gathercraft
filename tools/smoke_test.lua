@@ -4251,6 +4251,38 @@ step("N: a node seen once says 'Seen 1 time', twice 'Seen 2 times' (pin and skil
     if LOCALE == "enUS" then assert(Has(two, "Seen 2 times") and Has(two, "(2 nodes)"), "English plural: " .. two) end
     stats[key] = saved
 end)
+step("L: long header texts stay inside their page (zones hints wrap, list below them)", function()
+    -- found in testing (deDE): the first zone hint ran over the right edge
+    local hint, routeHint
+    for _, f in ipairs(allFrames) do
+        if f.__kind == "FontString" then
+            if f.__text == ns.L["Ticked zones and materials are what Start run farms. The map still shows everything. Click + to pick single materials."] then hint = f end
+            if f.__text == ns.L["Farm runs from the overview or the minimap button stay in your zone. For a route over several zones: tick them here and press Start run."] then routeHint = f end
+        end
+    end
+    assert(hint and routeHint, "test setup: the zone hints were not found")
+    assert(type(hint.__w) == "number" and hint.__w > 0, "the first zone hint has no width: it runs over the edge")
+    assert(hint.__w == routeHint.__w, ("the zone hints differ in width: %s / %s"):format(tostring(hint.__w), tostring(routeHint.__w)))
+    local scroll = _G.GathercraftZonesScroll
+    local top = scroll and scroll.__pts and scroll.__pts.TOPLEFT
+    assert(top and top[1] == routeHint, "the zone list is not anchored below the route hint")
+    -- Crafting: the price line ends before the "Only recipes I know" box
+    -- (page 728 wide, the box 22 wide at TOPRIGHT -268: its left edge is at 438)
+    local prefix, sub, label = (ns.L["Profit after the 5%% auction cut  ·  %s"]):format(""), nil, nil
+    for _, f in ipairs(allFrames) do
+        if f.__kind == "FontString" then
+            if type(f.__text) == "string" and f.__text:find(prefix, 1, true) == 1 then sub = f end
+            if f.__text == ns.L["Only recipes I know"] then label = f end
+        end
+    end
+    assert(sub and label, "test setup: the crafting price line or the checkbox label was not found")
+    local box = label.__pts and label.__pts.LEFT and label.__pts.LEFT[1]
+    local boxRight = box and box.__pts and box.__pts.TOPRIGHT
+    assert(boxRight and boxRight[1] == -268 and box.__w == 22, "the crafting checkbox moved: check the price line's width with it")
+    local subLeft = sub.__pts and sub.__pts.TOPLEFT and sub.__pts.TOPLEFT[1] or 0
+    assert(type(sub.__w) == "number" and subLeft + sub.__w <= 728 - 268 - 22 - 8,
+        ("the crafting price line reaches the checkbox: %d + %s"):format(subLeft, tostring(sub.__w)))
+end)
 step("Zone change to Durotar + world map look", function()
     player.map = 1411 fire("ZONE_CHANGED_NEW_AREA") advance(3)
     WorldMapFrame:OnMapChanged() advance(1)

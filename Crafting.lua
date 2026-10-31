@@ -1168,7 +1168,9 @@ ns.BuildCraftPage = function(page, style)
 
     local sub = page:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     sub:SetPoint("TOPLEFT", 6, -28)
-    sub:SetWidth(440)
+    -- one line, cut before the "Only recipes I know" box (its left edge is at
+    -- 438 on the 728 wide page); the sub tabs sit right below, so no second line
+    sub:SetWidth(420)
     sub:SetWordWrap(false)
     sub:SetJustifyH("LEFT")
 

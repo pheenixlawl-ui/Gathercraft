@@ -51,6 +51,8 @@ close:SetPoint("TOPRIGHT", -2, -2)
 
 local hint = window:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 hint:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -6)
+hint:SetWidth(WIDTH - 30) -- wraps like the route hint below (two or three lines in some languages)
+hint:SetJustifyH("LEFT")
 ns.LText(hint, "Ticked zones and materials are what Start run farms. The map still shows everything. Click + to pick single materials.")
 
 -- quick runs (overview, minimap button) stay in your zone: this is where a
@@ -62,7 +64,8 @@ routeHint:SetJustifyH("LEFT")
 ns.LText(routeHint, "Farm runs from the overview or the minimap button stay in your zone. For a route over several zones: tick them here and press Start run.")
 
 local scroll = CreateFrame("ScrollFrame", "GathercraftZonesScroll", window, "UIPanelScrollFrameTemplate")
-scroll:SetPoint("TOPLEFT", 12, -84)
+-- below the hints, however many lines they take
+scroll:SetPoint("TOPLEFT", routeHint, "BOTTOMLEFT", -2, -10)
 scroll:SetPoint("BOTTOMRIGHT", -32, 44)
 
 local content = CreateFrame("Frame", nil, scroll)
@@ -275,7 +278,10 @@ Refresh = function()
     local scrollWidth = scroll:GetWidth() or 0
     if scrollWidth > 100 then
         content:SetWidth(scrollWidth) -- the page has its size now
-        if window:GetParent() ~= UIParent then routeHint:SetWidth(scrollWidth + 6) end
+        if window:GetParent() ~= UIParent then
+            hint:SetWidth(scrollWidth + 6)
+            routeHint:SetWidth(scrollWidth + 6)
+        end
     end
     local width = content:GetWidth() or 0
     local columns = (width >= TWO_COLUMNS_FROM and #tree > 1) and 2 or 1
@@ -478,10 +484,12 @@ ns.EmbedZones = function(parent)
     close:Hide()
     hint:ClearAllPoints()
     hint:SetPoint("TOPLEFT", 6, -6)
-    scroll:ClearAllPoints()
-    -- room for the route hint (two lines in some languages)
+    -- both hints wrap inside the page (two lines in some languages), the
+    -- list starts below them
+    hint:SetWidth(math.max(parent:GetWidth() or 0, 480) - 20)
     routeHint:SetWidth(math.max(parent:GetWidth() or 0, 480) - 20)
-    scroll:SetPoint("TOPLEFT", 4, -50)
+    scroll:ClearAllPoints()
+    scroll:SetPoint("TOPLEFT", routeHint, "BOTTOMLEFT", -2, -10)
     scroll:SetPoint("BOTTOMRIGHT", -26, 40)
     content:SetWidth(math.max(parent:GetWidth() or 0, 480) - 40) -- width can be 0 before the first layout
     startButton:ClearAllPoints()
