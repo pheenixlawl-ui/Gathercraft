@@ -335,7 +335,7 @@ Refresh = function()
             indent = 0,
             height = 16,
             font = "GameFontHighlightSmall",
-            text = (L["|cff999999%d nodes|r"]):format(c.total)
+            text = (c.total == 1 and L["|cff9999991 node|r"] or (L["|cff999999%d nodes|r"]):format(c.total))
                 .. (off and L["  |cff888888· off|r"] or "")
                 .. (c.id == currentContinent and L["  |cff7bd35fyou are here|r"] or ""),
         })
@@ -350,7 +350,7 @@ Refresh = function()
                 indent = INDENT,
                 font = "GameFontNormal",
                 -- "you are here" before the count: if the line is cut, the count goes
-                text = (L["%s  |cff999999(%d nodes)|r"]):format(
+                text = (z.total == 1 and L["%s  |cff999999(1 node)|r"] or L["%s  |cff999999(%d nodes)|r"]):format(
                     z.name .. (here and L["  |cff7bd35f< you are here >|r"] or ""), z.total),
                 checked = not db.disabledZones[z.mapID],
                 onToggle = function(on)

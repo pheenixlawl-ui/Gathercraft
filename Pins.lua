@@ -158,7 +158,8 @@ local function AddNodeLines(tt, n, pin, under)
         GameTooltip:AddLine((L["Reported by %d player(s), not confirmed yet"]):format(n.pendingReport.rc or 1), 0.7, 0.7, 0.7)
         GameTooltip:AddLine(L["Not part of routes until you or other players confirm it."], 0.6, 0.6, 0.6, true)
     elseif (n.count or 1) > 0 then
-        GameTooltip:AddLine((L["Seen %d times"]):format(n.count or 1), 0.8, 0.8, 0.8)
+        local count = n.count or 1
+        GameTooltip:AddLine(count == 1 and L["Seen 1 time"] or (L["Seen %d times"]):format(count), 0.8, 0.8, 0.8)
     end
     if ns.SkillTooltip then
         ns.SkillTooltip(GameTooltip, n)

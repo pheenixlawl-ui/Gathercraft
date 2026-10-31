@@ -651,8 +651,13 @@ local function UpdateSkills()
         local s, row = e.s, SkillRow(i)
         row.icon:SetTexture(KindIcon(s.type, items[e.key]))
         row.name:SetText(((ns.TYPE_COLORS[s.type] or "|cffffffff") .. (s.name or "?") .. "|r"))
-        row.info:SetText((L["Gathered from %s  ·  skill points seen up to %s  ·  %d gathered, %d skill-ups"]):format(
-            tostring(s.minSkill or "?"), tostring(s.maxUp or "–"), s.n or 0, s.ups or 0))
+        -- counts in their own words: "1 gathered" and "1 skill-up" each take
+        -- the singular in some languages
+        local n, ups = s.n or 0, s.ups or 0
+        row.info:SetText((L["Gathered from %s  ·  skill points seen up to %s  ·  "]):format(
+                tostring(s.minSkill or "?"), tostring(s.maxUp or "–"))
+            .. (n == 1 and L["1 gathered"] or (L["%d gathered"]):format(n)) .. ", "
+            .. (ups == 1 and L["1 skill-up"] or (L["%d skill-ups"]):format(ups)))
         local _, verdict = Verdict(s.type, e.key, s.name)
         row.verdict:SetText(verdict)
         row:Show()

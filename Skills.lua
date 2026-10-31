@@ -250,7 +250,8 @@ local function AddTooltipLines(tooltip, node)
         tooltip:AddLine((L["Your %s: %d"]):format(L[PROFESSION_LABEL[node.type]], mine) .. bonus, 0.8, 0.8, 0.8)
     end
     if s and s.minSkill then
-        tooltip:AddLine((L["Gathered from skill %d (%d nodes)"]):format(s.minSkill, s.n), 0.6, 0.6, 0.6)
+        tooltip:AddLine((s.n == 1 and L["Gathered from skill %d (1 node)"] or L["Gathered from skill %d (%d nodes)"]):format(
+            s.minSkill, s.n), 0.6, 0.6, 0.6)
         if s.maxUp then
             local r, g, b = 0.4, 1, 0.4
             if mine and mine > s.maxUp then r, g, b = 0.6, 0.6, 0.6 end

@@ -4174,6 +4174,33 @@ step("Pin tooltip", function()
         if f.node and f.__scripts.OnEnter then f.__scripts.OnEnter(f) f.__scripts.OnLeave(f) break end
     end
 end)
+step("N: a node seen once says 'Seen 1 time', twice 'Seen 2 times' (pin and skill lines)", function()
+    local lines
+    local tt = { AddLine = function(_, t) lines[#lines + 1] = tostring(t) end, AddDoubleLine = function() end }
+    local function Lines(n)
+        lines = {}
+        ns.AddNodeTooltipLines(tt, n)
+        return table.concat(lines, "\n")
+    end
+    local function Has(text, what) return text:find(what, 1, true) ~= nil end
+    local node = { id = "o1731", name = "Copper Vein", type = "ore", x = 0.5, y = 0.5, count = 1, last = time(), item = 2770 }
+    local stats, key = ns.KindStats(), ns.KindKey(node)
+    local saved = stats[key]
+    stats[key] = { type = "ore", name = "Copper Vein", n = 1, ups = 1, minSkill = 1, maxUp = 1 }
+    local one = Lines(node)
+    assert(Has(one, ns.L["Seen 1 time"]), "count 1: " .. one)
+    assert(Has(one, (ns.L["Gathered from skill %d (1 node)"]):format(1)), "skill line with 1 node: " .. one)
+    if LOCALE == "enUS" then
+        assert(Has(one, "Seen 1 time") and not Has(one, "1 times") and Has(one, "(1 node)") and not Has(one, "1 nodes"),
+            "English singular: " .. one)
+    end
+    node.count, stats[key].n = 2, 2
+    local two = Lines(node)
+    assert(Has(two, (ns.L["Seen %d times"]):format(2)), "count 2: " .. two)
+    assert(Has(two, (ns.L["Gathered from skill %d (%d nodes)"]):format(1, 2)), "skill line with 2 nodes: " .. two)
+    if LOCALE == "enUS" then assert(Has(two, "Seen 2 times") and Has(two, "(2 nodes)"), "English plural: " .. two) end
+    stats[key] = saved
+end)
 step("Zone change to Durotar + world map look", function()
     player.map = 1411 fire("ZONE_CHANGED_NEW_AREA") advance(3)
     WorldMapFrame:OnMapChanged() advance(1)
