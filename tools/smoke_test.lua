@@ -5000,6 +5000,55 @@ step("A1: route hits after a new session (lastHitSpawn)", function()
     assert(v.hits == 2, "the same ID again in this session: another hit")
     W.Restore()
 end)
+step("Sync: a refused or failing send is dropped, the queue goes on", function()
+    slash("sync on")
+    local real = C_ChatInfo.SendAddonMessage
+    local wasDebug = ns.db.debug
+    local tries = {}
+    local function Share(x)
+        local node = { id = "o1619", name = "Earthroot", type = "herb", x = x, y = 0.62, count = 1, last = time(), item = 2449 }
+        table.insert(ns.db.nodes[1412], node)
+        ns.SyncShare(1412, node) advance(3)
+        return node
+    end
+    -- (a) refused, (b) the call throws, (c) throws with /gcr debug on
+    local ok, err = pcall(function()
+    for _, mode in ipairs({ "false", "throw", "debug" }) do
+        tries = {}
+        C_ChatInfo.SendAddonMessage = function(prefix, msg, chan)
+            local key = msg .. "|" .. tostring(chan)
+            tries[key] = (tries[key] or 0) + 1
+            if mode ~= "false" then error("addon messages are not allowed") end
+            return false
+        end
+        ns.db.debug = mode == "debug"
+        local before, mark = #errors, #log
+        local a = Share(0.211)
+        local b = Share(0.233)
+        advance(10)
+        assert(#errors == before, mode .. ": an error came out of the send")
+        local texts, total = 0, 0
+        for _, n in pairs(tries) do texts = texts + 1 total = total + n end
+        assert(texts >= 2, ("%s: the queue stopped after a failed send (%d messages tried)"):format(mode, texts))
+        assert(total == texts, ("%s: a failed message was sent again (%d tries for %d messages)"):format(mode, total, texts))
+        local lines = 0
+        for i = mark + 1, #log do
+            if log[i]:find("not allowed", 1, true) or log[i]:find("sent [", 1, true) then lines = lines + 1 end
+        end
+        if mode == "debug" then
+            assert(lines <= total, ("debug: %d lines for %d failed sends (want one each at most)"):format(lines, total))
+        else
+            assert(lines == 0, mode .. ": a chat line without /gcr debug")
+        end
+        for _, n in ipairs({ a, b }) do
+            for i, x in ipairs(ns.db.nodes[1412]) do if x == n then table.remove(ns.db.nodes[1412], i) break end end
+        end
+    end
+    end)
+    C_ChatInfo.SendAddonMessage = real
+    ns.db.debug = wasDebug
+    assert(ok, err)
+end)
 step("Crafting: /gcr crafttest marks unknown costs like the list (v0.1.14)", function()
     -- every reagent without a price for a moment: the diagnosis says ?, not 0c
     local oldPrice, oldVendor = ns.GetPrice, ns.db.vendorPrices

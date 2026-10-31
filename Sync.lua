@@ -144,16 +144,24 @@ local function Enqueue(text, target)
     return true
 end
 
+-- A client that refuses addon messages (e.g. a trial account) may throw
+-- instead of saying no: the message is dropped either way, never retried
+local function Send(...)
+    local fine, result = pcall(C_ChatInfo.SendAddonMessage, ...)
+    if fine then return result end
+    return false, result
+end
+
 local function SendNext()
     local item = table.remove(queue, 1)
     if not item then return end
-    local ok
+    local ok, err
     if item.target == "GUILD" then
         if IsInGuild() then
-            ok = C_ChatInfo.SendAddonMessage(PREFIX, item.text, "GUILD")
+            ok, err = Send(PREFIX, item.text, "GUILD")
         end
     elseif channelID and channelID > 0 then
-        ok = C_ChatInfo.SendAddonMessage(PREFIX, item.text, "CHANNEL", channelID)
+        ok, err = Send(PREFIX, item.text, "CHANNEL", channelID)
     end
     if item.target ~= "GUILD" then
         sentAt[item.text] = time()
@@ -161,7 +169,8 @@ local function SendNext()
             if time() - t > 60 then sentAt[text] = nil end
         end
     end
-    Debug(("sent [%s] %s -> %s"):format(item.target, item.text:sub(1, 60), tostring(ok)))
+    Debug(("sent [%s] %s -> %s%s"):format(item.target, item.text:sub(1, 60), tostring(ok),
+        err and (" (" .. tostring(err) .. ")") or ""))
 end
 
 local function Coord(v)
