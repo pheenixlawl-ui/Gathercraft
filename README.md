@@ -96,14 +96,14 @@ Then visit the auction house once and press *Gathercraft Scan* – from now on e
 |---|---|
 | **Overview** | Your professions, what to gather in this zone, one-click farm runs, session stats |
 | **Farm Spots** | Best zones by gold per hour, nodes per hour and skill-ups |
-| **Crafting** | Profit of every recipe, per profession |
+| **Crafting** | Profit of every recipe, per profession – and the skill plan |
 | **Zones** | Pick zones and materials for your routes |
 | **Skills** | Which nodes gave you skill-ups so far |
-| **Options** | Map, arrow, route type, goal & line, sharing, language, RARE! alert, fishing, price alerts |
+| **Options** | Map & minimap, farm runs, leveling, sharing, rares & prices, general |
 
 For power users and macros: `/gcr run herb|ore|both` · `/gcr route` *(preview)* · `/gcr loadall` *(whole continent)* · `/gcr help` *(all commands)*
 
-**Key bindings:** Options › Keybindings › AddOns › Gathercraft *(Fish · Start/stop run · Skip node)*
+**Key bindings:** Options › Keybindings › AddOns › Gathercraft *(Fish · Start/stop run · Skip node · Zones window · Find Herbs / Find Minerals)*
 
 ## ❓ FAQ
 **"Does it play for me?"**
@@ -143,24 +143,28 @@ Gathercraft is **actively developed** – during the Forever launch weeks expect
 **✅ Live now**
 
 - Node recording, map & minimap pins, 16,000+ known spawn points
-- Live farm routes with the Gathercraft arrow and farm panel
+- **Learn spots from your minimap** – point at a herb or vein your tracking shows
+- Live farm routes with the Gathercraft arrow and farm panel – **Smart** or **Loop**
+- **Smart routes** – only nodes you can gather, by skill-ups or gold
+- **Pins in the trainer colour** – see which nodes still give skill-ups
 - Own auction house scan, prices in tooltips, price alerts, **gold per hour**
 - **Farm Spots** – best zones by gold per hour
-- **Crafting** – profit of 2,000+ recipes of all professions
+- **Crafting** – profit of 2,000+ recipes of all professions, and the **skill plan** to your target skill
+- **Where to learn every recipe** – trainer, vendor or drop
 - One-key fishing with its own panel, RARE! announcer, optional node sharing
 - 10 languages, works in every client language
-- **Where to learn every recipe** – trainer, vendor or drop
-- **Smart routes** – only nodes you can gather, by skill-ups or gold
 
 **🔨 Next up (launch weeks)**
 
-- **New Forever zones** – Zephras Isle, Darkspear Islands, Riverglades & co.
-- **Waypoints to recipe vendors** – one click and the arrow takes you there
-- **Selling helper** – list what you gathered at the right price in one click
+- **More spawn points for the new and reworked Forever zones** (Hyjal, Riverglades, Shen'dralas, Zephras Isle) as soon as they are known
+- **A short guided tour** on first start
+- **Better Loop routes** for mixed Herbs + Ores runs
+- **Fresh recipe data** for Forever
 
 **🔮 Later**
 
-- **Profession planner** – pick a target skill, get the material list, and Gathercraft routes you straight to it
+- **Flight paths** on long routes
+- **Skinning spots**
 - **Shared recipe book** – trainer visits of other players fill in yours
 
 *Got an idea? Tell us – the best ones end up on this list.*
