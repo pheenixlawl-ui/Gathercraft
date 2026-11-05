@@ -759,8 +759,11 @@ ns.ObjectName = ObjectName -- for the tests (tools/smoke_test.lua)
 -- object ID. A new Forever object goes by the name our records give it,
 -- never by its item: Wilted Peacebloom is its own herb, even where its loot
 -- holds a Peacebloom item. An object nobody has a name for can't be checked.
+-- A guess (any spell cast on something with a name: a buff, an attack) only
+-- fits the loot of a known herb, ore or chest object.
 local function LootFits(p, objectID, itemID)
-    if p.guess or p.type == "chest" then return true end
+    if p.guess then return KnownObjectType(objectID) and true or false end
+    if p.type == "chest" then return true end
     local objType = objectID and KnownObjectType(objectID)
     if objType and objType ~= p.type then return false end
     if not HasName(p) then return true end
@@ -972,7 +975,7 @@ local function OnLoot()
     if cur and not cur.done and not cur.lootSeen and now - cur.sentAt <= IDENTITY_WAIT then
         if LootFits(cur, objectID, itemID) then
             fits[#fits + 1] = cur
-        else
+        elseif not cur.guess then
             cur.lootConflict = true -- unless loot that fits still comes, nothing is recorded
             Debug(("LOOT of object %s does not fit the gather of %s (%s)"):format(
                 tostring(objectID), tostring(cur.name), tostring(cur.castGUID)))
@@ -987,6 +990,21 @@ local function OnLoot()
         end
     end
     if #fits == 0 then return end
+    -- a real gather goes first: a guess next to it was no gather
+    local real = {}
+    for _, f in ipairs(fits) do
+        if not f.guess then real[#real + 1] = f end
+    end
+    if #real > 0 and #real < #fits then
+        for _, f in ipairs(fits) do
+            if f.guess then
+                f.done = true
+                if ns.pending == f then ns.pending = nil end
+                Debug(("LOOT of object %s goes to a real gather: spell %s was none"):format(tostring(objectID), tostring(f.spellID)))
+            end
+        end
+        fits = real
+    end
     if #fits > 1 then
         -- the same kind gathered twice (or a vein mined again) before the loot
         -- came: nobody can tell whose it is, so none of them is booked

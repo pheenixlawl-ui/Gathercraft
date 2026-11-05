@@ -5047,6 +5047,128 @@ step("Run counter: the same spawn opened again counts once, its value too", func
     SendChatMessage = oldSend
     W.Restore()
 end)
+step("Recorder: a spell cast on a target before a gather leaves the gather alone", function()
+    -- seen on the live server (05.11.): Mark of the Wild on yourself, then a
+    -- Silverleaf: "fits 2 gathers, all dropped", no pin, no count
+    local W = IdentityWorld()
+    local BUFF, MAUL, HERB, ORE = 5232, 6807, 2366, 2575
+    local wasDebug, mark = ns.db.debug, #log
+    ns.db.debug = true
+    ns.db.gatherSpells = ns.db.gatherSpells or {}
+    W.Set({})
+    W.At(-200) ns.StartRun("both", 1412) W.Wait(1)
+    assert(ns.RunSnapshot(), "test setup: no run")
+    local fails = {}
+    local function Check(ok, text) if not ok then fails[#fails + 1] = text end end
+    local function Booked(tag)
+        for _, n in ipairs(ns.db.nodes[1412]) do if n.lastSpawn == tag then return n end end
+    end
+    local function Said(text)
+        for i = mark + 1, #log do if log[i]:find(text, 1, true) then return true end end
+    end
+    local function Spell(target, spell) local c = W.Cast(target, spell) W.Done(c, spell) end
+    local function MobLoot(source)
+        loot = { { guid = source or "Creature-0-1-1-1-3099-EEEE", item = 769, qty = 1 } }
+        fire("LOOT_READY") fire("LOOT_OPENED")
+        loot = {}
+        fire("LOOT_CLOSED")
+    end
+    local function Pick(name, spell, object, item, tag)
+        local c = W.Cast(name, spell) W.Wait(2) W.Done(c, spell)
+        W.Loot(object, item, tag) W.Loot(object, item, tag, "LOOT_OPENED")
+    end
+    local at = 0
+    -- one case on its own spot; what is left of it has run out afterwards
+    local function Case(what, tag, expected, fn)
+        at = at + 300
+        W.At(at)
+        mark = #log
+        local s0, v0 = ns.RunSnapshot(), ns.SessionValue()
+        fn()
+        W.Wait(12)
+        local s1, v1 = ns.RunSnapshot(), ns.SessionValue()
+        local booked = tag and Booked(tag) ~= nil
+        if expected then
+            Check(booked, what .. ": no RECORD, no pin")
+            Check(s1.nodes == s0.nodes + 1, ("%s: run counter +%d"):format(what, s1.nodes - s0.nodes))
+            Check(s1.value > s0.value and v1 > v0, what .. ": no value booked")
+            Check(not Said("can't tell whose"), what .. ": called ambiguous")
+            Check(not Said("DROPPED gather"), what .. ": dropped")
+        else
+            Check(not booked, what .. ": booked")
+            Check(s1.nodes == s0.nodes and s1.value == s0.value and v1 == v0, what .. ": counted")
+        end
+        Check(not ns.db.gatherSpells[BUFF] and not ns.db.gatherSpells[MAUL], what .. ": a combat spell was learned")
+    end
+
+    Case("buff, then herb", "VB0001", true, function()
+        Spell("Druid Lawl", BUFF) Pick("Silverleaf", HERB, 1617, 765, "VB0001")
+    end)
+    Case("buff, then the other Silverleaf object", "VB0002", true, function()
+        Spell("Druid Lawl", BUFF) Pick("Silverleaf", HERB, 3725, 765, "VB0002")
+    end)
+    Case("buff, then ore", "VB0003", true, function()
+        Spell("Druid Lawl", BUFF) Pick("Copper Vein", ORE, 1731, 2770, "VB0003")
+    end)
+    Case("buff between the herb and its loot", "VB0004", true, function()
+        local c = W.Cast("Silverleaf", HERB) W.Wait(2) W.Done(c, HERB)
+        Spell("Druid Lawl", BUFF)
+        W.Loot(1617, 765, "VB0004") W.Loot(1617, 765, "VB0004", "LOOT_OPENED")
+    end)
+    Case("three attacks, mob loot, then herb", "VB0005", true, function()
+        for _ = 1, 3 do Spell("Sunscale Screecher", MAUL) W.Wait(1) end
+        MobLoot()
+        Pick("Silverleaf", HERB, 1617, 765, "VB0005")
+    end)
+    -- no gather at all: the mob's loot, an item's loot, a window without an object
+    Case("attack, mob loot alone", nil, false, function()
+        Spell("Sunscale Screecher", MAUL) W.Wait(1) MobLoot()
+    end)
+    Check(not Said("can't tell whose") and not Said("does not fit"), "mob loot alone: named as a gather's loot")
+    Case("attacks, mob loot alone", nil, false, function()
+        for _ = 1, 3 do Spell("Sunscale Screecher", MAUL) W.Wait(1) end
+        MobLoot()
+    end)
+    Check(not Said("can't tell whose"), "mob loot after three attacks: called ambiguous")
+    Case("buff, item loot", nil, false, function()
+        Spell("Druid Lawl", BUFF) MobLoot("Item-0-1-1-1-AAAA")
+    end)
+    Case("buff, loot of an object nobody knows", nil, false, function()
+        Spell("Druid Lawl", BUFF) W.Loot(7999999, 769, "VB0006")
+    end)
+    Check(not Booked("VB0006"), "a guess took the loot of an unknown object")
+
+    -- still as before: an unknown spell alone on a known object is learned
+    Case("unknown spell alone", "VB0007", true, function()
+        Pick("Silverleaf", 999003, 1617, 765, "VB0007")
+    end)
+    Check(ns.db.gatherSpells[999003] == "herb", "unknown gather spell not learned")
+    ns.db.gatherSpells[999003] = nil
+    -- still as before: a real gather needs no guess out of the way when two
+    -- real ones can't be told apart: both dropped, with or without a guess
+    Case("two herb casts before the loot", "VB0008", false, function()
+        local a = W.Cast("Silverleaf", HERB) W.Wait(2) W.Done(a, HERB)
+        local b = W.Cast("Silverleaf", HERB) W.Wait(2) W.Done(b, HERB)
+        W.Loot(1617, 765, "VB0008")
+    end)
+    Check(Said("can't tell whose"), "two herb casts: not called ambiguous")
+    Case("two herb casts and a buff before the loot", "VB0009", false, function()
+        local a = W.Cast("Silverleaf", HERB) W.Wait(2) W.Done(a, HERB)
+        local b = W.Cast("Silverleaf", HERB) W.Wait(2) W.Done(b, HERB)
+        Spell("Druid Lawl", BUFF)
+        W.Loot(1617, 765, "VB0009")
+    end)
+    -- two guesses on a known object: nobody learned, and they don't block the next gather
+    Case("two guesses, then herb", "VB0011", true, function()
+        Spell("Druid Lawl", BUFF) Spell("Druid Lawl", MAUL)
+        W.Loot(1617, 765, "VB0010") mark = #log
+        Pick("Silverleaf", HERB, 1617, 765, "VB0011")
+    end)
+
+    ns.db.debug = wasDebug
+    W.Restore()
+    assert(#fails == 0, table.concat(fails, " | "))
+end)
 step("Recorder: a placeholder name never blocks a later gather with the real name", function()
     local W = IdentityWorld()
     W.Set({})
