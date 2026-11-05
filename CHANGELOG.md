@@ -1,3 +1,8 @@
+## v0.1.15 (unreleased)
+
+### Fixed
+- **Fishing:** each catch is counted once (it was counted twice, which doubled catches per hour and gold per hour).
+
 ## v0.1.14 – Leveling: pins in the trainer colour
 
 ### New

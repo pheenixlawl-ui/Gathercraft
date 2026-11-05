@@ -246,6 +246,9 @@ end
 -- Fishing session (see further down)
 local SESSION_IDLE = 300 -- seconds without casting: the session is over
 local fishing = { active = false }
+-- The catch last counted (see OnFishingLoot). Apart from the session: it
+-- outlives Stop on the panel and a new session.
+local lootGuard = {}
 
 local function StartFishingSession()
     fishing.active = true
@@ -267,6 +270,7 @@ events:SetScript("OnEvent", function(_, event, _, _, spellID)
         if IsFishingCast(spellID) then
             if not fishing.active or GetTime() - (fishing.last or 0) > SESSION_IDLE then StartFishingSession() end
             fishing.last = GetTime()
+            lootGuard.counted = false
             lineOut = true
             SetReelBinding(true)
             WidenInteract(event)
@@ -316,13 +320,46 @@ local function ReadLoot()
     return items
 end
 
-local function OnFishingLoot()
+-- the same list of items, for comparing two loot events
+local function LootKey(items)
+    local parts = {}
+    for i, it in ipairs(items) do parts[i] = it.id .. "x" .. it.qty end
+    return table.concat(parts, ",")
+end
+
+-- One catch, one count. The client can report the same loot more than once
+-- (LOOT_READY twice per window, seen on the live server), so:
+--   - a window counts once: lootGuard.counted is set by the catch and cleared
+--     by LOOT_CLOSED, or by the next cast if LOOT_CLOSED never comes
+--   - LOOT_CLOSED can come before the repeat (autoloot): the same items
+--     within LOOT_REPEAT seconds are the same catch, also after a new cast
+-- Another catch needs a new cast and a bite, so it is never left out: other
+-- items count at once, the same items count after LOOT_REPEAT.
+local LOOT_REPEAT = 1.5
+
+local function OnFishingLoot(_, event)
+    local now = GetTime()
+    ns.Debug(("FISH loot event %s at %.2f: %d slot(s)"):format(event, now, GetNumLootItems and GetNumLootItems() or 0))
+    if event == "LOOT_CLOSED" then
+        lootGuard.counted = false
+        return
+    end
     local isFish = IsFishingLoot and IsFishingLoot()
-    if not isFish and not (fishing.reeledAt and GetTime() - fishing.reeledAt < 4) then return end
-    fishing.reeledAt = nil
-    if not fishing.active then StartFishingSession() end
+    if not isFish and not (fishing.reeledAt and now - fishing.reeledAt < 4) then return end
     local items = ReadLoot()
-    if #items == 0 then return end
+    if #items == 0 then return end -- nothing to read yet: the next event has it
+    fishing.reeledAt = nil
+    local key = LootKey(items)
+    if lootGuard.counted then
+        ns.Debug("FISH repeat of the catch left out (loot window already counted)")
+        return
+    end
+    if key == lootGuard.key and now - lootGuard.at < LOOT_REPEAT then
+        ns.Debug(("FISH repeat of the catch left out (same loot %.2f s later)"):format(now - lootGuard.at))
+        return
+    end
+    lootGuard.counted, lootGuard.key, lootGuard.at = true, key, now
+    if not fishing.active then StartFishingSession() end
     local value, source = 0, nil
     if ns.LootValue then value, source = ns.LootValue(items) end
     fishing.catches = fishing.catches + 1
@@ -336,6 +373,7 @@ end
 
 local lootEvents = CreateFrame("Frame")
 lootEvents:RegisterEvent("LOOT_READY")
+lootEvents:RegisterEvent("LOOT_CLOSED")
 lootEvents:SetScript("OnEvent", OnFishingLoot)
 
 -- Current session or nil (ended or idle too long)

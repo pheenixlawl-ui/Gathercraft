@@ -4085,6 +4085,160 @@ step("Fishing: equip, lure, cast, reel", function()
     assert(_G.GathercraftPanel:IsShown(), "fishing panel not shown")
     _G.GathercraftPanel.__scripts.OnUpdate = _G.GathercraftPanel.__scripts.OnUpdate
 end)
+step("Fishing: a catch counts once (loot events twice, late, autoloot on and off)", function()
+    -- seen on the live server (05.11.): one fish, the panel went from 12 to 14
+    local prices = ns.db.prices[next(ns.db.prices)]
+    prices.items[6303], prices.items[6291] = 500, 300
+    prices.seen[6303], prices.seen[6291] = time(), time()
+    local worth = ns.LootValue({ { id = 6303, qty = 2 } })
+    local other = ns.LootValue({ { id = 6291, qty = 2 } })
+    assert(worth > 0 and other > 0 and worth ~= other, "test setup: no prices for the fish")
+    local wasDebug, mark = ns.db.debug, #log
+    ns.db.debug = true
+    IsFishingLoot = function() return true end
+    local function Fish(item)
+        return { { guid = "GameObject-0-1-1-1-35591-FFFF01", item = item or 6303, qty = 2 } }
+    end
+    local function Cast()
+        fire("UNIT_SPELLCAST_CHANNEL_START", "player", "c9", 7620)
+        fire("UNIT_SPELLCAST_CHANNEL_STOP", "player", "c9", 7620)
+    end
+    local session0
+    local function Fresh()
+        advance(3)
+        ns.StopFishing()
+        session0 = ns.SessionValue()
+        Cast()
+    end
+    local function Expect(what, catches, value)
+        local f = ns.FishingSession()
+        assert(f, what .. ": no fishing session")
+        assert(f.catches == catches, ("%s: %d catches, expected %d"):format(what, f.catches, catches))
+        assert(f.items == catches * 2, ("%s: %d items, expected %d"):format(what, f.items, catches * 2))
+        assert(f.value == value, ("%s: value %s, expected %s"):format(what, tostring(f.value), tostring(value)))
+        local booked = ns.SessionValue() - session0
+        assert(booked == value, ("%s: session value %s, expected %s"):format(what, tostring(booked), tostring(value)))
+    end
+    -- what the window does when it opens by hand: the event twice, then closed
+    local function Window(item)
+        loot = Fish(item)
+        fire("LOOT_READY", false) fire("LOOT_READY", false) fire("LOOT_OPENED", false)
+        loot = {}
+        fire("LOOT_CLOSED")
+    end
+
+    -- autoloot off: LOOT_READY twice, then LOOT_CLOSED
+    Fresh() Window()
+    Expect("event twice", 1, worth)
+    -- a late LOOT_READY after LOOT_CLOSED, the same loot
+    Fresh()
+    loot = Fish() fire("LOOT_READY", false) fire("LOOT_CLOSED")
+    advance(1) fire("LOOT_READY", false)
+    loot = {} fire("LOOT_CLOSED")
+    Expect("late event, same loot", 1, worth)
+    -- the window stays open longer than the time limit, the event comes again
+    Fresh()
+    loot = Fish() fire("LOOT_READY", false)
+    advance(3) fire("LOOT_READY", false)
+    loot = {} fire("LOOT_CLOSED")
+    Expect("window left open", 1, worth)
+    -- two catches, the same fish
+    Fresh() Window()
+    advance(20) Cast() Window()
+    Expect("two catches", 2, worth * 2)
+    -- the same fish again, just past the time limit
+    Fresh() Window()
+    advance(1.6) Cast() Window()
+    Expect("two catches, the same fish, 1.6 s apart", 2, worth * 2)
+    -- two catches shortly after each other, different fish
+    Fresh() Window()
+    advance(0.5) Cast() Window(6291)
+    Expect("two quick catches", 2, worth + other)
+    -- LOOT_CLOSED never comes: the next cast opens the way for the next catch
+    Fresh()
+    loot = Fish() fire("LOOT_READY", false) fire("LOOT_READY", false)
+    advance(2) Cast() fire("LOOT_READY", false)
+    loot = {} fire("LOOT_CLOSED")
+    Expect("no LOOT_CLOSED", 2, worth * 2)
+    -- autoloot on: the loot is gone when the second event comes
+    Fresh()
+    loot = Fish() fire("LOOT_READY", true)
+    loot = {} fire("LOOT_CLOSED") fire("LOOT_READY", true)
+    Expect("autoloot, second event empty", 1, worth)
+    -- autoloot on: both events before the window closes
+    Fresh()
+    loot = Fish() fire("LOOT_READY", true) fire("LOOT_READY", true)
+    loot = {} fire("LOOT_CLOSED")
+    Expect("autoloot, event twice", 1, worth)
+    -- autoloot on: closed at once, cast again, then the late event
+    Fresh()
+    loot = Fish() fire("LOOT_READY", true) fire("LOOT_CLOSED")
+    Cast()
+    advance(1) fire("LOOT_READY", true)
+    loot = {} fire("LOOT_CLOSED")
+    Expect("autoloot, late event after the next cast", 1, worth)
+    -- autoloot on: two catches
+    Fresh()
+    loot = Fish() fire("LOOT_READY", true) fire("LOOT_READY", true) loot = {} fire("LOOT_CLOSED")
+    advance(20) Cast()
+    loot = Fish() fire("LOOT_READY", true) fire("LOOT_READY", true) loot = {} fire("LOOT_CLOSED")
+    Expect("autoloot, two catches", 2, worth * 2)
+    -- the game doesn't call it fishing loot, an empty event comes first: the
+    -- reeled-in line still counts the loot that follows, once
+    IsFishingLoot = nil
+    Fresh()
+    loot = {} fire("LOOT_READY", false)
+    Window()
+    Expect("empty first event after the reel", 1, worth)
+    -- other loot long after the reel is no catch
+    advance(5) Window()
+    Expect("other loot", 1, worth)
+
+    -- /gcr debug shows every event in order, and what was left out
+    local function Said(text)
+        for i = mark + 1, #log do if log[i]:find(text, 1, true) then return true end end
+        error("debug line missing: " .. text)
+    end
+    Said("FISH loot event LOOT_READY at ")
+    Said("FISH loot event LOOT_CLOSED at ")
+    Said(": 1 slot(s)")
+    Said("FISH repeat of the catch left out (loot window already counted)")
+    Said("FISH repeat of the catch left out (same loot")
+    ns.db.debug = wasDebug
+end)
+step("Gathering: repeated loot events book the value once (herb and ore)", function()
+    -- the counter-check to the fishing fix: gathers go through the recorder
+    local W = IdentityWorld()
+    local prices = ns.db.prices[next(ns.db.prices)]
+    prices.items[2770], prices.items[765] = 100, 200
+    prices.seen[2770], prices.seen[765] = time(), time()
+    W.Set({
+        W.Node("o1731", "Copper Vein", 0, { type = "ore", item = 2770 }),
+        W.Node("o1731", "Copper Vein", 300, { type = "ore", item = 2770 }),
+        W.Node("o1617", "Silverleaf", 600, { item = 765 }),
+        W.Node("o1617", "Silverleaf", 900, { item = 765 }),
+    })
+    local function Gather(at, name, spell, object, item, tag, repeats)
+        W.At(at)
+        local before = ns.SessionValue()
+        local c = W.Cast(name, spell) W.Wait(2) W.Done(c, spell)
+        local items = { { guid = ("GameObject-0-1-1-1-%d-%s"):format(object, tag), item = item, qty = 2 } }
+        loot = items
+        for _ = 1, repeats do fire("LOOT_READY", false) end
+        fire("LOOT_OPENED", false)
+        loot = {}
+        fire("LOOT_CLOSED")
+        W.Wait(3)
+        return ns.SessionValue() - before
+    end
+    for _, g in ipairs({ { 0, "Copper Vein", 2575, 1731, 2770 }, { 600, "Silverleaf", 2366, 1617, 765 } }) do
+        local once = Gather(g[1], g[2], g[3], g[4], g[5], "ONCE" .. g[4], 1)
+        assert(once > 0, g[2] .. ": test setup: the gather has no value")
+        local twice = Gather(g[1] + 300, g[2], g[3], g[4], g[5], "TWICE" .. g[4], 2)
+        assert(twice == once, ("%s: value %s with LOOT_READY twice, %s with it once"):format(g[2], tostring(twice), tostring(once)))
+    end
+    W.Restore()
+end)
 step("Fishing: your interact settings come back (end, abort, /reload, login, own change, second cast, failed restore)", function()
     local saved = { get = GetCVar, set = SetCVar }
     local store
