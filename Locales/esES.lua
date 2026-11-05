@@ -382,6 +382,7 @@ ns.Locales.esES = {
     ["Hide nodes that give no more skill-ups"] = "Ocultar nodos que ya no suben la habilidad",
     ["Handy while you level - turn it off when you farm for gold."] = "Útil mientras subes de nivel; desactívalo cuando farmees oro.",
     ["While you level, pins show in the trainer colour what they do for your skill (Options, page Leveling)."] = "Mientras subes de nivel, los marcadores muestran con el color del instructor lo que aportan a tu habilidad (Options, página Subir de nivel).",
+    ["Fishing: each catch is counted once – catches per hour and gold per hour were doubled before. Gathering: a herb or ore you gather right after a spell on a target (a buff, a heal, an attack) is recorded again – it was dropped before."] = "Pesca: cada captura cuenta una vez; antes las capturas y el oro por hora salían dobles. Recolección: una hierba o un mineral recogido justo después de un hechizo sobre un objetivo (beneficio, sanación, ataque) vuelve a registrarse; antes se perdía.",
     ["|cffffd060No skill-ups until you train the next rank|r"] = "|cffffd060No subirás hasta que aprendas el siguiente rango con tu instructor|r",
     ["Route goal"] = "Objetivo de la ruta",
     ["Auto"] = "Auto",

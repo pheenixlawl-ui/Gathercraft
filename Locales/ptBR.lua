@@ -382,6 +382,7 @@ ns.Locales.ptBR = {
     ["Hide nodes that give no more skill-ups"] = "Ocultar nós que não dão mais pontos de perícia",
     ["Handy while you level - turn it off when you farm for gold."] = "Útil enquanto você sobe de nível – desligue quando farmar ouro.",
     ["While you level, pins show in the trainer colour what they do for your skill (Options, page Leveling)."] = "Enquanto você sobe de nível, os marcadores mostram com a cor do instrutor o que dão à sua perícia (Options, página Subir de nível).",
+    ["Fishing: each catch is counted once – catches per hour and gold per hour were doubled before. Gathering: a herb or ore you gather right after a spell on a target (a buff, a heal, an attack) is recorded again – it was dropped before."] = "Pesca: cada captura conta uma vez – antes, capturas e ouro por hora saíam em dobro. Coleta: uma erva ou minério coletado logo após um feitiço em um alvo (bônus, cura, ataque) volta a ser registrado – antes era perdido.",
     ["|cffffd060No skill-ups until you train the next rank|r"] = "|cffffd060Sem pontos até aprender o próximo nível com seu instrutor|r",
     ["Route goal"] = "Objetivo da rota",
     ["Auto"] = "Auto",

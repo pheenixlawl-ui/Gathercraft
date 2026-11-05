@@ -415,6 +415,7 @@ ns.Locales.deDE = {
     ["Hide nodes that give no more skill-ups"] = "Vorkommen ohne Skill-Ups ausblenden",
     ["Handy while you level - turn it off when you farm for gold."] = "Praktisch beim Leveln – schalte es aus, wenn du für Gold farmst.",
     ["While you level, pins show in the trainer colour what they do for your skill (Options, page Leveling)."] = "Beim Leveln zeigen die Pins in der Lehrerfarbe, was sie deinem Skill bringen (Options, Seite Leveln).",
+    ["Fishing: each catch is counted once – catches per hour and gold per hour were doubled before. Gathering: a herb or ore you gather right after a spell on a target (a buff, a heal, an attack) is recorded again – it was dropped before."] = "Angeln: Jeder Fang zählt einmal – Fänge und Gold pro Stunde waren vorher doppelt. Sammeln: Ein Kraut oder Erz direkt nach einem Zauber auf ein Ziel (Buff, Heilung, Angriff) wird wieder erfasst – vorher ging es verloren.",
     ["|cffffd060No skill-ups until you train the next rank|r"] = "|cffffd060Keine Skillpunkte, bis du beim Lehrer die nächste Stufe lernst|r",
     ["Route goal"] = "Routenziel",
     ["Auto"] = "Auto",

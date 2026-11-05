@@ -382,6 +382,7 @@ ns.Locales.frFR = {
     ["Hide nodes that give no more skill-ups"] = "Masquer les gisements qui ne font plus monter la compétence",
     ["Handy while you level - turn it off when you farm for gold."] = "Pratique pendant la montée de niveau – désactive-le quand tu farmes de l'or.",
     ["While you level, pins show in the trainer colour what they do for your skill (Options, page Leveling)."] = "Pendant la montée de niveau, les marqueurs montrent avec la couleur du maître ce qu'ils apportent à ta compétence (Options, page Montée de niveau).",
+    ["Fishing: each catch is counted once – catches per hour and gold per hour were doubled before. Gathering: a herb or ore you gather right after a spell on a target (a buff, a heal, an attack) is recorded again – it was dropped before."] = "Pêche : chaque prise compte une seule fois – les prises et l'or par heure étaient doublés avant. Récolte : une herbe ou un minerai récolté juste après un sort sur une cible (amélioration, soin, attaque) est de nouveau enregistré – il était perdu avant.",
     ["|cffffd060No skill-ups until you train the next rank|r"] = "|cffffd060Plus aucun point tant que tu n'apprends pas le rang suivant chez ton maître|r",
     ["Route goal"] = "Objectif de la route",
     ["Auto"] = "Auto",

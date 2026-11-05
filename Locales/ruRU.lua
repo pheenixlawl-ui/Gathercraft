@@ -382,6 +382,7 @@ ns.Locales.ruRU = {
     ["Hide nodes that give no more skill-ups"] = "Скрывать ресурсы, которые больше не повышают навык",
     ["Handy while you level - turn it off when you farm for gold."] = "Удобно при прокачке – выключите, когда фармите золото.",
     ["While you level, pins show in the trainer colour what they do for your skill (Options, page Leveling)."] = "Во время прокачки метки цветом учителя показывают, что они дают навыку (Options, страница «Прокачка»).",
+    ["Fishing: each catch is counted once – catches per hour and gold per hour were doubled before. Gathering: a herb or ore you gather right after a spell on a target (a buff, a heal, an attack) is recorded again – it was dropped before."] = "Рыбная ловля: каждый улов считается один раз – раньше улов и золото в час удваивались. Сбор: трава или руда, собранная сразу после заклинания на цель (бафф, лечение, атака), снова записывается – раньше она терялась.",
     ["|cffffd060No skill-ups until you train the next rank|r"] = "|cffffd060Навык не растёт, пока вы не изучите следующий ранг у учителя|r",
     ["Route goal"] = "Цель маршрута",
     ["Auto"] = "Авто",

@@ -382,6 +382,7 @@ ns.Locales.koKR = {
     ["Hide nodes that give no more skill-ups"] = "더 이상 숙련도가 오르지 않는 채집물 숨기기",
     ["Handy while you level - turn it off when you farm for gold."] = "레벨업 중에 유용합니다 - 골드 파밍할 때는 끄세요.",
     ["While you level, pins show in the trainer colour what they do for your skill (Options, page Leveling)."] = "레벨업 중에는 핀이 상급자 색으로 숙련도에 주는 효과를 보여 줍니다 (Options, 레벨업 페이지).",
+    ["Fishing: each catch is counted once – catches per hour and gold per hour were doubled before. Gathering: a herb or ore you gather right after a spell on a target (a buff, a heal, an attack) is recorded again – it was dropped before."] = "낚시: 잡은 물고기를 한 번만 셉니다 – 전에는 시간당 낚은 수와 골드가 두 배로 표시됐습니다. 채집: 대상에게 주문(강화 효과, 치유, 공격)을 쓴 직후 채집한 약초나 광석이 다시 기록됩니다 – 전에는 누락됐습니다.",
     ["|cffffd060No skill-ups until you train the next rank|r"] = "|cffffd060상급자에게 다음 등급을 배우기 전까지 숙련도가 오르지 않습니다|r",
     ["Route goal"] = "경로 목표",
     ["Auto"] = "자동",

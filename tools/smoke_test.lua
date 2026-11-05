@@ -4604,6 +4604,47 @@ step("Welcome, what's new and the run summary (v0.1.13)", function()
     ns.db.summaryOff = nil
     SendChatMessage = nil
 end)
+step("What's new: 0.1.15 after an update, in this language and all translations", function()
+    local version = toc:match("## Version: ([%d%.]+)")
+    assert(version == "0.1.15", "TOC version: " .. tostring(version))
+    assert(toc:match("## Interface: (%d+)") == "16001", "TOC interface changed")
+    local f = assert(io.open(ROOT .. "/Welcome.lua"))
+    local src = f:read("*a") f:close()
+    local key = src:match('%["0%.1%.15"%] = "([^"]+)"')
+    assert(key and key:find("Fishing:", 1, true) and key:find("Gathering:", 1, true), "no entry for 0.1.15 in Welcome.lua")
+    -- every translation is there, whatever language this run is in
+    for _, code in ipairs({ "deDE", "esES", "frFR", "itIT", "koKR", "ptBR", "ruRU", "zhCN", "zhTW" }) do
+        local t = ns.Locales[code] and ns.Locales[code][key]
+        assert(type(t) == "string" and t ~= "" and t ~= key, "no translation in " .. code)
+    end
+    local function said(text)
+        for _, l in ipairs(log) do if l:find(text, 1, true) then return l end end
+    end
+    local function clear() for i in ipairs(log) do log[i] = "" end end
+    local keepMeta, keepVersion, keepFresh = C_AddOns.GetAddOnMetadata, ns.db.lastVersion, ns.freshInstall
+    local ok, err = pcall(function()
+        C_AddOns.GetAddOnMetadata = function() return version end
+        ns.freshInstall = false
+        local text = ns.L[key]
+        assert(LOCALE == "enUS" or text ~= key, "English text in " .. LOCALE)
+        -- the login after the update says it once, in this language
+        clear()
+        ns.db.lastVersion = "0.1.14"
+        ns.WelcomeOnLogin()
+        local line = said(text)
+        assert(line and line:find("0.1.15", 1, true), "no what's new at the login after the update")
+        assert(ns.db.lastVersion == version, "the new version is not remembered")
+        note("what's new", line)
+        clear()
+        ns.WelcomeOnLogin()
+        assert(not said("0.1.15"), "what's new again on the next login")
+        slash("whatsnew")
+        assert(said(text), "/gcr whatsnew does not show it")
+    end)
+    C_AddOns.GetAddOnMetadata, ns.db.lastVersion, ns.freshInstall = keepMeta, keepVersion, keepFresh
+    if not ok then error(err, 0) end
+end)
+
 step("Crafting: waypoint to a recipe vendor (v0.1.13)", function()
     slash("") ns.ToggleMain("crafting") advance(1)
     assert(ns.RecipeVendorWaypoint, "crafting page not built")

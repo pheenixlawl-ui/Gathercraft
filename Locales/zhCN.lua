@@ -382,6 +382,7 @@ ns.Locales.zhCN = {
     ["Hide nodes that give no more skill-ups"] = "隐藏不再提升技能的资源",
     ["Handy while you level - turn it off when you farm for gold."] = "练级时很实用——为金币采集时请关闭。",
     ["While you level, pins show in the trainer colour what they do for your skill (Options, page Leveling)."] = "练级时，标记会用训练师的颜色显示它们对你技能的作用（Options，“练级”页面）。",
+    ["Fishing: each catch is counted once – catches per hour and gold per hour were doubled before. Gathering: a herb or ore you gather right after a spell on a target (a buff, a heal, an attack) is recorded again – it was dropped before."] = "钓鱼：每次钓获只计一次——之前每小时钓获数和金币会翻倍。采集：对目标施法（增益、治疗、攻击）后立刻采集的草药或矿石会重新被记录——之前会丢失。",
     ["|cffffd060No skill-ups until you train the next rank|r"] = "|cffffd060在训练师处学会下一级之前不会再提升技能|r",
     ["Route goal"] = "路线目标",
     ["Auto"] = "自动",
