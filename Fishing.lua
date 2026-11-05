@@ -344,6 +344,7 @@ local function OnFishingLoot(_, event)
         lootGuard.counted = false
         return
     end
+    if event == "LOOT_OPENED" then return end -- only for the debug line: catches count on LOOT_READY
     local isFish = IsFishingLoot and IsFishingLoot()
     if not isFish and not (fishing.reeledAt and now - fishing.reeledAt < 4) then return end
     local items = ReadLoot()
@@ -373,6 +374,7 @@ end
 
 local lootEvents = CreateFrame("Frame")
 lootEvents:RegisterEvent("LOOT_READY")
+lootEvents:RegisterEvent("LOOT_OPENED")
 lootEvents:RegisterEvent("LOOT_CLOSED")
 lootEvents:SetScript("OnEvent", OnFishingLoot)
 

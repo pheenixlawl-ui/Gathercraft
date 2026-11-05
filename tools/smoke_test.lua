@@ -4130,6 +4130,16 @@ step("Fishing: a catch counts once (loot events twice, late, autoloot on and off
     -- autoloot off: LOOT_READY twice, then LOOT_CLOSED
     Fresh() Window()
     Expect("event twice", 1, worth)
+    -- LOOT_OPENED is only for the debug line: alone it counts nothing
+    Fresh()
+    loot = Fish() fire("LOOT_OPENED", false)
+    loot = {} fire("LOOT_CLOSED")
+    Expect("LOOT_OPENED alone", 0, 0)
+    -- ... and it doesn't open the way for a repeat between two LOOT_READY
+    Fresh()
+    loot = Fish() fire("LOOT_READY", false) fire("LOOT_OPENED", false) advance(3) fire("LOOT_READY", false)
+    loot = {} fire("LOOT_CLOSED")
+    Expect("LOOT_OPENED between two events", 1, worth)
     -- a late LOOT_READY after LOOT_CLOSED, the same loot
     Fresh()
     loot = Fish() fire("LOOT_READY", false) fire("LOOT_CLOSED")
@@ -4200,6 +4210,7 @@ step("Fishing: a catch counts once (loot events twice, late, autoloot on and off
         error("debug line missing: " .. text)
     end
     Said("FISH loot event LOOT_READY at ")
+    Said("FISH loot event LOOT_OPENED at ")
     Said("FISH loot event LOOT_CLOSED at ")
     Said(": 1 slot(s)")
     Said("FISH repeat of the catch left out (loot window already counted)")
