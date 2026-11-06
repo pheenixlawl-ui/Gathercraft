@@ -369,6 +369,7 @@ ns.Locales.zhTW = {
     ["From %d on: mine veins to go up (farm run for ore)."] = "從 %d 開始：開採礦脈來提升（礦石採集路線）。",
     ["Farm runs from the overview or the minimap button stay in your zone. For a route over several zones: tick them here and press Start run."] = "從概覽或小地圖按鈕開始的採集路線只在目前區域。要規劃跨多個區域的路線：在這裡勾選區域並開始路線。",
     ["No matching nodes near you."] = "附近沒有符合條件的採集點。",
+    ["Learn Herbalism or Mining from a trainer to start a farm run."] = "請向訓練師學習草藥學或採礦，然後再開始採集路線。",
     ["Some picked zones are far from here (%s): this run stays near you. Start a run there when you are there."] = "部分選取的區域離這裡很遠（%s）：本路線只在你附近。到那裡後再在那裡開始路線。",
     ["Loop: this zone was busy a short while ago, the round starts shorter (%d of %d spawn points)."] = "環線：這個區域不久前很擁擠，本輪從較短的路線開始（%d/%d 個重生點）。",
     ["Loop: spots come back fast here (many players?) - shorter round through the dense part: %d of %d spawn points."] = "環線：這裡的資源重生很快（玩家很多？）- 改走密集區域的較短一輪：%d/%d 個重生點。",

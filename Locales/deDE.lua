@@ -402,6 +402,7 @@ ns.Locales.deDE = {
     ["From %d on: mine veins to go up (farm run for ore)."] = "Ab %d: Adern abbauen bringt dich weiter (Farmroute für Erz).",
     ["Farm runs from the overview or the minimap button stay in your zone. For a route over several zones: tick them here and press Start run."] = "Farmrouten aus der Übersicht oder über das Minimap-Symbol bleiben in deinem Gebiet. Für eine Route über mehrere Gebiete: hier anhaken und Route starten.",
     ["No matching nodes near you."] = "Keine passenden Vorkommen in deiner Nähe.",
+    ["Learn Herbalism or Mining from a trainer to start a farm run."] = "Lerne Kräuterkunde oder Bergbau bei einem Lehrer, um eine Farmroute zu starten.",
     ["Some picked zones are far from here (%s): this run stays near you. Start a run there when you are there."] = "Manche ausgewählten Gebiete sind weit weg (%s): diese Route bleibt in deiner Nähe. Starte dort eine Route, wenn du da bist.",
     ["Loop: this zone was busy a short while ago, the round starts shorter (%d of %d spawn points)."] = "Rundkurs: in diesem Gebiet war vor Kurzem viel los, die Runde startet kürzer (%d von %d Spawnpunkten).",
     ["Loop: spots come back fast here (many players?) - shorter round through the dense part: %d of %d spawn points."] = "Rundkurs: Vorkommen wachsen hier schnell nach (viele Spieler?) - kürzere Runde durch den dichten Teil: %d von %d Spawnpunkten.",

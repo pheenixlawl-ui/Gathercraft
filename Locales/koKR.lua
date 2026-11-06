@@ -369,6 +369,7 @@ ns.Locales.koKR = {
     ["From %d on: mine veins to go up (farm run for ore)."] = "%d부터: 광맥을 캐서 올리세요 (광석 채집 경로).",
     ["Farm runs from the overview or the minimap button stay in your zone. For a route over several zones: tick them here and press Start run."] = "개요나 미니맵 버튼으로 시작한 채집 경로는 현재 지역에 머뭅니다. 여러 지역을 도는 경로는 여기서 지역을 체크하고 경로 시작을 누르세요.",
     ["No matching nodes near you."] = "근처에 맞는 채집물이 없습니다.",
+    ["Learn Herbalism or Mining from a trainer to start a farm run."] = "채집 경로를 시작하려면 전문 기술 상급자에게 약초채집이나 채광을 배우세요.",
     ["Some picked zones are far from here (%s): this run stays near you. Start a run there when you are there."] = "선택한 일부 지역이 멀리 있습니다 (%s): 이 경로는 근처에 머뭅니다. 그곳에 가면 경로를 시작하세요.",
     ["Loop: this zone was busy a short while ago, the round starts shorter (%d of %d spawn points)."] = "순환 경로: 이 지역은 조금 전까지 붐볐습니다. 짧은 바퀴로 시작합니다 (생성 지점 %d/%d).",
     ["Loop: spots come back fast here (many players?) - shorter round through the dense part: %d of %d spawn points."] = "순환 경로: 이곳은 채집물이 빨리 다시 생깁니다 (플레이어가 많나요?) - 밀집 구역을 도는 짧은 바퀴: 생성 지점 %d/%d.",

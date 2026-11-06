@@ -369,6 +369,7 @@ ns.Locales.ptBR = {
     ["From %d on: mine veins to go up (farm run for ore)."] = "A partir de %d: minere veios para subir (rota de minérios).",
     ["Farm runs from the overview or the minimap button stay in your zone. For a route over several zones: tick them here and press Start run."] = "Rotas iniciadas pelo resumo ou pelo botão do minimapa ficam na sua zona. Para uma rota por várias zonas: marque-as aqui e inicie a rota.",
     ["No matching nodes near you."] = "Nenhum nó adequado perto de você.",
+    ["Learn Herbalism or Mining from a trainer to start a farm run."] = "Aprenda Herborismo ou Mineração com um instrutor para iniciar uma rota.",
     ["Some picked zones are far from here (%s): this run stays near you. Start a run there when you are there."] = "Algumas zonas escolhidas estão longe (%s): esta rota fica perto de você. Inicie uma rota lá quando estiver lá.",
     ["Loop: this zone was busy a short while ago, the round starts shorter (%d of %d spawn points)."] = "Circuito: esta zona estava cheia há pouco, a volta começa mais curta (%d de %d pontos de surgimento).",
     ["Loop: spots come back fast here (many players?) - shorter round through the dense part: %d of %d spawn points."] = "Circuito: aqui os nós voltam rápido (muitos jogadores?) - volta mais curta pela parte densa: %d de %d pontos de surgimento.",

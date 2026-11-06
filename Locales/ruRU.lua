@@ -369,6 +369,7 @@ ns.Locales.ruRU = {
     ["From %d on: mine veins to go up (farm run for ore)."] = "С %d: добывайте жилы, чтобы расти (маршрут за рудой).",
     ["Farm runs from the overview or the minimap button stay in your zone. For a route over several zones: tick them here and press Start run."] = "Маршруты из обзора или кнопки у миникарты остаются в вашей зоне. Для маршрута через несколько зон: отметьте их здесь и начните маршрут.",
     ["No matching nodes near you."] = "Рядом нет подходящих точек.",
+    ["Learn Herbalism or Mining from a trainer to start a farm run."] = "Изучите травничество или горное дело у наставника, чтобы начать маршрут.",
     ["Some picked zones are far from here (%s): this run stays near you. Start a run there when you are there."] = "Некоторые выбранные зоны далеко (%s): этот маршрут останется рядом с вами. Начните маршрут там, когда окажетесь там.",
     ["Loop: this zone was busy a short while ago, the round starts shorter (%d of %d spawn points)."] = "Круг: в этой зоне недавно было людно, круг начинается короче (%d из %d точек появления).",
     ["Loop: spots come back fast here (many players?) - shorter round through the dense part: %d of %d spawn points."] = "Круг: здесь ресурсы появляются быстро (много игроков?) - круг короче, через плотную часть: %d из %d точек появления.",

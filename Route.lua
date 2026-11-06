@@ -1978,6 +1978,14 @@ local function ProfessionFilter()
     return "both"
 end
 local function StartHereRun(filter)
+    if not filter and ns.GatherProfessions then
+        -- nothing to gather for sure; right after login it isn't known yet
+        local herb, ore, known = ns.GatherProfessions()
+        if known and not herb and not ore then
+            ns.Print(L["Learn Herbalism or Mining from a trainer to start a farm run."])
+            return
+        end
+    end
     filter = filter or ProfessionFilter()
     local mapID = ns.GetPlayerPos and ns.GetPlayerPos()
     mapID = mapID and CITY_ZONE[mapID] or mapID

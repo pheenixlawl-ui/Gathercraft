@@ -369,6 +369,7 @@ ns.Locales.itIT = {
     ["From %d on: mine veins to go up (farm run for ore)."] = "Da %d in poi: estrai filoni per salire (giro per minerali).",
     ["Farm runs from the overview or the minimap button stay in your zone. For a route over several zones: tick them here and press Start run."] = "I giri avviati dalla panoramica o dal pulsante della minimappa restano nella tua zona. Per un percorso su più zone: spuntale qui e avvia il giro.",
     ["No matching nodes near you."] = "Nessun nodo adatto vicino a te.",
+    ["Learn Herbalism or Mining from a trainer to start a farm run."] = "Impara Erbalismo o Estrazione da un istruttore per avviare un giro.",
     ["Some picked zones are far from here (%s): this run stays near you. Start a run there when you are there."] = "Alcune zone scelte sono lontane (%s): questo giro resta vicino a te. Avvia un giro lì quando ci sei.",
     ["Loop: this zone was busy a short while ago, the round starts shorter (%d of %d spawn points)."] = "Circuito: questa zona era affollata poco fa, il giro parte più corto (%d di %d punti di spawn).",
     ["Loop: spots come back fast here (many players?) - shorter round through the dense part: %d of %d spawn points."] = "Circuito: qui i nodi tornano in fretta (molti giocatori?) - giro più corto nella parte densa: %d di %d punti di spawn.",

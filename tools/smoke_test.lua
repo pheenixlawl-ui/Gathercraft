@@ -5754,6 +5754,47 @@ step("Pins: only what your professions can gather (v0.1.16)", function()
     assert(ok, err)
     assert(#fails == 0, table.concat(fails, " | "))
 end)
+step("Right-click: no farm run without a gathering profession (v0.1.16)", function()
+    local T = ProfessionTest()
+    local TEXT = "Learn Herbalism or Mining from a trainer to start a farm run."
+    for lang, d in pairs(ns.Locales) do
+        assert(d[TEXT] and d[TEXT] ~= TEXT, lang .. ": not translated")
+    end
+    local list = {}
+    for i = 1, 10 do
+        list[i] = { id = "o1617", name = "Silverleaf", type = "herb", x = 0.4 + i / 100, y = 0.5, count = 1, last = 1, item = 765 }
+    end
+    ns.db.nodes[player.map] = list
+    ns.db.noProfessionHint = true
+    ns.NotifyNodesChanged() advance(2)
+    local mark = #log
+    local function Said()
+        for i = mark + 1, #log do if log[i]:find(ns.L[TEXT], 1, true) then return true end end
+    end
+    local ok, err = pcall(function()
+        -- known, none there: no run, one friendly line
+        T.Login(T.None) T.Settle()
+        ns.StartHereRun() advance(1)
+        assert(not ns.run, "a run without a profession")
+        assert(Said(), "no line about the trainer")
+        -- the Overview buttons name what they farm: as before
+        mark = #log
+        ns.StartHereRun("herb") advance(1)
+        assert(ns.run and not Said(), "the Herbs button stopped working")
+        ns.StopRun(true)
+        -- right after login, not known yet: as before
+        T.Login(function() end)
+        ns.StartHereRun() advance(1)
+        assert(ns.run and not Said(), "no run while the professions are unknown")
+        ns.StopRun(true)
+        -- with a profession: as before
+        T.Login(T.Herb) T.Settle()
+        ns.StartHereRun() advance(1)
+        assert(ns.run and not Said(), "no run with Herbalism")
+    end)
+    T.Restore()
+    assert(ok, err)
+end)
 step("Long run (10 min) for leaks", function() slash("run herb") advance(600) slash("stop") end)
 
 io.write("\n--- errors: " .. #errors .. "\n")
