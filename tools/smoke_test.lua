@@ -5210,6 +5210,105 @@ step("Recorder: a spell cast on a target before a gather leaves the gather alone
     W.Restore()
     assert(#fails == 0, table.concat(fails, " | "))
 end)
+step("Recorder: a spell is learned only when its own target named the object (v0.1.16)", function()
+    -- Codex B1: a buff or attack must never become a gathering spell. The
+    -- loot of a known object alone is no proof: the cast's target has to name it
+    local W = IdentityWorld()
+    local BUFF, HERB = 5232, 2366
+    local wasDebug, mark = ns.db.debug, #log
+    local keepSpells = ns.db.gatherSpells
+    ns.db.debug, ns.db.gatherSpells = true, {}
+    W.Set({})
+    local fails = {}
+    local function Check(ok, text) if not ok then fails[#fails + 1] = text end end
+    local function Said(text)
+        for i = mark + 1, #log do if log[i]:find(text, 1, true) then return true end end
+    end
+    local function Booked(tag)
+        for _, n in ipairs(ns.db.nodes[1412]) do if n.lastSpawn == tag then return n end end
+    end
+    local function Spell(target, spell) local c = W.Cast(target, spell) W.Done(c, spell) end
+    local function Pick(name, spell, object, item, tag)
+        local c = W.Cast(name, spell) W.Wait(2) W.Done(c, spell)
+        W.Loot(object, item, tag) W.Loot(object, item, tag, "LOOT_OPENED")
+    end
+    local at = 0
+    local function Case(fn)
+        at = at + 300
+        W.At(at)
+        mark = #log
+        fn()
+        W.Wait(12)
+    end
+
+    -- probe A: the object's loot opens once more after the buff
+    Case(function()
+        Pick("Silverleaf", HERB, 1617, 765, "LB0001") W.Wait(12)
+        Spell("Druid Lawl", BUFF)
+        W.Loot(1617, 765, "LB0001", "LOOT_OPENED")
+    end)
+    Check(not ns.db.gatherSpells[BUFF], "probe A: the buff was learned")
+    Check(Said("GUESS not learned: spell 5232 target=Druid Lawl object=1617"), "probe A: no debug line")
+    -- probe B: the herb cast names Silverleaf, the loot is a Peacebloom
+    Case(function()
+        Spell("Druid Lawl", BUFF)
+        local c = W.Cast("Silverleaf", HERB) W.Wait(2) W.Done(c, HERB)
+        W.Loot(1618, 2447, "LB0002")
+    end)
+    Check(not ns.db.gatherSpells[BUFF], "probe B: the buff was learned")
+    Check(Said("GUESS not learned: spell 5232 target=Druid Lawl object=1618"), "probe B: no debug line")
+    -- probe C: mob loot first, then known loot with no gather spell seen
+    Case(function()
+        Spell("Druid Lawl", BUFF)
+        loot = { { guid = "Creature-0-1-1-1-3099-EEEE", item = 769, qty = 1 } }
+        fire("LOOT_READY") loot = {}
+        W.Wait(1)
+        W.Loot(1617, 765, "LB0003")
+    end)
+    Check(not ns.db.gatherSpells[BUFF], "probe C: the buff was learned")
+    Check(Said("GUESS not learned: spell 5232 target=Druid Lawl object=1617"), "probe C: no debug line")
+    -- the target names another herb than the loot's
+    Case(function() Pick("Peacebloom", 999004, 1617, 765, "LB0004") end)
+    Check(not ns.db.gatherSpells[999004], "another herb's name: learned")
+    Check(Booked("LB0004"), "another herb's name: the gather itself is gone")
+    -- only a tooltip named it: the mouse can rest on a herb during any cast
+    local keepShown, keepOwner, keepLine = GameTooltip.IsShown, GameTooltip.GetOwner, _G.GameTooltipTextLeft1
+    GameTooltip.IsShown = function() return true end
+    GameTooltip.GetOwner = function() return nil end
+    _G.GameTooltipTextLeft1 = { GetText = function() return "Silverleaf" end }
+    Case(function() Pick("", 999005, 1617, 765, "LB0005") end)
+    GameTooltip.IsShown, GameTooltip.GetOwner, _G.GameTooltipTextLeft1 = keepShown, keepOwner, keepLine
+    Check(not ns.db.gatherSpells[999005], "tooltip only: learned")
+    Check(Booked("LB0005"), "tooltip only: the gather itself is gone")
+    -- still learned: the target names the object, in English or the client's language
+    Case(function() Pick("Silverleaf", 999006, 1617, 765, "LB0006") end)
+    Check(ns.db.gatherSpells[999006] == "herb", "a real unknown herb spell: not learned")
+    Check(Booked("LB0006"), "a real unknown herb spell: not booked")
+    Case(function() Pick("Copper Vein", 999007, 1731, 2770, "LB0007") end)
+    Check(ns.db.gatherSpells[999007] == "ore", "a real unknown ore spell: not learned")
+    Case(function() Pick(ns.KindNameFor(3725), 999008, 3725, 765, "LB0008") end)
+    Check(ns.db.gatherSpells[999008] == "herb", "the object's name in the client's language: not learned")
+    -- chests as before: booked, never learned
+    Case(function() Pick("Battered Chest", 999009, 2843, 769, "LB0009") end)
+    Check(not ns.db.gatherSpells[999009], "a chest spell was learned")
+    Check(Booked("LB0009"), "the chest was not booked")
+
+    ns.db.debug, ns.db.gatherSpells = wasDebug, keepSpells
+    W.Restore()
+    assert(#fails == 0, table.concat(fails, " | "))
+end)
+step("Recorder: spells learned by older versions are dropped once (v0.1.16)", function()
+    local keepSpells, keepVersion, keepFresh = ns.db.gatherSpells, ns.db.gatherSpellsVersion, ns.freshInstall
+    ns.db.gatherSpells, ns.db.gatherSpellsVersion = { [5232] = "herb", [6807] = "ore" }, nil
+    fire("ADDON_LOADED", "Gathercraft")
+    assert(not (ns.db.gatherSpells and next(ns.db.gatherSpells)), "old learned spells kept")
+    assert(ns.db.gatherSpellsVersion == 2, "no version mark set")
+    -- only once: what the new rule learns stays
+    ns.db.gatherSpells = { [999010] = "herb" }
+    fire("ADDON_LOADED", "Gathercraft")
+    assert(ns.db.gatherSpells[999010] == "herb", "a spell learned under the new rule was dropped")
+    ns.db.gatherSpells, ns.db.gatherSpellsVersion, ns.freshInstall = keepSpells, 2, keepFresh
+end)
 step("Recorder: a placeholder name never blocks a later gather with the real name", function()
     local W = IdentityWorld()
     W.Set({})

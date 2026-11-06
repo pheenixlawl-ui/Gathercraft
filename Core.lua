@@ -798,6 +798,16 @@ end
 -- spawn booked without its loot would let one vein count three times.
 local awaiting = {}
 
+-- Did the cast itself name this object? The strong proof for learning a spell:
+-- its target (never a tooltip: the mouse can rest on a herb during any cast)
+-- is the object's name, in English or the client's language.
+local function TargetNamesObject(p, objectID)
+    local kind = p.castTarget and GathercraftQuestieData and GathercraftQuestieData.kinds["o" .. objectID]
+    if not kind then return false end
+    local target = p.castTarget:lower()
+    return target == kind[3]:lower() or target == (KindNameFor(objectID) or ""):lower()
+end
+
 -- p: this gather (default: the one waiting)
 local function TryRecord(p)
     p = p or ns.pending
@@ -934,6 +944,7 @@ local function OnSpellcastSent(unit, target, castGUID, spellID)
     end
     ns.pending = {
         castGUID = castGUID, name = name, type = nodeType, guess = guess, spellID = spellID,
+        castTarget = (target and target ~= "") and target or nil,
         mapID = mapID, x = x, y = y, sentAt = GetTime(),
     }
     if ns.OnGatherStart and not guess then
@@ -1033,12 +1044,19 @@ local function OnLoot()
             return
         end
         p.type, p.guess = known, false
-        -- remember the spell, so next time it counts from the start
-        if p.spellID and known ~= "chest" then
-            ns.db.gatherSpells = ns.db.gatherSpells or {}
-            ns.db.gatherSpells[p.spellID] = known
+        -- remember the spell, so next time it counts from the start. Only with
+        -- the cast's own target on this object: loot of a known object alone
+        -- also comes after a buff or an attack. This loot itself still counts.
+        if p.spellID and known ~= "chest" and not TargetNamesObject(p, objectID) then
+            Debug(("GUESS not learned: spell %s target=%s object=%s"):format(
+                tostring(p.spellID), tostring(p.castTarget), tostring(objectID)))
+        else
+            if p.spellID and known ~= "chest" then
+                ns.db.gatherSpells = ns.db.gatherSpells or {}
+                ns.db.gatherSpells[p.spellID] = known
+            end
+            Debug(("GUESS confirmed: spell %s is %s"):format(tostring(p.spellID), known))
         end
-        Debug(("GUESS confirmed: spell %s is %s"):format(tostring(p.spellID), known))
         if ns.OnGatherStart then ns.OnGatherStart(p) end
     end
     TryRecord(p)
@@ -1149,6 +1167,13 @@ frame:SetScript("OnEvent", function(self, event, ...)
                 -- Node kind selection is per zone now; old global entries are reset
                 wipe(GathercraftDB.disabledKinds)
                 GathercraftDB.selectionVersion = 2
+            end
+            if GathercraftDB.gatherSpellsVersion ~= 2 then
+                -- v0.1.16: older versions could learn a buff or an attack as a
+                -- gathering spell, and an entry doesn't say what proved it.
+                -- All of them go once; a real one comes back with its next gather.
+                GathercraftDB.gatherSpells = nil
+                GathercraftDB.gatherSpellsVersion = 2
             end
             ns.db = GathercraftDB
         end
