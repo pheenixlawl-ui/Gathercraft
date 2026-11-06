@@ -5627,6 +5627,133 @@ step("SoftTarget is not in the release: no event, /gcr softtest only shows the h
     for i = mark + 1, #log do if log[i]:find("/gcr test         - API check", 1, true) then help = true end end
     assert(help, "/gcr softtest did not show the help")
 end)
+-- The character's professions for a test: fn as GetProfessions, then the game says so
+local function ProfessionTest()
+    local T = { keep = { GetProfessions, GetNumSkillLines, GetSkillLineInfo }, nodes = ns.db.nodes[player.map], map = player.map }
+    function T.Both() return 1, 2, nil, 4, nil, nil end
+    function T.Herb() return 1, nil, nil, 4, nil, nil end
+    function T.Ore() return nil, 2, nil, 4, nil, nil end
+    function T.None() return nil, nil, nil, 4, nil, nil end
+    function T.Set(fn) GetProfessions = fn fire("SKILL_LINES_CHANGED") advance(2) end
+    function T.Login(fn) GetProfessions = fn ns.WatchGatherProfessions() advance(2) end
+    function T.Settle() advance(6) end
+    function T.Restore()
+        if ns.run then ns.StopRun(true) end
+        GetProfessions, GetNumSkillLines, GetSkillLineInfo = T.keep[1], T.keep[2], T.keep[3]
+        ns.WatchGatherProfessions() advance(7)
+        ns.db.nodes[T.map] = T.nodes
+        ns.db.noProfessionHint = nil
+        ns.NotifyNodesChanged() advance(2)
+    end
+    return T
+end
+step("Pins: only what your professions can gather (v0.1.16)", function()
+    local T = ProfessionTest()
+    local M = player.map
+    local HINT = "No gathering profession: herb and ore pins are hidden. To show them, untick \"Only show nodes my professions can gather\" in Options, Map & minimap."
+    for lang, d in pairs(ns.Locales) do
+        for _, key in ipairs({ "Only show nodes my professions can gather", HINT }) do
+            assert(d[key] and d[key] ~= key, lang .. ": not translated: " .. key)
+        end
+    end
+    local herb = { id = "o1617", name = "Silverleaf", type = "herb", x = 0.41, y = 0.5, count = 1, last = 1, item = 765 }
+    local ore = { id = "o1731", name = "Copper Vein", type = "ore", x = 0.43, y = 0.5, count = 1, last = 1, item = 2770 }
+    local chest = { id = "o2843", name = "Battered Chest", type = "chest", x = 0.45, y = 0.5, count = 1, last = 1 }
+    ns.db.nodes[M] = { herb, ore, chest }
+    ns.db.noProfessionHint = nil
+    local pins = LibStub("HereBeDragons-Pins-2.0")
+    local addWorld, addMini = pins.AddWorldMapIconMap, pins.AddMinimapIconMap
+    local world, mini = {}, {}
+    pins.AddWorldMapIconMap = function(self, ref, frame, mapID, x, y, ...)
+        if mapID == M then world[x] = true end
+        return addWorld(self, ref, frame, mapID, x, y, ...)
+    end
+    pins.AddMinimapIconMap = function(self, ref, icon, mapID, x, y, ...)
+        if mapID == M then mini[x] = true end
+        return addMini(self, ref, icon, mapID, x, y, ...)
+    end
+    local function Clear() world, mini = {}, {} end
+    local function Redraw() Clear() ns.NotifyNodesChanged() advance(2) end
+    local fails = {}
+    local function Check(ok, text) if not ok then fails[#fails + 1] = text end end
+    local function Shows(what, h, o)
+        for name, seen in pairs({ map = world, minimap = mini }) do
+            Check((seen[herb.x] or false) == h, ("%s: %s herb %s"):format(what, name, tostring(seen[herb.x])))
+            Check((seen[ore.x] or false) == o, ("%s: %s ore %s"):format(what, name, tostring(seen[ore.x])))
+            Check(seen[chest.x] == true, ("%s: %s chest gone"):format(what, name))
+        end
+    end
+    local mark = #log
+    local function Hints()
+        local c = 0
+        for i = mark + 1, #log do if log[i]:find(ns.L[HINT], 1, true) then c = c + 1 end end
+        return c
+    end
+
+    local ok, err = pcall(function()
+    -- learned or unlearned: the pins follow on their own, no /reload
+    T.Login(T.Both) T.Settle() Redraw() Shows("both", true, true)
+    Clear() T.Set(T.Herb) Shows("Herbalism only", true, false)
+    Clear() T.Set(T.Ore) Shows("Mining only", false, true)
+    Clear() T.Set(T.Both) Shows("Mining and Herbalism again", true, true)
+    Check(Hints() == 0, "a hint with professions")
+    -- none: no pins, one line, once
+    Clear() T.Set(T.None) Shows("no profession", false, false)
+    Check(Hints() == 1, ("no profession: %d hints"):format(Hints()))
+    T.Set(T.Herb) T.Set(T.None)
+    T.Login(T.None) T.Settle()
+    Check(Hints() == 1, ("no profession again: %d hints"):format(Hints()))
+    -- the option off: all of them, and no hint
+    ns.db.allGatherPins = true
+    Redraw() Shows("option off", true, true)
+    ns.db.noProfessionHint = nil
+    T.Login(T.None) T.Settle()
+    Check(Hints() == 1, "option off: a hint")
+    ns.db.allGatherPins = nil
+    -- both filters: the Zones tab hides what you could gather, professions hide what it leaves
+    T.Set(T.Ore)
+    ns.db.mapFollowsZones = true
+    Redraw() Shows("Mining, Zones filter on, zone ticked", false, true)
+    ns.db.disabledZones[M] = true
+    Clear() ns.NotifyNodesChanged() advance(2)
+    Check(not world[ore.x] and not mini[ore.x], "Mining, its zone unticked: ore still shown")
+    ns.db.disabledZones[M] = nil
+    ns.db.mapFollowsZones = nil
+    -- not known yet after login: everything as before
+    ns.db.noProfessionHint = nil
+    mark = #log
+    T.Login(function() end)
+    Redraw() Shows("just logged in", true, true)
+    Check(select(3, ns.GatherProfessions()) == false, "known right after login")
+    Check(Hints() == 0, "a hint right after login")
+    Clear() T.Settle()
+    Check(select(3, ns.GatherProfessions()) == true, "still unknown after the wait")
+    Shows("settled, no profession", false, false)
+    -- the old skill list: empty = not sent yet, a collapsed header may hide them
+    GetNumSkillLines = function() return 0 end
+    T.Login(nil) T.Settle()
+    Check(select(3, ns.GatherProfessions()) == false, "an empty skill list counts as known")
+    local lines = { { "Professions", true, false } }
+    GetNumSkillLines = function() return #lines end
+    GetSkillLineInfo = function(i) return unpack(lines[i]) end
+    T.Login(nil) T.Settle()
+    Check(select(3, ns.GatherProfessions()) == false, "a collapsed header counts as known")
+    lines = { { "Professions", true, true }, { "Herbalism", false, nil, 50, nil, 0, 75 } }
+    T.Set(nil)
+    local h, o, known = ns.GatherProfessions()
+    Check(known and h and not o, "the old skill list: Herbalism not read")
+    -- collapsing the header later changes nothing
+    lines = { { "Professions", true, false } }
+    T.Set(nil)
+    h, o, known = ns.GatherProfessions()
+    Check(known and h and not o, "a header collapsed later: forgotten")
+    end)
+    pins.AddWorldMapIconMap, pins.AddMinimapIconMap = addWorld, addMini
+    ns.db.mapFollowsZones, ns.db.allGatherPins, ns.db.disabledZones[M] = nil, nil, nil
+    T.Restore()
+    assert(ok, err)
+    assert(#fails == 0, table.concat(fails, " | "))
+end)
 step("Long run (10 min) for leaks", function() slash("run herb") advance(600) slash("stop") end)
 
 io.write("\n--- errors: " .. #errors .. "\n")

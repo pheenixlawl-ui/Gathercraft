@@ -18,7 +18,7 @@ end
 -- Options window
 ---------------------------------------------------------------------------
 local options = CreateFrame("Frame", "GathercraftOptions", UIParent, "BackdropTemplate")
-options:SetSize(740, 530) -- standalone; in the main window it fills the Options tab
+options:SetSize(740, 556) -- standalone; in the main window it fills the Options tab
 options:SetPoint("CENTER")
 options:SetBackdrop({
     bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
@@ -766,6 +766,12 @@ local function Build()
         function() return ns.db.mapFollowsZones end,
         function(on)
             ns.db.mapFollowsZones = on or nil
+            ns.NotifyNodesChanged()
+        end)
+    AddCheck("Only show nodes my professions can gather",
+        function() return not ns.db.allGatherPins end,
+        function(on)
+            ns.db.allGatherPins = not on or nil
             ns.NotifyNodesChanged()
         end)
     AddCheck("Learn nodes you point at on the minimap",

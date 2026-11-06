@@ -286,6 +286,71 @@ local function ShowSkills()
     end
 end
 
+---------------------------------------------------------------------------
+-- Which gathering professions this character has (map filter, right-click).
+-- Right after login the game may not have told yet: then nothing is known
+-- and everything stays as it was. Only events read it: the map asks per node.
+---------------------------------------------------------------------------
+local PROFESSIONS_SETTLE = 5 -- seconds after login: only then "none found" can be believed
+local gather = { known = false, herb = false, ore = false }
+local settled = false
+
+-- herb, ore, known: known is nil while nothing can be said
+local function ReadGatherProfessions()
+    local herb, ore = GetSkill("herb") and true or false, GetSkill("ore") and true or false
+    if herb or ore then return herb, ore, true end
+    if not settled or SkillListIncomplete() then return end
+    -- the old skill list is empty until the game has sent it
+    if not GetProfessions and GetNumSkillLines and GetNumSkillLines() == 0 then return end
+    return false, false, true
+end
+
+local function UpdateGatherProfessions()
+    if not ns.db then return end
+    local herb, ore, known = ReadGatherProfessions()
+    if not known then return end -- what it knew stays (a header collapsed in the skill window)
+    local changed = (not gather.known or gather.herb) ~= herb or (not gather.known or gather.ore) ~= ore
+    gather.known, gather.herb, gather.ore = true, herb, ore
+    if changed and ns.NotifyNodesChanged then ns.NotifyNodesChanged() end
+    if not herb and not ore and not ns.db.allGatherPins and not ns.db.noProfessionHint then
+        ns.db.noProfessionHint = true
+        ns.Print(L["No gathering profession: herb and ore pins are hidden. To show them, untick \"Only show nodes my professions can gather\" in Options, Map & minimap."])
+    end
+end
+
+-- From a fresh start (login): nothing known, "none found" counts after a while
+local function WatchGatherProfessions()
+    gather.known, gather.herb, gather.ore = false, false, false
+    settled = false
+    UpdateGatherProfessions()
+    C_Timer.After(PROFESSIONS_SETTLE, function()
+        settled = true
+        UpdateGatherProfessions()
+    end)
+end
+
+local professionWatch = CreateFrame("Frame")
+professionWatch:RegisterEvent("PLAYER_LOGIN")
+professionWatch:RegisterEvent("SKILL_LINES_CHANGED")
+professionWatch:SetScript("OnEvent", function(_, event)
+    if event == "PLAYER_LOGIN" then WatchGatherProfessions() else UpdateGatherProfessions() end
+end)
+
+-- herb, ore, known (see above)
+function ns.GatherProfessions()
+    return gather.herb, gather.ore, gather.known
+end
+
+-- Options, Map & minimap: herbs need Herbalism, ores Mining. Chests and
+-- fishing spots have their own switches.
+function ns.HiddenByProfession(n)
+    if ns.db.allGatherPins or not gather.known then return false end
+    if n.type == "herb" then return not gather.herb end
+    if n.type == "ore" then return not gather.ore end
+    return false
+end
+
+ns.WatchGatherProfessions = WatchGatherProfessions -- for the tests (tools/smoke_test.lua)
 ns.GetSkill = GetSkill
 ns.SkillVerdict = SkillVerdict
 ns.SkillLevel = SkillLevel

@@ -445,6 +445,7 @@ local function AddNodePins(mapID, n)
     -- the Zones tab picks what Start run farms; the map shows everything,
     -- unless the option says the map follows it too
     if ns.db.mapFollowsZones and not ns.IsNodeEnabled(n, mapID) then return end
+    if ns.HiddenByProfession(n) then return end -- Options: only what you can gather
     if n.type == "chest" and ns.db.chestsHidden then return end -- Options: chests off
     if HideGrey() and NodeLevel(n) == "grey" then return end -- Options → Leveling
     local showWorld = WorldPinsShown()
