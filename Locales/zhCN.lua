@@ -386,6 +386,7 @@ ns.Locales.zhCN = {
     ["Handy while you level - turn it off when you farm for gold."] = "练级时很实用——为金币采集时请关闭。",
     ["While you level, pins show in the trainer colour what they do for your skill (Options, page Leveling)."] = "练级时，标记会用训练师的颜色显示它们对你技能的作用（Options，“练级”页面）。",
     ["Fishing: each catch is counted once – catches per hour and gold per hour were doubled before. Gathering: a herb or ore you gather right after a spell on a target (a buff, a heal, an attack) is recorded again – it was dropped before."] = "钓鱼：每次钓获只计一次——之前每小时钓获数和金币会翻倍。采集：对目标施法（增益、治疗、攻击）后立刻采集的草药或矿石会重新被记录——之前会丢失。",
+    ["Pins now show only what your professions can gather (switch it off in Options, Map & minimap). Right-click without a gathering profession tells you what to do. Gathering spells are learned more carefully, and shared finds wait 7 days for confirmation."] = "图标现在只显示你的专业能采集的内容（可在 Options 的“地图和小地图”中关闭）。没有采集专业时右键会提示你该怎么做。采集法术的学习更加谨慎，共享的发现会等待确认 7 天。",
     ["|cffffd060No skill-ups until you train the next rank|r"] = "|cffffd060在训练师处学会下一级之前不会再提升技能|r",
     ["Route goal"] = "路线目标",
     ["Auto"] = "自动",
