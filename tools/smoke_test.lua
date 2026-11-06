@@ -5795,6 +5795,26 @@ step("Right-click: no farm run without a gathering profession (v0.1.16)", functi
     T.Restore()
     assert(ok, err)
 end)
+step("Sync: unconfirmed reports wait 7 days, in new zones 14 (v0.1.16)", function()
+    local s = ns.db.sync
+    local keepPending, keepKnown = s.pending, ns.HasKnownSpawns
+    local DAY = 24 * 3600
+    local function Report(days) return { first = time() - days * DAY } end
+    ns.HasKnownSpawns = function(mapID) return mapID ~= 9001 end
+    s.pending = {
+        [1412] = { Report(2), Report(5), Report(6.9), Report(7.1), Report(8) },
+        [1437] = { Report(8) },
+        [9001] = { Report(8), Report(13), Report(15) },
+    }
+    ns.DropOldPending()
+    local pending = s.pending
+    local known, new = pending[1412], pending[9001]
+    ns.HasKnownSpawns, s.pending = keepKnown, keepPending
+    assert(known and #known == 3, ("known spawns: %d reports left, want the three up to 7 days"):format(known and #known or 0))
+    for _, r in ipairs(known) do assert(time() - r.first < 7 * DAY, "a report older than 7 days stayed") end
+    assert(pending[1437] == nil, "a report of 8 days stayed, or its empty zone")
+    assert(new and #new == 2, ("new zone: %d reports left, want 2"):format(new and #new or 0))
+end)
 step("Long run (10 min) for leaks", function() slash("run herb") advance(600) slash("stop") end)
 
 io.write("\n--- errors: " .. #errors .. "\n")

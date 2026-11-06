@@ -50,7 +50,7 @@ local QUERY_COOLDOWN = 600    -- seconds before asking for the same zone again
 local QUERY_HEARD = 120       -- someone else asked for the zone this recently: their answers reach us too
 local QUERY_JITTER = 15       -- seconds: wait a random moment before asking (others may ask first)
 local MAX_RESPONDERS = 3
-local PENDING_MAX_AGE = 3 * 24 * 3600
+local PENDING_MAX_AGE = 7 * 24 * 3600
 local PENDING_MAX_AGE_NEW = 14 * 24 * 3600 -- zones without known spawn points (new Forever zones): keep them longer
 local PENDING_MAX_TOTAL = 2000 -- unconfirmed reports kept in all zones together
 local PENDING_MAX_PER_ZONE = 300 -- unconfirmed reports kept per zone (oldest go first)
@@ -838,6 +838,20 @@ end
 ---------------------------------------------------------------------------
 -- Init
 ---------------------------------------------------------------------------
+-- Drop old unconfirmed reports
+local function DropOldPending(s)
+    for mapID, list in pairs(s.pending) do
+        for i = #list, 1, -1 do
+            local maxAge = (ns.HasKnownSpawns and ns.HasKnownSpawns(mapID)) and PENDING_MAX_AGE or PENDING_MAX_AGE_NEW
+            if time() - (list[i].first or 0) > maxAge then
+                table.remove(list, i)
+            end
+        end
+        if #list == 0 then s.pending[mapID] = nil end
+    end
+end
+ns.DropOldPending = function() DropOldPending(ns.db.sync) end -- for the tests (tools/smoke_test.lua)
+
 local frame = CreateFrame("Frame")
 frame:RegisterEvent("PLAYER_LOGIN")
 frame:RegisterEvent("CHAT_MSG_ADDON")
@@ -875,16 +889,7 @@ frame:SetScript("OnEvent", function(self, event, ...)
             end
         end
 
-        -- Drop old unconfirmed reports
-        for mapID, list in pairs(s.pending) do
-            for i = #list, 1, -1 do
-                local maxAge = (ns.HasKnownSpawns and ns.HasKnownSpawns(mapID)) and PENDING_MAX_AGE or PENDING_MAX_AGE_NEW
-                if time() - (list[i].first or 0) > maxAge then
-                    table.remove(list, i)
-                end
-            end
-            if #list == 0 then s.pending[mapID] = nil end
-        end
+        DropOldPending(s)
 
         playerName = UnitName("player") .. "-" .. (GetNormalizedRealmName() or "")
         C_ChatInfo.RegisterAddonMessagePrefix(PREFIX)
