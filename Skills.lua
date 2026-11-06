@@ -10,17 +10,28 @@ local L = ns.L or setmetatable({}, { __index = function(_, k) return k end })
 --     minNoUp  : lowest skill at which no point was gained
 ---------------------------------------------------------------------------
 local SKILL_LINE = { herb = 182, ore = 186, fish = 356, cook = 185, aid = 129 } -- Herbalism, Mining, Fishing, Cooking, First Aid
+-- Compared in lower case. string.lower leaves Cyrillic capitals alone, so the
+-- Russian names are here as the client writes them too.
 local SKILL_NAMES = {
     herb = { ["herbalism"] = true, ["kräuterkunde"] = true, ["herboristerie"] = true, ["herboristería"] = true,
-        ["erbalismo"] = true, ["herborismo"] = true, ["травничество"] = true },
+        ["erbalismo"] = true, ["herborismo"] = true, ["травничество"] = true,
+        ["Травничество"] = true, ["약초채집"] = true, ["草药学"] = true, ["草藥學"] = true },
     ore = { ["mining"] = true, ["bergbau"] = true, ["minage"] = true, ["minería"] = true,
-        ["estrazione"] = true, ["mineração"] = true, ["горное дело"] = true },
-    fish = { ["fishing"] = true, ["angeln"] = true, ["pêche"] = true, ["pesca"] = true, ["рыбная ловля"] = true },
+        ["estrazione"] = true, ["mineração"] = true, ["горное дело"] = true,
+        ["Горное дело"] = true, ["채광"] = true, ["采矿"] = true, ["採礦"] = true },
+    fish = { ["fishing"] = true, ["angeln"] = true, ["pêche"] = true, ["pesca"] = true, ["рыбная ловля"] = true,
+        ["Рыбная ловля"] = true, ["낚시"] = true, ["钓鱼"] = true, ["釣魚"] = true },
     cook = { ["cooking"] = true, ["kochkunst"] = true, ["cuisine"] = true, ["cocina"] = true, ["cucina"] = true,
-        ["culinária"] = true, ["кулинария"] = true },
+        ["culinária"] = true, ["кулинария"] = true,
+        ["Кулинария"] = true, ["요리"] = true, ["烹饪"] = true, ["烹飪"] = true },
     aid = { ["first aid"] = true, ["erste hilfe"] = true, ["secourisme"] = true, ["primeros auxilios"] = true,
-        ["primo soccorso"] = true, ["primeiros socorros"] = true, ["первая помощь"] = true },
+        ["primo soccorso"] = true, ["primeiros socorros"] = true, ["первая помощь"] = true,
+        ["Первая помощь"] = true, ["응급치료"] = true, ["急救"] = true },
 }
+-- The clients whose names are in the lists above: only there can the old
+-- skill list say that a profession is missing
+local SKILL_NAME_LOCALES = { enUS = true, enGB = true, deDE = true, esES = true, esMX = true, frFR = true,
+    itIT = true, koKR = true, ptBR = true, ruRU = true, zhCN = true, zhTW = true }
 local PROFESSION_LABEL = { herb = "Herbalism", ore = "Mining" }
 local CHECK_DELAY = 1.5 -- seconds after the harvest before reading the new skill
 local STATS_VERSION = 3 -- v2: only the first gather of each spawn counts; v3: keyed by type + name
@@ -290,24 +301,60 @@ end
 -- Which gathering professions this character has (map filter, right-click).
 -- Right after login the game may not have told yet: then nothing is known
 -- and everything stays as it was. Only events read it: the map asks per node.
+-- "Not learned" needs a sure read: professions listed with their skill line,
+-- or the whole old skill list in a language we have the names of. Anything
+-- else leaves it unknown, and unknown hides nothing and blocks nothing.
 ---------------------------------------------------------------------------
 local PROFESSIONS_SETTLE = 5 -- seconds after login: only then "none found" can be believed
 local gather = { known = false, herb = false, ore = false }
 local settled = false
+local professionLine -- the last read, in words (/gcr debug)
 
--- herb, ore, known: known is nil while nothing can be said
+-- true when the game lists professions, each with its skill line. No
+-- profession listed proves nothing: it may just not have told yet.
+local function ProfessionIDsWork()
+    if not (GetProfessions and GetProfessionInfo) then return false end
+    local profs = { GetProfessions() }
+    local any = false
+    for i = 1, 6 do
+        if profs[i] then
+            local skillLine = select(7, GetProfessionInfo(profs[i]))
+            if (tonumber(skillLine) or 0) <= 0 then return false end
+            any = true
+        end
+    end
+    return any
+end
+
+-- true when a name missing from the old skill list means it is not learned.
+-- The list is empty until the game has sent it.
+local function SkillListProves()
+    if not (GetNumSkillLines and GetSkillLineInfo) or GetNumSkillLines() == 0 then return false end
+    return SKILL_NAME_LOCALES[GetLocale()] and not SkillListIncomplete()
+end
+
+-- herb, ore, known, source: known is nil while nothing can be said
 local function ReadGatherProfessions()
     local herb, ore = GetSkill("herb") and true or false, GetSkill("ore") and true or false
-    if herb or ore then return herb, ore, true end
-    if not settled or SkillListIncomplete() then return end
-    -- the old skill list is empty until the game has sent it
-    if not GetProfessions and GetNumSkillLines and GetNumSkillLines() == 0 then return end
-    return false, false, true
+    if ProfessionIDsWork() then
+        if herb or ore or settled then return herb, ore, true, "IDs" end
+        return herb, ore, nil, "IDs"
+    end
+    local source = GetNumSkillLines and GetSkillLineInfo and "skill lines" or "nothing"
+    if herb and ore then return herb, ore, true, source end
+    if (herb or ore or settled) and SkillListProves() then return herb, ore, true, source end
+    return herb, ore, nil, source
 end
 
 local function UpdateGatherProfessions()
     if not ns.db then return end
-    local herb, ore, known = ReadGatherProfessions()
+    local herb, ore, known, source = ReadGatherProfessions()
+    local line = ("PROFESSIONS from %s: herb=%s ore=%s, %s"):format(source, tostring(herb), tostring(ore),
+        known and "sure" or "not sure")
+    if line ~= professionLine then
+        professionLine = line
+        ns.Debug(line)
+    end
     if not known then return end -- what it knew stays (a header collapsed in the skill window)
     local changed = (not gather.known or gather.herb) ~= herb or (not gather.known or gather.ore) ~= ore
     gather.known, gather.herb, gather.ore = true, herb, ore
@@ -348,6 +395,11 @@ function ns.HiddenByProfession(n)
     if n.type == "herb" then return not gather.herb end
     if n.type == "ore" then return not gather.ore end
     return false
+end
+
+-- /gcr debug switched on: the last read, without waiting for a new one
+function ns.DebugGatherProfessions()
+    if professionLine then ns.Debug(professionLine) end
 end
 
 ns.WatchGatherProfessions = WatchGatherProfessions -- for the tests (tools/smoke_test.lua)

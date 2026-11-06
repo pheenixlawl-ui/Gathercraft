@@ -1100,6 +1100,7 @@ local function ToggleDebug()
     ns.db.debug = not ns.db.debug
     Print(L["Debug mode "] .. (ns.db.debug and L["|cff00ff00ON|r"] or L["|cffff0000OFF|r"]))
     ShowDebugTab()
+    if ns.db.debug and ns.DebugGatherProfessions then ns.DebugGatherProfessions() end
 end
 
 ---------------------------------------------------------------------------

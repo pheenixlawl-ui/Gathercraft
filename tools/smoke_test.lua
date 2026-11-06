@@ -5726,8 +5726,17 @@ step("Pins: only what your professions can gather (v0.1.16)", function()
     Redraw() Shows("just logged in", true, true)
     Check(select(3, ns.GatherProfessions()) == false, "known right after login")
     Check(Hints() == 0, "a hint right after login")
+    -- still nothing from either source after the wait: not known, as in 0.1.15
     Clear() T.Settle()
-    Check(select(3, ns.GatherProfessions()) == true, "still unknown after the wait")
+    Check(select(3, ns.GatherProfessions()) == false, "nothing read, yet known after the wait")
+    Redraw() Shows("nothing read after the wait", true, true)
+    Check(Hints() == 0, "a hint with nothing read")
+    -- a character without any profession: the full skill list shows it
+    local full = { { "Class Skills", true, true }, { "Defense", false, nil, 5, nil, 0, 5 } }
+    GetNumSkillLines = function() return #full end
+    GetSkillLineInfo = function(i) return unpack(full[i]) end
+    Clear() T.Set(function() end)
+    Check(select(3, ns.GatherProfessions()) == true, "the full skill list not believed")
     Shows("settled, no profession", false, false)
     -- the old skill list: empty = not sent yet, a collapsed header may hide them
     GetNumSkillLines = function() return 0 end
@@ -5794,6 +5803,170 @@ step("Right-click: no farm run without a gathering profession (v0.1.16)", functi
     end)
     T.Restore()
     assert(ok, err)
+end)
+step("Professions: \"none\" only from a sure read (v0.1.16)", function()
+    local T = ProfessionTest()
+    local keepLocale, keepInfo, keepDebug = GetLocale, GetProfessionInfo, ns.Debug
+    local HINT = "No gathering profession: herb and ore pins are hidden. To show them, untick \"Only show nodes my professions can gather\" in Options, Map & minimap."
+    local TRAINER = "Learn Herbalism or Mining from a trainer to start a farm run."
+    local herb, ore = { type = "herb" }, { type = "ore" }
+    local list = {}
+    for i = 1, 10 do
+        list[i] = { id = "o1617", name = "Silverleaf", type = "herb", x = 0.4 + i / 100, y = 0.5, count = 1, last = 1, item = 765 }
+    end
+    ns.db.nodes[player.map] = list
+    ns.db.noProfessionHint = nil
+    ns.NotifyNodesChanged() advance(2)
+    local lines = {}
+    GetNumSkillLines = function() return #lines end
+    GetSkillLineInfo = function(i) return unpack(lines[i]) end
+    local function Lines(...)
+        local t = { { "Header", true, true } }
+        for i = 1, select("#", ...) do t[#t + 1] = { (select(i, ...)), false, nil, 50, nil, 0, 75 } end
+        return t
+    end
+    -- a fresh login on this client, read after the wait
+    local function Read(locale, modern, skillLines)
+        GetLocale = function() return locale end
+        lines = skillLines or {}
+        T.Login(modern) T.Settle()
+    end
+    local function Starts()
+        ns.StartHereRun() advance(1)
+        local started = ns.run and true or false
+        if started then ns.StopRun(true) end
+        return started
+    end
+    local fails = {}
+    local function Check(ok, text) if not ok then fails[#fails + 1] = text end end
+    local function Is(what, wantHerb, wantOre, wantKnown)
+        local h, o, known = ns.GatherProfessions()
+        Check(known == wantKnown and (not wantKnown or (h == wantHerb and o == wantOre)),
+            ("%s: herb %s ore %s known %s"):format(what, tostring(h), tostring(o), tostring(known)))
+    end
+    local function Pins(what, wantHerb, wantOre)
+        Check(ns.HiddenByProfession(herb) == not wantHerb, what .. ": herb pins wrong")
+        Check(ns.HiddenByProfession(ore) == not wantOre, what .. ": ore pins wrong")
+    end
+    local nothing = function() end
+    local mark = #log
+    local function Said(text)
+        for i = mark + 1, #log do if log[i]:find(ns.L[text], 1, true) then return true end end
+    end
+
+    local ok, err = pcall(function()
+    -- the review's table: the old list, both learned, in the client's own spelling
+    local names = {
+        enUS = { "Herbalism", "Mining" }, ruRU = { "Травничество", "Горное дело" }, koKR = { "약초채집", "채광" },
+        zhCN = { "草药学", "采矿" }, zhTW = { "草藥學", "採礦" },
+    }
+    for lang, d in pairs(ns.Locales) do names[lang] = names[lang] or { d["Herbalism"], d["Mining"] } end
+    names.esMX = names.esMX or names.esES
+    for lang, n in pairs(names) do
+        for what, modern in pairs({ ["no GetProfessions"] = false, ["GetProfessions empty"] = nothing }) do
+            local case = lang .. ", " .. what
+            Read(lang, modern or nil, Lines("Defense", n[1], n[2]))
+            Is(case, true, true, true)
+            Pins(case, true, true)
+            Check(Starts(), case .. ": no run")
+            -- only one learned, the language is covered: the other is really missing
+            Read(lang, modern or nil, Lines(n[1]))
+            Is(case .. ", herb only", true, false, true)
+            Pins(case .. ", herb only", true, false)
+            Read(lang, modern or nil, Lines("Defense"))
+            Is(case .. ", none", false, false, true)
+            Pins(case .. ", none", false, false)
+            Check(not Starts(), case .. ", none: a run")
+        end
+    end
+    -- a language we have no names for: nothing can be said, all as in 0.1.15
+    ns.db.noProfessionHint = nil
+    mark = #log
+    Read("xxXX", nil, Lines("Defense", "Bylinovedenie", "Gornoe"))
+    Is("unknown language", nil, nil, false)
+    Pins("unknown language", true, true)
+    Check(Starts(), "unknown language: no run")
+    Check(not Said(TRAINER), "unknown language: sent to the trainer")
+    Check(not Said(HINT), "unknown language: the hint")
+    Read("xxXX", nothing, Lines("Defense"))
+    Is("unknown language, GetProfessions empty", nil, nil, false)
+    -- one name found there says nothing about the other; both found leave no doubt
+    Read("xxXX", nil, Lines("Herbalism"))
+    Is("unknown language, one found", nil, nil, false)
+    Pins("unknown language, one found", true, true)
+    Read("xxXX", nil, Lines("Herbalism", "Mining"))
+    Is("unknown language, both found", true, true, true)
+    -- the list can't tell: empty, or a collapsed header hides the other one
+    Read("enUS", nil, {})
+    Is("empty list", nil, nil, false)
+    Check(Starts(), "empty list: no run")
+    Read("enUS", nothing, {})
+    Is("empty list, GetProfessions empty", nil, nil, false)
+    Pins("empty list, GetProfessions empty", true, true)
+    local collapsed = Lines("Herbalism")
+    collapsed[#collapsed + 1] = { "Other", true, false }
+    Read("enUS", nil, collapsed)
+    Is("collapsed header, one found", nil, nil, false)
+    Pins("collapsed header, one found", true, true)
+    -- IDs: any language, and the list doesn't matter
+    ns.db.noProfessionHint = nil
+    mark = #log
+    Read("xxXX", T.None, {})
+    Is("IDs, none", false, false, true)
+    Pins("IDs, none", false, false)
+    Check(Said(HINT), "IDs, none: no hint")
+    Check(not Starts(), "IDs, none: a run")
+    Check(Said(TRAINER), "IDs, none: no line about the trainer")
+    Read("xxXX", T.Herb, {})
+    Is("IDs, Herbalism", true, false, true)
+    Pins("IDs, Herbalism", true, false)
+    Check(Starts(), "IDs, Herbalism: no run")
+    local hidden = Lines("Defense")
+    hidden[#hidden + 1] = { "Other", true, false }
+    Read("koKR", T.Ore, hidden)
+    Is("IDs, Mining", false, true, true)
+    Pins("IDs, Mining", false, true)
+    -- professions listed without their skill line: the IDs prove nothing
+    GetProfessionInfo = function() return "?", 0, 1, 75 end
+    Read("enUS", T.None, {})
+    Is("no skill line", nil, nil, false)
+    Pins("no skill line", true, true)
+    GetProfessionInfo = function() return "?", 0, 1, 75, 0, 0, 0 end
+    Read("enUS", T.None, {})
+    Is("skill line 0", nil, nil, false)
+    Read("ruRU", T.None, Lines("Травничество"))
+    Is("no skill line, old list", true, false, true)
+    GetProfessionInfo = keepInfo
+    -- /gcr debug: which source, and whether it counts as sure
+    local seen = {}
+    ns.Debug = function(text) seen[#seen + 1] = text end
+    local function Debugged(...)
+        for _, text in ipairs(seen) do
+            local all = true
+            for i = 1, select("#", ...) do all = all and text:find((select(i, ...)), 1, true) ~= nil end
+            if all then return true end
+        end
+    end
+    Read("enUS", T.Herb, {})
+    Check(Debugged("IDs", "sure") and not Debugged("not sure"), "debug: IDs, sure")
+    seen = {}
+    Read("enUS", nil, Lines("Herbalism"))
+    Check(Debugged("skill lines", "sure"), "debug: skill lines, sure")
+    seen = {}
+    Read("xxXX", nil, Lines("Defense"))
+    Check(Debugged("skill lines", "not sure"), "debug: skill lines, not sure")
+    -- switching debug on tells it again, without a new login
+    seen = {}
+    local keepFlag = ns.db.debug
+    ns.db.debug = nil
+    slash("debug")
+    Check(Debugged("skill lines", "not sure"), "debug: nothing when switched on")
+    ns.db.debug = keepFlag
+    end)
+    GetLocale, GetProfessionInfo, ns.Debug = keepLocale, keepInfo, keepDebug
+    T.Restore()
+    assert(ok, err)
+    assert(#fails == 0, #fails .. " wrong: " .. table.concat(fails, " | "):sub(1, 900))
 end)
 step("Sync: unconfirmed reports wait 7 days, in new zones 14 (v0.1.16)", function()
     local s = ns.db.sync
