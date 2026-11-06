@@ -355,7 +355,12 @@ local function UpdateGatherProfessions()
         professionLine = line
         ns.Debug(line)
     end
-    if not known then return end -- what it knew stays (a header collapsed in the skill window)
+    if not known then
+        -- what it knew stays (a header collapsed in the skill window), but a
+        -- profession found counts at once: only a sure read can say "not learned"
+        herb, ore = herb or gather.herb, ore or gather.ore
+        if not gather.known or (herb == gather.herb and ore == gather.ore) then return end
+    end
     local changed = (not gather.known or gather.herb) ~= herb or (not gather.known or gather.ore) ~= ore
     gather.known, gather.herb, gather.ore = true, herb, ore
     if changed and ns.NotifyNodesChanged then ns.NotifyNodesChanged() end

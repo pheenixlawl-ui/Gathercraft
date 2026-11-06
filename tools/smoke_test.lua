@@ -5968,6 +5968,169 @@ step("Professions: \"none\" only from a sure read (v0.1.16)", function()
     assert(ok, err)
     assert(#fails == 0, #fails .. " wrong: " .. table.concat(fails, " | "):sub(1, 900))
 end)
+step("Professions: a find beats an old \"none\", without a new login (v0.1.16)", function()
+    local T = ProfessionTest()
+    local keepLocale, keepDebug = GetLocale, ns.Debug
+    local M = player.map
+    local kinds, list = {}, {}
+    for i = 1, 10 do
+        local hx, ox = 0.3 + i / 100, 0.5 + i / 100
+        kinds[hx], kinds[ox] = "herb", "ore"
+        list[#list + 1] = { id = "o1617", name = "Silverleaf", type = "herb", x = hx, y = 0.5, count = 1, last = 1, item = 765 }
+        list[#list + 1] = { id = "o1731", name = "Copper Vein", type = "ore", x = ox, y = 0.5, count = 1, last = 1, item = 2770 }
+    end
+    ns.db.nodes[M] = list
+    ns.db.noProfessionHint = nil
+    local pins = LibStub("HereBeDragons-Pins-2.0")
+    local addWorld, addMini = pins.AddWorldMapIconMap, pins.AddMinimapIconMap
+    local world, mini = {}, {}
+    pins.AddWorldMapIconMap = function(self, ref, frame, mapID, x, y, ...)
+        if mapID == M then world[x] = true end
+        return addWorld(self, ref, frame, mapID, x, y, ...)
+    end
+    pins.AddMinimapIconMap = function(self, ref, icon, mapID, x, y, ...)
+        if mapID == M then mini[x] = true end
+        return addMini(self, ref, icon, mapID, x, y, ...)
+    end
+    local function Clear() world, mini = {}, {} end
+    local function Redraw() Clear() ns.NotifyNodesChanged() advance(2) end
+    local fails = {}
+    local function Check(ok, text) if not ok then fails[#fails + 1] = text end end
+    local function Count(seen, kind)
+        local c = 0
+        for x in pairs(seen) do if kinds[x] == kind then c = c + 1 end end
+        return c
+    end
+    local function Shows(what, h, o)
+        for name, seen in pairs({ map = world, minimap = mini }) do
+            Check(Count(seen, "herb") == (h and 10 or 0), ("%s: %s herb %d"):format(what, name, Count(seen, "herb")))
+            Check(Count(seen, "ore") == (o and 10 or 0), ("%s: %s ore %d"):format(what, name, Count(seen, "ore")))
+        end
+    end
+    local function Is(what, wantHerb, wantOre, wantKnown)
+        local h, o, known = ns.GatherProfessions()
+        Check(known == wantKnown and (not wantKnown or (h == wantHerb and o == wantOre)),
+            ("%s: herb %s ore %s known %s"):format(what, tostring(h), tostring(o), tostring(known)))
+    end
+    local function Starts()
+        ns.StartHereRun() advance(1)
+        local started = ns.run and true or false
+        if started then ns.StopRun(true) end
+        return started
+    end
+    -- the old skill list: the names under an open header, maybe another one collapsed
+    local lines = {}
+    GetNumSkillLines = function() return #lines end
+    GetSkillLineInfo = function(i) return unpack(lines[i]) end
+    local function Lines(collapsed, ...)
+        local t = { { "Professions", true, true }, { "Defense", false, nil, 5, nil, 0, 5 } }
+        for i = 1, select("#", ...) do t[#t + 1] = { (select(i, ...)), false, nil, 50, nil, 0, 75 } end
+        if collapsed then t[#t + 1] = { "Weapon Skills", true, false } end
+        return t
+    end
+    -- what the skill list shows now, told by the game: no login, the cache stays
+    local function Now(skillLines)
+        lines = skillLines
+        T.Set(nil)
+    end
+    local function None()
+        lines = Lines(false)
+        T.Login(nil) T.Settle()
+    end
+
+    local ok, err = pcall(function()
+    GetLocale = function() return "enUS" end
+    for _, case in ipairs({ { "Herbalism", true, false }, { "Mining", false, true } }) do
+        local name, h, o = case[1], case[2], case[3]
+        None()
+        Is(name .. ", before", false, false, true)
+        Redraw() Shows(name .. ", before", false, false)
+        Check(not Starts(), name .. ", before: a run")
+        -- learned, another category collapsed: the event alone brings the pins back
+        Clear() Now(Lines(true, name))
+        Is(name .. " learned", h, o, true)
+        Shows(name .. " learned", h, o)
+        Check(Starts(), name .. " learned: no run")
+        -- and it stays, whatever comes after
+        for _ = 1, 5 do T.Set(nil) end
+        advance(60)
+        Is(name .. ", later", h, o, true)
+        Redraw() Shows(name .. ", later", h, o)
+        Check(Starts(), name .. ", later: no run")
+        -- unlearned: a sure read takes it away again
+        Now(Lines(false))
+        Is(name .. " unlearned", false, false, true)
+        Redraw() Shows(name .. " unlearned", false, false)
+        Check(not Starts(), name .. " unlearned: a run")
+    end
+
+    -- per profession: finding one takes nothing from the other
+    None()
+    Now(Lines(true, "Herbalism"))
+    Now(Lines(true, "Mining"))
+    Is("one after the other", true, true, true)
+    Redraw() Shows("one after the other", true, true)
+    -- a sure read can take one of them
+    Now(Lines(false, "Mining"))
+    Is("Herbalism unlearned", false, true, true)
+    Redraw() Shows("Herbalism unlearned", false, true)
+    Check(Starts(), "Herbalism unlearned: no run")
+
+    -- a read that isn't sure and finds nothing changes nothing, says nothing
+    None()
+    ns.db.noProfessionHint = nil
+    for what, skillLines in pairs({ collapsed = Lines(true), empty = {} }) do
+        Now(skillLines)
+        Is("none, then " .. what, false, false, true)
+        Redraw() Shows("none, then " .. what, false, false)
+        Check(not Starts(), "none, then " .. what .. ": a run")
+    end
+    Check(not ns.db.noProfessionHint, "not sure, nothing found: the hint")
+    Now(Lines(false, "Herbalism"))
+    for what, skillLines in pairs({ collapsed = Lines(true), empty = {} }) do
+        Now(skillLines)
+        Is("Herbalism, then " .. what, true, false, true)
+        Redraw() Shows("Herbalism, then " .. what, true, false)
+        Check(Starts(), "Herbalism, then " .. what .. ": no run")
+    end
+
+    -- nothing sure yet: a find doesn't make it known, the other stays open
+    lines = Lines(true, "Herbalism")
+    T.Login(nil) T.Settle()
+    T.Set(nil)
+    Is("nothing sure yet", nil, nil, false)
+    Redraw() Shows("nothing sure yet", true, true)
+
+    -- the IDs as before: learned and unlearned follow without a login
+    lines = {}
+    T.Login(T.None) T.Settle()
+    Is("IDs, none", false, false, true)
+    Clear() T.Set(T.Herb)
+    Is("IDs, learned", true, false, true)
+    Shows("IDs, learned", true, false)
+    T.Set(T.None)
+    Is("IDs, unlearned", false, false, true)
+    Redraw() Shows("IDs, unlearned", false, false)
+
+    -- /gcr debug: one line per change, nothing while the state stays
+    local seen = {}
+    ns.Debug = function(text) if text:find("PROFESSIONS", 1, true) then seen[#seen + 1] = text end end
+    None()
+    seen = {}
+    for _ = 1, 10 do T.Set(nil) end
+    Check(#seen == 0, ("debug, no change: %d lines"):format(#seen))
+    Now(Lines(true, "Herbalism"))
+    Check(#seen == 1, ("debug, a change: %d lines"):format(#seen))
+    for _ = 1, 10 do T.Set(nil) end
+    advance(60)
+    Check(#seen == 1, ("debug, no change after it: %d lines"):format(#seen))
+    end)
+    pins.AddWorldMapIconMap, pins.AddMinimapIconMap = addWorld, addMini
+    GetLocale, ns.Debug = keepLocale, keepDebug
+    T.Restore()
+    assert(ok, err)
+    assert(#fails == 0, #fails .. " wrong: " .. table.concat(fails, " | "):sub(1, 900))
+end)
 step("Sync: unconfirmed reports wait 7 days, in new zones 14 (v0.1.16)", function()
     local s = ns.db.sync
     local keepPending, keepKnown = s.pending, ns.HasKnownSpawns
