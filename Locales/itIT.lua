@@ -504,4 +504,6 @@ ns.Locales.itIT = {
     ["Right-click: stop fishing"] = "Clic destro: smetti di pescare",
     ["One slim line"] = "Una riga sottile",
     ["Show the whole panel"] = "Mostra tutto il pannello",
+    ["Ring only"] = "Solo anello",
+    ["Ring only: just a coloured ring, no icon. The yellow dot of the game's herb and mineral tracking shows in the middle."] = "Solo anello: solo un anello colorato, senza icona. Il punto giallo del tracciamento di erbe e minerali del gioco si vede al centro.",
 }

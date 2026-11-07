@@ -690,9 +690,9 @@ step("Pins: map and minimap apart, subtle style", function()
     ns.MigratePinSwitches()
     assert(not ns.db.worldPinsHidden and not ns.db.miniPinsHidden, "old 'shown' not migrated")
     -- subtle: silver ring, round see-through icon; world map pins stay plain
-    ns.db.miniPinStyle = nil -- the default is subtle
+    ns.db.miniPinStyle = "subtle" -- the default up to 0.1.16 (v0.1.17: ring only, own step)
     rebuild()
-    assert(ns.SubtleMinimap(), "subtle is not the default")
+    assert(ns.SubtleMinimap(), "subtle when chosen")
     -- own finds are drawn above known spawn points (fixed order, also after a redraw)
     local ownSeen, questieSeen = false, false
     for _, pin in ipairs(MINI_ICONS) do
@@ -4916,6 +4916,60 @@ step("Run window: one slim line or hidden, fishing too, Stop still works (v0.1.1
     ldbObj.OnClick(nil, "RightButton")
     assert(not ns.FishingSession() and not ns.run, "right-click did not end the hidden fishing session (or started a run)")
     ns.db.fishPanelHidden = nil
+end)
+step("Minimap style: ring only is the default, a choice stays (v0.1.17)", function()
+    player.map, player.x, player.y = 1412, 0.45, 0.72
+    local function rebuild() MINI_ICONS = {} ns.NotifyNodesChanged() advance(1) end
+    -- never changed (or subtle, saved as nothing up to 0.1.16): ring only
+    ns.db.miniPinStyle = nil
+    rebuild()
+    assert(ns.MiniPinStyle() == "ring", "ring only is not the default: " .. tostring(ns.MiniPinStyle()))
+    local rings, kinds = 0, 0
+    for _, pin in ipairs(MINI_ICONS) do
+        local n = pin.node
+        if n and not n.pendingReport then
+            rings = rings + 1
+            assert(pin.ringOnly and pin.ring and pin.ring:IsShown(), "a ring-only pin without its ring")
+            assert(not pin.icon:IsShown(), "a ring-only pin still shows its icon")
+            if not pin.level and pin.ring.__color then kinds = kinds + 1 end
+        elseif n and n.pendingReport then
+            assert(pin.icon:IsShown() and not pin.ringOnly, "a grey report pin lost its look")
+        end
+    end
+    assert(rings > 0, "test setup: no minimap pins")
+    -- world map pins are not touched
+    for _, f in ipairs(allFrames) do
+        if f.node and not f.isMini and f.icon then assert(not f.ringOnly and f.icon:IsShown(), "a world map pin went ring-only") end
+    end
+    -- your choice stays: normal and subtle, saved by name, with the icon back
+    for _, style in ipairs({ "normal", "subtle" }) do
+        ns.db.miniPinStyle = style
+        rebuild()
+        assert(ns.MiniPinStyle() == style, style .. " not kept")
+        for _, pin in ipairs(MINI_ICONS) do
+            if pin.node then assert(not pin.ringOnly and pin.icon:IsShown(), style .. ": a pin without its icon") end
+        end
+    end
+    -- the options cycle through all three and save the name
+    ns.db.miniPinStyle = nil
+    local tip = ns.L["Ring only: just a coloured ring, no icon. The yellow dot of the game's herb and mineral tracking shows in the middle."]
+    local plus
+    for _, f in ipairs(allFrames) do
+        if f.__kind == "Button" and f.__text == ">" and f.__scripts.OnEnter then
+            local mark = #log
+            f.__scripts.OnEnter(f)
+            for i = mark + 1, #log do if log[i]:find(tip, 1, true) then plus = f end end
+        end
+    end
+    assert(plus, "options: no > for the minimap style, or its tooltip does not explain ring only")
+    plus.__scripts.OnClick(plus)
+    assert(ns.db.miniPinStyle == "subtle", "> after ring only: " .. tostring(ns.db.miniPinStyle))
+    plus.__scripts.OnClick(plus)
+    assert(ns.db.miniPinStyle == "normal", "> after subtle: " .. tostring(ns.db.miniPinStyle))
+    plus.__scripts.OnClick(plus)
+    assert(ns.db.miniPinStyle == "ring", "> after normal: " .. tostring(ns.db.miniPinStyle))
+    ns.db.miniPinStyle = nil
+    rebuild()
 end)
 step("Pin tooltip", function()
     for _, f in ipairs(allFrames) do

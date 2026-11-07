@@ -504,4 +504,6 @@ ns.Locales.zhCN = {
     ["Right-click: stop fishing"] = "右键：停止钓鱼",
     ["One slim line"] = "收成一行",
     ["Show the whole panel"] = "显示完整面板",
+    ["Ring only"] = "仅圆环",
+    ["Ring only: just a coloured ring, no icon. The yellow dot of the game's herb and mineral tracking shows in the middle."] = "仅圆环：只有彩色圆环，没有图标。游戏草药和矿物追踪的黄点显示在中间。",
 }

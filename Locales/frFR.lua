@@ -504,4 +504,6 @@ ns.Locales.frFR = {
     ["Right-click: stop fishing"] = "Clic droit : arrêter la pêche",
     ["One slim line"] = "Une ligne fine",
     ["Show the whole panel"] = "Afficher tout le panneau",
+    ["Ring only"] = "Anneau seul",
+    ["Ring only: just a coloured ring, no icon. The yellow dot of the game's herb and mineral tracking shows in the middle."] = "Anneau seul : juste un anneau coloré, sans icône. Le point jaune du pistage des herbes et minerais du jeu apparaît au centre.",
 }

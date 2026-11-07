@@ -479,11 +479,17 @@ local function AddRouteMode()
     nextY = nextY - 30
 end
 
--- Minimap pin style: < Normal | Subtle >, explained in the tooltip
+-- Minimap pin style: < Ring only | Subtle | Normal >, explained in the tooltip
 local MINI_STYLES = {
-    { code = "normal", name = "Normal" },
+    { code = "ring", name = "Ring only" },
     { code = "subtle", name = "Subtle" },
+    { code = "normal", name = "Normal" },
 }
+local function MiniStyleIndex()
+    local code = ns.MiniPinStyle and ns.MiniPinStyle() or "ring"
+    for i, s in ipairs(MINI_STYLES) do if s.code == code then return i end end
+    return 1
+end
 local miniStyleText
 local function AddMiniStyle()
     local label = page:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
@@ -508,13 +514,16 @@ local function AddMiniStyle()
     local function Tip(self)
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
         GameTooltip:AddLine(L["Minimap style"], 1, 0.82, 0)
+        GameTooltip:AddLine(L["Ring only: just a coloured ring, no icon. The yellow dot of the game's herb and mineral tracking shows in the middle."], 1, 1, 1, true)
         GameTooltip:AddLine(L["Subtle: a silver ring around a smaller, see-through icon. What the game's herb and mineral tracking shows right now stands out."], 1, 1, 1, true)
         GameTooltip:AddLine(L["The next node of a farm run is always shown with a gold ring."], 0.7, 0.7, 0.7, true)
         GameTooltip:Show()
     end
-    local function Change()
-        -- subtle is the default (nil); "normal" has to be chosen
-        ns.db.miniPinStyle = ns.SubtleMinimap() and "normal" or nil
+    local function Change(self)
+        -- saved by name, so a choice stays even when the default changes
+        local i = MiniStyleIndex() + (self == minus and -1 or 1)
+        if i < 1 then i = #MINI_STYLES elseif i > #MINI_STYLES then i = 1 end
+        ns.db.miniPinStyle = MINI_STYLES[i].code
         ns.NotifyNodesChanged() -- rebuilds the pins
         options:Refresh()
         if GameTooltip:IsOwned(minus) or GameTooltip:IsOwned(plus) then Tip(GameTooltip:IsOwned(minus) and minus or plus) end
@@ -704,7 +713,7 @@ function options:Refresh()
         modeText:SetText(L[CurrentMode().name])
     end
     if miniStyleText then
-        miniStyleText:SetText(L[ns.SubtleMinimap() and MINI_STYLES[2].name or MINI_STYLES[1].name])
+        miniStyleText:SetText(L[MINI_STYLES[MiniStyleIndex()].name])
     end
     if worldStyleText then
         worldStyleText:SetText(L[ns.RingedWorldMap() and "Ring" or "Normal"])

@@ -51,9 +51,20 @@ local function HideGrey() return ns.db.hideGreyNodes end
 
 local function WorldPinsShown() return not ns.db.worldPinsHidden end
 local function MiniPinsShown() return not ns.db.miniPinsHidden end
--- Subtle is the default; "normal" only when chosen in the options
-local function SubtleMini() return ns.db.miniPinStyle ~= "normal" end
+-- Minimap style: "ring" (only a ring, no icon: the game's yellow tracking
+-- dot shows in the middle) is the default since 0.1.17; "subtle" and
+-- "normal" when chosen in the options. Up to 0.1.16 subtle was the default
+-- and was saved as nothing, so a saved "nothing" now means ring.
+local MINI_STYLES = { normal = true, subtle = true, ring = true }
+local function MiniStyle()
+    local s = ns.db.miniPinStyle
+    return MINI_STYLES[s] and s or "ring"
+end
+ns.MiniPinStyle = MiniStyle
+local function SubtleMini() return MiniStyle() == "subtle" end
 ns.SubtleMinimap = SubtleMini
+-- "ring": without a skill colour the ring tells the kind apart
+local KIND_TINT = { herb = { 0.45, 0.95, 0.75 }, ore = { 0.95, 0.75, 0.45 }, chest = { 1, 0.9, 0.5 } }
 -- World map style "ring": the same silver ring, the icon stays fully visible
 local function RingedWorld() return ns.db.worldPinStyle ~= "normal" end
 ns.RingedWorldMap = RingedWorld
@@ -314,8 +325,9 @@ local function Tint(pin)
     if not (pin.ring and pin.ring:IsShown()) then return end
     local level = PinLevel(pin)
     pin.level = level
-    if level then
-        local c = SKILL_TINT[level]
+    local kind = not level and pin.ringOnly and KIND_TINT[pin.node and pin.node.type]
+    if level or kind then
+        local c = level and SKILL_TINT[level] or kind
         pin.ring:SetTexture(RING_WHITE)
         pin.ring:SetVertexColor(c[1], c[2], c[3])
     else
@@ -421,8 +433,11 @@ local function AddMiniPin(mapID, n, world)
     m.icon:SetDesaturated(n.pendingReport and true or false)
     m.others = nil
     -- grey report pins keep their own look, so they never pass for "subtle"
-    m.subtle = SubtleMini() and not n.pendingReport
-    Decorate(m, m.subtle and RING_SILVER or nil)
+    local style = MiniStyle()
+    m.subtle = style == "subtle" and not n.pendingReport
+    m.ringOnly = style == "ring" and not n.pendingReport
+    Decorate(m, (m.subtle or m.ringOnly) and RING_SILVER or nil)
+    m.icon:SetShown(not m.ringOnly)
     Tint(m)
     SetAlpha(m)
     HBDPins:AddMinimapIconMap(REF, m, mapID, n.x, n.y, false, false)
@@ -897,7 +912,7 @@ end)
 ns.PinTest = function()
     local mapID = ns.GetPlayerPos and ns.GetPlayerPos()
     ns.Print(("Pin check for %s (%s), world map pins: %s, minimap pins: %s (%s)"):format(tostring(mapID and ns.GetZoneName(mapID)),
-        tostring(mapID), tostring(WorldPinsShown()), tostring(MiniPinsShown()), tostring(SubtleMini() and "subtle" or "normal")))
+        tostring(mapID), tostring(WorldPinsShown()), tostring(MiniPinsShown()), tostring(MiniStyle())))
     local stats = {}
     local sample = {}
     for _, n in ipairs((mapID and ns.db.nodes[mapID]) or {}) do

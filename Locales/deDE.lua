@@ -533,4 +533,6 @@ ns.Locales.deDE = {
     ["Right-click: stop fishing"] = "Rechtsklick: Angeln beenden",
     ["One slim line"] = "Eine schmale Zeile",
     ["Show the whole panel"] = "Ganzes Fenster zeigen",
+    ["Ring only"] = "Nur Ring",
+    ["Ring only: just a coloured ring, no icon. The yellow dot of the game's herb and mineral tracking shows in the middle."] = "Nur Ring: nur ein farbiger Ring, kein Symbol. Der gelbe Punkt der Kräuter- und Erzsuche des Spiels ist in der Mitte zu sehen.",
 }

@@ -504,4 +504,6 @@ ns.Locales.esES = {
     ["Right-click: stop fishing"] = "Clic derecho: dejar de pescar",
     ["One slim line"] = "Una línea estrecha",
     ["Show the whole panel"] = "Mostrar el panel entero",
+    ["Ring only"] = "Solo anillo",
+    ["Ring only: just a coloured ring, no icon. The yellow dot of the game's herb and mineral tracking shows in the middle."] = "Solo anillo: solo un anillo de color, sin icono. El punto amarillo del rastreo de hierbas y minerales del juego se ve en el centro.",
 }

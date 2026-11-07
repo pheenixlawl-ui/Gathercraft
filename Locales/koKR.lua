@@ -504,4 +504,6 @@ ns.Locales.koKR = {
     ["Right-click: stop fishing"] = "오른쪽 클릭: 낚시 중지",
     ["One slim line"] = "한 줄로 줄이기",
     ["Show the whole panel"] = "전체 창 보기",
+    ["Ring only"] = "테두리만",
+    ["Ring only: just a coloured ring, no icon. The yellow dot of the game's herb and mineral tracking shows in the middle."] = "테두리만: 아이콘 없이 색 테두리만 표시합니다. 게임의 약초·광물 찾기 노란 점이 가운데에 보입니다.",
 }
