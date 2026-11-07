@@ -490,4 +490,5 @@ ns.Locales.ptBR = {
     ["Nothing to farm for 10 minutes: run stopped. Start it again any time."] = "Nada para coletar por 10 minutos: rota encerrada. Inicie de novo quando quiser.",
     ["%s was always empty and only came from other players: left out of routes until someone new reports it."] = "%s sempre esteve vazio e só veio de outros jogadores: fica fora das rotas até alguém novo informar.",
     ["Always empty so far: left out of routes until someone new reports it or you harvest it."] = "Sempre vazio até agora: fica fora das rotas até alguém novo informar ou você coletar.",
+    ["Scan incomplete: %d auctions could not be read, old prices kept (%d updated)."] = "Varredura incompleta: %d leilões não puderam ser lidos, preços antigos mantidos (%d atualizados).",
 }

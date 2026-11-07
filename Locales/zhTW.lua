@@ -490,4 +490,5 @@ ns.Locales.zhTW = {
     ["Nothing to farm for 10 minutes: run stopped. Start it again any time."] = "10分鐘內沒有可採集的目標：路線已停止。隨時可以重新開始。",
     ["%s was always empty and only came from other players: left out of routes until someone new reports it."] = "%s 一直是空的，且只來自其他玩家：在有新玩家回報之前不再加入路線。",
     ["Always empty so far: left out of routes until someone new reports it or you harvest it."] = "至今一直是空的：在有新玩家回報或你親自採集之前不加入路線。",
+    ["Scan incomplete: %d auctions could not be read, old prices kept (%d updated)."] = "掃描不完整：%d 個拍賣無法讀取，保留舊價格（已更新 %d 個）。",
 }

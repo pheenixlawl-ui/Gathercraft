@@ -490,4 +490,5 @@ ns.Locales.frFR = {
     ["Nothing to farm for 10 minutes: run stopped. Start it again any time."] = "Rien à récolter depuis 10 minutes : tournée arrêtée. Relance-la quand tu veux.",
     ["%s was always empty and only came from other players: left out of routes until someone new reports it."] = "%s était toujours vide et ne venait que d'autres joueurs : exclu des itinéraires jusqu'à ce qu'un nouveau joueur le signale.",
     ["Always empty so far: left out of routes until someone new reports it or you harvest it."] = "Toujours vide jusqu'ici : exclu des itinéraires jusqu'à ce qu'un nouveau joueur le signale ou que vous le récoltiez.",
+    ["Scan incomplete: %d auctions could not be read, old prices kept (%d updated)."] = "Analyse incomplète : %d enchères n'ont pas pu être lues, anciens prix conservés (%d mis à jour).",
 }

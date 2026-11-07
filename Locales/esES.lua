@@ -490,4 +490,5 @@ ns.Locales.esES = {
     ["Nothing to farm for 10 minutes: run stopped. Start it again any time."] = "Nada que recolectar durante 10 minutos: ruta detenida. Vuelve a iniciarla cuando quieras.",
     ["%s was always empty and only came from other players: left out of routes until someone new reports it."] = "%s siempre estaba vacío y solo venía de otros jugadores: queda fuera de las rutas hasta que alguien nuevo lo informe.",
     ["Always empty so far: left out of routes until someone new reports it or you harvest it."] = "Siempre vacío hasta ahora: queda fuera de las rutas hasta que alguien nuevo lo informe o lo recolectes.",
+    ["Scan incomplete: %d auctions could not be read, old prices kept (%d updated)."] = "Escaneo incompleto: no se pudieron leer %d subastas, se mantienen los precios anteriores (%d actualizados).",
 }

@@ -3677,6 +3677,50 @@ step("Auction house: a search replaces an old price, a failed scan changes nothi
     AHX.GetNumReplicateItems, AHX.GetReplicateItemInfo, AHX.GetBrowseResults = keepNum, keepInfo, keepBrowse
     time, ns.db.debug = keepTime, keepDebug
 end)
+step("Auction house: a scan with unreadable auctions keeps the old prices (R4-B2)", function()
+    local p = ns.db.prices[next(ns.db.prices)]
+    local keep = { items = p.items, qty = p.qty, seen = p.seen, scanned = p.scanned }
+    local AHX = C_AuctionHouse
+    local keepNum, keepInfo, keepReplicate = AHX.GetNumReplicateItems, AHX.GetReplicateItemInfo, AHX.ReplicateItems
+    local TIN, PEACE = 2771, 2447
+    local function Prices() p.items, p.qty, p.seen, p.scanned = { [TIN] = 295 }, { [TIN] = 10 }, { [TIN] = time() - 3600 }, time() - 7200 end
+    local function Scan(info, n)
+        AHX.GetNumReplicateItems = function() return n end
+        AHX.GetReplicateItemInfo = info
+        fire("AUCTION_HOUSE_CLOSED")
+        fire("AUCTION_HOUSE_SHOW") advance(1)
+        ns.db.prices[next(ns.db.prices)].lastScanStart = nil
+        slash("scan") advance(1)
+        fire("REPLICATE_ITEM_LIST_UPDATE") advance(3)
+        fire("AUCTION_HOUSE_CLOSED") advance(1)
+    end
+    local function Good() return "Peacebloom", 1, 1, 1, true, 1, 0, 0, 0, 20, 0, false, nil, "Seller", nil, 0, PEACE, true end
+    -- Codex's probe: Tin 295c known; one good Peacebloom auction, one that throws
+    Prices()
+    local scanned = p.scanned
+    local mark = #log
+    Scan(function(i) if i == 0 then return Good() end error("read failed") end, 2)
+    p = ns.db.prices[next(ns.db.prices)]
+    assert(p.items[TIN] == 295, "Tin lost: " .. tostring(p.items[TIN]))
+    assert(p.items[PEACE] == 20, "Peacebloom not updated: " .. tostring(p.items[PEACE]))
+    assert(p.scanned == scanned, "an incomplete scan counts as a full one")
+    local told
+    for i = mark + 1, #log do if log[i]:find("incomplete", 1, true) or log[i]:find(ns.L["Scan incomplete: %d auctions could not be read, old prices kept (%d updated)."]:sub(1, 12), 1, true) then told = true end end
+    assert(told, "no word that the scan was incomplete")
+    -- an auction that gives back nothing at all counts the same
+    Prices()
+    Scan(function(i) if i == 0 then return Good() end end, 2)
+    p = ns.db.prices[next(ns.db.prices)]
+    assert(p.items[TIN] == 295 and p.items[PEACE] == 20, "no answer for one auction: Tin " .. tostring(p.items[TIN]))
+    -- a full scan without errors still replaces everything
+    Prices()
+    Scan(function() return Good() end, 2)
+    p = ns.db.prices[next(ns.db.prices)]
+    assert(p.items[TIN] == nil and p.items[PEACE] == 20 and p.scanned > scanned, "a complete scan did not replace the prices")
+    AHX.GetNumReplicateItems, AHX.GetReplicateItemInfo, AHX.ReplicateItems = keepNum, keepInfo, keepReplicate
+    p.items, p.qty, p.seen, p.scanned = keep.items, keep.qty, keep.seen, keep.scanned
+    p.lastScanStart = nil
+end)
 step("Market price: the cheapest offer with stock behind it (v0.1.16)", function()
     local p = ns.db.prices[next(ns.db.prices)]
     local AHX = C_AuctionHouse
