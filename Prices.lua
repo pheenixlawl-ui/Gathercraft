@@ -6,7 +6,8 @@ local L = ns.L or setmetatable({}, { __index = function(_, k) return k end })
 --   1. Our own auction house data: the full scan (button at the auction
 --      house, /gcr scan) plus every search you do there (any addon's)
 --   2. Fallback while there is no scan yet: Auctionator, TSM or the shared
---      GetAuctionBuyout of other auction addons
+--      GetAuctionBuyout of other auction addons. Auctionator also wins over
+--      our own price once that is older than FRESH_PRICE, if it is fresher.
 --   3. The vendor price, which every client knows
 --   Prices are stored per realm and faction and never shared with anyone.
 ---------------------------------------------------------------------------
@@ -14,6 +15,7 @@ local CALLER = ADDON_NAME
 local SCAN_COOLDOWN = 15 * 60   -- the server allows one full scan per 15 minutes
 local SCAN_TIMEOUT = 90         -- seconds to wait for the server's answer
 local SCAN_CHUNK = 1500         -- auctions read per step (keeps the game smooth)
+local FRESH_PRICE = 6 * 3600    -- older own prices count as old: Auctionator goes first
 local MAX_PRICE_AGE = 7 * 86400 -- older own prices: use the fallbacks instead
 local HISTORY_DAYS = 14
 local MARKET_MIN = 5            -- market price: the lowest price with this many items behind it ...
@@ -63,6 +65,16 @@ local function AuctionatorPrice(itemID)
     end
 end
 
+-- How old Auctionator's price is, in seconds. It counts in days and knows
+-- nothing older than 21: math.huge then, nil if it can't tell at all.
+local function AuctionatorAge(itemID)
+    local api = Auctionator and Auctionator.API and Auctionator.API.v1
+    if not (api and api.GetAuctionAgeByItemID) then return end
+    local ok, days = pcall(api.GetAuctionAgeByItemID, CALLER, itemID)
+    if not ok then return end
+    return type(days) == "number" and days * 86400 or math.huge
+end
+
 local function TSMPrice(itemID)
     if TSM_API and TSM_API.GetCustomPriceValue then
         return Positive(pcall(TSM_API.GetCustomPriceValue, "dbmarket", "i:" .. itemID))
@@ -103,9 +115,24 @@ local SOURCES = {
 -- Price of one item in copper and where it came from, or nil
 local function GetPrice(itemID)
     if not itemID then return end
+    local own = ScanPrice(itemID)
+    if own then
+        local age = PriceAge(PriceDB(), itemID)
+        local other = age >= FRESH_PRICE and AuctionatorPrice(itemID)
+        if other and (AuctionatorAge(itemID) or 0) < age then return other, "Auctionator" end
+        return own, "AH scan"
+    end
     for _, s in ipairs(SOURCES) do
         local p = s.get(itemID)
         if p then return p, s.name end
+    end
+end
+
+-- Of two sources the one to name: "vendor" only if nothing better was involved
+local function BetterSource(a, b)
+    if not (a and b) then return a or b end
+    for _, s in ipairs(SOURCES) do
+        if s.name == a or s.name == b then return s.name end
     end
 end
 
@@ -136,7 +163,7 @@ table.insert(ns.gatherListeners, function(node, p)
         local price, from = GetPrice(it.id)
         if price then
             value = value + price * (it.qty or 1)
-            source = source or from
+            source = BetterSource(source, from)
         end
     end
     if p then
@@ -153,7 +180,7 @@ local function LootValue(items)
         local price, from = GetPrice(it.id)
         if price then
             value = value + price * (it.qty or 1)
-            source = source or from
+            source = BetterSource(source, from)
         end
     end
     return value, source
@@ -661,11 +688,17 @@ local function AddTooltipPrice(tooltip, itemID)
     local p = PriceDB()
     local price = p and p.items[itemID]
     if not price then return end
-    local mins = math.floor(PriceAge(p, itemID) / 60)
+    local secs = PriceAge(p, itemID)
+    local mins = math.floor(secs / 60)
     local age = mins < 1 and L["just now"] or mins < 60 and (mins .. L[" min ago"])
         or mins < 2880 and (math.floor(mins / 60) .. L[" h ago"]) or (math.floor(mins / 1440) .. L[" days ago"])
     local extra = (L["%d listed, %s"]):format(p.qty[itemID] or 0, age)
-    tooltip:AddDoubleLine(L["|cffffd060Gathercraft|r AH"], Money(price) .. "  |cff999999(" .. extra .. ")|r", 1, 1, 1, 1, 1, 1)
+    local color = secs >= FRESH_PRICE and "|cffff8040" or "|cff999999" -- old prices stand out
+    tooltip:AddDoubleLine(L["|cffffd060Gathercraft|r AH"], Money(price) .. "  " .. color .. "(" .. extra .. ")|r", 1, 1, 1, 1, 1, 1)
+    local used, from = GetPrice(itemID)
+    if used and from ~= "AH scan" then
+        tooltip:AddDoubleLine(L["    used instead"], Money(used) .. "  |cff999999(" .. from .. ")|r", 0.7, 0.7, 0.7, 1, 1, 1)
+    end
     local usual = ns.UsualPrice and ns.UsualPrice(itemID)
     if usual and usual > 0 then
         local ratio = price / usual
@@ -838,6 +871,7 @@ local function PriceTest()
 end
 
 ns.GetPrice = GetPrice
+ns.BetterPriceSource = BetterSource
 ns.Money = Money
 ns.PriceTest = PriceTest
 -- "prices: AH scan, 25 min ago" for labels
@@ -847,12 +881,13 @@ ns.PriceSourceText = function()
     for _, t in pairs(p and p.seen or {}) do
         if t > last then last = t end
     end
-    if last > 0 and time() - last < MAX_PRICE_AGE then
-        local mins = math.floor((time() - last) / 60)
+    local api = Auctionator and Auctionator.API and Auctionator.API.v1
+    local since = time() - last
+    if last > 0 and since < MAX_PRICE_AGE and (since < FRESH_PRICE or not api) then
+        local mins = math.floor(since / 60)
         local age = mins < 60 and (mins .. L[" min"]) or mins < 2880 and (math.floor(mins / 60) .. " h") or (math.floor(mins / 1440) .. L[" days"])
         return L["prices: auction house, updated "] .. age .. L[" ago"]
     end
-    local api = Auctionator and Auctionator.API and Auctionator.API.v1
     if api then return L["prices: Auctionator (scan at the auction house for our own)"] end
     return L["prices: vendor (scan at the auction house for real prices)"]
 end

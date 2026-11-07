@@ -368,7 +368,7 @@ local function OnFishingLoot(_, event)
     fishing.catches = fishing.catches + 1
     for _, it in ipairs(items) do fishing.items = fishing.items + it.qty end
     fishing.value = fishing.value + value
-    fishing.source = fishing.source or source
+    fishing.source = ns.BetterPriceSource(fishing.source, source)
     fishing.last = GetTime()
     if ns.AddSessionValue then ns.AddSessionValue(value, source) end
     ns.Debug(("FISH catch %d: %d item(s), worth %s"):format(fishing.catches, #items, ns.Money and ns.Money(value) or value))

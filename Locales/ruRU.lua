@@ -209,6 +209,7 @@ ns.Locales.ruRU = {
     ["%d listed, %s"] = "выставлено %d, %s",
     ["|cffffd060Gathercraft|r AH"] = "|cffffd060Gathercraft|r Аукцион",
     ["    usually"] = "    обычно",
+    ["    used instead"] = "    используется вместо",
     ["%s %s (usually %s, x%.1f)"] = "%s %s (обычно %s, x%.1f)",
     ["|cffffd060Price alert:|r "] = "|cffffd060Ценовое оповещение:|r ",
     [" and %d more"] = " и ещё %d",

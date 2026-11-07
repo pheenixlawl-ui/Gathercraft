@@ -3741,6 +3741,103 @@ step("Market price: the cheapest offer with stock behind it (v0.1.16)", function
     p.items[ID], p.qty[ID], p.seen[ID], p.history[ID] = nil, nil, nil, nil
     assert(#fails == 0, #fails .. " wrong: " .. table.concat(fails, " | "))
 end)
+step("Prices: fresh before own, and the label says which (v0.1.16)", function()
+    local p = ns.db.prices[next(ns.db.prices)]
+    local keepTime, keepAddLine, keepItem = time, GameTooltip.AddDoubleLine, GameTooltip.GetItem
+    local clock = keepTime()
+    time = function() return clock end
+    local ID, OTHER = 2771, 2772
+    local keepSeen, keepScanned = p.seen, p.scanned
+    local fails = {}
+    local function Check(ok, text) if not ok then fails[#fails + 1] = text end end
+    local function Own(hours, id)
+        p.items[id or ID], p.qty[id or ID], p.seen[id or ID] = 295, 1143, clock - hours * 3600
+    end
+    local function Atr(price, hasAge, days)
+        local api = { GetAuctionPriceByItemID = function(_, id) return id == ID and price or nil end }
+        if hasAge then api.GetAuctionAgeByItemID = function() return days end end
+        Auctionator = { API = { v1 = api } }
+    end
+    local function Want(what, price, source)
+        local got, from = ns.GetPrice(ID)
+        Check(got == price and from == source, ("%s: %s %s"):format(what, tostring(got), tostring(from)))
+    end
+    -- without an age from Auctionator
+    Atr(187)
+    Own(5.9) Want("own 5.9 h", 295, "AH scan")
+    Own(6) Want("own 6 h", 187, "Auctionator")
+    Own(21) Want("own 21 h", 187, "Auctionator")
+    Own(24 * 8) Want("own 8 days", 187, "Auctionator")
+    -- Auctionator without a price for it
+    Atr(nil)
+    Own(21) Want("no Auctionator price, 21 h", 295, "AH scan")
+    Own(24 * 6.9) Want("no Auctionator price, 6.9 days", 295, "AH scan")
+    -- Auctionator with an age: only if it is fresher
+    Atr(187, true, 0)
+    Own(5) Want("seen today, own 5 h", 295, "AH scan")
+    Own(21) Want("seen today, own 21 h", 187, "Auctionator")
+    Atr(187, true, 3)
+    Own(24) Want("3 days, own 1 day", 295, "AH scan")
+    Own(24 * 4) Want("3 days, own 4 days", 187, "Auctionator")
+    Atr(187, true, nil)
+    Own(24) Want("older than 21 days, own 1 day", 295, "AH scan")
+    Own(24 * 6.9) Want("older than 21 days, own 6.9 days", 295, "AH scan")
+    Own(24 * 8) Want("older than 21 days, own 8 days", 187, "Auctionator")
+    Auctionator = { API = { v1 = { GetAuctionPriceByItemID = function() return 187 end, GetAuctionAgeByItemID = function() error("broken") end } } }
+    Own(21) Want("age call breaks", 187, "Auctionator")
+    -- no Auctionator at all
+    Auctionator = nil
+    Own(24 * 6.9) Want("alone, 6.9 days", 295, "AH scan")
+    Own(24 * 8)
+    Check(select(2, ns.GetPrice(ID)) ~= "AH scan", "alone, 8 days: still our own")
+
+    -- tooltip: old is marked, what is used instead is named
+    local lines
+    GameTooltip.AddDoubleLine = function(_, l, r) lines[#lines + 1] = l .. " = " .. r end
+    GameTooltip.GetItem = function() return "Tin Ore", "|Hitem:" .. ID .. "::|h" end
+    local function Tooltip()
+        lines = {}
+        GameTooltip.__scripts.OnTooltipSetItem(GameTooltip)
+        return table.concat(lines, " / ")
+    end
+    local used = ns.L["    used instead"]
+    Atr(187)
+    Own(5)
+    local text = Tooltip()
+    Check(text:find("|cff999999(", 1, true) and not text:find("|cffff8040", 1, true), "tooltip, fresh: marked old")
+    Check(not text:find(used, 1, true), "tooltip, fresh: used instead")
+    Own(21)
+    text = Tooltip()
+    Check(text:find("|cffff8040(", 1, true), "tooltip, 21 h: not marked old")
+    Check(text:find(used, 1, true) and text:find("(Auctionator)", 1, true) and text:find(ns.Money(187), 1, true), "tooltip, 21 h: Auctionator not named")
+    Atr(nil)
+    text = Tooltip()
+    Check(text:find("|cffff8040(", 1, true) and not text:find(used, 1, true), "tooltip, old and alone")
+    Auctionator = nil
+
+    -- the labels: "prices: ..." and the source of a mix
+    p.seen, p.scanned = { [ID] = clock - 7 * 3600 }, clock - 7 * 3600
+    local ah, atr = ns.L["prices: auction house, updated "], ns.L["prices: Auctionator (scan at the auction house for our own)"]
+    Check(ns.PriceSourceText():find(ah, 1, true), "label, 7 h, alone")
+    Atr(187)
+    Check(ns.PriceSourceText() == atr, "label, 7 h, Auctionator: " .. ns.PriceSourceText())
+    p.seen[ID] = clock - 3600
+    Check(ns.PriceSourceText():find(ah, 1, true), "label, 1 h")
+    p.seen[ID] = clock - 86400 * 8
+    p.scanned = clock - 86400 * 8
+    Check(ns.PriceSourceText() == atr, "label, 8 days")
+    p.seen = keepSeen
+    Own(1, OTHER)
+    Own(21)
+    Check(select(2, ns.LootValue({ { id = ID, qty = 1 }, { id = OTHER, qty = 1 } })) == "AH scan", "mix: Auctionator, then own")
+    Check(ns.BetterPriceSource("vendor", "Auctionator") == "Auctionator" and ns.BetterPriceSource("AH scan", "vendor") == "AH scan", "mix: vendor named")
+    Check(ns.BetterPriceSource("vendor", nil) == "vendor" and ns.BetterPriceSource(nil, "vendor") == "vendor" and ns.BetterPriceSource(nil, nil) == nil, "mix: alone")
+    Auctionator = nil
+    p.items[OTHER], p.qty[OTHER], p.seen[OTHER] = nil, nil, nil
+    p.scanned = keepScanned
+    GameTooltip.AddDoubleLine, GameTooltip.GetItem, time = keepAddLine, keepItem, keepTime
+    assert(#fails == 0, #fails .. " wrong: " .. table.concat(fails, " | "))
+end)
 step("Best place to farm", function()
     for _, mode in ipairs({ "herb", "ore", "both" }) do
         local groups = ns.FarmAdvice(mode)

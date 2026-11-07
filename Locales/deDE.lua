@@ -238,6 +238,7 @@ ns.Locales.deDE = {
     ["%d listed, %s"] = "%d angeboten, %s",
     ["|cffffd060Gathercraft|r AH"] = "|cffffd060Gathercraft|r AH",
     ["    usually"] = "    meistens",
+    ["    used instead"] = "    stattdessen genutzt",
     ["%s %s (usually %s, x%.1f)"] = "%s %s (sonst %s, x%.1f)",
     ["|cffffd060Price alert:|r "] = "|cffffd060Preisalarm:|r ",
     [" and %d more"] = " und %d weitere",

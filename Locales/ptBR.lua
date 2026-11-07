@@ -209,6 +209,7 @@ ns.Locales.ptBR = {
     ["%d listed, %s"] = "%d à venda, %s",
     ["|cffffd060Gathercraft|r AH"] = "|cffffd060Gathercraft|r Leilão",
     ["    usually"] = "    normalmente",
+    ["    used instead"] = "    usado no lugar",
     ["%s %s (usually %s, x%.1f)"] = "%s %s (normalmente %s, x%.1f)",
     ["|cffffd060Price alert:|r "] = "|cffffd060Alerta de preço:|r ",
     [" and %d more"] = " e mais %d",

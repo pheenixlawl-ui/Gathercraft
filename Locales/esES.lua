@@ -209,6 +209,7 @@ ns.Locales.esES = {
     ["%d listed, %s"] = "%d en venta, %s",
     ["|cffffd060Gathercraft|r AH"] = "|cffffd060Gathercraft|r Subasta",
     ["    usually"] = "    normalmente",
+    ["    used instead"] = "    se usa en su lugar",
     ["%s %s (usually %s, x%.1f)"] = "%s %s (normalmente %s, x%.1f)",
     ["|cffffd060Price alert:|r "] = "|cffffd060Aviso de precio:|r ",
     [" and %d more"] = " y %d más",

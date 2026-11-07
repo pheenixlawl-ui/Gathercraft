@@ -209,6 +209,7 @@ ns.Locales.itIT = {
     ["%d listed, %s"] = "%d in vendita, %s",
     ["|cffffd060Gathercraft|r AH"] = "|cffffd060Gathercraft|r Asta",
     ["    usually"] = "    di solito",
+    ["    used instead"] = "    usato invece",
     ["%s %s (usually %s, x%.1f)"] = "%s %s (di solito %s, x%.1f)",
     ["|cffffd060Price alert:|r "] = "|cffffd060Avviso di prezzo:|r ",
     [" and %d more"] = " e altri %d",

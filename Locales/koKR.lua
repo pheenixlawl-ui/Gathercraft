@@ -209,6 +209,7 @@ ns.Locales.koKR = {
     ["%d listed, %s"] = "%d개 등록, %s",
     ["|cffffd060Gathercraft|r AH"] = "|cffffd060Gathercraft|r 경매장",
     ["    usually"] = "    평소",
+    ["    used instead"] = "    대신 사용",
     ["%s %s (usually %s, x%.1f)"] = "%s %s (평소 %s, x%.1f)",
     ["|cffffd060Price alert:|r "] = "|cffffd060가격 알림:|r ",
     [" and %d more"] = " 외 %d개",

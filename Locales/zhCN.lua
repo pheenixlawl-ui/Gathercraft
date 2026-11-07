@@ -209,6 +209,7 @@ ns.Locales.zhCN = {
     ["%d listed, %s"] = "在售%d件，%s",
     ["|cffffd060Gathercraft|r AH"] = "|cffffd060Gathercraft|r 拍卖行",
     ["    usually"] = "    通常",
+    ["    used instead"] = "    实际使用",
     ["%s %s (usually %s, x%.1f)"] = "%s %s（通常%s，x%.1f）",
     ["|cffffd060Price alert:|r "] = "|cffffd060价格提醒：|r ",
     [" and %d more"] = " 还有%d个",

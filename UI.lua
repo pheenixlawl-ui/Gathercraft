@@ -98,7 +98,7 @@ table.insert(ns.gatherListeners, function(node, p)
     if s then
         s.nodes = s.nodes + 1
         s.value = s.value + (p and p.value or 0)
-        s.source = s.source or (p and p.valueSource)
+        s.source = ns.BetterPriceSource(s.source, p and p.valueSource)
     end
 end)
 
