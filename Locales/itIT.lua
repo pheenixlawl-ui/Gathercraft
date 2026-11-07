@@ -196,6 +196,7 @@ ns.Locales.itIT = {
     ["Scan failed: "] = "Scansione fallita: ",
     ["Scanning the auction house... (this takes a few seconds)"] = "Scansione della casa d'aste... (qualche secondo)",
     ["The auction house didn't answer. Try again later."] = "La casa d'aste non ha risposto. Riprova più tardi.",
+    ["Your prices stay as they are. Next scan in %d:%02d."] = "I tuoi prezzi restano invariati. Prossima scansione tra %d:%02d.",
     ["Gathercraft price scan"] = "Scansione prezzi di Gathercraft",
     ["Reads every auction once and keeps a market price per item for gold per hour and profit."] = "Legge ogni asta una volta e tiene un prezzo di mercato per oggetto per oro all'ora e guadagno.",
     ["Last scan: %d min ago"] = "Ultima scansione: %d min fa",

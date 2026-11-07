@@ -196,6 +196,7 @@ ns.Locales.ruRU = {
     ["Scan failed: "] = "Ошибка сканирования: ",
     ["Scanning the auction house... (this takes a few seconds)"] = "Сканирую аукцион... (несколько секунд)",
     ["The auction house didn't answer. Try again later."] = "Аукцион не ответил. Попробуйте позже.",
+    ["Your prices stay as they are. Next scan in %d:%02d."] = "Ваши цены не изменились. Следующее сканирование через %d:%02d.",
     ["Gathercraft price scan"] = "Сканирование цен Gathercraft",
     ["Reads every auction once and keeps a market price per item for gold per hour and profit."] = "Читает каждый лот один раз и хранит рыночную цену предмета для золота в час и прибыли.",
     ["Last scan: %d min ago"] = "Последнее сканирование: %d мин назад",

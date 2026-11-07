@@ -3523,7 +3523,7 @@ step("Own auction house scan", function()
         return { { itemKey = { itemID = 4306 }, minPrice = 1500, totalQuantity = 40 }, { itemKey = { itemID = 2449 }, minPrice = 1, totalQuantity = 1 } }
     end
     fire("COMMODITY_SEARCH_RESULTS_UPDATED", 2449)
-    fire("BROWSE_RESULTS_UPDATED")
+    fire("AUCTION_HOUSE_BROWSE_RESULTS_UPDATED")
     local e = ns.GetPrice(2449)
     local silk = ns.GetPrice(4306)
     note("learned prices earthroot", e, "silk", silk)
@@ -3545,6 +3545,137 @@ step("Own auction house scan", function()
     slash("ahtest")
     fire("AUCTION_HOUSE_CLOSED")
     assert(#ns.PriceHistory(2447) == 1, "history")
+end)
+step("Auction house: a search replaces an old price, a failed scan changes nothing (v0.1.16)", function()
+    local p = ns.db.prices[next(ns.db.prices)]
+    local AHX = C_AuctionHouse
+    local keepTime, keepDebug = time, ns.db.debug
+    local keepNum, keepInfo, keepBrowse = AHX.GetNumReplicateItems, AHX.GetReplicateItemInfo, AHX.GetBrowseResults
+    local clock = keepTime()
+    time = function() return clock end
+    local TIN = 2771
+    ns.db.debug = true
+    local function Told(text)
+        for _, l in ipairs(log) do if l:find(text, 1, true) then return true end end
+    end
+    local function Old(price, qty, hours)
+        p.items[TIN], p.qty[TIN], p.seen[TIN] = price, qty, clock - hours * 3600
+    end
+    local function Browse(min, qty)
+        AHX.GetBrowseResults = function() return { { itemKey = { itemID = TIN }, minPrice = min, totalQuantity = qty } } end
+    end
+    local function Reopen()
+        fire("AUCTION_HOUSE_CLOSED")
+        fire("AUCTION_HOUSE_SHOW") advance(1)
+        p.lastScanStart = nil
+    end
+
+    -- Befund 2: a browse search takes over a price of 21 hours ago
+    Old(295, 1143, 21)
+    Browse(187, 1707)
+    fire("AUCTION_HOUSE_BROWSE_RESULTS_UPDATED")
+    assert(p.items[TIN] == 187 and p.qty[TIN] == 1707, "browse left the old price: " .. tostring(p.items[TIN]))
+    assert(p.seen[TIN] == clock, "browse: not fresh")
+    -- the second event of a list, and a fresh price stays
+    Old(295, 1143, 21)
+    fire("AUCTION_HOUSE_BROWSE_RESULTS_ADDED")
+    assert(p.items[TIN] == 187, "browse, added: " .. tostring(p.items[TIN]))
+    Old(300, 10, 0.5)
+    fire("AUCTION_HOUSE_BROWSE_RESULTS_UPDATED")
+    assert(p.items[TIN] == 300, "browse beat a fresh search price")
+    assert(Told("1 results, 0 stored, 1 left out"), "debug: left out")
+    -- a list that stores nothing is no search learned, gear counts with its lowest price
+    AHX.GetBrowseResults = function()
+        return { { itemKey = { itemID = 9001 }, minPrice = 900, totalQuantity = 1 }, { itemKey = { itemID = 9001 }, minPrice = 300, totalQuantity = 2 },
+            { itemKey = { itemID = 9001 }, minPrice = 500, totalQuantity = 1 } }
+    end
+    fire("AUCTION_HOUSE_BROWSE_RESULTS_UPDATED")
+    assert(p.items[9001] == 300 and p.qty[9001] == 4, "gear: " .. tostring(p.items[9001]))
+    p.items[9001], p.qty[9001], p.seen[9001] = nil, nil, nil
+    local function Searches()
+        slash("prices")
+        for i = #log, 1, -1 do
+            local n = log[i]:match("(%d+) searches learned")
+            if n then return tonumber(n) end
+        end
+    end
+    local searches = Searches()
+    Old(300, 10, 0.5)
+    Browse(187, 1707)
+    fire("AUCTION_HOUSE_BROWSE_RESULTS_UPDATED")
+    assert(Searches() == searches, "nothing stored, yet a search learned")
+    fire("AUCTION_HOUSE_BROWSE_FAILURE")
+    assert(Told("AUCTION_HOUSE_BROWSE_FAILURE"), "debug: browse failure")
+
+    -- a search while a scan runs still counts: the scan may fail
+    Reopen()
+    Old(295, 1143, 21)
+    local before = p.scanned
+    slash("scan") advance(1)
+    Browse(187, 1707)
+    fire("AUCTION_HOUSE_BROWSE_RESULTS_UPDATED")
+    assert(p.items[TIN] == 187, "search during a scan was dropped")
+
+    -- no answer: nothing stored, the lock stays, the search works again
+    Old(295, 1143, 21)
+    local items = p.items
+    advance(91)
+    assert(p.items == items and p.scanned == before and p.items[TIN] == 295, "timeout: prices changed")
+    assert(Told("SCAN timeout"), "debug: timeout")
+    assert(p.lastScanStart, "timeout: no lock")
+    local left = (ns.L["Your prices stay as they are. Next scan in %d:%02d."]):sub(1, 8)
+    assert(Told(left), "timeout: no word about the prices")
+    -- the answer comes late: it is read after all
+    fire("REPLICATE_ITEM_LIST_UPDATE") advance(2)
+    assert(p.scanned ~= before and p.items ~= items, "late answer left out")
+    assert(Told("after the timeout"), "debug: late answer")
+    -- without a scan of ours the list is left alone
+    items, before = p.items, p.scanned
+    fire("REPLICATE_ITEM_LIST_UPDATE") advance(2)
+    assert(p.items == items and p.scanned == before, "somebody else's list was read")
+    assert(Told("no scan of ours"), "debug: not ours")
+
+    -- closed while waiting, and the answer after that: nothing
+    Reopen()
+    slash("scan") advance(1)
+    fire("AUCTION_HOUSE_CLOSED")
+    fire("REPLICATE_ITEM_LIST_UPDATE") advance(2)
+    assert(p.items == items and p.scanned == before, "closed: scan went on")
+    assert(Told("cancelled, auction house closed (waiting)"), "debug: closed")
+    -- closed in the middle of reading: the part read is not the auction house
+    fire("AUCTION_HOUSE_SHOW") advance(1)
+    p.lastScanStart = nil
+    AHX.GetNumReplicateItems = function() return 4000 end
+    slash("scan") advance(1)
+    fire("REPLICATE_ITEM_LIST_UPDATE")
+    fire("AUCTION_HOUSE_CLOSED")
+    advance(5)
+    assert(p.items == items and p.scanned == before, "closed while reading: partial scan stored")
+    assert(Told("cancelled, auction house closed (reading)"), "debug: closed while reading")
+
+    -- 0 auctions, or nothing usable in them: nothing stored
+    AHX.GetNumReplicateItems = function() return 0 end
+    Reopen()
+    slash("scan") advance(1)
+    fire("REPLICATE_ITEM_LIST_UPDATE") advance(2)
+    assert(p.items == items and p.scanned == before, "0 auctions: prices changed")
+    AHX.GetNumReplicateItems = function() return 3 end
+    AHX.GetReplicateItemInfo = function(i)
+        if i == 0 then return "Item", 1, 1, 1, true, 1, 0, 0, 0, 0, 0, false, nil, "Seller", nil, 0, TIN, true end
+        if i == 1 then return "Item", 1, 0, 1, true, 1, 0, 0, 0, 500, 0, false, nil, "Seller", nil, 0, TIN, true end
+        return "Item", 1, 2, 1, true, 1, 0, 0, 0, 500, 0, false, nil, "Seller", nil, 0, nil, true
+    end
+    Reopen()
+    slash("scan") advance(1)
+    fire("REPLICATE_ITEM_LIST_UPDATE") advance(2)
+    assert(p.items == items and p.scanned == before, "nothing usable: prices wiped")
+    assert(Told("skipped 1 without itemID, 1 with count 0, 1 with buyout 0"), "debug: skipped")
+
+    slash("prices")
+    assert(Told("doesn't know: none"), "prices: events")
+    fire("AUCTION_HOUSE_CLOSED")
+    AHX.GetNumReplicateItems, AHX.GetReplicateItemInfo, AHX.GetBrowseResults = keepNum, keepInfo, keepBrowse
+    time, ns.db.debug = keepTime, keepDebug
 end)
 step("Best place to farm", function()
     for _, mode in ipairs({ "herb", "ore", "both" }) do

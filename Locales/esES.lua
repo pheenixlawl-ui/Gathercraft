@@ -196,6 +196,7 @@ ns.Locales.esES = {
     ["Scan failed: "] = "Escaneo fallido: ",
     ["Scanning the auction house... (this takes a few seconds)"] = "Escaneando la casa de subastas... (tarda unos segundos)",
     ["The auction house didn't answer. Try again later."] = "La casa de subastas no respondió. Inténtalo más tarde.",
+    ["Your prices stay as they are. Next scan in %d:%02d."] = "Tus precios no cambian. Próximo escaneo en %d:%02d.",
     ["Gathercraft price scan"] = "Escaneo de precios de Gathercraft",
     ["Reads every auction once and keeps a market price per item for gold per hour and profit."] = "Lee cada subasta una vez y guarda un precio de mercado por objeto para el oro por hora y el beneficio.",
     ["Last scan: %d min ago"] = "Último escaneo: hace %d min",

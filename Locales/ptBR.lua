@@ -196,6 +196,7 @@ ns.Locales.ptBR = {
     ["Scan failed: "] = "Falha na varredura: ",
     ["Scanning the auction house... (this takes a few seconds)"] = "Varrendo a casa de leilões... (leva alguns segundos)",
     ["The auction house didn't answer. Try again later."] = "A casa de leilões não respondeu. Tente mais tarde.",
+    ["Your prices stay as they are. Next scan in %d:%02d."] = "Seus preços continuam como estão. Próxima varredura em %d:%02d.",
     ["Gathercraft price scan"] = "Varredura de preços do Gathercraft",
     ["Reads every auction once and keeps a market price per item for gold per hour and profit."] = "Lê cada leilão uma vez e guarda um preço de mercado por item para ouro por hora e lucro.",
     ["Last scan: %d min ago"] = "Última varredura: há %d min",

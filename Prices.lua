@@ -179,7 +179,8 @@ end
 ---------------------------------------------------------------------------
 local AH = C_AuctionHouse
 local ahOpen = false
-local scan -- running scan: { state, started, index, total, acc }
+local scan -- running scan: { state, started, index, total, acc, noItem, noCount, noBuyout }
+local lateAnswer = false -- the scan timed out: its answer still counts while the window is open
 local scanButton
 
 local function Cooldown()
@@ -276,6 +277,16 @@ local function StorePrice(itemID, price, qty)
     AddHistory(p, itemID, p.items[itemID])
 end
 
+-- A scan without a result: the prices stay, and the 15 minutes count from the
+-- start. Nobody knows when the server would take the next one, so we wait.
+local function ScanFailed(message)
+    scan = nil
+    ns.Print(message)
+    local left = Cooldown()
+    ns.Print((L["Your prices stay as they are. Next scan in %d:%02d."]):format(math.floor(left / 60), left % 60))
+    UpdateButton()
+end
+
 local function FinishScan()
     local p = PriceDB()
     local items, qty, seen = {}, {}, {}
@@ -284,8 +295,14 @@ local function FinishScan()
         local price, total = MarketPrice(list)
         items[itemID], qty[itemID], seen[itemID] = price, total, now
         count = count + 1
-        AddHistory(p, itemID, price)
     end
+    ns.Debug(("SCAN read %d of %d: %d items, skipped %d without itemID, %d with count 0, %d with buyout 0"):format(
+        scan.index, scan.total, count, scan.noItem, scan.noCount, scan.noBuyout))
+    if count == 0 then
+        ScanFailed(L["The auction house sent no auctions. Try again in a moment."])
+        return
+    end
+    for itemID, price in pairs(items) do AddHistory(p, itemID, price) end
     -- a full scan shows everything: items no longer listed have no price now
     p.items, p.qty, p.seen, p.scanned = items, qty, seen, now
     ns.Print((L["Auction house scanned: %d auctions, prices for %d items."]):format(scan.total, count))
@@ -304,7 +321,13 @@ local function ReadStep()
     local last = math.min(scan.index + SCAN_CHUNK, scan.total) - 1
     for i = scan.index, last do
         local itemID, count, buyout, name = ReadInfo(i + scan.base)
-        if itemID and count and count > 0 and buyout and buyout > 0 then
+        if not itemID then
+            scan.noItem = scan.noItem + 1
+        elseif not (count and count > 0) then
+            scan.noCount = scan.noCount + 1
+        elseif not (buyout and buyout > 0) then
+            scan.noBuyout = scan.noBuyout + 1
+        else
             local list = scan.acc[itemID]
             if not list then
                 list = {}
@@ -316,6 +339,7 @@ local function ReadStep()
         end
     end
     scan.index = last + 1
+    ns.Debug(("SCAN step: %d of %d read"):format(scan.index, scan.total))
     if scan.index >= scan.total then
         FinishScan()
     else
@@ -323,18 +347,30 @@ local function ReadStep()
     end
 end
 
+local function NewScan()
+    return { state = "waiting", started = GetTime(), acc = {}, noItem = 0, noCount = 0, noBuyout = 0 }
+end
+
 local function OnReplicateReady()
-    if not scan or scan.state ~= "waiting" then return end
+    -- the answer came after we gave up: it is still the whole auction house
+    if not scan and lateAnswer and ahOpen then
+        ns.Debug("SCAN the answer came after the timeout, reading it")
+        scan = NewScan()
+    end
+    lateAnswer = false
+    if not scan or scan.state ~= "waiting" then
+        ns.Debug("SCAN REPLICATE_ITEM_LIST_UPDATE left out: " .. (scan and "already reading" or "no scan of ours (another addon?)"))
+        return
+    end
     scan.state = "reading"
     scan.total = AH.GetNumReplicateItems and AH.GetNumReplicateItems() or 0
     -- the list starts at 0 on the modern auction house; fall back to 1
     scan.base = ReadInfo(0) and 0 or 1
     scan.index = 0
-    ns.Debug(("SCAN %d auctions ready, first index %d"):format(scan.total, scan.base))
+    ns.Debug(("SCAN REPLICATE_ITEM_LIST_UPDATE after %.1f s: %d auctions, first index %d"):format(
+        GetTime() - scan.started, scan.total, scan.base))
     if scan.total == 0 then
-        ns.Print(L["The auction house sent no auctions. Try again in a moment."])
-        scan = nil
-        UpdateButton()
+        ScanFailed(L["The auction house sent no auctions. Try again in a moment."])
         return
     end
     ReadStep()
@@ -359,19 +395,20 @@ local function StartScan()
         return
     end
     local ok, err = pcall(AH.ReplicateItems)
+    ns.Debug("SCAN ReplicateItems called: " .. (ok and "ok" or tostring(err)))
     if not ok then
         ns.Print(L["Scan failed: "] .. tostring(err))
         return
     end
     PriceDB().lastScanStart = time()
-    scan = { state = "waiting", started = GetTime(), acc = {} }
+    scan, lateAnswer = NewScan(), false
     ns.Print(L["Scanning the auction house... (this takes a few seconds)"])
     UpdateButton()
     C_Timer.After(SCAN_TIMEOUT, function()
         if scan and scan.state == "waiting" then
-            scan = nil
-            ns.Print(L["The auction house didn't answer. Try again later."])
-            UpdateButton()
+            ns.Debug(("SCAN timeout: no answer after %d s"):format(SCAN_TIMEOUT))
+            lateAnswer = true
+            ScanFailed(L["The auction house didn't answer. Try again later."])
         end
     end)
 end
@@ -487,7 +524,10 @@ local function Learned()
 end
 
 local function OnCommodityResults(itemID)
-    if not (itemID and AH.GetNumCommoditySearchResults and AH.GetCommoditySearchResultInfo) then return end
+    if not (itemID and AH.GetNumCommoditySearchResults and AH.GetCommoditySearchResultInfo) then
+        ns.Debug("AH commodity search: not stored, no itemID or no API")
+        return
+    end
     local list = {}
     for i = 1, AH.GetNumCommoditySearchResults(itemID) or 0 do
         local ok, r = pcall(AH.GetCommoditySearchResultInfo, itemID, i)
@@ -496,15 +536,22 @@ local function OnCommodityResults(itemID)
             list[#list + 1] = r.quantity
         end
     end
-    if #list == 0 then return end
+    if #list == 0 then
+        ns.Debug(("AH commodity search %d: not stored, no results with a price"):format(itemID))
+        return
+    end
     local price, total = MarketPrice(list)
     local full = AH.HasFullCommoditySearchResults and AH.HasFullCommoditySearchResults(itemID)
     StorePrice(itemID, price, full and total or nil)
+    ns.Debug(("AH commodity search %d: %d results, stored %d (%d listed, %s)"):format(itemID, #list / 2, price, total, full and "all" or "not all yet"))
     Learned()
 end
 
 local function OnItemResults(itemKey)
-    if not (itemKey and itemKey.itemID and AH.GetNumItemSearchResults and AH.GetItemSearchResultInfo) then return end
+    if not (itemKey and itemKey.itemID and AH.GetNumItemSearchResults and AH.GetItemSearchResultInfo) then
+        ns.Debug("AH item search: not stored, no itemKey or no API")
+        return
+    end
     local list = {}
     for i = 1, AH.GetNumItemSearchResults(itemKey) or 0 do
         local ok, r = pcall(AH.GetItemSearchResultInfo, itemKey, i)
@@ -515,34 +562,58 @@ local function OnItemResults(itemKey)
             list[#list + 1] = count
         end
     end
-    if #list == 0 then return end
+    if #list == 0 then
+        ns.Debug(("AH item search %d: not stored, no results with a buyout"):format(itemKey.itemID))
+        return
+    end
     local price, total = MarketPrice(list)
     StorePrice(itemKey.itemID, price, total)
+    ns.Debug(("AH item search %d: %d results, stored %d (%d listed)"):format(itemKey.itemID, #list / 2, price, total))
     Learned()
 end
 
-local function OnBrowseResults()
-    if not AH.GetBrowseResults then return end
+local function OnBrowseResults(event)
+    if not AH.GetBrowseResults then
+        ns.Debug(event .. ": not stored, no API")
+        return
+    end
     local ok, results = pcall(AH.GetBrowseResults)
-    if not ok or type(results) ~= "table" then return end
-    local p = PriceDB()
+    if not ok or type(results) ~= "table" then
+        ns.Debug(event .. ": not stored, no list")
+        return
+    end
+    -- one item can stand here several times (gear with different bonuses)
+    local lowest, quantity = {}, {}
     for _, r in ipairs(results) do
         local id = r.itemKey and r.itemKey.itemID
         if id and r.minPrice and r.minPrice > 0 then
-            -- lowest price only: don't overwrite a fresh market price from a search
-            if not p.items[id] or PriceAge(p, id) > BROWSE_TRUST then
-                StorePrice(id, r.minPrice, r.totalQuantity)
-            end
+            lowest[id] = math.min(lowest[id] or r.minPrice, r.minPrice)
+            quantity[id] = (quantity[id] or 0) + (r.totalQuantity or 0)
         end
     end
-    Learned()
+    local p = PriceDB()
+    local stored, kept = 0, 0
+    for id, price in pairs(lowest) do
+        -- lowest price only: don't overwrite a fresh market price from a search
+        if not p.items[id] or PriceAge(p, id) > BROWSE_TRUST then
+            StorePrice(id, price, quantity[id])
+            stored = stored + 1
+        else
+            kept = kept + 1
+        end
+    end
+    ns.Debug(("%s: %d results, %d stored, %d left out (price younger than %d min)"):format(
+        event, #results, stored, kept, BROWSE_TRUST / 60))
+    if stored > 0 then Learned() end
 end
 
 local ahEvents = CreateFrame("Frame")
+local missingEvents = {}
 for _, e in ipairs({ "AUCTION_HOUSE_SHOW", "AUCTION_HOUSE_CLOSED", "REPLICATE_ITEM_LIST_UPDATE",
-    "COMMODITY_SEARCH_RESULTS_UPDATED", "ITEM_SEARCH_RESULTS_UPDATED", "BROWSE_RESULTS_UPDATED",
-    "BROWSE_RESULTS_ADDED" }) do
-    pcall(ahEvents.RegisterEvent, ahEvents, e) -- not every client knows every event
+    "COMMODITY_SEARCH_RESULTS_UPDATED", "ITEM_SEARCH_RESULTS_UPDATED", "AUCTION_HOUSE_BROWSE_RESULTS_UPDATED",
+    "AUCTION_HOUSE_BROWSE_RESULTS_ADDED", "AUCTION_HOUSE_BROWSE_FAILURE" }) do
+    -- not every client knows every event: /gcr prices names the ones missing
+    if not pcall(ahEvents.RegisterEvent, ahEvents, e) then missingEvents[#missingEvents + 1] = e end
 end
 ahEvents:SetScript("OnEvent", function(_, event, arg)
     if event == "AUCTION_HOUSE_SHOW" then
@@ -555,21 +626,23 @@ ahEvents:SetScript("OnEvent", function(_, event, arg)
             UpdateButton()
         end)
     elseif event == "AUCTION_HOUSE_CLOSED" then
-        ahOpen = false
-        if scan and scan.state == "waiting" then
-            scan = nil
-            ns.Print(L["Auction house closed, scan cancelled."])
+        ahOpen, lateAnswer = false, false
+        if scan then -- also while reading: what is left of the list is gone
+            ns.Debug(("SCAN cancelled, auction house closed (%s)"):format(scan.state))
+            ScanFailed(L["Auction house closed, scan cancelled."])
         end
     elseif event == "REPLICATE_ITEM_LIST_UPDATE" then
         OnReplicateReady()
-    elseif not AH or scan then
-        return -- a full scan is running: it brings everything anyway
+    elseif not AH then
+        return
     elseif event == "COMMODITY_SEARCH_RESULTS_UPDATED" then
         OnCommodityResults(arg)
     elseif event == "ITEM_SEARCH_RESULTS_UPDATED" then
         OnItemResults(arg)
-    elseif event == "BROWSE_RESULTS_UPDATED" or event == "BROWSE_RESULTS_ADDED" then
-        OnBrowseResults()
+    elseif event == "AUCTION_HOUSE_BROWSE_FAILURE" then
+        ns.Debug(event .. ": the server sent no list")
+    elseif event == "AUCTION_HOUSE_BROWSE_RESULTS_UPDATED" or event == "AUCTION_HOUSE_BROWSE_RESULTS_ADDED" then
+        OnBrowseResults(event)
     end
 end)
 
@@ -740,6 +813,7 @@ local function PriceTest()
     if CanSendAuctionQuery then canGetAll = select(2, CanSendAuctionQuery()) end
     print(("  CanSendAuctionQuery: %s, getAll: %s (only meaningful at the auction house)"):format(
         tostring(CanSendAuctionQuery ~= nil), tostring(canGetAll)))
+    print(("  Auction events the client doesn't know: %s"):format(#missingEvents > 0 and table.concat(missingEvents, ", ") or "none"))
     local p = PriceDB()
     if p and (p.scanned or 0) > 0 then
         local n = 0

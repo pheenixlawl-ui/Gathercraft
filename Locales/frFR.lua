@@ -196,6 +196,7 @@ ns.Locales.frFR = {
     ["Scan failed: "] = "Échec du scan : ",
     ["Scanning the auction house... (this takes a few seconds)"] = "Scan de l'hôtel des ventes... (quelques secondes)",
     ["The auction house didn't answer. Try again later."] = "L'hôtel des ventes n'a pas répondu. Réessaie plus tard.",
+    ["Your prices stay as they are. Next scan in %d:%02d."] = "Tes prix ne changent pas. Prochain scan dans %d:%02d.",
     ["Gathercraft price scan"] = "Scan des prix Gathercraft",
     ["Reads every auction once and keeps a market price per item for gold per hour and profit."] = "Lit chaque enchère une fois et garde un prix du marché par objet pour l'or par heure et le bénéfice.",
     ["Last scan: %d min ago"] = "Dernier scan : il y a %d min",

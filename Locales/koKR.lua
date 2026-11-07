@@ -196,6 +196,7 @@ ns.Locales.koKR = {
     ["Scan failed: "] = "검색 실패: ",
     ["Scanning the auction house... (this takes a few seconds)"] = "경매장 검색 중... (몇 초 걸립니다)",
     ["The auction house didn't answer. Try again later."] = "경매장이 응답하지 않았습니다. 나중에 다시 시도하세요.",
+    ["Your prices stay as they are. Next scan in %d:%02d."] = "가격은 그대로 유지됩니다. 다음 검색까지 %d:%02d.",
     ["Gathercraft price scan"] = "Gathercraft 가격 검색",
     ["Reads every auction once and keeps a market price per item for gold per hour and profit."] = "모든 경매를 한 번 읽고 시간당 골드와 이익 계산을 위해 아이템별 시세를 저장합니다.",
     ["Last scan: %d min ago"] = "마지막 검색: %d분 전",

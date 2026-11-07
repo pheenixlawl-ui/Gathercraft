@@ -196,6 +196,7 @@ ns.Locales.zhCN = {
     ["Scan failed: "] = "扫描失败：",
     ["Scanning the auction house... (this takes a few seconds)"] = "正在扫描拍卖行……（需要几秒钟）",
     ["The auction house didn't answer. Try again later."] = "拍卖行没有回应。请稍后再试。",
+    ["Your prices stay as they are. Next scan in %d:%02d."] = "你的价格保持不变。距离下次扫描：%d:%02d。",
     ["Gathercraft price scan"] = "Gathercraft 价格扫描",
     ["Reads every auction once and keeps a market price per item for gold per hour and profit."] = "读取每件拍卖一次，并为每种物品记录市场价，用于计算每小时金币和利润。",
     ["Last scan: %d min ago"] = "上次扫描：%d分钟前",
