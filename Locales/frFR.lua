@@ -515,4 +515,5 @@ ns.Locales.frFR = {
     ["Off"] = "Désactivée",
     ["Next 10 points"] = "10 points suivants",
     ["On the world map and the minimap. Until you choose: Smart routes show the next 10 points, loops the whole round."] = "Sur la carte du monde et la minicarte. Tant que vous ne choisissez pas : les itinéraires Smart montrent les 10 points suivants, les boucles le tour entier.",
+    ["Run and fishing windows fold into one line or hide. Minimap pins are a plain ring by default, with the route line below them. Fishing marks your bobber and ends with a summary. Crafting sorts by any column."] = "Les fenêtres de tournée et de pêche se replient sur une ligne ou se masquent. Les repères de la minicarte sont désormais un simple anneau, avec la ligne d'itinéraire en dessous. La pêche marque votre bouchon et se termine par un résumé. Crafting trie par n'importe quelle colonne.",
 }

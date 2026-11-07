@@ -515,4 +515,5 @@ ns.Locales.ruRU = {
     ["Off"] = "Выкл.",
     ["Next 10 points"] = "След. 10 точек",
     ["On the world map and the minimap. Until you choose: Smart routes show the next 10 points, loops the whole round."] = "На карте мира и миникарте. Пока вы не выбрали: маршруты Smart показывают следующие 10 точек, круги — весь круг.",
+    ["Run and fishing windows fold into one line or hide. Minimap pins are a plain ring by default, with the route line below them. Fishing marks your bobber and ends with a summary. Crafting sorts by any column."] = "Окна маршрута и рыбалки сворачиваются в одну строку или скрываются. Метки на миникарте теперь просто кольцо, линия маршрута проходит под ними. Рыбалка отмечает ваш поплавок и заканчивается сводкой. Crafting сортирует по любому столбцу.",
 }

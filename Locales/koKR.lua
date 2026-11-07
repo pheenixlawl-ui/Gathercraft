@@ -515,4 +515,5 @@ ns.Locales.koKR = {
     ["Off"] = "끄기",
     ["Next 10 points"] = "다음 10개 지점",
     ["On the world map and the minimap. Until you choose: Smart routes show the next 10 points, loops the whole round."] = "세계 지도와 미니맵에 적용됩니다. 직접 고르기 전에는 스마트 경로는 다음 10개 지점, 순환 경로는 한 바퀴 전체를 보여 줍니다.",
+    ["Run and fishing windows fold into one line or hide. Minimap pins are a plain ring by default, with the route line below them. Fishing marks your bobber and ends with a summary. Crafting sorts by any column."] = "채집 경로 창과 낚시 창을 한 줄로 접거나 숨길 수 있습니다. 미니맵 핀은 이제 기본으로 테두리만 보이며 경로선은 그 아래에 그려집니다. 낚시할 때 내 찌를 표시하고 끝나면 요약을 보여 줍니다. 제작 탭은 모든 열로 정렬됩니다.",
 }

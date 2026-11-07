@@ -544,4 +544,5 @@ ns.Locales.deDE = {
     ["Off"] = "Aus",
     ["Next 10 points"] = "Nächste 10 Punkte",
     ["On the world map and the minimap. Until you choose: Smart routes show the next 10 points, loops the whole round."] = "Auf Weltkarte und Minikarte. Solange du nichts wählst: Smart-Routen zeigen die nächsten 10 Punkte, Rundkurse die ganze Runde.",
+    ["Run and fishing windows fold into one line or hide. Minimap pins are a plain ring by default, with the route line below them. Fishing marks your bobber and ends with a summary. Crafting sorts by any column."] = "Lauf- und Angel-Fenster lassen sich auf eine Zeile einklappen oder ausblenden. Minikarten-Pins sind jetzt standardmäßig nur ein Ring, die Routenlinie liegt darunter. Beim Angeln wird dein Schwimmer markiert, am Ende gibt es eine Zusammenfassung. Crafting sortiert nach jeder Spalte.",
 }

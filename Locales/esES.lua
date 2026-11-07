@@ -515,4 +515,5 @@ ns.Locales.esES = {
     ["Off"] = "Desactivada",
     ["Next 10 points"] = "10 puntos siguientes",
     ["On the world map and the minimap. Until you choose: Smart routes show the next 10 points, loops the whole round."] = "En el mapa del mundo y el minimapa. Mientras no elijas: las rutas Smart muestran los 10 puntos siguientes y los circuitos, la vuelta entera.",
+    ["Run and fishing windows fold into one line or hide. Minimap pins are a plain ring by default, with the route line below them. Fishing marks your bobber and ends with a summary. Crafting sorts by any column."] = "Las ventanas de ruta y de pesca se pliegan en una línea o se ocultan. Los pines del minimapa son ahora un simple anillo, con la línea de ruta debajo. La pesca marca tu corcho y termina con un resumen. Crafting ordena por cualquier columna.",
 }

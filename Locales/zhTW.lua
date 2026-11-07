@@ -515,4 +515,5 @@ ns.Locales.zhTW = {
     ["Off"] = "關閉",
     ["Next 10 points"] = "接下來 10 個點",
     ["On the world map and the minimap. Until you choose: Smart routes show the next 10 points, loops the whole round."] = "適用於世界地圖和小地圖。未選擇時：智慧路線顯示接下來 10 個點，循環路線顯示整圈。",
+    ["Run and fishing windows fold into one line or hide. Minimap pins are a plain ring by default, with the route line below them. Fishing marks your bobber and ends with a summary. Crafting sorts by any column."] = "採集路線和釣魚視窗可以收成一行或隱藏。小地圖標記預設只顯示圓環，路線在它們下方。釣魚時會標記你的浮標，結束時顯示總結。製造頁可按任意欄排序。",
 }
