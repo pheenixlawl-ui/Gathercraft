@@ -5080,6 +5080,55 @@ step("Minimap looks from a city go to the zone around it; old ones move once (v0
     HBD.GetWorldCoordinatesFromZone, HBD.GetZoneCoordinatesFromWorld, HBD.GetPlayerWorldPosition = W, Z, P
     player.map, player.x, player.y = 1412, 0.45, 0.72
 end)
+step("Nodes on a continent map go to their zone; a gather there too (v0.1.17)", function()
+    -- in this test world the continent map 1414 is the same as Barrens (1413) at 0.5..1
+    local HBD = LibStub("HereBeDragons-2.0")
+    local W, Z = HBD.GetWorldCoordinatesFromZone, HBD.GetZoneCoordinatesFromWorld
+    HBD.GetWorldCoordinatesFromZone = function(s, x, y, map)
+        if map == 1414 then return W(s, (x - 0.5) * 2, (y - 0.5) * 2, 1413) end
+        return W(s, x, y, map)
+    end
+    HBD.GetZoneCoordinatesFromWorld = function(s, wx, wy, map)
+        if map == 1414 then local x, y = Z(s, wx, wy, 1413) return 0.5 + x / 2, 0.5 + y / 2 end
+        return Z(s, wx, wy, map)
+    end
+    local atPos = C_Map.GetMapInfoAtPosition
+    C_Map.GetMapInfoAtPosition = function(map, x, y)
+        if map == 1414 and x >= 0.5 and y >= 0.5 then return { mapID = 1413, mapType = 3, name = "Zone1413" } end
+        if map == 1414 then return { mapID = 1414, mapType = 2 } end -- no zone known there
+    end
+    ns.db.nodes[1414] = {
+        { id = "o2041", name = "Bruiseweed", type = "herb", x = 0.52, y = 0.55, count = 2 },
+        { id = "o2042", name = "Kingsblood", type = "herb", x = 0.30, y = 0.20, count = 1 },
+    }
+    local before = #(ns.db.nodes[1413] or {})
+    local wx, wy = HBD:GetWorldCoordinatesFromZone(0.52, 0.55, 1414)
+    local moved = ns.MoveContinentNodes()
+    assert(moved == 1, moved .. " moved, want the one with a zone")
+    assert(#ns.db.nodes[1414] == 1 and ns.db.nodes[1414][1].name == "Kingsblood", "the node without a zone left the continent")
+    local m = ns.db.nodes[1413][#ns.db.nodes[1413]]
+    assert(#ns.db.nodes[1413] == before + 1 and m.name == "Bruiseweed" and m.movedFrom == 1414, "the node is not in its zone")
+    local mx, my = HBD:GetWorldCoordinatesFromZone(m.x, m.y, 1413)
+    assert(math.abs(mx - wx) < 0.01 and math.abs(my - wy) < 0.01, "the node moved in the world")
+    table.remove(ns.db.nodes[1413])
+    ns.db.nodes[1414] = nil
+    -- standing there: the game says Kalimdor, the position goes to the zone
+    local pos = C_Map.GetPlayerMapPosition
+    C_Map.GetPlayerMapPosition = function(map)
+        if map == 1413 then return { x = 0.04, y = 0.1, GetXY = function(s) return s.x, s.y end } end
+        return pos(map)
+    end
+    player.map, player.x, player.y = 1414, 0.52, 0.55
+    local mapID, x, y = ns.GetPlayerPos()
+    assert(mapID == 1413 and x == 0.04 and y == 0.1, ("on the continent: %s %s %s"):format(tostring(mapID), tostring(x), tostring(y)))
+    -- no zone there: the continent, as before
+    player.x, player.y = 0.3, 0.2
+    assert(ns.GetPlayerPos() == 1414, "without a zone the continent position was lost")
+    C_Map.GetPlayerMapPosition, C_Map.GetMapInfoAtPosition = pos, atPos
+    HBD.GetWorldCoordinatesFromZone, HBD.GetZoneCoordinatesFromWorld = W, Z
+    ns.NotifyNodesChanged()
+    player.map, player.x, player.y = 1412, 0.45, 0.72
+end)
 step("Pin tooltip", function()
     for _, f in ipairs(allFrames) do
         if f.node and f.__scripts.OnEnter then f.__scripts.OnEnter(f) f.__scripts.OnLeave(f) break end

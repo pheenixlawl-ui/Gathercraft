@@ -509,4 +509,5 @@ ns.Locales.ruRU = {
     ["Route line on the minimap"] = "Линия маршрута на миникарте",
     ["Colour and style: Options > Farm runs > Route line."] = "Цвет и стиль: Параметры > Farm runs > Линия маршрута.",
     ["%d rough minimap guesses moved from a city map to the zone around it."] = "Перенесено приблизительных отметок с миникарты: %d — с карты города в зону вокруг неё.",
+    ["%d nodes moved from a continent map to their zone."] = "Перенесено точек с карты континента в их зону: %d.",
 }

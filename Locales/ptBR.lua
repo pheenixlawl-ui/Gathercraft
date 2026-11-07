@@ -509,4 +509,5 @@ ns.Locales.ptBR = {
     ["Route line on the minimap"] = "Linha da rota no minimapa",
     ["Colour and style: Options > Farm runs > Route line."] = "Cor e estilo: Opções > Farm runs > Linha da rota.",
     ["%d rough minimap guesses moved from a city map to the zone around it."] = "%d estimativas do minimapa movidas de um mapa de cidade para a zona ao redor.",
+    ["%d nodes moved from a continent map to their zone."] = "%d nós movidos de um mapa de continente para a sua zona.",
 }

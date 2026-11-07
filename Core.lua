@@ -225,6 +225,19 @@ ns.CITY_ZONE = {
     [1458] = 1420, -- Undercity -> Tirisfal Glades
 }
 
+-- Some spots (seen near Kalimdor 52 / 55, 05.11.) report only the continent
+-- as your map: the zone there is asked from the map at that position.
+local MAP_CONTINENT = (Enum and Enum.UIMapType and Enum.UIMapType.Continent) or 2
+local MAP_ZONE = (Enum and Enum.UIMapType and Enum.UIMapType.Zone) or 3
+local function ZoneAt(mapID, x, y)
+    if not (C_Map.GetMapInfoAtPosition and C_Map.GetMapInfo) then return end
+    local info = C_Map.GetMapInfo(mapID)
+    if not (info and info.mapType == MAP_CONTINENT) then return end
+    local zone = C_Map.GetMapInfoAtPosition(mapID, x, y)
+    if zone and zone.mapID and zone.mapID ~= mapID and zone.mapType == MAP_ZONE then return zone.mapID end
+end
+ns.ZoneAt = ZoneAt
+
 local function GetPlayerPos()
     local mapID = ns.PlayerMap()
     if not mapID then return end
@@ -232,6 +245,15 @@ local function GetPlayerPos()
     if not pos then return end
     local x, y = pos:GetXY()
     if AnySecret("position", x, y) then return end
+    -- only the continent: the zone at that spot, if the map knows one
+    local zone = x and ZoneAt(mapID, x, y)
+    local zpos = zone and C_Map.GetPlayerMapPosition(zone, "player")
+    if zpos then
+        local zx, zy = zpos:GetXY()
+        if not AnySecret("position", zx, zy) and zx and zx >= 0 and zx <= 1 and zy >= 0 and zy <= 1 then
+            return zone, zx, zy
+        end
+    end
     return mapID, x, y
 end
 
@@ -1237,6 +1259,7 @@ frame:SetScript("OnEvent", function(self, event, ...)
         end
     elseif event == "PLAYER_LOGIN" then
         if ns.MoveCityGuesses then ns.MoveCityGuesses() end
+        if ns.MoveContinentNodes then ns.MoveContinentNodes() end
         if ns.ConsolidateSeen then
             local n = 0
             for mapID in pairs(ns.db.nodes) do n = n + ns.ConsolidateSeen(mapID) end
@@ -1672,6 +1695,40 @@ function ns.MoveCityGuesses()
     ns.db.cityGuessesMoved = true
     if moved > 0 then
         Print((L["%d rough minimap guesses moved from a city map to the zone around it."]):format(moved))
+        NodesChanged()
+    end
+    return moved
+end
+
+-- Up to 0.1.16 nodes found where the game reported only the continent were
+-- kept on the continent map (7 on Kalimdor in Sven's data, 05./06.11.) and
+-- showed on no zone map. Each one goes to the zone the map knows at its
+-- spot, when there is exactly that answer; the others stay. Nothing is
+-- deleted. Tried at every login, as the answer needs the game's map data.
+function ns.MoveContinentNodes()
+    if not (HBD and HBD.GetWorldCoordinatesFromZone and HBD.GetZoneCoordinatesFromWorld) then return 0 end
+    local moved = 0
+    for mapID, list in pairs(ns.db.nodes) do
+        local info = C_Map.GetMapInfo and C_Map.GetMapInfo(mapID)
+        if info and info.mapType == MAP_CONTINENT then
+            for i = #list, 1, -1 do
+                local n = list[i]
+                local zone = n.x and n.y and ZoneAt(mapID, n.x, n.y)
+                local wx, wy, zx, zy
+                if zone then wx, wy = HBD:GetWorldCoordinatesFromZone(n.x, n.y, mapID) end
+                if wx and wy then zx, zy = HBD:GetZoneCoordinatesFromWorld(wx, wy, zone) end
+                if zx and zx >= 0 and zx <= 1 and zy >= 0 and zy <= 1 then
+                    table.remove(list, i)
+                    n.x, n.y, n.movedFrom = zx, zy, mapID
+                    table.insert(GetZoneNodes(zone, true), n)
+                    moved = moved + 1
+                end
+            end
+            if #list == 0 then ns.db.nodes[mapID] = nil end
+        end
+    end
+    if moved > 0 then
+        Print((L["%d nodes moved from a continent map to their zone."]):format(moved))
         NodesChanged()
     end
     return moved

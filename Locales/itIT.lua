@@ -509,4 +509,5 @@ ns.Locales.itIT = {
     ["Route line on the minimap"] = "Linea del percorso sulla minimappa",
     ["Colour and style: Options > Farm runs > Route line."] = "Colore e stile: Opzioni > Farm runs > Linea del percorso.",
     ["%d rough minimap guesses moved from a city map to the zone around it."] = "%d stime della minimappa spostate dalla mappa di una città alla zona intorno.",
+    ["%d nodes moved from a continent map to their zone."] = "%d nodi spostati dalla mappa di un continente alla loro zona.",
 }

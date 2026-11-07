@@ -509,4 +509,5 @@ ns.Locales.zhCN = {
     ["Route line on the minimap"] = "小地图上的路线",
     ["Colour and style: Options > Farm runs > Route line."] = "颜色和样式：选项 > Farm runs > 路线。",
     ["%d rough minimap guesses moved from a city map to the zone around it."] = "已将 %d 个小地图估计位置从城市地图移到周围的区域。",
+    ["%d nodes moved from a continent map to their zone."] = "已将 %d 个采集点从大陆地图移到所在区域。",
 }

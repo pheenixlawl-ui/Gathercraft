@@ -538,4 +538,5 @@ ns.Locales.deDE = {
     ["Route line on the minimap"] = "Routenlinie auf der Minikarte",
     ["Colour and style: Options > Farm runs > Route line."] = "Farbe und Stil: Optionen > Farm runs > Routenlinie.",
     ["%d rough minimap guesses moved from a city map to the zone around it."] = "%d grobe Minikarten-Schätzungen von einer Stadtkarte in das Gebiet drumherum verschoben.",
+    ["%d nodes moved from a continent map to their zone."] = "%d Nodes von einer Kontinentkarte in ihr Gebiet verschoben.",
 }

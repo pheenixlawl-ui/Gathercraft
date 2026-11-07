@@ -509,4 +509,5 @@ ns.Locales.koKR = {
     ["Route line on the minimap"] = "미니맵에 경로선",
     ["Colour and style: Options > Farm runs > Route line."] = "색과 모양: 옵션 > Farm runs > 경로선.",
     ["%d rough minimap guesses moved from a city map to the zone around it."] = "미니맵 추정 위치 %d개를 도시 지도에서 주변 지역으로 옮겼습니다.",
+    ["%d nodes moved from a continent map to their zone."] = "노드 %d개를 대륙 지도에서 해당 지역으로 옮겼습니다.",
 }

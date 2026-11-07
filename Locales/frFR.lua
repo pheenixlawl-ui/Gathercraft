@@ -509,4 +509,5 @@ ns.Locales.frFR = {
     ["Route line on the minimap"] = "Ligne d'itinéraire sur la minicarte",
     ["Colour and style: Options > Farm runs > Route line."] = "Couleur et style : Options > Farm runs > Ligne d'itinéraire.",
     ["%d rough minimap guesses moved from a city map to the zone around it."] = "%d estimations de la minicarte déplacées d'une carte de ville vers la zone autour.",
+    ["%d nodes moved from a continent map to their zone."] = "%d nœuds déplacés d'une carte de continent vers leur zone.",
 }
