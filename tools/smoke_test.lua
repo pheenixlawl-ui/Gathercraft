@@ -1264,6 +1264,39 @@ step("Farm run: walking away from the target picks a new one", function()
     ns.db.nodes[Z] = nil
     player.map, player.x, player.y = 1412, 0.45, 0.72
 end)
+step("Smart route: after a detour the old target is put where it fits, not at the end (v0.1.17)", function()
+    -- in yards around the spot you end up at: the old target 400 north, two
+    -- nodes 1200 west and 1240 east. Before 0.1.17 the old target went to the
+    -- end: west, all the way east, back to the middle (1240 yd more).
+    local Z = 1470
+    local function at(dx, dy) return 0.5 + dx / 5000, 0.5 + dy / 3333 end
+    local function own(dx, dy)
+        local x, y = at(dx, dy)
+        return { id = "o1731", name = "Copper Vein", type = "ore", x = x, y = y, count = 3, last = 1 }
+    end
+    ns.db.nodes[Z] = { own(0, 400), own(-1200, 600), own(1240, 600) }
+    local old, west, east = ns.db.nodes[Z][1], ns.db.nodes[Z][2], ns.db.nodes[Z][3]
+    player.map = Z
+    player.x, player.y = at(0, 240)
+    ns.StartRun("ore", Z) advance(1)
+    assert(ns.run and ns.run.target == old, "test setup: the nearest node first")
+    -- walk off 240 yd (a quest): a new target, the old one later
+    player.x, player.y = at(0, 0) advance(1)
+    local path = ns.run.path or {}
+    assert(ns.run.target == west and #path == 3, "test setup: west is the new target")
+    local order = {}
+    for i, p in ipairs(path) do order[i] = p.node == old and "old" or p.node == west and "west" or p.node == east and "east" or "?" end
+    assert(path[2].node == old and path[3].node == east, "the route goes " .. table.concat(order, ", "))
+    -- the length is the one of the line you see
+    local HBD = LibStub("HereBeDragons-2.0")
+    local cx, cy = HBD:GetWorldCoordinatesFromZone(player.x, player.y, Z)
+    local sum = 0
+    for _, p in ipairs(path) do sum = sum + math.sqrt((p.wx - cx) ^ 2 + (p.wy - cy) ^ 2) cx, cy = p.wx, p.wy end
+    assert(math.abs(sum - ns.run.length) < 1, ("length %d, the line is %d"):format(ns.run.length, sum))
+    ns.StopRun()
+    ns.db.nodes[Z] = nil
+    player.map, player.x, player.y = 1412, 0.45, 0.72
+end)
 step("Farm run: a node you can't get to is left out for a while", function()
     local Z = 1468
     local function own(x, y) return { id = "o1731", name = "Copper Vein", type = "ore", x = x, y = y, count = 3, last = 1 } end

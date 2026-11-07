@@ -25,6 +25,8 @@
 --   tune=a:1,b:2     override ns.RouteTune values (spawn point learning), e.g. tune=prune:0,learn:0
 --   rivals=0         other gatherers in the zone: they ride around, take every node they see
 --                    (with tracking on they also ride to nodes their minimap shows)
+--   clock=0          1 = plans get cut off after the real CPU time, as in the game (plain Lua
+--                    5.1 like the game's; results then vary a little with the computer)
 --   (environment) SIM_LOG=<Lua pattern>: print the addon's debug lines that match, e.g. SIM_LOG="^loop"
 --   oracle=1         ignore the addon, always ride to the nearest node that is up
 --                    (nobody can know that: the best any route could ever do)
@@ -40,7 +42,7 @@ local ROOT = arg[1] or "."
 local opts = {
     zone = 1412, mode = "herb", minutes = 60, speed = 11.2, active = 0.35, respawn = 600,
     see = 40, track = 0, arrive = 25, seed = 1, runs = 1, oracle = 0, tune = "",
-    dead = 0, skew = 0, warm = 0, skill = 300, goal = "auto", loop = 0, rivals = 0,
+    dead = 0, skew = 0, warm = 0, skill = 300, goal = "auto", loop = 0, rivals = 0, clock = 0,
 }
 for i = 2, #arg do
     local k, v = arg[i]:match("^(%w+)=(.+)$")
@@ -107,6 +109,7 @@ local function RunOnce(seed)
     -- plans are cut off by real time in the game; here they always finish,
     -- so the same seed gives the same result however busy the computer is
     debugprofilestop = function() return 0 end
+    if opts.clock == 1 then debugprofilestop = function() return os.clock() * 1000 end end
     ns.db.routeGoal = opts.goal
     ns.db.routeMode = opts.loop == 1 and "loop" or nil
     local GetPrice = ns.GetPrice
@@ -266,7 +269,33 @@ local function RunOnce(seed)
 
     -- ride
     local stats = { gathered = 0, distance = 0, idle = 0, arrivals = 0, emptyArrivals = 0, detours = 0,
-        targetChanges = 0 }
+        targetChanges = 0, crossings = 0, crossChecks = 0, shownLength = 0 }
+    -- the route as the line shows it (you -> path): crossing segments and its
+    -- length per point, checked every CROSS_EVERY seconds over CROSS_SEGMENTS
+    local CROSS_EVERY, CROSS_SEGMENTS = 30, 30
+    local nextCross = 0
+    local function Cross(a, b, c, d)
+        local function o(p, q, r) return (q[1] - p[1]) * (r[2] - p[2]) - (q[2] - p[2]) * (r[1] - p[1]) end
+        local d1, d2, d3, d4 = o(c, d, a), o(c, d, b), o(a, b, c), o(a, b, d)
+        return ((d1 > 0 and d2 < 0) or (d1 < 0 and d2 > 0)) and ((d3 > 0 and d4 < 0) or (d3 < 0 and d4 > 0))
+    end
+    local function CheckShown(px, py)
+        local path = ns.run and ns.run.path
+        if not (path and #path >= 3) then return end
+        local pts = { { px, py } }
+        for i = 1, math.min(#path, CROSS_SEGMENTS) do pts[#pts + 1] = { path[i].wx, path[i].wy } end
+        local n = 0
+        for i = 1, #pts - 1 do
+            for j = i + 2, #pts - 1 do
+                if Cross(pts[i], pts[i + 1], pts[j], pts[j + 1]) then n = n + 1 end
+            end
+        end
+        local len = 0
+        for i = 1, #pts - 1 do len = len + math.sqrt((pts[i + 1][1] - pts[i][1]) ^ 2 + (pts[i + 1][2] - pts[i][2]) ^ 2) end
+        stats.crossings = stats.crossings + n
+        stats.shownLength = stats.shownLength + len / (#pts - 1)
+        stats.crossChecks = stats.crossChecks + 1
+    end
     local lastTarget, heldTarget
     ns.StartRun(opts.mode, opts.zone)
     h.advance(1)
@@ -283,6 +312,10 @@ local function RunOnce(seed)
         end
         Respawn(now)
         MoveRivals(now)
+        if measuring and now >= nextCross then
+            nextCross = now + CROSS_EVERY
+            CheckShown(player.x * WORLD_W + OffsetX(opts.zone), player.y * WORLD_H)
+        end
         -- every time the arrow points at another node
         local held = ns.run and ns.run.target
         if held and held ~= heldTarget then
@@ -355,6 +388,8 @@ local function RunOnce(seed)
     stats.skillUpsPerHour = skillUps / minutes * 60
     stats.goldPerHour = gold / minutes * 60 / 10000
     stats.skillEnd = h.profs[opts.mode == "ore" and 2 or 1][2]
+    stats.crossPerCheck = stats.crossChecks > 0 and stats.crossings / stats.crossChecks or 0
+    stats.yardsPerPoint = stats.crossChecks > 0 and stats.shownLength / stats.crossChecks or 0
     if #h.errors > 0 then
         out("errors:\n")
         for _, e in ipairs(h.errors) do out("  " .. e .. "\n") end
@@ -371,10 +406,12 @@ for r = 0, opts.runs - 1 do
     out(("  seed %d: %d nodes (%.0f/h), %.0f skill-ups/h (skill %d at the end), %.1fg/h, %.0f yd ridden, %.0f s idle, %d empty arrivals, %d spawn points, %d target changes\n")
         :format(opts.seed + r, s.gathered, s.perHour, s.skillUpsPerHour, s.skillEnd, s.goldPerHour, s.distance, s.idle, s.emptyArrivals, s.points,
             s.targetChanges))
+    out(("    shown route: %.2f crossings, %.0f yd per point (first %d points, every %d s)\n"):format(s.crossPerCheck, s.yardsPerPoint, 30, 30))
     for k, v in pairs(s) do sum[k] = (sum[k] or 0) + v end
 end
 if opts.runs > 1 then
     out(("  average: %.1f nodes/h, %.1f skill-ups/h, %.1fg/h, %.0f yd ridden, %.1f empty arrivals, %.1f target changes\n")
         :format(sum.perHour / opts.runs, sum.skillUpsPerHour / opts.runs, sum.goldPerHour / opts.runs,
             sum.distance / opts.runs, sum.emptyArrivals / opts.runs, sum.targetChanges / opts.runs))
+    out(("  average shown route: %.2f crossings, %.0f yd per point\n"):format(sum.crossPerCheck / opts.runs, sum.yardsPerPoint / opts.runs))
 end

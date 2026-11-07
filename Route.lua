@@ -336,15 +336,16 @@ local function NearestNeighbor(points, sx, sy)
     return path
 end
 
--- 2-opt for an open path whose first point (the player) stays fixed
-local function TwoOptOpen(t, budget)
+-- 2-opt for an open path whose first point (the player) stays fixed; with
+-- first = 2 the second point (the node the arrow points at) stays too
+local function TwoOptOpen(t, budget, first)
     local n = #t
     if n < 4 then return end
     local startTime = debugprofilestop()
     local improved = true
     while improved do
         improved = false
-        for i = 1, n - 2 do
+        for i = first or 1, n - 2 do
             local a, b = t[i], t[i + 1]
             for j = i + 2, n do
                 local c, e = t[j], t[j + 1]
@@ -555,6 +556,16 @@ local function NearestPoints(points, px, py, maxNodes)
         points = near
     end
     return points
+end
+
+-- The path as you see it, after the target was kept or picked, points were
+-- left out (Prune) and moved: untangled once more, the target stays first.
+-- Without this the line could cross itself and zigzag (seen in Hillsbrad).
+local function Untangle(path, px, py, budget)
+    if #path < 3 then return end
+    table.insert(path, 1, { wx = px, wy = py })
+    TwoOptOpen(path, budget, 2)
+    table.remove(path, 1)
 end
 
 -- Plans the best path from (px, py) through the given points
@@ -1543,6 +1554,15 @@ Plan = function(quick)
                 length = length + WDist(cx, cy, p.wx, p.wy)
                 cx, cy = p.wx, p.wy
             end
+        end
+    end
+    if not run.loopMode and #path >= 3 then
+        Untangle(path, px, py, quick and QUICK_BUDGET_MS or nil)
+        length = 0
+        local cx, cy = px, py
+        for _, p in ipairs(path) do
+            length = length + WDist(cx, cy, p.wx, p.wy)
+            cx, cy = p.wx, p.wy
         end
     end
     if #path == 0 then
