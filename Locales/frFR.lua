@@ -510,4 +510,9 @@ ns.Locales.frFR = {
     ["Colour and style: Options > Farm runs > Route line."] = "Couleur et style : Options > Farm runs > Ligne d'itinéraire.",
     ["%d rough minimap guesses moved from a city map to the zone around it."] = "%d estimations de la minicarte déplacées d'une carte de ville vers la zone autour.",
     ["%d nodes moved from a continent map to their zone."] = "%d nœuds déplacés d'une carte de continent vers leur zone.",
+    ["Route line shows"] = "La ligne montre",
+    ["Whole route"] = "Tout l'itinéraire",
+    ["Off"] = "Désactivée",
+    ["Next 10 points"] = "10 points suivants",
+    ["On the world map and the minimap. Until you choose: Smart routes show the next 10 points, loops the whole round."] = "Sur la carte du monde et la minicarte. Tant que vous ne choisissez pas : les itinéraires Smart montrent les 10 points suivants, les boucles le tour entier.",
 }

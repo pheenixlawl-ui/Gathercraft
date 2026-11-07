@@ -635,6 +635,62 @@ local function Cycle(list, code, delta)
     end
     return list[(index - 1 + delta) % #list + 1].code
 end
+-- Route line length: < Whole route | Next 10 points | Off >, both maps.
+-- Not chosen: by route type (Smart: next 10, Loop: whole route).
+local LINE_LENGTHS = {
+    { code = "all", name = "Whole route" },
+    { code = "next10", name = "Next 10 points" },
+    { code = "off", name = "Off" },
+}
+local lineLengthText
+local function LineLengthIndex()
+    local code = ns.RouteLineLength and ns.RouteLineLength() or "next10"
+    for i, e in ipairs(LINE_LENGTHS) do if e.code == code then return i end end
+    return 2
+end
+local function AddLineLength()
+    local label = page:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    label:SetPoint("TOPLEFT", colX + 6, nextY - 4)
+    ns.LText(label, "Route line shows")
+    fitLabels[#fitLabels + 1] = label
+
+    local minus = CreateFrame("Button", nil, page, "UIPanelButtonTemplate")
+    minus:SetSize(24, 20)
+    minus:SetPoint("TOPLEFT", colX + CONTROL_X, nextY)
+    minus:SetText("<")
+
+    lineLengthText = page:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    lineLengthText:SetPoint("LEFT", minus, "RIGHT", 6, 0)
+    lineLengthText:SetWidth(VALUE_W)
+    lineLengthText:SetWordWrap(false)
+
+    local plus = CreateFrame("Button", nil, page, "UIPanelButtonTemplate")
+    plus:SetSize(24, 20)
+    plus:SetPoint("LEFT", lineLengthText, "RIGHT", 6, 0)
+    plus:SetText(">")
+
+    local function Tip(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:AddLine(L["Route line shows"], 1, 0.82, 0)
+        GameTooltip:AddLine(L["On the world map and the minimap. Until you choose: Smart routes show the next 10 points, loops the whole round."], 1, 1, 1, true)
+        GameTooltip:Show()
+    end
+    local function Change(self)
+        local i = LineLengthIndex() + (self == minus and -1 or 1)
+        if i < 1 then i = #LINE_LENGTHS elseif i > #LINE_LENGTHS then i = 1 end
+        ns.db.routeLineLength = LINE_LENGTHS[i].code
+        if ns.RedrawRouteLine then ns.RedrawRouteLine() end
+        options:Refresh()
+        if GameTooltip:IsOwned(minus) or GameTooltip:IsOwned(plus) then Tip(GameTooltip:IsOwned(minus) and minus or plus) end
+    end
+    for _, b in ipairs({ minus, plus }) do
+        b:SetScript("OnClick", Change)
+        b:SetScript("OnEnter", Tip)
+        b:SetScript("OnLeave", GameTooltip_Hide)
+    end
+    nextY = nextY - 30
+end
+
 local function AddRouteLineLook()
     local label = page:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     label:SetPoint("TOPLEFT", colX + 6, nextY - 4)
@@ -711,6 +767,9 @@ function options:Refresh()
     end
     if modeText then
         modeText:SetText(L[CurrentMode().name])
+    end
+    if lineLengthText then
+        lineLengthText:SetText(L[LINE_LENGTHS[LineLengthIndex()].name])
     end
     if miniStyleText then
         miniStyleText:SetText(L[MINI_STYLES[MiniStyleIndex()].name])
@@ -850,6 +909,7 @@ local function Build()
         function(on)
             if (not ns.db.routeLineMiniHidden) ~= on then ns.ToggleRouteLine("mini") end
         end)
+    AddLineLength()
     nextY = nextY - 4
     AddRouteLineLook()
 

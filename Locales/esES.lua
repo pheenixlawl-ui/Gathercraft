@@ -510,4 +510,9 @@ ns.Locales.esES = {
     ["Colour and style: Options > Farm runs > Route line."] = "Color y estilo: Opciones > Farm runs > Línea de ruta.",
     ["%d rough minimap guesses moved from a city map to the zone around it."] = "%d estimaciones del minimapa pasadas de un mapa de ciudad a la zona que la rodea.",
     ["%d nodes moved from a continent map to their zone."] = "%d nodos pasados de un mapa de continente a su zona.",
+    ["Route line shows"] = "La línea muestra",
+    ["Whole route"] = "Ruta entera",
+    ["Off"] = "Desactivada",
+    ["Next 10 points"] = "10 puntos siguientes",
+    ["On the world map and the minimap. Until you choose: Smart routes show the next 10 points, loops the whole round."] = "En el mapa del mundo y el minimapa. Mientras no elijas: las rutas Smart muestran los 10 puntos siguientes y los circuitos, la vuelta entera.",
 }

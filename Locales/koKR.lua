@@ -510,4 +510,9 @@ ns.Locales.koKR = {
     ["Colour and style: Options > Farm runs > Route line."] = "색과 모양: 옵션 > Farm runs > 경로선.",
     ["%d rough minimap guesses moved from a city map to the zone around it."] = "미니맵 추정 위치 %d개를 도시 지도에서 주변 지역으로 옮겼습니다.",
     ["%d nodes moved from a continent map to their zone."] = "노드 %d개를 대륙 지도에서 해당 지역으로 옮겼습니다.",
+    ["Route line shows"] = "경로선 표시",
+    ["Whole route"] = "전체 경로",
+    ["Off"] = "끄기",
+    ["Next 10 points"] = "다음 10개 지점",
+    ["On the world map and the minimap. Until you choose: Smart routes show the next 10 points, loops the whole round."] = "세계 지도와 미니맵에 적용됩니다. 직접 고르기 전에는 스마트 경로는 다음 10개 지점, 순환 경로는 한 바퀴 전체를 보여 줍니다.",
 }

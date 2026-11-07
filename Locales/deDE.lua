@@ -539,4 +539,9 @@ ns.Locales.deDE = {
     ["Colour and style: Options > Farm runs > Route line."] = "Farbe und Stil: Optionen > Farm runs > Routenlinie.",
     ["%d rough minimap guesses moved from a city map to the zone around it."] = "%d grobe Minikarten-Schätzungen von einer Stadtkarte in das Gebiet drumherum verschoben.",
     ["%d nodes moved from a continent map to their zone."] = "%d Nodes von einer Kontinentkarte in ihr Gebiet verschoben.",
+    ["Route line shows"] = "Routenlinie zeigt",
+    ["Whole route"] = "Ganze Route",
+    ["Off"] = "Aus",
+    ["Next 10 points"] = "Nächste 10 Punkte",
+    ["On the world map and the minimap. Until you choose: Smart routes show the next 10 points, loops the whole round."] = "Auf Weltkarte und Minikarte. Solange du nichts wählst: Smart-Routen zeigen die nächsten 10 Punkte, Rundkurse die ganze Runde.",
 }

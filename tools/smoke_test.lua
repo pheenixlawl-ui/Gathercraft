@@ -5162,6 +5162,55 @@ step("Nodes on a continent map go to their zone; a gather there too (v0.1.17)", 
     ns.NotifyNodesChanged()
     player.map, player.x, player.y = 1412, 0.45, 0.72
 end)
+step("Route line length: next 10 points for Smart, the whole round for Loop, or off (v0.1.17)", function()
+    player.map, player.x, player.y = 1412, 0.45, 0.72
+    ns.db.routeLineHidden, ns.db.routeLineMiniHidden, ns.db.routeLineLength, ns.db.routeMode = nil, nil, nil, nil
+    ns.StartRun("herb") advance(2)
+    local run = ns.run
+    assert(run and run.path and #run.path > 12, "test setup: path of " .. tostring(run and run.path and #run.path))
+    local function Dots()
+        LINE_PTS = {}
+        ns.RedrawRouteLine() advance(1)
+        return #LINE_PTS
+    end
+    -- the line ends near the 10th point: no dot further along than that part
+    local function Reach()
+        local far = 0
+        local p10 = run.path[10]
+        for _, p in ipairs(LINE_PTS) do
+            local best = math.huge
+            for i = 1, 10 do
+                local q = run.path[i]
+                best = math.min(best, math.sqrt((p[1] - q.wx) ^ 2 + (p[2] - q.wy) ^ 2))
+            end
+            far = math.max(far, best)
+        end
+        return far, p10
+    end
+    assert(ns.RouteLineLength() == "next10", "Smart default: " .. tostring(ns.RouteLineLength()))
+    local next10 = Dots()
+    local legs = 0
+    local px, py = LibStub("HereBeDragons-2.0"):GetPlayerWorldPosition()
+    local cx, cy = px, py
+    for i = 1, 10 do
+        local q = run.path[i]
+        legs = math.max(legs, math.sqrt((q.wx - cx) ^ 2 + (q.wy - cy) ^ 2))
+        cx, cy = q.wx, q.wy
+    end
+    assert(next10 > 0 and Reach() <= legs, ("next 10: %d dots, one %.0f yd from the first 10 points"):format(next10, Reach()))
+    ns.db.routeLineLength = "all"
+    local all = Dots()
+    assert(all > next10, ("whole route %d dots, next 10 %d"):format(all, next10))
+    ns.db.routeLineLength = "off"
+    MINI_PTS = {}
+    assert(Dots() == 0 and #MINI_PTS == 0, "off: still a line")
+    -- loop: the whole round by default
+    ns.db.routeLineLength = nil
+    ns.db.routeMode = "loop"
+    assert(ns.RouteLineLength() == "all", "Loop default: " .. tostring(ns.RouteLineLength()))
+    ns.db.routeMode = nil
+    ns.StopRun(true)
+end)
 step("Pin tooltip", function()
     for _, f in ipairs(allFrames) do
         if f.node and f.__scripts.OnEnter then f.__scripts.OnEnter(f) f.__scripts.OnLeave(f) break end

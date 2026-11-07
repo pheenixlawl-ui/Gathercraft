@@ -1020,6 +1020,19 @@ end
 
 -- Route line on the minimap (Options, its own switch since 0.1.17) and on
 -- the world map. Up to 0.1.16 one switch hid both: see MigrateLineSwitch.
+-- How much of the route the line shows (Options): the whole route, the next
+-- 10 points, or nothing. Not chosen: Smart routes the next 10 points (they
+-- change as you ride, the far end is a guess), loops the whole round (it is
+-- fixed and ridden again and again).
+local LINE_NEXT = 10
+local LINE_LENGTHS = { all = true, next10 = true, off = true }
+local function LineLength()
+    local v = ns.db.routeLineLength
+    if LINE_LENGTHS[v] then return v end
+    return ns.db.routeMode == "loop" and "all" or "next10"
+end
+ns.RouteLineLength = LineLength
+
 local function WorldLineShown() return not ns.db.routeLineHidden end
 local function MiniLineShown() return not ns.db.routeLineMiniHidden end
 
@@ -1103,7 +1116,7 @@ end
 local function DrawHead(px, py, instance)
     local run = ns.run
     local tp = run and run.targetPoint
-    if not (HBDPins and tp and px) or not (WorldLineShown() or MiniLineShown()) then return ClearHead() end
+    if not (HBDPins and tp and px) or not (WorldLineShown() or MiniLineShown()) or LineLength() == "off" then return ClearHead() end
     run.headX, run.headY, run.headTarget = px, py, tp
     local style, rgb = LineStyle(), LineColor().rgb
     local world, mini = WorldLineShown(), MiniLineShown()
@@ -1158,7 +1171,12 @@ end
 --   and the line is drawn again as you ride), dense.
 local function DrawLine(path, length, instance, px, py)
     ClearLine()
-    if not path or #path == 0 or not (WorldLineShown() or MiniLineShown()) then return end
+    if not path or #path == 0 or not (WorldLineShown() or MiniLineShown()) or LineLength() == "off" then return end
+    if LineLength() == "next10" and #path > LINE_NEXT then
+        local cut = {}
+        for i = 1, LINE_NEXT do cut[i] = path[i] end
+        path = cut
+    end
     DrawHead(px, py, instance)
     local style, rgb = LineStyle(), LineColor().rgb
     local miniLen, cx, cy = 0, path[1].wx, path[1].wy

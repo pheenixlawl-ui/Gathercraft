@@ -510,4 +510,9 @@ ns.Locales.zhCN = {
     ["Colour and style: Options > Farm runs > Route line."] = "颜色和样式：选项 > Farm runs > 路线。",
     ["%d rough minimap guesses moved from a city map to the zone around it."] = "已将 %d 个小地图估计位置从城市地图移到周围的区域。",
     ["%d nodes moved from a continent map to their zone."] = "已将 %d 个采集点从大陆地图移到所在区域。",
+    ["Route line shows"] = "路线显示",
+    ["Whole route"] = "整条路线",
+    ["Off"] = "关闭",
+    ["Next 10 points"] = "接下来 10 个点",
+    ["On the world map and the minimap. Until you choose: Smart routes show the next 10 points, loops the whole round."] = "适用于世界地图和小地图。未选择时：智能路线显示接下来 10 个点，循环路线显示整圈。",
 }

@@ -510,4 +510,9 @@ ns.Locales.ruRU = {
     ["Colour and style: Options > Farm runs > Route line."] = "Цвет и стиль: Параметры > Farm runs > Линия маршрута.",
     ["%d rough minimap guesses moved from a city map to the zone around it."] = "Перенесено приблизительных отметок с миникарты: %d — с карты города в зону вокруг неё.",
     ["%d nodes moved from a continent map to their zone."] = "Перенесено точек с карты континента в их зону: %d.",
+    ["Route line shows"] = "Линия показывает",
+    ["Whole route"] = "Весь маршрут",
+    ["Off"] = "Выкл.",
+    ["Next 10 points"] = "След. 10 точек",
+    ["On the world map and the minimap. Until you choose: Smart routes show the next 10 points, loops the whole round."] = "На карте мира и миникарте. Пока вы не выбрали: маршруты Smart показывают следующие 10 точек, круги — весь круг.",
 }
