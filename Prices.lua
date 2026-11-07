@@ -16,7 +16,8 @@ local SCAN_TIMEOUT = 90         -- seconds to wait for the server's answer
 local SCAN_CHUNK = 1500         -- auctions read per step (keeps the game smooth)
 local MAX_PRICE_AGE = 7 * 86400 -- older own prices: use the fallbacks instead
 local HISTORY_DAYS = 14
-local MARKET_SHARE = 0.15       -- market price: what the cheapest 15% of the stock cost
+local MARKET_MIN = 5            -- market price: the lowest price with this many items behind it ...
+local MARKET_SHARE = 0.02       -- ... or this share of the stock, if that is more
 local BROWSE_TRUST = 3600       -- a search result beats a browse "lowest price" for an hour
 local ALERT_HIGH = 1.5          -- price alert: 50% above the usual price ...
 local ALERT_MIN_GAIN = 50       -- ... and at least 50 copper more per item
@@ -174,8 +175,9 @@ end
 ---------------------------------------------------------------------------
 -- Our own auction house scan
 --   One full scan (ReplicateItems) returns every auction at once. We read it
---   in small steps and keep per item a market price (cheapest 15% of the
---   stock, so a single cheap undercut doesn't fool us) and a short history.
+--   in small steps and keep per item a market price (the cheapest offer with
+--   real stock behind it, so a single bait item doesn't fool us) and a short
+--   history.
 ---------------------------------------------------------------------------
 local AH = C_AuctionHouse
 local ahOpen = false
@@ -233,7 +235,8 @@ local function MarketPrice(list)
         total = total + list[i + 1]
     end
     table.sort(entries, function(a, b) return a[1] < b[1] end)
-    local want, seen = math.max(1, total * MARKET_SHARE), 0
+    -- with less stock than that, what is there counts: the loop runs out
+    local want, seen = math.max(MARKET_MIN, total * MARKET_SHARE), 0
     for _, e in ipairs(entries) do
         seen = seen + e[2]
         if seen >= want then return math.floor(e[1] + 0.5), total end

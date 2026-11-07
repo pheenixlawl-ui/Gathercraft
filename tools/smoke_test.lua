@@ -3677,6 +3677,70 @@ step("Auction house: a search replaces an old price, a failed scan changes nothi
     AHX.GetNumReplicateItems, AHX.GetReplicateItemInfo, AHX.GetBrowseResults = keepNum, keepInfo, keepBrowse
     time, ns.db.debug = keepTime, keepDebug
 end)
+step("Market price: the cheapest offer with stock behind it (v0.1.16)", function()
+    local p = ns.db.prices[next(ns.db.prices)]
+    local AHX = C_AuctionHouse
+    local keepNum, keepInfo = AHX.GetNumReplicateItems, AHX.GetReplicateItemInfo
+    local keepCount, keepRow, keepFull = AHX.GetNumCommoditySearchResults, AHX.GetCommoditySearchResultInfo, AHX.HasFullCommoditySearchResults
+    local keepPrices = { p.items, p.qty, p.seen, p.scanned }
+    local ID = 12345
+    local CASES = {
+        -- what, { unit price, quantity, ... }, price
+        { "Blood Shard", { 13, 400, 25, 2800 }, 13 },
+        { "all at the minimum", { 13, 3222 }, 13 },
+        { "one bait item", { 1, 1, 100, 1000 }, 100 },
+        { "four bait items", { 1, 4, 100, 1000 }, 100 },
+        { "bait, under 2% of much stock", { 1, 19, 100, 981 }, 100 },
+        { "real stock at 2%", { 1, 20, 100, 980 }, 1 },
+        { "five are enough", { 10, 5, 50, 95 }, 10 },
+        { "three plus two", { 10, 3, 12, 2, 50, 95 }, 12 },
+        { "little stock", { 10, 1, 20, 2 }, 20 },
+        { "one item", { 77, 1 }, 77 },
+    }
+    local fails = {}
+    fire("AUCTION_HOUSE_SHOW") advance(1)
+    for _, case in ipairs(CASES) do
+        local what, list, want = case[1], case[2], case[3]
+        -- commodity search
+        AHX.GetNumCommoditySearchResults = function() return #list / 2 end
+        AHX.HasFullCommoditySearchResults = function() return true end
+        AHX.GetCommoditySearchResultInfo = function(_, i) return { unitPrice = list[i * 2 - 1], quantity = list[i * 2] } end
+        fire("COMMODITY_SEARCH_RESULTS_UPDATED", ID)
+        if p.items[ID] ~= want then fails[#fails + 1] = what .. ", commodity: " .. tostring(p.items[ID]) end
+        -- item search: a buyout for the whole stack
+        AHX.GetNumItemSearchResults = function() return #list / 2 end
+        AHX.GetItemSearchResultInfo = function(_, i) return { buyoutAmount = list[i * 2 - 1] * list[i * 2], quantity = list[i * 2] } end
+        p.items[ID] = nil
+        fire("ITEM_SEARCH_RESULTS_UPDATED", { itemID = ID })
+        if p.items[ID] ~= want then fails[#fails + 1] = what .. ", item: " .. tostring(p.items[ID]) end
+        -- full scan
+        AHX.GetNumReplicateItems = function() return #list / 2 end
+        AHX.GetReplicateItemInfo = function(i)
+            local unit, qty = list[i * 2 + 1], list[i * 2 + 2]
+            if not unit then return nil end
+            return "Item", 1, qty, 1, true, 1, 0, 0, 0, unit * qty, 0, false, nil, "Seller", nil, 0, ID, true
+        end
+        p.lastScanStart = nil
+        slash("scan") advance(1)
+        fire("REPLICATE_ITEM_LIST_UPDATE") advance(2)
+        if p.items[ID] ~= want then fails[#fails + 1] = what .. ", scan: " .. tostring(p.items[ID]) end
+    end
+    -- the browse list only knows the lowest price: it stays that
+    p.seen[ID] = time() - 7200
+    local keepBrowse = AHX.GetBrowseResults
+    AHX.GetBrowseResults = function() return { { itemKey = { itemID = ID }, minPrice = 3, totalQuantity = 1 } } end
+    fire("AUCTION_HOUSE_BROWSE_RESULTS_UPDATED")
+    if p.items[ID] ~= 3 then fails[#fails + 1] = "browse: " .. tostring(p.items[ID]) end
+    fire("AUCTION_HOUSE_CLOSED")
+    AHX.GetBrowseResults = keepBrowse
+    AHX.GetNumReplicateItems, AHX.GetReplicateItemInfo = keepNum, keepInfo
+    AHX.GetNumCommoditySearchResults, AHX.GetCommoditySearchResultInfo, AHX.HasFullCommoditySearchResults = keepCount, keepRow, keepFull
+    AHX.GetNumItemSearchResults, AHX.GetItemSearchResultInfo = nil, nil
+    -- each scan here replaced all prices: the steps after this one need the old ones
+    p.items, p.qty, p.seen, p.scanned = keepPrices[1], keepPrices[2], keepPrices[3], keepPrices[4]
+    p.items[ID], p.qty[ID], p.seen[ID], p.history[ID] = nil, nil, nil, nil
+    assert(#fails == 0, #fails .. " wrong: " .. table.concat(fails, " | "))
+end)
 step("Best place to farm", function()
     for _, mode in ipairs({ "herb", "ore", "both" }) do
         local groups = ns.FarmAdvice(mode)
