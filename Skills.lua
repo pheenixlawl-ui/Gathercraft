@@ -55,18 +55,20 @@ local function GetSkill(nodeType)
         local profs = { GetProfessions() }
         for i = 1, 6 do
             local index = profs[i]
-            if index then
+            if index and not ns.AnySecret("skills", index) then
                 local _, _, rank, maxRank, _, _, skillLine, modifier = GetProfessionInfo(index)
-                if skillLine == SKILL_LINE[nodeType] then
+                if not ns.AnySecret("skills", rank, maxRank, skillLine, modifier) and skillLine == SKILL_LINE[nodeType] then
                     return rank, maxRank, rank + Bonus(modifier)
                 end
             end
         end
     end
     if GetNumSkillLines and GetSkillLineInfo then
-        for i = 1, GetNumSkillLines() do
+        for i = 1, ns.Readable(GetNumSkillLines(), "skills") or 0 do
             local name, isHeader, _, rank, _, modifier, maxRank = GetSkillLineInfo(i)
-            if not isHeader and name and SKILL_NAMES[nodeType] and SKILL_NAMES[nodeType][name:lower()] then
+            if ns.AnySecret("skills", name, isHeader, rank, modifier, maxRank) then
+                -- hidden: this line can't tell
+            elseif not isHeader and name and SKILL_NAMES[nodeType] and SKILL_NAMES[nodeType][name:lower()] then
                 return rank, maxRank, rank + Bonus(modifier)
             end
         end
@@ -78,9 +80,11 @@ end
 -- profession is really not learned (any more)
 local function SkillListIncomplete()
     if not (GetNumSkillLines and GetSkillLineInfo) then return not (GetProfessions and GetProfessionInfo) end
-    for i = 1, GetNumSkillLines() do
-        local _, isHeader, isExpanded = GetSkillLineInfo(i)
-        if isHeader and not isExpanded then return true end
+    local count = ns.Readable(GetNumSkillLines(), "skills")
+    if not count then return true end
+    for i = 1, count do
+        local name, isHeader, isExpanded = GetSkillLineInfo(i)
+        if ns.AnySecret("skills", name, isHeader, isExpanded) or (isHeader and not isExpanded) then return true end
     end
     return false
 end
@@ -318,7 +322,8 @@ local function ProfessionIDsWork()
     local any = false
     for i = 1, 6 do
         if profs[i] then
-            local skillLine = select(7, GetProfessionInfo(profs[i]))
+            if ns.AnySecret("skills", profs[i]) then return false end
+            local skillLine = ns.Readable(select(7, GetProfessionInfo(profs[i])), "skills")
             if (tonumber(skillLine) or 0) <= 0 then return false end
             any = true
         end
@@ -329,7 +334,7 @@ end
 -- true when a name missing from the old skill list means it is not learned.
 -- The list is empty until the game has sent it.
 local function SkillListProves()
-    if not (GetNumSkillLines and GetSkillLineInfo) or GetNumSkillLines() == 0 then return false end
+    if not (GetNumSkillLines and GetSkillLineInfo) or (ns.Readable(GetNumSkillLines(), "skills") or 0) == 0 then return false end
     return SKILL_NAME_LOCALES[GetLocale()] and not SkillListIncomplete()
 end
 

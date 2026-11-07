@@ -103,13 +103,13 @@ local selfNames, sentAt = {}, {}
 
 local function IsSelf(sender)
     local short = ShortName(sender)
-    return sender == playerName or short == UnitName("player") or selfNames[short] == true
+    return sender == playerName or short == ns.Readable(UnitName("player"), "sync") or selfNames[short] == true
 end
 
 local function LearnSelf(sender, text)
     local t = sentAt[text]
     if not t or time() - t > 10 then return false end
-    local short, me = ShortName(sender), UnitName("player")
+    local short, me = ShortName(sender), ns.Readable(UnitName("player"), "sync")
     if me and short:sub(1, #me + 1) == me .. " " then
         selfNames[short] = true
         return true
@@ -657,7 +657,7 @@ local function StressTest(perSecond, seconds)
     end
     perSecond = math.max(1, math.min(2000, perSecond or 200))
     seconds = math.max(1, math.min(60, seconds or 10))
-    local mapID = C_Map.GetBestMapForUnit("player") or 1412
+    local mapID = ns.PlayerMap() or 1412
     stress = {
         sent = 0, ms = 0, imported = 0, pending = {},
         fpsMin = math.huge, fpsSum = 0, fpsN = 0,
@@ -735,7 +735,7 @@ local function LeaveChannel()
 end
 
 local function CurrentZoneQuery()
-    local mapID = C_Map.GetBestMapForUnit("player")
+    local mapID = ns.PlayerMap()
     QueryZone(mapID)
 end
 
@@ -749,7 +749,7 @@ local function QueryRouteZones(mapIDs)
     -- not in the public channel (yet): the zone cooldown doesn't count there,
     -- so don't ask at all (the current zone is asked once we are in)
     if DB().public and not (channelID and channelID > 0) then return end
-    local here = C_Map.GetBestMapForUnit("player")
+    local here = ns.PlayerMap()
     local n = 0
     for _, mapID in ipairs(mapIDs) do
         if mapID ~= here and time() - (lastQuery[mapID] or 0) >= QUERY_COOLDOWN and n < ROUTE_QUERY_MAX then
@@ -891,7 +891,7 @@ frame:SetScript("OnEvent", function(self, event, ...)
 
         DropOldPending(s)
 
-        playerName = UnitName("player") .. "-" .. (GetNormalizedRealmName() or "")
+        playerName = (ns.Readable(UnitName("player"), "sync") or "") .. "-" .. (GetNormalizedRealmName() or "")
         C_ChatInfo.RegisterAddonMessagePrefix(PREFIX)
         C_Timer.NewTicker(SEND_INTERVAL, SendNext)
         C_Timer.After(JOIN_DELAY, function()
@@ -900,6 +900,7 @@ frame:SetScript("OnEvent", function(self, event, ...)
         end)
     elseif event == "CHAT_MSG_ADDON" then
         local prefix, text, distribution, sender = ...
+        if ns.AnySecret("CHAT_MSG_ADDON", prefix, text, distribution, sender) then return end
         Receive(prefix, text, distribution, sender, false)
     elseif event == "ZONE_CHANGED_NEW_AREA" then
         if ns.db and ns.db.sync then

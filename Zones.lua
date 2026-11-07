@@ -267,7 +267,7 @@ end
 Refresh = function()
     if not window:IsShown() or not ns.db then return end
     local db = ns.db
-    local playerMap = C_Map.GetBestMapForUnit("player")
+    local playerMap = ns.PlayerMap()
     local currentContinent = playerMap and ns.GetContinent(playerMap)
     local tree = CollectTree(currentContinent)
     if db.zonesV ~= 3 then -- continent-wide material filters are gone from the UI

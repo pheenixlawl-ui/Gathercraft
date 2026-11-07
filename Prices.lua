@@ -580,6 +580,7 @@ end)
 --   bonuses ("of the Bear") share one price.
 ---------------------------------------------------------------------------
 local function AddTooltipPrice(tooltip, itemID)
+    itemID = ns.Readable(itemID, "item tooltip")
     if not (tooltip and itemID) or (ns.db and ns.db.tooltipPrices == false) then return end
     local p = PriceDB()
     local price = p and p.items[itemID]
@@ -602,6 +603,7 @@ local function AddTooltipPrice(tooltip, itemID)
 end
 
 local function ItemIDFromLink(link)
+    link = ns.Readable(link, "item link")
     return link and tonumber(link:match("item:(%d+)"))
 end
 

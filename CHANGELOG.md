@@ -8,4 +8,5 @@
 - **Sharing:** unconfirmed finds wait 7 days instead of 3 in zones with known spawn points.
 
 ### Fixed
+- **Dungeons and combat:** fixed a flood of Lua errors when casting spells there. The client hides some values in those places; Gathercraft now skips them.
 - **Gathering:** a buff or an attack can no longer be learned as a gathering spell. Spells learned by older versions are dropped once; real ones come back with their next gather.

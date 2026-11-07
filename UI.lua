@@ -85,7 +85,7 @@ ns.RunSnapshot = function()
     local run, s = ns.run, stats
     if not (run and s and s.run == run) then return end
     local label = FILTER_LABELS[run.filter or ""] and L[FILTER_LABELS[run.filter]] or ns.RunFilterLabel(run.filter)
-    local mapID = run.zone or (C_Map and C_Map.GetBestMapForUnit and C_Map.GetBestMapForUnit("player"))
+    local mapID = run.zone or (C_Map and C_Map.GetBestMapForUnit and ns.PlayerMap())
     return {
         label = label, zoneName = mapID and ns.GetZoneName(mapID), elapsed = GetTime() - s.start,
         nodes = s.nodes, value = s.value, valueSource = s.source,
@@ -275,7 +275,7 @@ local function ArrowTarget()
     if not (HBD and run and run.targetPoint and run.target) or ns.db.arrowHidden then return end
     local px, py, instance = HBD:GetPlayerWorldPosition()
     if not px or instance ~= run.instance then return end
-    local facing = GetPlayerFacing and GetPlayerFacing()
+    local facing = ns.Readable(GetPlayerFacing and GetPlayerFacing(), "position")
     if not facing then return end -- no facing info (e.g. in instances)
     local angle, dist = HBD:GetWorldVector(instance, px, py, run.targetPoint.wx, run.targetPoint.wy)
     if not angle then return end

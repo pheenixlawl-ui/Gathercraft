@@ -4611,7 +4611,7 @@ step("What's new: 0.1.16 after an update, in this language and all translations"
     local f = assert(io.open(ROOT .. "/Welcome.lua"))
     local src = f:read("*a") f:close()
     local key = src:match('%["0%.1%.16"%] = "([^"]+)"')
-    assert(key and key:find("professions can gather", 1, true) and key:find("7 days", 1, true), "no entry for 0.1.16 in Welcome.lua")
+    assert(key and key:find("professions can gather", 1, true) and key:find("7 days", 1, true) and key:find("Lua errors", 1, true), "no entry for 0.1.16 in Welcome.lua")
     -- every translation is there, whatever language this run is in
     for _, code in ipairs({ "deDE", "esES", "frFR", "itIT", "koKR", "ptBR", "ruRU", "zhCN", "zhTW" }) do
         local t = ns.Locales[code] and ns.Locales[code][key]
@@ -6130,6 +6130,320 @@ step("Professions: a find beats an old \"none\", without a new login (v0.1.16)",
     T.Restore()
     assert(ok, err)
     assert(#fails == 0, #fails .. " wrong: " .. table.concat(fails, " | "):sub(1, 900))
+end)
+step("Secret values: nothing breaks, nothing is learned (v0.1.16)", function()
+    -- what the client hands out in dungeons and combat: everything but passing
+    -- it on is an error. Lua 5.1 can't catch == and ~= against a string here:
+    -- that shows as a secret that gets further than it should.
+    local SECRET = newproxy(true)
+    local meta = getmetatable(SECRET)
+    for _, k in ipairs({ "__index", "__newindex", "__concat", "__lt", "__le", "__eq", "__add", "__sub", "__mul",
+        "__div", "__mod", "__unm", "__len", "__call", "__tostring" }) do
+        meta[k] = function() error("attempt to use a secret value", 2) end
+    end
+    local function Secret() return SECRET end
+    local names = { "issecretvalue", "UnitGUID", "UnitName", "UnitClassification", "UnitExists", "UnitIsDead",
+        "UnitIsPlayer", "UnitLevel", "UnitIsTapDenied", "GetLootSourceInfo", "GetLootSlotLink", "GetLootSlotInfo",
+        "GetNumLootItems", "IsFishingLoot", "GetProfessions", "GetProfessionInfo", "GetNumSkillLines",
+        "GetSkillLineInfo", "GetCursorPosition", "GetCVar", "GetPlayerFacing" }
+    local keep = {}
+    for _, k in ipairs(names) do keep[k] = _G[k] end
+    local keepMap, keepPos = C_Map.GetBestMapForUnit, C_Map.GetPlayerMapPosition
+    local keepItem, keepDebug, keepLoot = GameTooltip.GetItem, ns.db.debug, loot
+    local keepPlayer = { player.map, player.x, player.y }
+    local fails = {}
+    local function Check(ok, text) if not ok then fails[#fails + 1] = text end end
+    local base = #errors
+    -- errors of the handlers (fire collects them) go in the list of this step
+    local function Clean(what)
+        local n = #errors - base
+        if n > 0 then fails[#fails + 1] = ("%s: %d errors, first %s"):format(what, n, errors[base + 1]:sub(1, 120)) end
+        for i = #errors, base + 1, -1 do errors[i] = nil end
+    end
+    local function Try(what, fn, ...)
+        local ok, err = pcall(fn, ...)
+        if not ok then fails[#fails + 1] = what .. ": " .. tostring(err):sub(1, 120) end
+    end
+    -- one global secret at a time, the others as they were
+    local function With(key, fn)
+        local old = _G[key]
+        _G[key] = Secret
+        fn()
+        _G[key] = old
+    end
+
+    local round = 0
+    local function Casts()
+        ns.pending = nil
+        for i = 1, 500 do
+            fire("UNIT_SPELLCAST_SENT", "player", SECRET, "Cast-" .. i, 780)
+            fire("UNIT_SPELLCAST_SUCCEEDED", "player", "Cast-" .. i, 780)
+        end
+        Clean("500 casts")
+        Check(ns.pending == nil, "500 casts: something pending")
+        -- a gathering spell without a readable name books nothing either
+        for _, spell in ipairs({ 2366, 2575, 3365 }) do
+            fire("UNIT_SPELLCAST_SENT", "player", SECRET, "s" .. spell, spell)
+            Check(ns.pending == nil, spell .. ": something pending")
+        end
+        fire("UNIT_SPELLCAST_SENT", SECRET, "Peacebloom", "s1", 2366)
+        Check(ns.pending == nil, "secret unit: something pending")
+        fire("UNIT_SPELLCAST_SENT", "player", "Peacebloom", SECRET, 2366)
+        Check(ns.pending == nil, "secret cast: something pending")
+        fire("UNIT_SPELLCAST_SENT", "player", "Peacebloom", "s2", SECRET)
+        Check(ns.pending == nil, "secret spell: something pending")
+        Clean("secret arguments")
+        -- after the fight: a gather works, the secrets next to it don't touch it
+        local id = "after" .. round
+        local got
+        local function Listen(node) got = node end
+        table.insert(ns.gatherListeners, Listen)
+        fire("UNIT_SPELLCAST_SENT", "player", "Peacebloom", id, 2366)
+        fire("UNIT_SPELLCAST_SUCCEEDED", "player", SECRET, 2366)
+        fire("UNIT_SPELLCAST_SUCCEEDED", "player", id, SECRET)
+        fire("UNIT_SPELLCAST_FAILED", "player", SECRET)
+        fire("UNIT_SPELLCAST_INTERRUPTED", "player", SECRET)
+        Clean("a gather and secrets")
+        Check(ns.pending and ns.pending.castGUID == id and not ns.pending.succeeded, "a gather and secrets: changed")
+        fire("UNIT_SPELLCAST_SUCCEEDED", "player", id, 2366)
+        loot = { { guid = "GameObject-0-1-1-1-1618-AFTER" .. round, item = 2447, qty = 1 } }
+        fire("LOOT_READY") fire("LOOT_OPENED") advance(3)
+        fire("LOOT_CLOSED")
+        table.remove(ns.gatherListeners)
+        loot = keepLoot
+        Clean("gather after the fight")
+        Check(got ~= nil, "gather after the fight: nothing booked")
+    end
+
+    local function Loot()
+        loot = { { guid = "GameObject-0-1-1-1-1618-LOOT", item = 2447, qty = 2 } }
+        for _, key in ipairs({ "GetLootSourceInfo", "GetLootSlotLink", "GetLootSlotInfo", "GetNumLootItems", "IsFishingLoot" }) do
+            With(key, function()
+                fire("LOOT_READY") fire("LOOT_OPENED") fire("LOOT_CLOSED")
+                Clean(key)
+            end)
+        end
+        -- a catch: the same reads again, now the fishing side gets that far
+        IsFishingLoot = function() return true end
+        for _, key in ipairs({ "GetLootSlotLink", "GetLootSlotInfo", "GetNumLootItems" }) do
+            With(key, function()
+                fire("LOOT_READY") fire("LOOT_CLOSED")
+                Clean("fishing, " .. key)
+            end)
+        end
+        IsFishingLoot = keep.IsFishingLoot
+        loot = keepLoot
+    end
+
+    local function Tooltips()
+        local Z = 1467
+        local known = GathercraftNodeNames and GathercraftNodeNames[GetLocale()]
+        local herbName = known and known[1618] or "Peacebloom"
+        local owner, lines = UIParent, {}
+        Minimap.IsMouseOver = function() return true end
+        Minimap.GetCenter = function() return 500, 400 end
+        Minimap.GetWidth = function() return 140 end
+        Minimap.GetHeight = function() return 140 end
+        Minimap.GetZoom = function() return 0 end
+        Minimap.GetEffectiveScale = function() return 1 end
+        GameTooltip.IsShown = function() return #lines > 0 end
+        GameTooltip.GetOwner = function() return owner end
+        GameTooltip.NumLines = function() return #lines end
+        for i = 1, 3 do
+            local fs = _G["GameTooltipTextLeft" .. i] or newObject("FontString", "GameTooltipTextLeft" .. i)
+            _G["GameTooltipTextLeft" .. i] = fs
+            fs.GetText = function() return lines[i] end
+        end
+        GetCursorPosition = function() return 535, 400 end
+        GetCVar = function() return "0" end
+        player.map, player.x, player.y = Z, 0.5, 0.5
+        ns.db.nodes[Z] = nil
+        -- no target, the name would come from the tooltip: a secret one books nothing
+        ns.pending = nil
+        lines = { SECRET }
+        fire("UNIT_SPELLCAST_SENT", "player", "", "t1", 2366)
+        Check(ns.pending == nil, "secret tooltip title, herb: something pending")
+        fire("UNIT_SPELLCAST_SENT", "player", "", "t2", 780)
+        Check(ns.pending == nil, "secret tooltip title, a guess: something pending")
+        Clean("secret tooltip title")
+        lines = { herbName }
+        fire("UNIT_SPELLCAST_SENT", "player", "", "t3", 2366)
+        Check(ns.pending and ns.pending.name == herbName, "readable tooltip title: not read")
+        fire("UNIT_SPELLCAST_FAILED", "player", "t3")
+        -- the minimap: a tooltip with a secret line teaches nothing, not even its readable lines
+        local function Hover(l)
+            owner, lines = Minimap, l
+            advance(3)
+            lines = {}
+            advance(3)
+        end
+        Hover({ SECRET })
+        Hover({ herbName, SECRET })
+        With("GetCursorPosition", function() Hover({ herbName }) end)
+        Clean("secret minimap tooltip")
+        Check(#(ns.db.nodes[Z] or {}) == 0, "secret minimap tooltip: learned something")
+        Hover({ herbName })
+        Clean("readable minimap tooltip")
+        Check(#(ns.db.nodes[Z] or {}) > 0, "readable minimap tooltip: learned nothing")
+        ns.db.nodes[Z] = nil
+        for _, k in ipairs({ "IsMouseOver", "GetCenter", "GetWidth", "GetHeight", "GetZoom", "GetEffectiveScale" }) do Minimap[k] = nil end
+        for _, k in ipairs({ "IsShown", "GetOwner", "NumLines" }) do GameTooltip[k] = nil end
+        GetCursorPosition, GetCVar = keep.GetCursorPosition, keep.GetCVar
+        player.map, player.x, player.y = keepPlayer[1], keepPlayer[2], keepPlayer[3]
+        -- an item tooltip in a dungeon
+        GameTooltip.GetItem = function() return "Peacebloom", SECRET end
+        Try("secret item link", GameTooltip.__scripts.OnTooltipSetItem, GameTooltip)
+        GameTooltip.GetItem = keepItem
+    end
+
+    local function Rares()
+        local function Fire(unit)
+            fire("NAME_PLATE_UNIT_ADDED", unit or "nameplate1")
+            fire("PLAYER_TARGET_CHANGED")
+            fire("UPDATE_MOUSEOVER_UNIT")
+        end
+        local rare = UnitClassification
+        UnitClassification = function() return "rare" end
+        local guid = UnitGUID
+        for _, key in ipairs({ "UnitGUID", "UnitName", "UnitClassification", "UnitExists", "UnitIsDead", "UnitIsPlayer",
+            "UnitLevel", "UnitIsTapDenied" }) do
+            -- a rare not seen yet, or the alert ends before it reads the rest
+            UnitGUID = function() return ("Creature-0-1-1-1-1234-%s%d"):format(key, round) end
+            With(key, function() Fire() end)
+            Clean(key)
+        end
+        UnitClassification, UnitGUID = rare, guid
+        Fire(SECRET)
+        Clean("secret unit")
+    end
+
+    local function Sync()
+        local text = "N:1412;o1619,h,4548,7312,2449"
+        fire("CHAT_MSG_ADDON", SECRET, text, "CHANNEL", "Someone-Realm")
+        fire("CHAT_MSG_ADDON", "Gathercraft", SECRET, "CHANNEL", "Someone-Realm")
+        fire("CHAT_MSG_ADDON", "Gathercraft", text, SECRET, "Someone-Realm")
+        fire("CHAT_MSG_ADDON", "Gathercraft", text, "CHANNEL", SECRET)
+        With("UnitName", function() fire("CHAT_MSG_ADDON", "Gathercraft", text, "CHANNEL", "Someone-Realm") end)
+        Clean("addon message")
+    end
+
+    local function Skills()
+        local herb, ore, known = ns.GatherProfessions()
+        local function Read(what)
+            fire("SKILL_LINES_CHANGED") advance(2)
+            Try(what, ns.GetSkill, "herb")
+            Try(what, ns.SkillListIncomplete)
+            Clean(what)
+            local h, o, k = ns.GatherProfessions()
+            Check(h == herb and o == ore and k == known, what .. ": what was known changed")
+        end
+        With("GetProfessions", function() Read("secret profession") end)
+        With("GetProfessionInfo", function() Read("secret profession info") end)
+        local info = GetProfessionInfo
+        GetProfessionInfo = function() return "x", 0, 50, 75, 0, 0, SECRET end
+        Read("secret skill line")
+        GetProfessionInfo = info
+        local gp, gn = GetProfessions, GetNumSkillLines
+        GetProfessions = nil
+        GetNumSkillLines = function() return 2 end
+        GetSkillLineInfo = function(i) if i == 1 then return "Herbs", true, true end return SECRET, false, nil, 50, nil, 0, 75 end
+        Read("secret skill name")
+        GetSkillLineInfo = function() return SECRET, SECRET, SECRET, SECRET, nil, SECRET, SECRET end
+        Read("secret skill line values")
+        GetNumSkillLines = Secret
+        Read("secret skill count")
+        GetProfessions, GetNumSkillLines, GetSkillLineInfo = gp, gn, keep.GetSkillLineInfo
+        fire("SKILL_LINES_CHANGED") advance(2)
+    end
+
+    local function Rest()
+        fire("UNIT_SPELLCAST_CHANNEL_START", "player", "x", SECRET)
+        fire("UNIT_SPELLCAST_CHANNEL_STOP", "player", "x", SECRET)
+        Clean("secret channel")
+        C_Map.GetBestMapForUnit = Secret
+        Check(ns.GetPlayerPos() == nil, "secret map: a position")
+        C_Map.GetBestMapForUnit = keepMap
+        C_Map.GetPlayerMapPosition = function() return { GetXY = function() return SECRET, SECRET end } end
+        Check(ns.GetPlayerPos() == nil, "secret position: a position")
+        C_Map.GetPlayerMapPosition = keepPos
+        Clean("secret position")
+    end
+
+    -- nothing secret kept: not in the saved data, not in the gather
+    local function Stored(t, seen, path)
+        if type(t) ~= "table" or seen[t] then return end
+        seen[t] = true
+        for k, v in pairs(t) do
+            if rawequal(k, SECRET) or rawequal(v, SECRET) then fails[#fails + 1] = path .. " holds a secret" end
+            Stored(k, seen, path)
+            Stored(v, seen, path)
+        end
+    end
+
+    local seen
+    local function Told()
+        local count = 0
+        seen = {}
+        for _, line in ipairs(log) do
+            local where = line:match("secret value skipped in (.+)")
+            if where then
+                count = count + 1
+                Check(not seen[where], "debug: more than once: " .. where)
+                seen[where] = true
+            end
+        end
+        return count
+    end
+
+    local ok, err = pcall(function()
+    local function All()
+        round = round + 1
+        Casts() Loot() Tooltips() Rares() Sync() Skills() Rest()
+        Stored(ns.db, {}, "ns.db")
+        Stored(ns.pending, {}, "ns.pending")
+        ns.pending = nil
+    end
+    local function IsSecret(v) return rawequal(v, SECRET) end
+    -- debug off: not a word; on: once per place; the client without issecretvalue the same
+    issecretvalue = IsSecret
+    ns.db.debug = nil
+    local before = Told()
+    All()
+    Check(Told() == before, "debug off: a line")
+    ns.db.debug = true
+    All()
+    local told = Told()
+    Check(told > before, "debug on: no line")
+    -- every guard says so: a compare can't throw in Lua 5.1, this line shows it was reached
+    for _, where in ipairs({ "UNIT_SPELLCAST_SENT", "UNIT_SPELLCAST_SUCCEEDED", "UNIT_SPELLCAST_FAILED", "the tooltip",
+        "loot", "fishing", "position", "item link", "rare alert", "skills", "CHAT_MSG_ADDON", "sync" }) do
+        Check(seen[where], "debug: no line for " .. where)
+    end
+    All()
+    Check(Told() == told, "debug on, again: a new line")
+    issecretvalue = nil
+    All()
+    Check(Told() == told, "without issecretvalue: a new line")
+    -- what is readable stays as it is
+    issecretvalue = IsSecret
+    for _, v in ipairs({ "text", "", 0, 12 }) do
+        Check(ns.Readable(v) == v, "readable: " .. tostring(v))
+    end
+    Check(ns.Readable(false) == false and ns.Readable(nil) == nil and ns.Readable(SECRET) == nil, "Readable, issecretvalue")
+    issecretvalue = nil
+    for _, v in ipairs({ "text", "", 0, 12 }) do
+        Check(ns.Readable(v) == v, "readable, without issecretvalue: " .. tostring(v))
+    end
+    Check(ns.Readable(false) == false and ns.Readable(nil) == nil and ns.Readable(SECRET) == nil, "Readable, without issecretvalue")
+    end)
+    for _, k in ipairs(names) do _G[k] = keep[k] end
+    C_Map.GetBestMapForUnit, C_Map.GetPlayerMapPosition = keepMap, keepPos
+    GameTooltip.GetItem, ns.db.debug, loot = keepItem, keepDebug, keepLoot
+    player.map, player.x, player.y = keepPlayer[1], keepPlayer[2], keepPlayer[3]
+    ns.pending = nil
+    Clean("the rest")
+    if not ok then fails[#fails + 1] = tostring(err) end
+    assert(#fails == 0, #fails .. " wrong: " .. table.concat(fails, " | "):sub(1, 1500))
 end)
 step("Sync: unconfirmed reports wait 7 days, in new zones 14 (v0.1.16)", function()
     local s = ns.db.sync

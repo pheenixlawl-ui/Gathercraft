@@ -51,8 +51,8 @@ local function FishingSpell()
 end
 
 local function SpellName(id)
-    if C_Spell and C_Spell.GetSpellName then return C_Spell.GetSpellName(id) end
-    return GetSpellInfo and (GetSpellInfo(id))
+    if C_Spell and C_Spell.GetSpellName then return ns.Readable(C_Spell.GetSpellName(id), "spell name") end
+    return GetSpellInfo and ns.Readable((GetSpellInfo(id)), "spell name")
 end
 
 local function IsPole(itemID)
@@ -235,6 +235,7 @@ local function RestoreInteract(event)
 end
 
 local function IsFishingCast(spellID)
+    if ns.AnySecret("fishing", spellID) then return false end
     for _, id in ipairs(FISHING_SPELLS) do
         if id == spellID then return true end
     end
@@ -309,11 +310,11 @@ end)
 
 local function ReadLoot()
     local items = {}
-    for slot = 1, (GetNumLootItems and GetNumLootItems() or 0) do
-        local link = GetLootSlotLink and GetLootSlotLink(slot)
+    for slot = 1, ns.Readable(GetNumLootItems and GetNumLootItems(), "fishing") or 0 do
+        local link = ns.Readable(GetLootSlotLink and GetLootSlotLink(slot), "fishing")
         local id = link and tonumber(link:match("item:(%d+)"))
         if id then
-            local qty = GetLootSlotInfo and select(3, GetLootSlotInfo(slot))
+            local qty = ns.Readable(GetLootSlotInfo and select(3, GetLootSlotInfo(slot)), "fishing")
             items[#items + 1] = { id = id, qty = tonumber(qty) or 1 }
         end
     end
@@ -339,13 +340,14 @@ local LOOT_REPEAT = 1.5
 
 local function OnFishingLoot(_, event)
     local now = GetTime()
-    ns.Debug(("FISH loot event %s at %.2f: %d slot(s)"):format(event, now, GetNumLootItems and GetNumLootItems() or 0))
+    ns.Debug(("FISH loot event %s at %.2f: %d slot(s)"):format(event, now,
+        ns.Readable(GetNumLootItems and GetNumLootItems(), "fishing") or 0))
     if event == "LOOT_CLOSED" then
         lootGuard.counted = false
         return
     end
     if event == "LOOT_OPENED" then return end -- only for the debug line: catches count on LOOT_READY
-    local isFish = IsFishingLoot and IsFishingLoot()
+    local isFish = ns.Readable(IsFishingLoot and IsFishingLoot(), "fishing")
     if not isFish and not (fishing.reeledAt and now - fishing.reeledAt < 4) then return end
     local items = ReadLoot()
     if #items == 0 then return end -- nothing to read yet: the next event has it

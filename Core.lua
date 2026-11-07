@@ -141,6 +141,42 @@ local function Debug(text)
     end
 end
 
+-- The client hides values from addons in dungeons and combat ("secret
+-- values"): comparing or reading one is an error. Whatever comes from an event,
+-- a unit or a tooltip there goes through these two first. /gcr debug tells once
+-- per place and session.
+local function Compare(v) return v < (type(v) == "number" and 0 or "") end
+local function IsSecret(v)
+    if issecretvalue then return issecretvalue(v) end
+    local kind = type(v)
+    return kind ~= "nil" and kind ~= "boolean" and not pcall(Compare, v)
+end
+local toldSecret = {}
+local function Skipped(where)
+    if not where or toldSecret[where] or not (ns.db and ns.db.debug) then return end
+    toldSecret[where] = true
+    Debug("secret value skipped in " .. where)
+end
+-- v, or nil if it is secret
+function ns.Readable(v, where)
+    if IsSecret(v) then
+        Skipped(where)
+        return nil
+    end
+    return v
+end
+-- true if one of the values is secret
+function ns.AnySecret(where, ...)
+    for i = 1, select("#", ...) do
+        if IsSecret((select(i, ...))) then
+            Skipped(where)
+            return true
+        end
+    end
+    return false
+end
+local Readable, AnySecret = ns.Readable, ns.AnySecret
+
 local function TypeTag(nodeType)
     if not nodeType then return "" end
     return " " .. (TYPE_COLORS[nodeType] or "") .. "[" .. nodeType .. "]|r"
@@ -175,12 +211,17 @@ end
 ---------------------------------------------------------------------------
 -- Position & distance helpers
 ---------------------------------------------------------------------------
+function ns.PlayerMap()
+    return Readable(C_Map.GetBestMapForUnit("player"), "position")
+end
+
 local function GetPlayerPos()
-    local mapID = C_Map.GetBestMapForUnit("player")
+    local mapID = ns.PlayerMap()
     if not mapID then return end
     local pos = C_Map.GetPlayerMapPosition(mapID, "player")
     if not pos then return end
     local x, y = pos:GetXY()
+    if AnySecret("position", x, y) then return end
     return mapID, x, y
 end
 
@@ -629,9 +670,9 @@ end
 local function SpellName(spellID)
     if not spellID then return end
     if C_Spell and C_Spell.GetSpellName then
-        return C_Spell.GetSpellName(spellID)
+        return Readable(C_Spell.GetSpellName(spellID), "spell name")
     elseif GetSpellInfo then
-        return (GetSpellInfo(spellID))
+        return Readable((GetSpellInfo(spellID)), "spell name")
     end
 end
 
@@ -685,10 +726,10 @@ end
 local function ReadLoot()
     local objectID, spawn, itemID, firstGUID
     local firstItem
-    local count = GetNumLootItems and GetNumLootItems() or 0
+    local count = Readable(GetNumLootItems and GetNumLootItems(), "loot") or 0
     for slot = 1, count do
         if GetLootSourceInfo and not objectID then
-            local guid = GetLootSourceInfo(slot)
+            local guid = Readable(GetLootSourceInfo(slot), "loot")
             if guid then
                 firstGUID = firstGUID or guid
                 local unitType, _, _, _, _, id, spawnUID = strsplit("-", guid)
@@ -699,7 +740,7 @@ local function ReadLoot()
             end
         end
         if not itemID then
-            local link = GetLootSlotLink(slot)
+            local link = Readable(GetLootSlotLink(slot), "loot")
             local id = link and tonumber(link:match("item:(%d+)"))
             if id then
                 firstItem = firstItem or id
@@ -714,12 +755,12 @@ end
 -- Every item in the loot window with its amount (for the gold value)
 local function ReadLootItems()
     local items = {}
-    local count = GetNumLootItems and GetNumLootItems() or 0
+    local count = Readable(GetNumLootItems and GetNumLootItems(), "loot") or 0
     for slot = 1, count do
-        local link = GetLootSlotLink and GetLootSlotLink(slot)
+        local link = Readable(GetLootSlotLink and GetLootSlotLink(slot), "loot")
         local id = link and tonumber(link:match("item:(%d+)"))
         if id then
-            local qty = GetLootSlotInfo and select(3, GetLootSlotInfo(slot))
+            local qty = Readable(GetLootSlotInfo and select(3, GetLootSlotInfo(slot)), "loot")
             items[#items + 1] = { id = id, qty = tonumber(qty) or 1 }
         end
     end
@@ -906,11 +947,14 @@ local function TryRecord(p)
 end
 
 local function OnSpellcastSent(unit, target, castGUID, spellID)
+    -- a gather has a readable name: without one nothing is booked, not even a guess
+    if AnySecret("UNIT_SPELLCAST_SENT", unit, target, castGUID, spellID) then return end
     if unit ~= "player" then return end
     local nodeType, spellName = GetGatherType(spellID)
     Debug(("SENT spell=%s (%s) target=%s type=%s"):format(
         tostring(spellName), tostring(spellID), tostring(target), tostring(nodeType)))
     local name = (target and target ~= "") and target or GetTooltipTitle()
+    if AnySecret("the tooltip", name) then return end
     -- A spell we don't know but cast on something with a name: maybe a
     -- gathering spell under another name or ID. The loot tells (see OnLoot).
     local guess = false
@@ -953,6 +997,7 @@ local function OnSpellcastSent(unit, target, castGUID, spellID)
 end
 
 local function OnSpellcastSucceeded(castGUID, spellID)
+    if AnySecret("UNIT_SPELLCAST_SUCCEEDED", castGUID, spellID) then return end
     Debug(("SUCCEEDED spell=%s (%s)"):format(tostring(SpellName(spellID)), tostring(spellID)))
     local p = ns.pending
     if not p or p.castGUID ~= castGUID then return end
@@ -963,6 +1008,7 @@ local function OnSpellcastSucceeded(castGUID, spellID)
 end
 
 local function OnSpellcastFailed(castGUID)
+    if AnySecret("UNIT_SPELLCAST_FAILED", castGUID) then return end
     local p = ns.pending
     if p and p.castGUID == castGUID then
         ns.pending = nil
@@ -1120,6 +1166,7 @@ local function ApiTest()
     check("C_SuperTrack", C_SuperTrack)
     check("C_Spell.GetSpellName", C_Spell and C_Spell.GetSpellName)
     check("GetLootSourceInfo", GetLootSourceInfo)
+    check("issecretvalue", issecretvalue)
     check("LibStub", LibStub)
     check("HereBeDragons", LibStub and LibStub("HereBeDragons-2.0", true))
     check("HereBeDragons-Pins", LibStub and LibStub("HereBeDragons-Pins-2.0", true))
@@ -1438,10 +1485,11 @@ end
 local function CursorOnMap()
     if not (HBD and HBD.GetPlayerWorldPosition and HBD.GetZoneCoordinatesFromWorld) then return end
     local px, py, instance = HBD:GetPlayerWorldPosition()
-    local mapID = C_Map.GetBestMapForUnit("player")
-    if not (px and mapID) then return end
+    local mapID = ns.PlayerMap()
+    if AnySecret("position", px, py, instance) or not (px and mapID) then return end
     local scale = Minimap:GetEffectiveScale()
     local cx, cy = GetCursorPosition()
+    if AnySecret("position", cx, cy) then return end
     local mx, my = Minimap:GetCenter()
     if not (cx and mx) then return end
     local ox, oy = cx / scale - mx, cy / scale - my
@@ -1459,7 +1507,7 @@ local function CursorOnMap()
     -- the reverse of how HereBeDragons places minimap pins
     local xDist, yDist = ox / halfW * radius, -oy / halfH * radius
     if GetCVar("rotateMinimap") == "1" and GetPlayerFacing then
-        local f = GetPlayerFacing()
+        local f = Readable(GetPlayerFacing(), "position")
         if not f then return end
         local s, c = math.sin(f), math.cos(f)
         xDist, yDist = xDist * c + yDist * s, -xDist * s + yDist * c
@@ -1637,9 +1685,11 @@ end
 
 local function TooltipLines()
     local lines = {}
-    for i = 1, GameTooltip:NumLines() or 0 do
+    for i = 1, Readable(GameTooltip:NumLines(), "the tooltip") or 0 do
         local fs = _G["GameTooltipTextLeft" .. i]
         local text = fs and fs:GetText()
+        -- one line hidden: the tooltip says nothing we can trust
+        if AnySecret("the tooltip", text) then return {} end
         if text then
             -- several blips under the cursor: one name per line ("|n" too)
             text = text:gsub("|n", "\n")

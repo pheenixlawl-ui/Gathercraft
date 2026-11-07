@@ -61,11 +61,12 @@ local FULL_LABELS = { deDE = { Alchemy = "Alchemie" } }
 local DIFF_COLORS = { [0] = "|cffff8040", [1] = "|cffffff00", [2] = "|cff40c040", [3] = "|cff808080" }
 
 local function ItemIDFromLink(link)
+    link = ns.Readable(link, "item link")
     return link and tonumber(link:match("item:(%d+)"))
 end
 
 local function CharKey()
-    return (UnitName("player") or "?") .. "-" .. ((GetNormalizedRealmName and GetNormalizedRealmName()) or "?")
+    return (ns.Readable(UnitName("player"), "crafting") or "?") .. "-" .. ((GetNormalizedRealmName and GetNormalizedRealmName()) or "?")
 end
 
 ---------------------------------------------------------------------------
@@ -418,7 +419,7 @@ local lastTrainerCount, trainerToldEmpty = nil, false
 -- The trainer's profession, for clients that don't name it per recipe
 local function TrainerProfession()
     local frameTitle = ClassTrainerFrameTitleText or (ClassTrainerFrame and ClassTrainerFrame.TitleText)
-    local text = frameTitle and frameTitle.GetText and frameTitle:GetText()
+    local text = ns.Readable(frameTitle and frameTitle.GetText and frameTitle:GetText(), "trainer")
     if not text then return end
     for _, p in ipairs(PROFESSIONS) do
         if text:find(p.name, 1, true) then return p.name end
@@ -438,7 +439,7 @@ local function TrainerTooltipLines(i)
     if C_TooltipInfo and C_TooltipInfo.GetTrainerService then
         local ok, data = pcall(C_TooltipInfo.GetTrainerService, i)
         if ok and data and data.lines then
-            for _, line in ipairs(data.lines) do lines[#lines + 1] = line.leftText or "" end
+            for _, line in ipairs(data.lines) do lines[#lines + 1] = ns.Readable(line.leftText, "trainer") or "" end
             if #lines > 0 then return lines end
         end
     end
@@ -449,7 +450,7 @@ local function TrainerTooltipLines(i)
     if not (scanTip.SetTrainerService and pcall(scanTip.SetTrainerService, scanTip, i)) then return lines end
     for n = 1, scanTip:NumLines() or 0 do
         local fs = _G["GathercraftScanTipTextLeft" .. n]
-        lines[#lines + 1] = (fs and fs:GetText()) or ""
+        lines[#lines + 1] = ns.Readable(fs and fs:GetText(), "trainer") or ""
     end
     scanTip:Hide()
     return lines
@@ -492,7 +493,7 @@ local function ReadTrainerServices()
         local name, _, kind = GetTrainerServiceInfo(i)
         local product = ItemIDFromLink(GetTrainerServiceItemLink and GetTrainerServiceItemLink(i))
         why.total = why.total + 1
-        if not name or kind == "header" then
+        if ns.AnySecret("trainer", name, kind) or not name or kind == "header" then
             why.header = why.header + 1
         else
             local skill, req = nil, nil
@@ -601,6 +602,7 @@ local function LearnMerchant()
     for i = 1, GetMerchantNumItems() or 0 do
         local itemName, price, quantity, numAvailable, extendedCost = MerchantItem(i)
         local id = ItemIDFromLink(GetMerchantItemLink and GetMerchantItemLink(i))
+        if ns.AnySecret("merchant", itemName, price, quantity, numAvailable, extendedCost) then id = nil end
         if id and itemName and ns.NoteItemName then ns.NoteItemName(itemName, id) end
         -- unlimited stock, paid in gold: that's a reagent anyone can buy
         if id and price and price > 0 and not extendedCost and numAvailable == -1 then
@@ -1597,7 +1599,7 @@ ns.RecipeTest = function()
     print(("  C_TooltipInfo: %s"):format(tostring(C_TooltipInfo ~= nil)))
     for i = 1, GameTooltip:NumLines() do
         local left = _G["GameTooltipTextLeft" .. i]
-        local text = left and left:GetText()
+        local text = ns.Readable(left and left:GetText(), "recipe check")
         if text then print(("  line %d: %s"):format(i, text)) end
     end
 end
@@ -1615,9 +1617,10 @@ ns.ProfessionRank = function(prof)
         if rank then return rank, maxRank end
     end
     if GetNumSkillLines and GetSkillLineInfo then
-        for i = 1, GetNumSkillLines() do
+        for i = 1, ns.Readable(GetNumSkillLines(), "skills") or 0 do
             local name, isHeader, _, rank, _, _, maxRank = GetSkillLineInfo(i)
-            if not isHeader and name and ProfKey(name) == prof then return rank, maxRank end
+            if not ns.AnySecret("skills", name, isHeader, rank, maxRank)
+                and not isHeader and name and ProfKey(name) == prof then return rank, maxRank end
         end
     end
     local mine = CharRecipes()[prof]

@@ -31,16 +31,17 @@ local function Sound()
 end
 
 local function Alert(unit)
-    local guid = UnitGUID(unit)
-    if not guid or UnitIsDead(unit) or UnitIsPlayer(unit) then return end
+    local guid = ns.Readable(UnitGUID(unit), "rare alert")
+    local dead, isPlayer = UnitIsDead(unit), UnitIsPlayer(unit)
+    if not guid or ns.AnySecret("rare alert", dead, isPlayer) or dead or isPlayer then return end
     local now = GetTime()
     if seen[guid] and now - seen[guid] < REPEAT_AFTER then return end
     seen[guid] = now
 
-    local name = UnitName(unit) or "?"
-    local elite = UnitClassification(unit) == "rareelite"
-    local level = UnitLevel(unit)
-    local tapped = UnitIsTapDenied and UnitIsTapDenied(unit)
+    local name = ns.Readable(UnitName(unit), "rare alert") or "?"
+    local elite = ns.Readable(UnitClassification(unit), "rare alert") == "rareelite"
+    local level = ns.Readable(UnitLevel(unit), "rare alert")
+    local tapped = ns.Readable(UnitIsTapDenied and UnitIsTapDenied(unit), "rare alert")
     local label = (L["RARE%s: %s%s"]):format(elite and L[" ELITE"] or "", name,
         (level and level > 0) and (" (" .. level .. ")") or "")
 
@@ -56,8 +57,10 @@ local function Alert(unit)
 end
 
 local function Check(unit)
-    if not Enabled() or not unit or not UnitExists(unit) then return end
-    if RARE[UnitClassification(unit)] then
+    if not Enabled() or ns.AnySecret("rare alert", unit) or not unit then return end
+    if not ns.Readable(UnitExists(unit), "rare alert") then return end
+    local classification = ns.Readable(UnitClassification(unit), "rare alert")
+    if classification and RARE[classification] then
         Alert(unit)
     end
 end
