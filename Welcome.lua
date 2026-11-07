@@ -20,7 +20,7 @@ local WHATS_NEW = {
     ["0.1.13"] = "A skill plan with a material list (Crafting tab), a summary at the end of every farm run, and right-click farms the zone you are in.",
     ["0.1.14"] = "While you level, pins show in the trainer colour what they do for your skill (Options, page Leveling).",
     ["0.1.15"] = "Fishing: each catch is counted once – catches per hour and gold per hour were doubled before. Gathering: a herb or ore you gather right after a spell on a target (a buff, a heal, an attack) is recorded again – it was dropped before.",
-    ["0.1.16"] = "Pins now show only what your professions can gather (switch it off in Options, Map & minimap). Right-click without a gathering profession tells you what to do. Gathering spells are learned more carefully, and shared finds wait 7 days for confirmation. Fixed a flood of Lua errors when casting spells in dungeons or combat.",
+    ["0.1.16"] = "Pins now show only what your professions can gather (switch it off in Options, Map & minimap). Right-click without a gathering profession tells you what to do. Gathering spells are learned more carefully, and shared finds wait 7 days for confirmation. Fixed a flood of Lua errors when casting spells in dungeons or combat. Prices now show the cheapest offer, and fresh data comes first.",
 }
 
 local function Version()

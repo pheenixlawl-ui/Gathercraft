@@ -8,5 +8,7 @@
 - **Sharing:** unconfirmed finds wait 7 days instead of 3 in zones with known spawn points.
 
 ### Fixed
+- **Auction prices:** searches in the auction house browse list now update your prices. A scan that fails keeps your prices and tells you so.
+- **Which price counts:** prices now show the cheapest offer with real stock behind it (at least 5 items or 2% of the stock), and fresh data comes first: after 6 hours, a fresher Auctionator price is used. The tooltip marks old prices and names the price used instead.
 - **Dungeons and combat:** fixed a flood of Lua errors when casting spells there. The client hides some values in those places; Gathercraft now skips them.
 - **Gathering:** a buff or an attack can no longer be learned as a gathering spell. Spells learned by older versions are dropped once; real ones come back with their next gather.

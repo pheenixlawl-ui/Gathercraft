@@ -4903,7 +4903,7 @@ step("What's new: 0.1.16 after an update, in this language and all translations"
     local f = assert(io.open(ROOT .. "/Welcome.lua"))
     local src = f:read("*a") f:close()
     local key = src:match('%["0%.1%.16"%] = "([^"]+)"')
-    assert(key and key:find("professions can gather", 1, true) and key:find("7 days", 1, true) and key:find("Lua errors", 1, true), "no entry for 0.1.16 in Welcome.lua")
+    assert(key and key:find("professions can gather", 1, true) and key:find("7 days", 1, true) and key:find("Lua errors", 1, true) and key:find("cheapest offer", 1, true), "no entry for 0.1.16 in Welcome.lua")
     -- every translation is there, whatever language this run is in
     for _, code in ipairs({ "deDE", "esES", "frFR", "itIT", "koKR", "ptBR", "ruRU", "zhCN", "zhTW" }) do
         local t = ns.Locales[code] and ns.Locales[code][key]
