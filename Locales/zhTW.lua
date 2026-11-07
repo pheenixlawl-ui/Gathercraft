@@ -497,4 +497,5 @@ ns.Locales.zhTW = {
     ["Mark my bobber"] = "標記我的浮標",
     ["Fishing done"] = "釣魚結束",
     ["[Gathercraft] Fishing: %d catches in %s (%d per hour, %s per hour, +%d skill)"] = "[Gathercraft] 釣魚：%d 次收穫，用時 %s（每小時 %d 次，每小時 %s，技能 +%d）",
+    ["Louder bobber splash while fishing"] = "釣魚時浮標水花聲更響",
 }

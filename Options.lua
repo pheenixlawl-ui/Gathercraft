@@ -916,6 +916,9 @@ local function Build()
     AddCheck("Mark my bobber",
         function() return ns.db.fishMarkBobber ~= false end,
         function(on) ns.db.fishMarkBobber = on end)
+    AddCheck("Louder bobber splash while fishing",
+        function() return ns.db.fishLoudSplash end,
+        function(on) ns.db.fishLoudSplash = on or nil end)
     AddCheck("Debug output (chat tab \"Gathercraft\")",
         function() return ns.db.debug end,
         function(on)

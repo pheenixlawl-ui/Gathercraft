@@ -497,4 +497,5 @@ ns.Locales.frFR = {
     ["Mark my bobber"] = "Marquer mon bouchon",
     ["Fishing done"] = "Pêche terminée",
     ["[Gathercraft] Fishing: %d catches in %s (%d per hour, %s per hour, +%d skill)"] = "[Gathercraft] Pêche : %d prises en %s (%d par heure, %s par heure, +%d compétence)",
+    ["Louder bobber splash while fishing"] = "Plouf du bouchon plus fort en pêchant",
 }

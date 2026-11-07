@@ -497,4 +497,5 @@ ns.Locales.itIT = {
     ["Mark my bobber"] = "Segna il mio galleggiante",
     ["Fishing done"] = "Pesca finita",
     ["[Gathercraft] Fishing: %d catches in %s (%d per hour, %s per hour, +%d skill)"] = "[Gathercraft] Pesca: %d catture in %s (%d all'ora, %s all'ora, +%d abilità)",
+    ["Louder bobber splash while fishing"] = "Tonfo del galleggiante più forte mentre peschi",
 }

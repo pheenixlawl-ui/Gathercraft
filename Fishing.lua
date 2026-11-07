@@ -163,6 +163,12 @@ local BOBBER_CVARS = { SoftTargetInteractRange = 30, SoftTargetInteractArc = 2 }
 -- "Mark my bobber" (Options, on by default): the game's soft-target icon over
 -- game objects, so your bobber gets a mark. Put back like the ones above.
 local BOBBER_ICON = "SoftTargetIconGameObject"
+-- "Louder bobber splash while fishing" (Options, off by default): effects at
+-- full volume, music and ambience quieter while the line is out; put back
+-- like the settings above. Round values, so the game keeps them exactly.
+local SPLASH_LOUD = "1"
+local SPLASH_QUIET = 0.1
+local SPLASH_QUIETER = { "Sound_MusicVolume", "Sound_AmbienceVolume" }
 
 -- the same setting value ("30" and "30.000" are the same)
 local function SameValue(a, b)
@@ -211,6 +217,14 @@ local function WidenInteract(event)
     -- a client without the setting answers nil: nothing to set or put back
     local icon = ns.db.fishMarkBobber ~= false and GetCVar(BOBBER_ICON)
     if icon and icon ~= "1" then SetOurs(saved, BOBBER_ICON, "1") end
+    if ns.db.fishLoudSplash then
+        local sfx = tonumber(GetCVar("Sound_SFXVolume"))
+        if sfx and sfx < 1 then SetOurs(saved, "Sound_SFXVolume", SPLASH_LOUD) end
+        for _, name in ipairs(SPLASH_QUIETER) do
+            local v = tonumber(GetCVar(name))
+            if v and v > SPLASH_QUIET then SetOurs(saved, name, tostring(SPLASH_QUIET)) end
+        end
+    end
     if not next(saved) then ns.db.fishingCVars = nil end
 end
 

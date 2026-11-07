@@ -4832,6 +4832,41 @@ step("Fishing: Stop shows a summary like a farm run, and its line can be shared 
     assert(ns.FishingSession() == nil, "/gcr stop did not end fishing")
     SendChatMessage = nil
 end)
+step("Fishing: louder splash while the line is out, your volumes come back exactly (v0.1.17)", function()
+    local saved = { get = GetCVar, set = SetCVar }
+    local store
+    GetCVar = function(k) return store[k] end
+    SetCVar = function(k, v) if store[k] == nil then error("unknown CVar " .. k) end store[k] = tostring(v) return true end
+    local function Reset()
+        store = { SoftTargetInteract = "3", SoftTargetInteractRange = "30", SoftTargetInteractArc = "2", SoftTargetIconGameObject = "1",
+            Sound_SFXVolume = "0.4", Sound_MusicVolume = "0.35", Sound_AmbienceVolume = "0.6", Sound_MasterVolume = "0.8" }
+    end
+    local function Cast() fire("UNIT_SPELLCAST_CHANNEL_START", "player", "fc", 7620) end
+    local function Stop() fire("UNIT_SPELLCAST_CHANNEL_STOP", "player", "fc", 7620) advance(1) end
+    ns.db.fishingCVars = nil
+    -- off by default: nothing changes
+    Reset() Cast()
+    assert(store.Sound_SFXVolume == "0.4" and ns.db.fishingCVars == nil, "off by default, yet a volume changed")
+    Stop()
+    ns.db.fishLoudSplash = true
+    Reset() Cast()
+    assert(store.Sound_SFXVolume == "1", "effects not at full volume: " .. store.Sound_SFXVolume)
+    assert(tonumber(store.Sound_MusicVolume) == 0.1 and tonumber(store.Sound_AmbienceVolume) == 0.1, "music/ambience not quieter")
+    assert(store.Sound_MasterVolume == "0.8", "the master volume was touched")
+    Stop()
+    assert(store.Sound_SFXVolume == "0.4" and store.Sound_MusicVolume == "0.35" and store.Sound_AmbienceVolume == "0.6",
+        ("not put back exactly: %s %s %s"):format(store.Sound_SFXVolume, store.Sound_MusicVolume, store.Sound_AmbienceVolume))
+    assert(ns.db.fishingCVars == nil, "saved entry left after the catch")
+    -- music already quiet: left alone; you turn music up while fishing: yours stays
+    Reset() store.Sound_MusicVolume = "0.05" Cast()
+    assert(store.Sound_MusicVolume == "0.05", "quiet music was changed")
+    store.Sound_AmbienceVolume = "0.9"
+    Stop()
+    assert(store.Sound_AmbienceVolume == "0.9" and store.Sound_SFXVolume == "0.4", "your own change was undone, or effects not back")
+    ns.db.fishLoudSplash = nil
+    GetCVar, SetCVar = saved.get, saved.set
+    ns.db.fishingCVars = nil
+end)
 step("Pin tooltip", function()
     for _, f in ipairs(allFrames) do
         if f.node and f.__scripts.OnEnter then f.__scripts.OnEnter(f) f.__scripts.OnLeave(f) break end

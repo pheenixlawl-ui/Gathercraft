@@ -497,4 +497,5 @@ ns.Locales.ruRU = {
     ["Mark my bobber"] = "Отмечать мой поплавок",
     ["Fishing done"] = "Рыбалка окончена",
     ["[Gathercraft] Fishing: %d catches in %s (%d per hour, %s per hour, +%d skill)"] = "[Gathercraft] Рыбалка: %d уловов за %s (%d в час, %s в час, +%d навыка)",
+    ["Louder bobber splash while fishing"] = "Громче всплеск поплавка при рыбалке",
 }

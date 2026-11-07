@@ -497,4 +497,5 @@ ns.Locales.koKR = {
     ["Mark my bobber"] = "내 찌 표시",
     ["Fishing done"] = "낚시 종료",
     ["[Gathercraft] Fishing: %d catches in %s (%d per hour, %s per hour, +%d skill)"] = "[Gathercraft] 낚시: %d회 낚음, %s 동안 (시간당 %d회, 시간당 %s, 숙련도 +%d)",
+    ["Louder bobber splash while fishing"] = "낚시 중 찌 소리 크게",
 }

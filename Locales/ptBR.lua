@@ -497,4 +497,5 @@ ns.Locales.ptBR = {
     ["Mark my bobber"] = "Marcar minha boia",
     ["Fishing done"] = "Pesca encerrada",
     ["[Gathercraft] Fishing: %d catches in %s (%d per hour, %s per hour, +%d skill)"] = "[Gathercraft] Pesca: %d capturas em %s (%d por hora, %s por hora, +%d perícia)",
+    ["Louder bobber splash while fishing"] = "Respingo da boia mais alto ao pescar",
 }

@@ -526,4 +526,5 @@ ns.Locales.deDE = {
     ["Mark my bobber"] = "Meinen Schwimmer markieren",
     ["Fishing done"] = "Angeln beendet",
     ["[Gathercraft] Fishing: %d catches in %s (%d per hour, %s per hour, +%d skill)"] = "[Gathercraft] Angeln: %d Fänge in %s (%d pro Stunde, %s pro Stunde, +%d Skill)",
+    ["Louder bobber splash while fishing"] = "Lauteres Platschen beim Angeln",
 }
