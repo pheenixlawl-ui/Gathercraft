@@ -150,7 +150,7 @@ stopButton:SetPoint("BOTTOMRIGHT", -8, 8)
 ns.LText(stopButton, "Stop")
 stopButton:SetScript("OnClick", function()
     if panel.fishing then
-        ns.StopFishing()
+        ns.StopFishing(true)
         panel:Hide()
     else
         ns.StopRun()

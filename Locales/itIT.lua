@@ -495,4 +495,6 @@ ns.Locales.itIT = {
     ["prices: own scan (newest %s ago), fresher Auctionator, vendor"] = "prezzi: scansione propria (la più recente %s fa), Auctionator più recente, mercante",
     ["prices: own scan (newest %s ago), vendor"] = "prezzi: scansione propria (la più recente %s fa), mercante",
     ["Mark my bobber"] = "Segna il mio galleggiante",
+    ["Fishing done"] = "Pesca finita",
+    ["[Gathercraft] Fishing: %d catches in %s (%d per hour, %s per hour, +%d skill)"] = "[Gathercraft] Pesca: %d catture in %s (%d all'ora, %s all'ora, +%d abilità)",
 }

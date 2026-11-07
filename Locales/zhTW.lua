@@ -495,4 +495,6 @@ ns.Locales.zhTW = {
     ["prices: own scan (newest %s ago), fresher Auctionator, vendor"] = "價格：自己掃描（最新於 %s 前），更新的 Auctionator，商人",
     ["prices: own scan (newest %s ago), vendor"] = "價格：自己掃描（最新於 %s 前），商人",
     ["Mark my bobber"] = "標記我的浮標",
+    ["Fishing done"] = "釣魚結束",
+    ["[Gathercraft] Fishing: %d catches in %s (%d per hour, %s per hour, +%d skill)"] = "[Gathercraft] 釣魚：%d 次收穫，用時 %s（每小時 %d 次，每小時 %s，技能 +%d）",
 }

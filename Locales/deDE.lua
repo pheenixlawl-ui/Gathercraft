@@ -524,4 +524,6 @@ ns.Locales.deDE = {
     ["prices: own scan (newest %s ago), fresher Auctionator, vendor"] = "Preise: eigener Scan (neuester vor %s), frischeres Auctionator, Händler",
     ["prices: own scan (newest %s ago), vendor"] = "Preise: eigener Scan (neuester vor %s), Händler",
     ["Mark my bobber"] = "Meinen Schwimmer markieren",
+    ["Fishing done"] = "Angeln beendet",
+    ["[Gathercraft] Fishing: %d catches in %s (%d per hour, %s per hour, +%d skill)"] = "[Gathercraft] Angeln: %d Fänge in %s (%d pro Stunde, %s pro Stunde, +%d Skill)",
 }

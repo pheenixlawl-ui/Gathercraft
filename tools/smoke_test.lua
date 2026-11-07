@@ -4780,6 +4780,58 @@ step("Fishing: mark my bobber, and your setting comes back (v0.1.17)", function(
     GetCVar, SetCVar = saved.get, saved.set
     ns.db.fishingCVars = nil
 end)
+step("Fishing: Stop shows a summary like a farm run, and its line can be shared (v0.1.17)", function()
+    local sent = {}
+    SendChatMessage = function(msg, chatType) sent[#sent + 1] = { msg = msg, type = chatType } end
+    local card = _G.GathercraftRunSummary
+    if card then card:Hide() end
+    ns.StopFishing()
+    local function Catch()
+        fire("UNIT_SPELLCAST_CHANNEL_START", "player", "fs", 7620)
+        fire("UNIT_SPELLCAST_CHANNEL_STOP", "player", "fs", 7620)
+        IsFishingLoot = function() return true end
+        loot = { { guid = "GameObject-0-1-1-1-35591-FFFF0" .. math.random(1, 9), item = 6303, qty = 1 } }
+        fire("LOOT_READY") loot = {} fire("LOOT_CLOSED")
+        IsFishingLoot = nil
+        advance(40)
+    end
+    for _ = 1, 4 do Catch() end
+    local f = ns.FishingSession()
+    assert(f and f.catches == 4, "test setup: " .. tostring(f and f.catches) .. " catches")
+    local panel = _G.GathercraftPanel
+    advance(1)
+    assert(panel:IsShown() and panel.fishing, "test setup: no fishing panel")
+    -- Stop on the panel
+    local stop
+    for _, b in ipairs(allFrames) do
+        if b.__parent == panel and b.__kind == "Button" and b.__text == ns.L["Stop"] then stop = b end
+    end
+    assert(stop, "no Stop button on the panel")
+    stop.__scripts.OnClick(stop)
+    card = _G.GathercraftRunSummary
+    assert(card and card:IsShown(), "no summary after fishing")
+    assert(card.title.__text == ns.L["Fishing done"], "title: " .. tostring(card.title.__text))
+    local caught
+    for _, fs in ipairs(allFrames) do if fs.__parent == card and fs.__text == ns.L["caught"] then caught = true end end
+    assert(caught, "the first number is not called caught")
+    assert(ns.FishingSession() == nil, "the session goes on after Stop")
+    ns.ShareRunSummary("GUILD")
+    assert(#sent == 1 and sent[1].msg:find("^%[Gathercraft%]") and sent[1].msg:find("4", 1, true), "share line: " .. tostring(sent[1] and sent[1].msg))
+    assert(GetLocale() ~= "enUS" or sent[1].msg:find("Fishing: 4 catches", 1, true), "not the fishing line: " .. sent[1].msg)
+    -- a farm run afterwards gets its own title back
+    ns.StartRun("herb") advance(1)
+    for _, l in ipairs(ns.gatherListeners) do l({ type = "herb", name = "Peacebloom" }, { value = 1234 }) end
+    advance(150)
+    ns.StopRun()
+    assert(card:IsShown() and card.title.__text == ns.L["Farm run done"], "farm run summary after fishing: " .. tostring(card.title.__text))
+    card:Hide()
+    -- short or empty sessions: no summary; /gcr stop ends fishing too
+    Catch() advance(10)
+    slash("stop")
+    assert(not card:IsShown(), "summary after a short session")
+    assert(ns.FishingSession() == nil, "/gcr stop did not end fishing")
+    SendChatMessage = nil
+end)
 step("Pin tooltip", function()
     for _, f in ipairs(allFrames) do
         if f.node and f.__scripts.OnEnter then f.__scripts.OnEnter(f) f.__scripts.OnLeave(f) break end

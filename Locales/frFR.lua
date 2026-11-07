@@ -495,4 +495,6 @@ ns.Locales.frFR = {
     ["prices: own scan (newest %s ago), fresher Auctionator, vendor"] = "prix : analyse perso (la plus récente il y a %s), Auctionator plus récent, marchand",
     ["prices: own scan (newest %s ago), vendor"] = "prix : analyse perso (la plus récente il y a %s), marchand",
     ["Mark my bobber"] = "Marquer mon bouchon",
+    ["Fishing done"] = "Pêche terminée",
+    ["[Gathercraft] Fishing: %d catches in %s (%d per hour, %s per hour, +%d skill)"] = "[Gathercraft] Pêche : %d prises en %s (%d par heure, %s par heure, +%d compétence)",
 }

@@ -398,7 +398,20 @@ ns.FishingSession = function()
     end
     return fishing.active and fishing or nil
 end
-ns.StopFishing = function() fishing.active = false end
+-- Stop on the panel (or /gcr stop): the session ends, with the same summary
+-- as a farm run (Welcome.lua) when it brought something
+ns.StopFishing = function(summary)
+    local f = ns.FishingSession()
+    fishing.active = false
+    if not (summary and f and ns.ShowRunSummary) then return end
+    local now = ns.GetSkill and ns.GetSkill("fish") or 0
+    local mapID = ns.PlayerMap and ns.PlayerMap()
+    ns.ShowRunSummary({
+        kind = "fish", zoneName = mapID and ns.GetZoneName(mapID), elapsed = GetTime() - f.start,
+        nodes = f.catches, value = f.value, valueSource = f.source,
+        skill = math.max(0, now - (f.skillStart or now)),
+    })
+end
 -- Seconds left on the lure, or nil
 ns.LureTimeLeft = function()
     local has, expiration = GetWeaponEnchantInfo()

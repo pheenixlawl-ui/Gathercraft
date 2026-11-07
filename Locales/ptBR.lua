@@ -495,4 +495,6 @@ ns.Locales.ptBR = {
     ["prices: own scan (newest %s ago), fresher Auctionator, vendor"] = "preços: varredura própria (a mais nova há %s), Auctionator mais recente, vendedor",
     ["prices: own scan (newest %s ago), vendor"] = "preços: varredura própria (a mais nova há %s), vendedor",
     ["Mark my bobber"] = "Marcar minha boia",
+    ["Fishing done"] = "Pesca encerrada",
+    ["[Gathercraft] Fishing: %d catches in %s (%d per hour, %s per hour, +%d skill)"] = "[Gathercraft] Pesca: %d capturas em %s (%d por hora, %s por hora, +%d perícia)",
 }

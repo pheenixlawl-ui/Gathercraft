@@ -495,4 +495,6 @@ ns.Locales.koKR = {
     ["prices: own scan (newest %s ago), fresher Auctionator, vendor"] = "가격: 직접 검색 (최근 %s 전), 더 최신 Auctionator, 상인",
     ["prices: own scan (newest %s ago), vendor"] = "가격: 직접 검색 (최근 %s 전), 상인",
     ["Mark my bobber"] = "내 찌 표시",
+    ["Fishing done"] = "낚시 종료",
+    ["[Gathercraft] Fishing: %d catches in %s (%d per hour, %s per hour, +%d skill)"] = "[Gathercraft] 낚시: %d회 낚음, %s 동안 (시간당 %d회, 시간당 %s, 숙련도 +%d)",
 }

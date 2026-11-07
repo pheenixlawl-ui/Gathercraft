@@ -1359,7 +1359,8 @@ SlashCmdList.GATHERCRAFT = function(msg)
     elseif cmd == "skip" then
         ns.SkipNode()
     elseif cmd == "stop" then
-        ns.StopRun()
+        -- no farm run, but fishing: that ends
+        if not ns.run and ns.FishingSession and ns.FishingSession() then ns.StopFishing(true) else ns.StopRun() end
     elseif cmd == "del" then
         DeleteNearest()
     elseif cmd == "wipe" then

@@ -495,4 +495,6 @@ ns.Locales.ruRU = {
     ["prices: own scan (newest %s ago), fresher Auctionator, vendor"] = "цены: свой скан (новейший %s назад), более свежий Auctionator, торговец",
     ["prices: own scan (newest %s ago), vendor"] = "цены: свой скан (новейший %s назад), торговец",
     ["Mark my bobber"] = "Отмечать мой поплавок",
+    ["Fishing done"] = "Рыбалка окончена",
+    ["[Gathercraft] Fishing: %d catches in %s (%d per hour, %s per hour, +%d skill)"] = "[Gathercraft] Рыбалка: %d уловов за %s (%d в час, %s в час, +%d навыка)",
 }

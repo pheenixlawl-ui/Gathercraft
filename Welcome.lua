@@ -170,7 +170,7 @@ ns.WhatsNew = WhatsNew
 ---------------------------------------------------------------------------
 -- Run summary
 ---------------------------------------------------------------------------
-local summary, cells, subLine, perHourLine, shareGuild, shareParty
+local summary, cells, cellLabels, subLine, perHourLine, shareGuild, shareParty
 local lastSummary
 
 -- Money as plain text: chat messages can't carry the coin icons
@@ -191,7 +191,9 @@ end
 
 local function ShareText(s)
     local hours = math.max(s.elapsed / 3600, 1 / 60)
-    local text = (L["[Gathercraft] Farm run: %d nodes in %s (%d per hour, %s per hour, +%d skill)"]):format(
+    local line = s.kind == "fish" and L["[Gathercraft] Fishing: %d catches in %s (%d per hour, %s per hour, +%d skill)"]
+        or L["[Gathercraft] Farm run: %d nodes in %s (%d per hour, %s per hour, +%d skill)"]
+    local text = line:format(
         s.nodes, Duration(s.elapsed), math.floor(s.nodes / hours + 0.5), PlainMoney(s.value / hours), s.skill)
     if s.zoneName then text = text .. " - " .. s.zoneName end
     return (text:gsub("|", ""))
@@ -228,14 +230,14 @@ local function BuildSummary()
     subLine:SetJustifyH("LEFT")
     subLine:SetWordWrap(false)
 
-    cells = {}
+    cells, cellLabels = {}, {}
     for i, label in ipairs({ "gathered", "per hour", "worth", "skill" }) do
         local value = summary:CreateFontString(nil, "OVERLAY", "GameFontHighlightLarge")
         value:SetPoint("TOP", summary, "TOPLEFT", 20 + (i - 0.5) * 97, -86)
         local text = summary:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
         text:SetPoint("TOP", value, "BOTTOM", 0, -2)
         ns.LText(text, label)
-        cells[i] = value
+        cells[i], cellLabels[i] = value, text
     end
     perHourLine = summary:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     perHourLine:SetPoint("TOP", summary, "TOP", 0, -140)
@@ -260,12 +262,16 @@ local function BuildSummary()
     end
 end
 
--- s = { label, zoneName, elapsed, nodes, value, valueSource, skill }
+-- s = { label, zoneName, elapsed, nodes, value, valueSource, skill, kind }
+-- kind "fish": a fishing session (nodes = catches)
 local function ShowRunSummary(s)
     if not s or ns.db.summaryOff then return end
     if s.elapsed < SUMMARY_MIN_SECONDS or s.nodes < SUMMARY_MIN_NODES then return end
     if not summary then BuildSummary() end
     lastSummary = s
+    local fish = s.kind == "fish"
+    ns.LText(summary.title, fish and "Fishing done" or "Farm run done")
+    ns.LText(cellLabels[1], fish and "caught" or "gathered")
     local hours = math.max(s.elapsed / 3600, 1 / 60)
     local parts = {}
     if s.label then parts[#parts + 1] = s.label end
