@@ -6737,6 +6737,69 @@ step("Secret values: nothing breaks, nothing is learned (v0.1.16)", function()
     if not ok then fails[#fails + 1] = tostring(err) end
     assert(#fails == 0, #fails .. " wrong: " .. table.concat(fails, " | "):sub(1, 1500))
 end)
+step("Professions: a hidden number is no proof the profession is gone (R4-B1)", function()
+    local T = ProfessionTest()
+    local SECRET = newproxy(true)
+    local meta = getmetatable(SECRET)
+    for _, k in ipairs({ "__index", "__concat", "__lt", "__le", "__eq", "__add", "__sub", "__mul", "__div", "__unm", "__len", "__call", "__tostring" }) do
+        meta[k] = function() error("attempt to use a secret value", 2) end
+    end
+    local keepSecret, keepInfo = issecretvalue, GetProfessionInfo
+    issecretvalue = function(v) return rawequal(v, SECRET) end
+    local fails = {}
+    local function Check(ok, text) if not ok then fails[#fails + 1] = text end end
+    local herbNode = { type = "herb" }
+    local function Sure(what, wantHerb)
+        local herb, ore, known = ns.GatherProfessions()
+        Check(known and herb == wantHerb and ore, ("%s: herb %s ore %s known %s"):format(what, tostring(herb), tostring(ore), tostring(known)))
+        Check(ns.HiddenByProfession(herbNode) == not wantHerb, what .. ": herb pins " .. (wantHerb and "hidden" or "shown"))
+    end
+    -- the ID way: Herbalism 52/75 read once, then one number hidden at a time
+    GetProfessionInfo = keepInfo
+    T.Login(T.Both) T.Settle()
+    Sure("readable", true)
+    ns.db.noProfessionHint = nil
+    for slot, what in pairs({ [3] = "rank", [4] = "max rank", [8] = "modifier" }) do
+        GetProfessionInfo = function(i)
+            local v = { keepInfo(i) }
+            if i == 1 then v[slot] = SECRET end
+            return unpack(v, 1, 8)
+        end
+        T.Set(T.Both)
+        Sure("IDs, hidden " .. what, true)
+        local rank = ns.GetSkill("herb")
+        Check(rank == 52, ("IDs, hidden %s: rank %s, want the last read 52"):format(what, tostring(rank)))
+    end
+    -- the skill line ID itself hidden: can't tell, what was known stays
+    GetProfessionInfo = function(i)
+        local v = { keepInfo(i) }
+        if i == 1 then v[7] = SECRET end
+        return unpack(v, 1, 8)
+    end
+    T.Set(T.Both)
+    Sure("IDs, hidden skill line", true)
+    Check(not ns.db.noProfessionHint, "the 'no gathering profession' hint came")
+    -- the old skill list (no GetProfessions): name readable, numbers hidden
+    GetProfessionInfo = keepInfo
+    GetProfessions = nil
+    for slot, what in pairs({ [4] = "rank", [6] = "modifier", [7] = "max rank" }) do
+        local lines = { { "Professions", true, true }, { "Herbalism", false, false, 52, 0, 0, 75 }, { "Mining", false, false, 30, 0, 0, 75 } }
+        lines[2][slot] = SECRET
+        GetNumSkillLines = function() return #lines end
+        GetSkillLineInfo = function(i) return unpack(lines[i], 1, 7) end
+        fire("SKILL_LINES_CHANGED") advance(2)
+        Sure("skill list, hidden " .. what, true)
+    end
+    -- really unlearned, all readable: still noticed
+    GetProfessions = T.Ore
+    GetNumSkillLines = function() return 0 end
+    T.Set(T.Ore)
+    Sure("Herbalism unlearned (readable)", false)
+    Check(#errors == 0 or not errors[#errors]:find("secret", 1, true), "a secret value was used")
+    issecretvalue, GetProfessionInfo = keepSecret, keepInfo
+    T.Restore()
+    assert(#fails == 0, #fails .. " wrong: " .. table.concat(fails, " | "))
+end)
 step("Sync: unconfirmed reports wait 7 days, in new zones 14 (v0.1.16)", function()
     local s = ns.db.sync
     local keepPending, keepKnown = s.pending, ns.HasKnownSpawns
