@@ -160,6 +160,9 @@ end
 --   widened values stay until you set them again (Options > Controls, or
 --   /console SoftTargetInteract ...).
 local BOBBER_CVARS = { SoftTargetInteractRange = 30, SoftTargetInteractArc = 2 }
+-- "Mark my bobber" (Options, on by default): the game's soft-target icon over
+-- game objects, so your bobber gets a mark. Put back like the ones above.
+local BOBBER_ICON = "SoftTargetIconGameObject"
 
 -- the same setting value ("30" and "30.000" are the same)
 local function SameValue(a, b)
@@ -205,6 +208,9 @@ local function WidenInteract(event)
         local current = tonumber(GetCVar(name))
         if current and current < value then SetOurs(saved, name, tostring(value)) end
     end
+    -- a client without the setting answers nil: nothing to set or put back
+    local icon = ns.db.fishMarkBobber ~= false and GetCVar(BOBBER_ICON)
+    if icon and icon ~= "1" then SetOurs(saved, BOBBER_ICON, "1") end
     if not next(saved) then ns.db.fishingCVars = nil end
 end
 
@@ -261,6 +267,7 @@ end
 
 local events = CreateFrame("Frame")
 events:RegisterEvent("PLAYER_LOGIN")
+events:RegisterEvent("PLAYER_LOGOUT")
 events:RegisterEvent("PLAYER_REGEN_ENABLED")
 events:RegisterEvent("BAG_UPDATE_DELAYED")
 events:RegisterUnitEvent("UNIT_INVENTORY_CHANGED", "player")
@@ -287,6 +294,10 @@ events:SetScript("OnEvent", function(_, event, _, _, spellID)
             RestoreInteract(event)
             C_Timer.After(0.3, Prepare)
         end
+    elseif event == "PLAYER_LOGOUT" then
+        -- logout (or /reload) with the line out: your settings go back now,
+        -- before the game saves them; what fails stays for the next login
+        if ns.db and ns.db.fishingCVars then RestoreInteract(event) end
     elseif event == "PLAYER_REGEN_ENABLED" then
         SetReelBinding(lineOut)
         Prepare()

@@ -4606,6 +4606,7 @@ step("Fishing: your interact settings come back (end, abort, /reload, login, own
     local function Cast() fire("UNIT_SPELLCAST_CHANNEL_START", "player", "fc", 7620) end
     local function Stop() fire("UNIT_SPELLCAST_CHANNEL_STOP", "player", "fc", 7620) advance(1) end
     ns.db.fishingCVars = nil
+    ns.db.fishMarkBobber = false -- the bobber mark has its own step (v0.1.17)
 
     -- (1) a normal cast and catch
     Reset() Cast()
@@ -4723,6 +4724,59 @@ step("Fishing: your interact settings come back (end, abort, /reload, login, own
     assert(ns.db.fishingCVars == nil, "the entry is left after the login put it back")
     ns.db.debug = wasDebug
 
+    GetCVar, SetCVar = saved.get, saved.set
+    ns.db.fishingCVars = nil
+    ns.db.fishMarkBobber = nil
+end)
+step("Fishing: mark my bobber, and your setting comes back (v0.1.17)", function()
+    local saved = { get = GetCVar, set = SetCVar }
+    local store
+    GetCVar = function(k) return store[k] end
+    SetCVar = function(k, v) if store[k] == nil then error("unknown CVar " .. k) end store[k] = tostring(v) return true end
+    local function Reset(icon)
+        store = { SoftTargetInteract = "3", SoftTargetInteractRange = "30", SoftTargetInteractArc = "2",
+            SoftTargetIconGameObject = icon, SoftTargetIconInteract = "1" }
+    end
+    local function Cast() fire("UNIT_SPELLCAST_CHANNEL_START", "player", "fc", 7620) end
+    local function Stop() fire("UNIT_SPELLCAST_CHANNEL_STOP", "player", "fc", 7620) advance(1) end
+    local fishFrame
+    for f in pairs(eventFrames["PLAYER_LOGOUT"] or {}) do
+        if eventFrames["UNIT_SPELLCAST_CHANNEL_STOP"] and eventFrames["UNIT_SPELLCAST_CHANNEL_STOP"][f] then fishFrame = f end
+    end
+    assert(fishFrame, "the fishing code does not listen to PLAYER_LOGOUT")
+    ns.db.fishingCVars, ns.db.fishMarkBobber = nil, nil
+    -- Sven's values (06.11.): icon over game objects 0, over interact targets 1
+    Reset("0") Cast()
+    assert(store.SoftTargetIconGameObject == "1", "line out: no mark over the bobber")
+    assert(store.SoftTargetIconInteract == "1", "the other icon setting was touched")
+    Stop()
+    assert(store.SoftTargetIconGameObject == "0", "after the catch: " .. store.SoftTargetIconGameObject)
+    assert(ns.db.fishingCVars == nil, "saved entry left after the catch")
+    -- logout with the line out: put back right away
+    Reset("0") Cast()
+    fishFrame.__scripts.OnEvent(fishFrame, "PLAYER_LOGOUT")
+    assert(store.SoftTargetIconGameObject == "0" and store.SoftTargetInteractRange == "30", "logout: not put back")
+    assert(ns.db.fishingCVars == nil, "saved entry left after logout")
+    Stop()
+    -- you set it yourself while the line is out: yours stays
+    Reset("0") Cast()
+    store.SoftTargetIconGameObject = "2"
+    Stop()
+    assert(store.SoftTargetIconGameObject == "2", "your own change was undone")
+    -- already on: nothing to do
+    Reset("1") Cast()
+    assert(ns.db.fishingCVars == nil, "an icon already on was recorded")
+    Stop()
+    -- option off: not touched
+    ns.db.fishMarkBobber = false
+    Reset("0") Cast()
+    assert(store.SoftTargetIconGameObject == "0" and ns.db.fishingCVars == nil, "option off, yet the icon was set")
+    Stop()
+    ns.db.fishMarkBobber = nil
+    -- a client without the setting: no error, nothing recorded
+    Reset(nil) Cast()
+    assert(ns.db.fishingCVars == nil, "a missing setting was recorded")
+    Stop()
     GetCVar, SetCVar = saved.get, saved.set
     ns.db.fishingCVars = nil
 end)
@@ -5286,7 +5340,8 @@ step("Starter data: the new Forever kinds are pins with names, and are never sha
     local mark = #log
     local loader
     for f in pairs(eventFrames["PLAYER_LOGOUT"] or {}) do
-        if eventFrames["PLAYER_LOGIN"][f] then loader = f end
+        -- the fishing code listens to both too (v0.1.17): not that one
+        if eventFrames["PLAYER_LOGIN"][f] and not (eventFrames["UNIT_SPELLCAST_CHANNEL_STOP"] or {})[f] then loader = f end
     end
     assert(loader, "test setup: starter loader not found")
     loader.__scripts.OnEvent(loader, "PLAYER_LOGIN")

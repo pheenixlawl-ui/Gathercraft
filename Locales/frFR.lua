@@ -494,4 +494,5 @@ ns.Locales.frFR = {
     ["Scan incomplete: %d auctions could not be read, old prices kept (%d updated)."] = "Analyse incomplète : %d enchères n'ont pas pu être lues, anciens prix conservés (%d mis à jour).",
     ["prices: own scan (newest %s ago), fresher Auctionator, vendor"] = "prix : analyse perso (la plus récente il y a %s), Auctionator plus récent, marchand",
     ["prices: own scan (newest %s ago), vendor"] = "prix : analyse perso (la plus récente il y a %s), marchand",
+    ["Mark my bobber"] = "Marquer mon bouchon",
 }

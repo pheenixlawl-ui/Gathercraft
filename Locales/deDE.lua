@@ -523,4 +523,5 @@ ns.Locales.deDE = {
     ["Scan incomplete: %d auctions could not be read, old prices kept (%d updated)."] = "Scan unvollständig: %d Auktionen konnten nicht gelesen werden, alte Preise bleiben (%d aktualisiert).",
     ["prices: own scan (newest %s ago), fresher Auctionator, vendor"] = "Preise: eigener Scan (neuester vor %s), frischeres Auctionator, Händler",
     ["prices: own scan (newest %s ago), vendor"] = "Preise: eigener Scan (neuester vor %s), Händler",
+    ["Mark my bobber"] = "Meinen Schwimmer markieren",
 }

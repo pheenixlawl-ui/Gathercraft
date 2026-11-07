@@ -494,4 +494,5 @@ ns.Locales.ruRU = {
     ["Scan incomplete: %d auctions could not be read, old prices kept (%d updated)."] = "Сканирование неполное: не удалось прочитать лотов: %d, старые цены сохранены (обновлено: %d).",
     ["prices: own scan (newest %s ago), fresher Auctionator, vendor"] = "цены: свой скан (новейший %s назад), более свежий Auctionator, торговец",
     ["prices: own scan (newest %s ago), vendor"] = "цены: свой скан (новейший %s назад), торговец",
+    ["Mark my bobber"] = "Отмечать мой поплавок",
 }

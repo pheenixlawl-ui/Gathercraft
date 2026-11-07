@@ -494,4 +494,5 @@ ns.Locales.koKR = {
     ["Scan incomplete: %d auctions could not be read, old prices kept (%d updated)."] = "검색 불완전: 경매 %d개를 읽지 못해 이전 가격을 유지합니다 (%d개 갱신).",
     ["prices: own scan (newest %s ago), fresher Auctionator, vendor"] = "가격: 직접 검색 (최근 %s 전), 더 최신 Auctionator, 상인",
     ["prices: own scan (newest %s ago), vendor"] = "가격: 직접 검색 (최근 %s 전), 상인",
+    ["Mark my bobber"] = "내 찌 표시",
 }

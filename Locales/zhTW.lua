@@ -494,4 +494,5 @@ ns.Locales.zhTW = {
     ["Scan incomplete: %d auctions could not be read, old prices kept (%d updated)."] = "掃描不完整：%d 個拍賣無法讀取，保留舊價格（已更新 %d 個）。",
     ["prices: own scan (newest %s ago), fresher Auctionator, vendor"] = "價格：自己掃描（最新於 %s 前），更新的 Auctionator，商人",
     ["prices: own scan (newest %s ago), vendor"] = "價格：自己掃描（最新於 %s 前），商人",
+    ["Mark my bobber"] = "標記我的浮標",
 }

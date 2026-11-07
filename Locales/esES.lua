@@ -494,4 +494,5 @@ ns.Locales.esES = {
     ["Scan incomplete: %d auctions could not be read, old prices kept (%d updated)."] = "Escaneo incompleto: no se pudieron leer %d subastas, se mantienen los precios anteriores (%d actualizados).",
     ["prices: own scan (newest %s ago), fresher Auctionator, vendor"] = "precios: escaneo propio (el más reciente hace %s), Auctionator más reciente, vendedor",
     ["prices: own scan (newest %s ago), vendor"] = "precios: escaneo propio (el más reciente hace %s), vendedor",
+    ["Mark my bobber"] = "Marcar mi corcho",
 }

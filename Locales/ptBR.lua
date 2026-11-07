@@ -494,4 +494,5 @@ ns.Locales.ptBR = {
     ["Scan incomplete: %d auctions could not be read, old prices kept (%d updated)."] = "Varredura incompleta: %d leilões não puderam ser lidos, preços antigos mantidos (%d atualizados).",
     ["prices: own scan (newest %s ago), fresher Auctionator, vendor"] = "preços: varredura própria (a mais nova há %s), Auctionator mais recente, vendedor",
     ["prices: own scan (newest %s ago), vendor"] = "preços: varredura própria (a mais nova há %s), vendedor",
+    ["Mark my bobber"] = "Marcar minha boia",
 }

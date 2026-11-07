@@ -913,6 +913,9 @@ local function Build()
     AddCheck("Fish key applies a lure when the pole has none",
         function() return ns.db.fishLure ~= false end,
         function(on) ns.db.fishLure = on end)
+    AddCheck("Mark my bobber",
+        function() return ns.db.fishMarkBobber ~= false end,
+        function(on) ns.db.fishMarkBobber = on end)
     AddCheck("Debug output (chat tab \"Gathercraft\")",
         function() return ns.db.debug end,
         function(on)
