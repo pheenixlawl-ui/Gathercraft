@@ -934,15 +934,22 @@ if TooltipDataProcessor and TooltipDataProcessor.AddTooltipPostCall and Enum and
 end
 
 local events = CreateFrame("Frame")
+-- events of other clients are asked for too: the ones this client doesn't
+-- know are kept, for /gcr crafttest and one debug line at login (R4-H2)
+local missingEvents = {}
 for _, e in ipairs({ "GET_ITEM_INFO_RECEIVED", "ITEM_DATA_LOAD_RESULT", "PLAYER_LOGIN", "TRADE_SKILL_SHOW", "TRADE_SKILL_UPDATE", "TRADE_SKILL_LIST_UPDATE",
     "TRADE_SKILL_DATA_SOURCE_CHANGED", "NEW_RECIPE_LEARNED", "CRAFT_SHOW", "CRAFT_UPDATE", "MERCHANT_SHOW",
     "TRAINER_SHOW", "TRAINER_UPDATE", "TRAINER_CLOSED", "AUCTION_HOUSE_CLOSED" }) do
-    pcall(events.RegisterEvent, events, e)
+    if not pcall(events.RegisterEvent, events, e) then missingEvents[#missingEvents + 1] = e end
+end
+local function MissingEventsText()
+    return #missingEvents > 0 and table.concat(missingEvents, ", ") or "none"
 end
 events:SetScript("OnEvent", function(_, event, arg1)
     if event == "GET_ITEM_INFO_RECEIVED" or event == "ITEM_DATA_LOAD_RESULT" then
         if arg1 then OnItemLoaded(arg1) end
     elseif event == "PLAYER_LOGIN" then
+        if #missingEvents > 0 then ns.Debug("CRAFT events the client doesn't know: " .. MissingEventsText()) end
         C_Timer.After(20, function()
             if not ns.db then return end
             -- older versions took the "Use:" line of enchanting formulas as the item
@@ -1172,6 +1179,7 @@ local function CraftTest()
     Check("C_TradeSkillUI.GetRecipeSchematic", api and api.GetRecipeSchematic)
     Check("GetNumTradeSkills (classic)", GetNumTradeSkills)
     Check("GetNumCrafts (classic enchanting)", GetNumCrafts)
+    print(("  Crafting events the client doesn't know: %s"):format(MissingEventsText()))
     local prof, recipes = ReadModern()
     local n = 0
     for _ in pairs(recipes or {}) do n = n + 1 end

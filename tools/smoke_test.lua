@@ -5211,6 +5211,13 @@ step("Route line length: next 10 points for Smart, the whole round for Loop, or 
     ns.db.routeMode = nil
     ns.StopRun(true)
 end)
+step("Crafting: events the client doesn't know are named, not swallowed (R4-H2)", function()
+    local mark = #log
+    slash("crafttest")
+    local said
+    for i = mark + 1, #log do if log[i]:find("Crafting events the client doesn't know: none", 1, true) then said = true end end
+    assert(said, "/gcr crafttest does not name the events the client doesn't know")
+end)
 step("Pin tooltip", function()
     for _, f in ipairs(allFrames) do
         if f.node and f.__scripts.OnEnter then f.__scripts.OnEnter(f) f.__scripts.OnLeave(f) break end
