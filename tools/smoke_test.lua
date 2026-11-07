@@ -4867,6 +4867,56 @@ step("Fishing: louder splash while the line is out, your volumes come back exact
     GetCVar, SetCVar = saved.get, saved.set
     ns.db.fishingCVars = nil
 end)
+step("Run window: one slim line or hidden, fishing too, Stop still works (v0.1.17)", function()
+    local panel = _G.GathercraftPanel
+    local b = panel.compactButton
+    assert(b and b.__scripts.OnClick, "no -/+ button on the run window")
+    player.map, player.x, player.y = 1412, 0.45, 0.72
+    ns.db.panelCompact, ns.db.runPanelHidden, ns.db.fishPanelHidden = nil, nil, nil
+    ns.StartRun("herb") advance(2)
+    assert(panel:IsShown(), "test setup: no run window")
+    b.__scripts.OnClick(b)
+    assert(ns.db.panelCompact, "the slim line is not remembered")
+    assert(panel.__h <= 40, "not one slim line: height " .. tostring(panel.__h))
+    -- title, time, next node: the four numbers and their labels are gone
+    local texts = 0
+    for _, f in ipairs(allFrames) do
+        if f.__parent == panel and f.__kind == "FontString" and f.__shown then texts = texts + 1 end
+    end
+    assert(texts == 3, texts .. " texts in the slim line, want title, time and next node")
+    local stop, skip
+    for _, f in ipairs(allFrames) do
+        if f.__parent == panel and f.__kind == "Button" then
+            if f.__text == ns.L["Stop"] then stop = f elseif f.__text == ns.L["Skip"] then skip = f end
+        end
+    end
+    assert(stop and stop.__shown and skip and skip.__shown, "Stop or Skip missing in the slim line")
+    -- texts fit: title and next node cut, not over the buttons
+    assert((panel.__w or 0) >= 6 + 20 + 4 + 100 + 6 + 130 + 6 + 52 + 4 + 52 + 4 + 20 + 6, "slim line too narrow for its parts")
+    -- remembered after a reload: the layout comes from the saved choice
+    ns.PanelLayout()
+    assert(panel.__h <= 40, "the slim line is gone after the layout ran again")
+    b.__scripts.OnClick(b)
+    assert(not ns.db.panelCompact and panel.__h == 120, "+ does not bring the whole panel back")
+    -- hidden: the run goes on, the minimap button stops it
+    ns.db.runPanelHidden = true
+    advance(1)
+    assert(not panel:IsShown(), "the run window is shown although it is hidden")
+    assert(ns.run, "hiding the window stopped the run")
+    ldbObj.OnClick(nil, "RightButton")
+    assert(not ns.run, "right-click on the minimap button does not stop the hidden run")
+    ns.db.runPanelHidden = nil
+    -- fishing window hidden: the session counts on, right-click ends it
+    ns.db.fishPanelHidden = true
+    fire("UNIT_SPELLCAST_CHANNEL_START", "player", "fh", 7620)
+    fire("UNIT_SPELLCAST_CHANNEL_STOP", "player", "fh", 7620)
+    advance(1)
+    assert(ns.FishingSession(), "test setup: no fishing session")
+    assert(not panel:IsShown(), "the fishing window is shown although it is hidden")
+    ldbObj.OnClick(nil, "RightButton")
+    assert(not ns.FishingSession() and not ns.run, "right-click did not end the hidden fishing session (or started a run)")
+    ns.db.fishPanelHidden = nil
+end)
 step("Pin tooltip", function()
     for _, f in ipairs(allFrames) do
         if f.node and f.__scripts.OnEnter then f.__scripts.OnEnter(f) f.__scripts.OnLeave(f) break end

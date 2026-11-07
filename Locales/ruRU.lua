@@ -498,4 +498,10 @@ ns.Locales.ruRU = {
     ["Fishing done"] = "Рыбалка окончена",
     ["[Gathercraft] Fishing: %d catches in %s (%d per hour, %s per hour, +%d skill)"] = "[Gathercraft] Рыбалка: %d уловов за %s (%d в час, %s в час, +%d навыка)",
     ["Louder bobber splash while fishing"] = "Громче всплеск поплавка при рыбалке",
+    ["Hide the run window"] = "Скрыть окно маршрута",
+    ["Hide the fishing window"] = "Скрыть окно рыбалки",
+    ["Stop: right-click the minimap button or /gcr stop. Skip: /gcr skip or a key binding."] = "Стоп: правый клик по кнопке у миникарты или /gcr stop. Пропуск: /gcr skip или клавиша.",
+    ["Right-click: stop fishing"] = "Правый клик: закончить рыбалку",
+    ["One slim line"] = "Одна узкая строка",
+    ["Show the whole panel"] = "Показать всё окно",
 }

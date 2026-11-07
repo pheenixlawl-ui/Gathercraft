@@ -163,6 +163,67 @@ skipButton:SetPoint("RIGHT", stopButton, "LEFT", -4, 0)
 ns.LText(skipButton, "Skip")
 skipButton:SetScript("OnClick", function() ns.SkipNode() end)
 
+-- "-" / "+": one slim line (title, time, next node and distance, Skip,
+-- Stop) or the full panel. Remembered (ns.db.panelCompact), the same for
+-- farm runs and fishing.
+local compactButton = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
+compactButton:SetSize(20, 20)
+panel.compactButton = compactButton
+
+local function Layout()
+    local compact = ns.db and ns.db.panelCompact
+    for i = 1, #cells do
+        cells[i]:SetShown(not compact)
+        cellLabels[i]:SetShown(not compact)
+    end
+    emblem:ClearAllPoints()
+    title:ClearAllPoints()
+    clock:ClearAllPoints()
+    nextText:ClearAllPoints()
+    stopButton:ClearAllPoints()
+    skipButton:ClearAllPoints()
+    compactButton:ClearAllPoints()
+    if compact then
+        panel:SetSize(450, 32)
+        emblem:SetSize(20, 20)
+        emblem:SetPoint("LEFT", 6, 0)
+        title:SetPoint("LEFT", emblem, "RIGHT", 4, 0)
+        title:SetWidth(100)
+        title:SetWordWrap(false)
+        nextText:SetPoint("LEFT", title, "RIGHT", 6, 0)
+        nextText:SetWidth(130)
+        compactButton:SetPoint("RIGHT", -6, 0)
+        stopButton:SetPoint("RIGHT", compactButton, "LEFT", -4, 0)
+        skipButton:SetPoint("RIGHT", stopButton, "LEFT", -4, 0)
+        clock:SetPoint("RIGHT", skipButton, "LEFT", -6, 0)
+        compactButton:SetText("+")
+    else
+        panel:SetSize(340, 120)
+        emblem:SetSize(26, 26)
+        emblem:SetPoint("TOPLEFT", 8, -7)
+        title:SetPoint("LEFT", emblem, "RIGHT", 6, 0)
+        title:SetWidth(0) -- as wide as its text
+        nextText:SetPoint("BOTTOMLEFT", 10, 12)
+        nextText:SetWidth(212)
+        compactButton:SetPoint("TOPRIGHT", -6, -8)
+        clock:SetPoint("RIGHT", compactButton, "LEFT", -6, 0)
+        stopButton:SetPoint("BOTTOMRIGHT", -8, 8)
+        skipButton:SetPoint("RIGHT", stopButton, "LEFT", -4, 0)
+        compactButton:SetText("-")
+    end
+end
+ns.PanelLayout = Layout
+compactButton:SetScript("OnClick", function()
+    ns.db.panelCompact = not ns.db.panelCompact or nil
+    Layout()
+end)
+compactButton:SetScript("OnEnter", function(self)
+    GameTooltip:SetOwner(self, "ANCHOR_TOP")
+    GameTooltip:AddLine(ns.db.panelCompact and L["Show the whole panel"] or L["One slim line"], 1, 1, 1)
+    GameTooltip:Show()
+end)
+compactButton:SetScript("OnLeave", GameTooltip_Hide)
+
 local function Clock(elapsed)
     local e = math.floor(elapsed)
     if e >= 3600 then
@@ -198,6 +259,11 @@ local function UpdatePanel()
         local f = ns.FishingSession and ns.FishingSession()
         if f then
             panel.fishing = true
+            -- "Hide the fishing window" (Options): the session goes on without it
+            if ns.db.fishPanelHidden then
+                if panel:IsShown() then panel:Hide() end
+                return
+            end
             UpdateFishingPanel(f)
             return
         end
@@ -206,6 +272,11 @@ local function UpdatePanel()
         return
     end
     panel.fishing = nil
+    -- "Hide the run window" (Options): arrow, target ring and minimap guide on
+    if ns.db.runPanelHidden then
+        if panel:IsShown() then panel:Hide() end
+        return
+    end
     skipButton:Show()
     cellLabels[1]:SetText(L["gathered"])
     local s = RunStats()
@@ -318,6 +389,7 @@ ns.UpdateArrow = UpdateArrow
 local loader = CreateFrame("Frame")
 loader:RegisterEvent("PLAYER_LOGIN")
 loader:SetScript("OnEvent", function()
+    Layout()
     Restore(panel, "ui")
     Restore(arrowFrame, "arrowPos")
     C_Timer.NewTicker(0.25, function()

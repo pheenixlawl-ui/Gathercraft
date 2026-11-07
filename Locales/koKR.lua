@@ -498,4 +498,10 @@ ns.Locales.koKR = {
     ["Fishing done"] = "낚시 종료",
     ["[Gathercraft] Fishing: %d catches in %s (%d per hour, %s per hour, +%d skill)"] = "[Gathercraft] 낚시: %d회 낚음, %s 동안 (시간당 %d회, 시간당 %s, 숙련도 +%d)",
     ["Louder bobber splash while fishing"] = "낚시 중 찌 소리 크게",
+    ["Hide the run window"] = "채집 경로 창 숨기기",
+    ["Hide the fishing window"] = "낚시 창 숨기기",
+    ["Stop: right-click the minimap button or /gcr stop. Skip: /gcr skip or a key binding."] = "중지: 미니맵 버튼 오른쪽 클릭 또는 /gcr stop. 건너뛰기: /gcr skip 또는 단축키.",
+    ["Right-click: stop fishing"] = "오른쪽 클릭: 낚시 중지",
+    ["One slim line"] = "한 줄로 줄이기",
+    ["Show the whole panel"] = "전체 창 보기",
 }

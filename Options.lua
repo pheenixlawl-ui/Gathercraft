@@ -6,9 +6,14 @@ local L = ns.L or setmetatable({}, { __index = function(_, k) return k end })
 ---------------------------------------------------------------------------
 local PIN_SIZE_MIN, PIN_SIZE_MAX, PIN_SIZE_DEFAULT = 8, 24, 14
 
+local function FishingHidden()
+    return not ns.run and ns.db.fishPanelHidden and ns.FishingSession and ns.FishingSession()
+end
 local function ToggleRun()
     if ns.run then
         ns.StopRun()
+    elseif FishingHidden() then
+        ns.StopFishing(true) -- the fishing window is hidden: this is how it ends
     else
         ns.StartHereRun() -- your zone, your gathering professions
     end
@@ -820,6 +825,10 @@ local function Build()
     AddCheck("Show a summary when a run ends",
         function() return not ns.db.summaryOff end,
         function(on) ns.db.summaryOff = not on end)
+    AddCheck("Hide the run window",
+        function() return ns.db.runPanelHidden end,
+        function(on) ns.db.runPanelHidden = on or nil end)
+    AddHint("Stop: right-click the minimap button or /gcr stop. Skip: /gcr skip or a key binding.")
     nextY = nextY - 4
     AddArrive()
     AddCheck("Show route line",
@@ -913,6 +922,9 @@ local function Build()
     AddCheck("Fish key applies a lure when the pole has none",
         function() return ns.db.fishLure ~= false end,
         function(on) ns.db.fishLure = on end)
+    AddCheck("Hide the fishing window",
+        function() return ns.db.fishPanelHidden end,
+        function(on) ns.db.fishPanelHidden = on or nil end)
     AddCheck("Mark my bobber",
         function() return ns.db.fishMarkBobber ~= false end,
         function(on) ns.db.fishMarkBobber = on end)
@@ -1032,7 +1044,8 @@ local launcher = LDB and LDB:NewDataObject(ADDON_NAME, {
     OnTooltipShow = function(tooltip)
         tooltip:AddLine("Gathercraft")
         tooltip:AddLine(L["Left-click: open Gathercraft"], 1, 1, 1)
-        tooltip:AddLine(ns.run and L["Right-click: stop farm run"] or L["Right-click: start farm run"], 1, 1, 1)
+        tooltip:AddLine(ns.run and L["Right-click: stop farm run"] or FishingHidden() and L["Right-click: stop fishing"]
+            or L["Right-click: start farm run"], 1, 1, 1)
         tooltip:AddLine(L["Shift-click: options"], 1, 1, 1)
         tooltip:AddLine(L["Drag: move button"], 0.6, 0.6, 0.6)
     end,

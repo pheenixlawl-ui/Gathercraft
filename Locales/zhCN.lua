@@ -498,4 +498,10 @@ ns.Locales.zhCN = {
     ["Fishing done"] = "钓鱼结束",
     ["[Gathercraft] Fishing: %d catches in %s (%d per hour, %s per hour, +%d skill)"] = "[Gathercraft] 钓鱼：%d 次收获，用时 %s（每小时 %d 次，每小时 %s，技能 +%d）",
     ["Louder bobber splash while fishing"] = "钓鱼时鱼漂水花声更响",
+    ["Hide the run window"] = "隐藏采集路线窗口",
+    ["Hide the fishing window"] = "隐藏钓鱼窗口",
+    ["Stop: right-click the minimap button or /gcr stop. Skip: /gcr skip or a key binding."] = "停止：右键点击小地图按钮或 /gcr stop。跳过：/gcr skip 或快捷键。",
+    ["Right-click: stop fishing"] = "右键：停止钓鱼",
+    ["One slim line"] = "收成一行",
+    ["Show the whole panel"] = "显示完整面板",
 }

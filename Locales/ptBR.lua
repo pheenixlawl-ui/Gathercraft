@@ -498,4 +498,10 @@ ns.Locales.ptBR = {
     ["Fishing done"] = "Pesca encerrada",
     ["[Gathercraft] Fishing: %d catches in %s (%d per hour, %s per hour, +%d skill)"] = "[Gathercraft] Pesca: %d capturas em %s (%d por hora, %s por hora, +%d perícia)",
     ["Louder bobber splash while fishing"] = "Respingo da boia mais alto ao pescar",
+    ["Hide the run window"] = "Ocultar a janela da rota",
+    ["Hide the fishing window"] = "Ocultar a janela de pesca",
+    ["Stop: right-click the minimap button or /gcr stop. Skip: /gcr skip or a key binding."] = "Parar: clique direito no botão do minimapa ou /gcr stop. Pular: /gcr skip ou um atalho.",
+    ["Right-click: stop fishing"] = "Clique direito: parar de pescar",
+    ["One slim line"] = "Uma linha fina",
+    ["Show the whole panel"] = "Mostrar o painel inteiro",
 }

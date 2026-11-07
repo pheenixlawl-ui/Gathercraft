@@ -527,4 +527,10 @@ ns.Locales.deDE = {
     ["Fishing done"] = "Angeln beendet",
     ["[Gathercraft] Fishing: %d catches in %s (%d per hour, %s per hour, +%d skill)"] = "[Gathercraft] Angeln: %d Fänge in %s (%d pro Stunde, %s pro Stunde, +%d Skill)",
     ["Louder bobber splash while fishing"] = "Lauteres Platschen beim Angeln",
+    ["Hide the run window"] = "Lauf-Fenster ausblenden",
+    ["Hide the fishing window"] = "Angel-Fenster ausblenden",
+    ["Stop: right-click the minimap button or /gcr stop. Skip: /gcr skip or a key binding."] = "Stop: Rechtsklick auf den Minikarten-Knopf oder /gcr stop. Überspringen: /gcr skip oder eine Taste.",
+    ["Right-click: stop fishing"] = "Rechtsklick: Angeln beenden",
+    ["One slim line"] = "Eine schmale Zeile",
+    ["Show the whole panel"] = "Ganzes Fenster zeigen",
 }

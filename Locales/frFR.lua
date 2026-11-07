@@ -498,4 +498,10 @@ ns.Locales.frFR = {
     ["Fishing done"] = "Pêche terminée",
     ["[Gathercraft] Fishing: %d catches in %s (%d per hour, %s per hour, +%d skill)"] = "[Gathercraft] Pêche : %d prises en %s (%d par heure, %s par heure, +%d compétence)",
     ["Louder bobber splash while fishing"] = "Plouf du bouchon plus fort en pêchant",
+    ["Hide the run window"] = "Masquer la fenêtre de tournée",
+    ["Hide the fishing window"] = "Masquer la fenêtre de pêche",
+    ["Stop: right-click the minimap button or /gcr stop. Skip: /gcr skip or a key binding."] = "Arrêt : clic droit sur le bouton de la minicarte ou /gcr stop. Passer : /gcr skip ou un raccourci.",
+    ["Right-click: stop fishing"] = "Clic droit : arrêter la pêche",
+    ["One slim line"] = "Une ligne fine",
+    ["Show the whole panel"] = "Afficher tout le panneau",
 }
