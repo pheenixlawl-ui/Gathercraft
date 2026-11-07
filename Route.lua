@@ -989,7 +989,15 @@ end
 ---------------------------------------------------------------------------
 local freeDots, usedDots = {}, {}
 
-local function GetDot(size, rgb)
+-- On the minimap the line lies right above the map, below every pin (the
+-- pins sit one level higher, Pins.lua)
+local function BelowPins(dot)
+    local parent = dot.mini and dot:GetParent()
+    local level = parent and parent.GetFrameLevel and parent:GetFrameLevel()
+    if level then dot:SetFrameLevel(level + 1) end
+end
+
+local function GetDot(size, rgb, mini)
     local dot = table.remove(freeDots)
     if not dot then
         dot = CreateFrame("Frame", nil, UIParent)
@@ -997,11 +1005,41 @@ local function GetDot(size, rgb)
         dot.tex = dot:CreateTexture(nil, "ARTWORK")
         dot.tex:SetAllPoints()
         dot.tex:SetTexture("Interface\\CHARACTERFRAME\\TempPortraitAlphaMask")
+        dot:HookScript("OnShow", BelowPins)
     end
+    dot.mini = mini
     dot.tex:SetVertexColor(rgb[1], rgb[2], rgb[3], 0.9)
     dot:SetSize(size, size)
     usedDots[#usedDots + 1] = dot
     return dot
+end
+
+-- Route line on the minimap (Options, its own switch since 0.1.17) and on
+-- the world map. Up to 0.1.16 one switch hid both: see MigrateLineSwitch.
+local function WorldLineShown() return not ns.db.routeLineHidden end
+local function MiniLineShown() return not ns.db.routeLineMiniHidden end
+
+-- The minimap line stops a little before each pin, so no node is ever
+-- covered: gap = half the pin plus a few pixels, in yards at the zoom now
+local MINI_GAP_PX = 3
+local function MiniGapTest(px, py)
+    local ypp = ns.MinimapYardsPerPixel and ns.MinimapYardsPerPixel()
+    if not (ypp and ns.MinimapPinSpots) then return nil end
+    local near, reach = {}, MINI_YARDS + 50
+    for _, s in ipairs(ns.MinimapPinSpots()) do
+        local dx, dy = s.wx - px, s.wy - py
+        if dx * dx + dy * dy <= reach * reach then
+            local r = (s.px / 2 + MINI_GAP_PX) * ypp
+            near[#near + 1] = { s.wx, s.wy, r * r }
+        end
+    end
+    return function(x, y)
+        for _, s in ipairs(near) do
+            local dx, dy = x - s[1], y - s[2]
+            if dx * dx + dy * dy < s[3] then return false end
+        end
+        return true
+    end
 end
 
 local ClearHead -- below
@@ -1037,12 +1075,14 @@ end
 -- The part from you to the next node: drawn on its own and kept up to date
 -- while you move (HEAD_TICK), the rest only when the route is planned
 local headWorld, headMini = {}, {}
-local function MakeDot()
+local function MakeDot(mini)
     local dot = CreateFrame("Frame", nil, UIParent)
     dot:EnableMouse(false)
     dot.tex = dot:CreateTexture(nil, "ARTWORK")
     dot.tex:SetAllPoints()
     dot.tex:SetTexture("Interface\\CHARACTERFRAME\\TempPortraitAlphaMask")
+    dot.mini = mini
+    if mini then dot:HookScript("OnShow", BelowPins) end
     return dot
 end
 local headShown = 0
@@ -1059,9 +1099,11 @@ end
 local function DrawHead(px, py, instance)
     local run = ns.run
     local tp = run and run.targetPoint
-    if not (HBDPins and tp and px) or ns.db.routeLineHidden then return ClearHead() end
+    if not (HBDPins and tp and px) or not (WorldLineShown() or MiniLineShown()) then return ClearHead() end
     run.headX, run.headY, run.headTarget = px, py, tp
     local style, rgb = LineStyle(), LineColor().rgb
+    local world, mini = WorldLineShown(), MiniLineShown()
+    local clear = mini and MiniGapTest(px, py)
     local seg = WDist(px, py, tp.wx, tp.wy)
     local spacing = math.max(style.near, seg / HEAD_MAX_DOTS)
     local showFlag = HBD_PINS_WORLDMAP_SHOW_PARENT or 1
@@ -1071,7 +1113,7 @@ local function DrawHead(px, py, instance)
             n = n + 1
             local w, m = headWorld[n], headMini[n]
             if not w then
-                w, m = MakeDot(), MakeDot()
+                w, m = MakeDot(), MakeDot(true)
                 headWorld[n], headMini[n] = w, m
             end
             w:SetSize(style.map, style.map)
@@ -1080,8 +1122,10 @@ local function DrawHead(px, py, instance)
             m.tex:SetVertexColor(rgb[1], rgb[2], rgb[3], 0.9)
             local t = d / seg
             local x, y = px + (tp.wx - px) * t, py + (tp.wy - py) * t
-            HBDPins:AddWorldMapIconWorld(HEAD_REF, w, instance, x, y, showFlag)
-            HBDPins:AddMinimapIconWorld(HEAD_REF, m, instance, x, y, false)
+            if world then HBDPins:AddWorldMapIconWorld(HEAD_REF, w, instance, x, y, showFlag)
+            else HBDPins:RemoveWorldMapIcon(HEAD_REF, w) w:Hide() end
+            if mini and (not clear or clear(x, y)) then HBDPins:AddMinimapIconWorld(HEAD_REF, m, instance, x, y, false)
+            else HBDPins:RemoveMinimapIcon(HEAD_REF, m) m:Hide() end
         end
         d = d + spacing
     end
@@ -1110,7 +1154,7 @@ end
 --   and the line is drawn again as you ride), dense.
 local function DrawLine(path, length, instance, px, py)
     ClearLine()
-    if not path or #path == 0 or ns.db.routeLineHidden then return end
+    if not path or #path == 0 or not (WorldLineShown() or MiniLineShown()) then return end
     DrawHead(px, py, instance)
     local style, rgb = LineStyle(), LineColor().rgb
     local miniLen, cx, cy = 0, path[1].wx, path[1].wy
@@ -1143,15 +1187,20 @@ local function DrawLine(path, length, instance, px, py)
             cx, cy = p.wx, p.wy
         end
     end
-    Walk(math.max(style.far, length / MAX_DOTS), function(x, y)
-        HBDPins:AddWorldMapIconWorld(LINE_REF, GetDot(style.map, rgb), instance, x, y, showFlag)
-    end)
-    Walk(math.max(style.near, miniLen / MINI_DOTS), function(x, y)
-        local ox, oy = x - px, y - py
-        if ox * ox + oy * oy <= mini2 then
-            HBDPins:AddMinimapIconWorld(LINE_REF, GetDot(style.mini, rgb), instance, x, y, false)
-        end
-    end)
+    if WorldLineShown() then
+        Walk(math.max(style.far, length / MAX_DOTS), function(x, y)
+            HBDPins:AddWorldMapIconWorld(LINE_REF, GetDot(style.map, rgb), instance, x, y, showFlag)
+        end)
+    end
+    if MiniLineShown() then
+        local clear = MiniGapTest(px, py)
+        Walk(math.max(style.near, miniLen / MINI_DOTS), function(x, y)
+            local ox, oy = x - px, y - py
+            if ox * ox + oy * oy <= mini2 and (not clear or clear(x, y)) then
+                HBDPins:AddMinimapIconWorld(LINE_REF, GetDot(style.mini, rgb, true), instance, x, y, false)
+            end
+        end)
+    end
 end
 
 ---------------------------------------------------------------------------
@@ -2198,9 +2247,19 @@ local function RedrawLine()
 end
 ns.RedrawRouteLine = RedrawLine
 
-local function ToggleRouteLine()
-    ns.db.routeLineHidden = not ns.db.routeLineHidden
-    ns.Print(L["Route line "] .. (ns.db.routeLineHidden and L["|cffff0000hidden|r"] or L["|cff00ff00shown|r"]))
+-- /gcr line: both lines off when any is shown, else both on. world/mini
+-- (Options) switch one of them.
+local function ToggleRouteLine(which)
+    if which == "world" then
+        ns.db.routeLineHidden = not ns.db.routeLineHidden or nil
+    elseif which == "mini" then
+        ns.db.routeLineMiniHidden = not ns.db.routeLineMiniHidden or nil
+    else
+        local hide = WorldLineShown() or MiniLineShown()
+        ns.db.routeLineHidden, ns.db.routeLineMiniHidden = hide or nil, hide or nil
+        ns.Print(L["Route line "] .. (hide and L["|cffff0000hidden|r"] or L["|cff00ff00shown|r"]))
+        ns.Print(L["Colour and style: Options > Farm runs > Route line."])
+    end
     if ns.run then
         Plan()
     elseif preview then
@@ -2268,6 +2327,18 @@ ns.StopRun = StopRun
 ns.SkipNode = SkipNode
 ns.PreviewRoute = PreviewRoute
 ns.ToggleRouteLine = ToggleRouteLine
+
+-- Up to 0.1.16 "Show route line" hid both maps: who had it off keeps both off
+ns.MigrateLineSwitch = function()
+    if ns.db.routeLineHidden and ns.db.routeLineMiniHidden == nil and not ns.db.routeLineSplit then
+        ns.db.routeLineMiniHidden = true
+    end
+    ns.db.routeLineSplit = true
+end
+-- the minimap zoom changes the gap around the pins: draw the line again
+local zoomWatch = CreateFrame("Frame")
+zoomWatch:RegisterEvent("MINIMAP_UPDATE_ZOOM")
+zoomWatch:SetScript("OnEvent", function() RedrawLine() end)
 ns.OnHarvested = OnHarvested
 ns.OnGatherUncertain = OnGatherUncertain
 ns.DistanceToTarget = DistanceToTarget

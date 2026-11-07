@@ -843,7 +843,12 @@ local function Build()
     AddCheck("Show route line",
         function() return not ns.db.routeLineHidden end,
         function(on)
-            if (not ns.db.routeLineHidden) ~= on then ns.ToggleRouteLine() end
+            if (not ns.db.routeLineHidden) ~= on then ns.ToggleRouteLine("world") end
+        end)
+    AddCheck("Route line on the minimap",
+        function() return not ns.db.routeLineMiniHidden end,
+        function(on)
+            if (not ns.db.routeLineMiniHidden) ~= on then ns.ToggleRouteLine("mini") end
         end)
     nextY = nextY - 4
     AddRouteLineLook()

@@ -242,10 +242,12 @@ local function Layer(n)
     if n.source == "sync" or n.source == "starter" then return 2 end
     return 3
 end
+-- Minimap pins sit one level higher: the route line lies right above the
+-- minimap and below every pin (Route.lua)
 local function KeepLayer(pin)
     local parent = pin:GetParent()
     local level = parent and parent.GetFrameLevel and parent:GetFrameLevel()
-    if level and not pin.isTarget then pin:SetFrameLevel(level + (pin.layer or 1)) end
+    if level and not pin.isTarget then pin:SetFrameLevel(level + (pin.layer or 1) + (pin.isMini and 1 or 0)) end
 end
 
 local function CreatePin()
@@ -885,6 +887,23 @@ end
 ns.SetRouteTarget = SetRouteTarget
 ns.ClearRouteTarget = ClearRouteTarget
 
+-- Where the minimap pins are (world yards) and how big (pixels): the route
+-- line leaves a little gap around each one (Route.lua)
+ns.MinimapPinSpots = function()
+    local spots = {}
+    if not (HBD and HBD.GetWorldCoordinatesFromZone) then return spots end
+    local function Add(pin, mapID, x, y)
+        local wx, wy = HBD:GetWorldCoordinatesFromZone(x, y, mapID)
+        if wx then spots[#spots + 1] = { wx = wx, wy = wy, px = pin:GetWidth() or 12 } end
+    end
+    for pin in pairs(miniOn) do
+        local n = pin.node
+        if n and pin.mapID then Add(pin, pin.mapID, n.x, n.y) end
+    end
+    if target.mini and target.node and target.mapID then Add(target.mini, target.mapID, target.node.x, target.node.y) end
+    return spots
+end
+
 local loader = CreateFrame("Frame")
 loader:RegisterEvent("PLAYER_LOGIN")
 loader:RegisterEvent("ZONE_CHANGED_NEW_AREA")
@@ -892,6 +911,7 @@ loader:RegisterEvent("PLAYER_ENTERING_WORLD")
 loader:SetScript("OnEvent", function(_, event)
     if event == "PLAYER_LOGIN" then
         ns.MigratePinSwitches()
+        if ns.MigrateLineSwitch then ns.MigrateLineSwitch() end
         playerMap = ns.GetPlayerPos()
         C_Timer.After(1, Rebuild)
         C_Timer.NewTicker(3, UpdateAlpha) -- cooldowns run out

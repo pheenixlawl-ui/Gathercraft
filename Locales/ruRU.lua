@@ -506,4 +506,6 @@ ns.Locales.ruRU = {
     ["Show the whole panel"] = "Показать всё окно",
     ["Ring only"] = "Только кольцо",
     ["Ring only: just a coloured ring, no icon. The yellow dot of the game's herb and mineral tracking shows in the middle."] = "Только кольцо: цветное кольцо без значка. Жёлтая точка поиска трав и руды из игры видна в середине.",
+    ["Route line on the minimap"] = "Линия маршрута на миникарте",
+    ["Colour and style: Options > Farm runs > Route line."] = "Цвет и стиль: Параметры > Farm runs > Линия маршрута.",
 }

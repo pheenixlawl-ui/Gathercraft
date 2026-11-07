@@ -701,7 +701,8 @@ step("Pins: map and minimap apart, subtle style", function()
             local want = (n.source == "questie") and 1 or (n.source == nil and 3 or 2)
             assert(pin.layer == want, ("pin layer %s for %s"):format(tostring(pin.layer), tostring(n.source)))
             pin:Show() pin.__scripts.OnShow(pin)
-            assert(pin:GetFrameLevel() == Minimap:GetFrameLevel() + want, "frame level does not follow the layer")
+            -- one level up since 0.1.17: the route line lies between the minimap and the pins
+            assert(pin:GetFrameLevel() == Minimap:GetFrameLevel() + want + 1, "frame level does not follow the layer")
             if n.source == nil then ownSeen = true elseif n.source == "questie" then questieSeen = true end
         end
     end
@@ -4970,6 +4971,69 @@ step("Minimap style: ring only is the default, a choice stays (v0.1.17)", functi
     assert(ns.db.miniPinStyle == "ring", "> after normal: " .. tostring(ns.db.miniPinStyle))
     ns.db.miniPinStyle = nil
     rebuild()
+end)
+step("Route line on the minimap: below the pins, a gap at each pin, its own switch (v0.1.17)", function()
+    player.map, player.x, player.y = 1412, 0.45, 0.72
+    ns.db.routeLineHidden, ns.db.routeLineMiniHidden = nil, nil
+    -- a minimap 140 px wide at zoom 0 (466 yd across): 3.33 yd per pixel
+    Minimap.GetZoom, Minimap.GetWidth = function() return 0 end, function() return 140 end
+    ns.StartRun("herb") advance(2)
+    local spots = ns.MinimapPinSpots()
+    assert(#spots > 0, "test setup: no minimap pins")
+    local ypp = ns.MinimapYardsPerPixel()
+    assert(ypp and ypp > 3 and ypp < 3.5, "yards per pixel at zoom 0: " .. tostring(ypp))
+    MINI_PTS = {}
+    ns.RedrawRouteLine() advance(1)
+    assert(#MINI_PTS > 0, "no minimap line")
+    -- no dot of the line on or right next to a pin
+    local close = 0
+    for _, p in ipairs(MINI_PTS) do
+        for _, s in ipairs(spots) do
+            local dx, dy = p[1] - s.wx, p[2] - s.wy
+            if math.sqrt(dx * dx + dy * dy) < (s.px / 2 + 2) * ypp then close = close + 1 end
+        end
+    end
+    assert(close == 0, close .. " minimap line dots on a pin")
+    -- the dots lie below the pins
+    local dotLevel, pinLevel
+    for _, f in ipairs(allFrames) do
+        if f.mini == true and f.tex then
+            f.__parent = Minimap f.__scripts.OnShow(f) dotLevel = f:GetFrameLevel() break
+        end
+    end
+    for _, pin in ipairs(MINI_ICONS) do
+        if pin.node then pin.__parent = Minimap pin.__scripts.OnShow(pin) pinLevel = math.min(pinLevel or 99, pin:GetFrameLevel()) end
+    end
+    assert(dotLevel and pinLevel and dotLevel < pinLevel, ("line level %s, lowest pin %s"):format(tostring(dotLevel), tostring(pinLevel)))
+    -- its own switch: minimap off, world map still drawn; and the other way round
+    ns.ToggleRouteLine("mini")
+    MINI_PTS, LINE_PTS = {}, {}
+    ns.RedrawRouteLine() advance(1)
+    assert(#MINI_PTS == 0 and #LINE_PTS > 0, ("minimap off: %d mini, %d world dots"):format(#MINI_PTS, #LINE_PTS))
+    ns.ToggleRouteLine("mini") ns.ToggleRouteLine("world")
+    MINI_PTS, LINE_PTS = {}, {}
+    ns.RedrawRouteLine() advance(1)
+    assert(#MINI_PTS > 0 and #LINE_PTS == 0, ("world map off: %d mini, %d world dots"):format(#MINI_PTS, #LINE_PTS))
+    ns.ToggleRouteLine("world")
+    -- /gcr line: both off, then both on, and it says where the look is set
+    local mark = #log
+    slash("line")
+    assert(ns.db.routeLineHidden and ns.db.routeLineMiniHidden, "/gcr line did not hide both")
+    local told
+    for i = mark + 1, #log do if log[i]:find(ns.L["Colour and style: Options > Farm runs > Route line."], 1, true) then told = true end end
+    assert(told, "/gcr line does not say where colour and style are")
+    slash("line")
+    assert(not ns.db.routeLineHidden and not ns.db.routeLineMiniHidden, "/gcr line did not show both")
+    -- an old "line off" (one switch up to 0.1.16) keeps both off
+    ns.db.routeLineHidden, ns.db.routeLineMiniHidden, ns.db.routeLineSplit = true, nil, nil
+    ns.MigrateLineSwitch()
+    assert(ns.db.routeLineMiniHidden, "old switch off: the minimap line came back")
+    ns.db.routeLineMiniHidden = nil
+    ns.MigrateLineSwitch()
+    assert(not ns.db.routeLineMiniHidden, "migrated twice")
+    ns.db.routeLineHidden, ns.db.routeLineMiniHidden = nil, nil
+    ns.StopRun(true)
+    Minimap.GetZoom, Minimap.GetWidth = nil, nil
 end)
 step("Pin tooltip", function()
     for _, f in ipairs(allFrames) do

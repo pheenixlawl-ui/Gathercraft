@@ -506,4 +506,6 @@ ns.Locales.frFR = {
     ["Show the whole panel"] = "Afficher tout le panneau",
     ["Ring only"] = "Anneau seul",
     ["Ring only: just a coloured ring, no icon. The yellow dot of the game's herb and mineral tracking shows in the middle."] = "Anneau seul : juste un anneau coloré, sans icône. Le point jaune du pistage des herbes et minerais du jeu apparaît au centre.",
+    ["Route line on the minimap"] = "Ligne d'itinéraire sur la minicarte",
+    ["Colour and style: Options > Farm runs > Route line."] = "Couleur et style : Options > Farm runs > Ligne d'itinéraire.",
 }

@@ -506,4 +506,6 @@ ns.Locales.zhTW = {
     ["Show the whole panel"] = "顯示完整面板",
     ["Ring only"] = "僅圓環",
     ["Ring only: just a coloured ring, no icon. The yellow dot of the game's herb and mineral tracking shows in the middle."] = "僅圓環：只有彩色圓環，沒有圖示。遊戲草藥和礦物追蹤的黃點顯示在中間。",
+    ["Route line on the minimap"] = "小地圖上的路線",
+    ["Colour and style: Options > Farm runs > Route line."] = "顏色和樣式：選項 > Farm runs > 路線。",
 }

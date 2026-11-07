@@ -506,4 +506,6 @@ ns.Locales.esES = {
     ["Show the whole panel"] = "Mostrar el panel entero",
     ["Ring only"] = "Solo anillo",
     ["Ring only: just a coloured ring, no icon. The yellow dot of the game's herb and mineral tracking shows in the middle."] = "Solo anillo: solo un anillo de color, sin icono. El punto amarillo del rastreo de hierbas y minerales del juego se ve en el centro.",
+    ["Route line on the minimap"] = "Línea de ruta en el minimapa",
+    ["Colour and style: Options > Farm runs > Route line."] = "Color y estilo: Opciones > Farm runs > Línea de ruta.",
 }

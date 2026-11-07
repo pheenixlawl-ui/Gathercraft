@@ -1439,6 +1439,21 @@ local MINIMAP_DIAMETER = { -- yards across the minimap per zoom level (as HereBe
     outdoor = { [0] = 466 + 2 / 3, 400, 333 + 1 / 3, 266 + 2 / 6, 200, 133 + 1 / 3 },
 }
 
+-- Yards per pixel of the minimap right now (nil when it can't be told)
+function ns.MinimapYardsPerPixel()
+    if not (Minimap and Minimap.GetWidth and Minimap.GetZoom) then return end
+    local halfW = (Minimap:GetWidth() or 0) / 2
+    if halfW <= 0 then return end
+    local radius = C_Minimap and C_Minimap.GetViewRadius and C_Minimap.GetViewRadius()
+    if not radius then
+        local zoom = Minimap:GetZoom() or 0
+        local indoors = (tonumber(GetCVar("minimapZoom")) or 0) ~= zoom and "indoor" or "outdoor"
+        radius = (MINIMAP_DIAMETER[indoors][zoom] or 466) / 2
+    end
+    if ns.AnySecret("position", radius) or not radius or radius <= 0 then return end
+    return radius / halfW
+end
+
 -- Real yards between two points of a zone (Distance() guesses the map size
 -- on clients without C_Map.GetMapWorldSize)
 local function Yards(mapID, x1, y1, x2, y2)
