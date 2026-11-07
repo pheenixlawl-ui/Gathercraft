@@ -537,4 +537,5 @@ ns.Locales.deDE = {
     ["Ring only: just a coloured ring, no icon. The yellow dot of the game's herb and mineral tracking shows in the middle."] = "Nur Ring: nur ein farbiger Ring, kein Symbol. Der gelbe Punkt der Kräuter- und Erzsuche des Spiels ist in der Mitte zu sehen.",
     ["Route line on the minimap"] = "Routenlinie auf der Minikarte",
     ["Colour and style: Options > Farm runs > Route line."] = "Farbe und Stil: Optionen > Farm runs > Routenlinie.",
+    ["%d rough minimap guesses moved from a city map to the zone around it."] = "%d grobe Minikarten-Schätzungen von einer Stadtkarte in das Gebiet drumherum verschoben.",
 }

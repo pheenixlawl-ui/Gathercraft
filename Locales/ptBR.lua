@@ -508,4 +508,5 @@ ns.Locales.ptBR = {
     ["Ring only: just a coloured ring, no icon. The yellow dot of the game's herb and mineral tracking shows in the middle."] = "Só anel: apenas um anel colorido, sem ícone. O ponto amarelo do rastreamento de ervas e minérios do jogo aparece no meio.",
     ["Route line on the minimap"] = "Linha da rota no minimapa",
     ["Colour and style: Options > Farm runs > Route line."] = "Cor e estilo: Opções > Farm runs > Linha da rota.",
+    ["%d rough minimap guesses moved from a city map to the zone around it."] = "%d estimativas do minimapa movidas de um mapa de cidade para a zona ao redor.",
 }

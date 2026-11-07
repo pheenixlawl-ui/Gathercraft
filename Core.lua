@@ -215,6 +215,16 @@ function ns.PlayerMap()
     return Readable(C_Map.GetBestMapForUnit("player"), "position")
 end
 
+-- capital cities belong to the zone around them (also Route.lua)
+ns.CITY_ZONE = {
+    [1453] = 1429, -- Stormwind City -> Elwynn Forest
+    [1454] = 1411, -- Orgrimmar -> Durotar
+    [1455] = 1426, -- Ironforge -> Dun Morogh
+    [1456] = 1412, -- Thunder Bluff -> Mulgore
+    [1457] = 1438, -- Darnassus -> Teldrassil
+    [1458] = 1420, -- Undercity -> Tirisfal Glades
+}
+
 local function GetPlayerPos()
     local mapID = ns.PlayerMap()
     if not mapID then return end
@@ -1226,6 +1236,7 @@ frame:SetScript("OnEvent", function(self, event, ...)
             ns.db = GathercraftDB
         end
     elseif event == "PLAYER_LOGIN" then
+        if ns.MoveCityGuesses then ns.MoveCityGuesses() end
         if ns.ConsolidateSeen then
             local n = 0
             for mapID in pairs(ns.db.nodes) do n = n + ns.ConsolidateSeen(mapID) end
@@ -1503,6 +1514,9 @@ local function CursorOnMap()
     local px, py, instance = HBD:GetPlayerWorldPosition()
     local mapID = ns.PlayerMap()
     if AnySecret("position", px, py, instance) or not (px and mapID) then return end
+    -- from a city (Thunder Bluff on its mesa) the minimap shows the zone
+    -- around it: herbs below were put on the small city map (v0.1.17)
+    mapID = ns.CITY_ZONE[mapID] or mapID
     local scale = Minimap:GetEffectiveScale()
     local cx, cy = GetCursorPosition()
     if AnySecret("position", cx, cy) then return end
@@ -1626,6 +1640,41 @@ local function OnSeen(mapID, x, y, name, err)
     Debug(("SEEN new %s at %.1f / %.1f (~%d yd exact)"):format(name, x * 100, y * 100, err))
     Print((L["%s learned from the minimap (position is a rough guess until you harvest it)."]):format(name))
     NodesChanged("add", mapID, node)
+end
+
+-- Up to 0.1.16 a look at the minimap from a city was put on the city map
+-- (seen in Thunder Bluff: Mulgore herbs below the mesa). Such guesses (never
+-- harvested) go to the zone around the city, at the same spot of the world;
+-- the same position, only on the right map. Nothing is deleted. Once.
+function ns.MoveCityGuesses()
+    if ns.db.cityGuessesMoved or not (HBD and HBD.GetWorldCoordinatesFromZone and HBD.GetZoneCoordinatesFromWorld) then return 0 end
+    local moved = 0
+    for city, zone in pairs(ns.CITY_ZONE) do
+        local list = ns.db.nodes[city]
+        if list then
+            for i = #list, 1, -1 do
+                local n = list[i]
+                if n.seenOnly and n.x and n.y then
+                    local wx, wy = HBD:GetWorldCoordinatesFromZone(n.x, n.y, city)
+                    local zx, zy
+                    if wx and wy then zx, zy = HBD:GetZoneCoordinatesFromWorld(wx, wy, zone) end
+                    if zx and zx >= 0 and zx <= 1 and zy >= 0 and zy <= 1 then
+                        table.remove(list, i)
+                        n.x, n.y, n.movedFrom = zx, zy, city
+                        table.insert(GetZoneNodes(zone, true), n)
+                        moved = moved + 1
+                    end
+                end
+            end
+            if #list == 0 then ns.db.nodes[city] = nil end
+        end
+    end
+    ns.db.cityGuessesMoved = true
+    if moved > 0 then
+        Print((L["%d rough minimap guesses moved from a city map to the zone around it."]):format(moved))
+        NodesChanged()
+    end
+    return moved
 end
 
 -- Rough guesses of the same kind that lie within their errors of each other

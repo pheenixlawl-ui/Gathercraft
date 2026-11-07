@@ -508,4 +508,5 @@ ns.Locales.zhTW = {
     ["Ring only: just a coloured ring, no icon. The yellow dot of the game's herb and mineral tracking shows in the middle."] = "僅圓環：只有彩色圓環，沒有圖示。遊戲草藥和礦物追蹤的黃點顯示在中間。",
     ["Route line on the minimap"] = "小地圖上的路線",
     ["Colour and style: Options > Farm runs > Route line."] = "顏色和樣式：選項 > Farm runs > 路線。",
+    ["%d rough minimap guesses moved from a city map to the zone around it."] = "已將 %d 個小地圖估計位置從城市地圖移到周圍的區域。",
 }

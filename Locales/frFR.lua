@@ -508,4 +508,5 @@ ns.Locales.frFR = {
     ["Ring only: just a coloured ring, no icon. The yellow dot of the game's herb and mineral tracking shows in the middle."] = "Anneau seul : juste un anneau coloré, sans icône. Le point jaune du pistage des herbes et minerais du jeu apparaît au centre.",
     ["Route line on the minimap"] = "Ligne d'itinéraire sur la minicarte",
     ["Colour and style: Options > Farm runs > Route line."] = "Couleur et style : Options > Farm runs > Ligne d'itinéraire.",
+    ["%d rough minimap guesses moved from a city map to the zone around it."] = "%d estimations de la minicarte déplacées d'une carte de ville vers la zone autour.",
 }

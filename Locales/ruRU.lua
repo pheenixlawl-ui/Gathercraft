@@ -508,4 +508,5 @@ ns.Locales.ruRU = {
     ["Ring only: just a coloured ring, no icon. The yellow dot of the game's herb and mineral tracking shows in the middle."] = "Только кольцо: цветное кольцо без значка. Жёлтая точка поиска трав и руды из игры видна в середине.",
     ["Route line on the minimap"] = "Линия маршрута на миникарте",
     ["Colour and style: Options > Farm runs > Route line."] = "Цвет и стиль: Параметры > Farm runs > Линия маршрута.",
+    ["%d rough minimap guesses moved from a city map to the zone around it."] = "Перенесено приблизительных отметок с миникарты: %d — с карты города в зону вокруг неё.",
 }

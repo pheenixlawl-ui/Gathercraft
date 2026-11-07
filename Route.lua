@@ -173,15 +173,8 @@ local function WorldPos(n, mapID)
 end
 
 -- All checked nodes on the given continent (or in one zone only)
--- capital cities belong to the zone around them
-local CITY_ZONE = {
-    [1453] = 1429, -- Stormwind City -> Elwynn Forest
-    [1454] = 1411, -- Orgrimmar -> Durotar
-    [1455] = 1426, -- Ironforge -> Dun Morogh
-    [1456] = 1412, -- Thunder Bluff -> Mulgore
-    [1457] = 1438, -- Darnassus -> Teldrassil
-    [1458] = 1420, -- Undercity -> Tirisfal Glades
-}
+-- capital cities belong to the zone around them (Core.lua)
+local CITY_ZONE = ns.CITY_ZONE
 
 -- Zones picked for one run (Zones tab) that lie far apart: the route takes
 -- the group of neighbouring zones you are in (or the nearest one) instead of

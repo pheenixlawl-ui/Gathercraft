@@ -5035,6 +5035,51 @@ step("Route line on the minimap: below the pins, a gap at each pin, its own swit
     ns.StopRun(true)
     Minimap.GetZoom, Minimap.GetWidth = nil, nil
 end)
+step("Minimap looks from a city go to the zone around it; old ones move once (v0.1.17)", function()
+    -- a look from Thunder Bluff (1456): the mesa stands in Mulgore (1412);
+    -- in this test world the city map is a small part of Mulgore's
+    local HBD = LibStub("HereBeDragons-2.0")
+    local W, Z, P = HBD.GetWorldCoordinatesFromZone, HBD.GetZoneCoordinatesFromWorld, HBD.GetPlayerWorldPosition
+    HBD.GetWorldCoordinatesFromZone = function(s, x, y, map)
+        if map == 1456 then return W(s, 0.4 + 0.2 * x, 0.3 + 0.2 * y, 1412) end
+        return W(s, x, y, map)
+    end
+    HBD.GetZoneCoordinatesFromWorld = function(s, wx, wy, map)
+        if map == 1456 then local x, y = Z(s, wx, wy, 1412) return (x - 0.4) / 0.2, (y - 0.3) / 0.2 end
+        return Z(s, wx, wy, map)
+    end
+    HBD.GetPlayerWorldPosition = function(s) return HBD.GetWorldCoordinatesFromZone(s, player.x, player.y, player.map) end
+    player.map, player.x, player.y = 1456, 0.5, 0.5
+    Minimap.GetZoom, Minimap.GetWidth, Minimap.GetHeight = function() return 0 end, function() return 140 end, function() return 140 end
+    Minimap.GetCenter, Minimap.GetEffectiveScale = function() return 500, 500 end, function() return 1 end
+    local cursor = GetCursorPosition
+    GetCursorPosition = function() return 535, 500 end
+    local mapID = ns.CursorOnMap()
+    GetCursorPosition = cursor
+    Minimap.GetZoom, Minimap.GetWidth, Minimap.GetHeight, Minimap.GetCenter, Minimap.GetEffectiveScale = nil, nil, nil, nil, nil
+    assert(mapID == 1412, "a look from Thunder Bluff landed on map " .. tostring(mapID))
+    -- guesses already on the city map: moved to Mulgore, same spot of the world; harvested ones stay
+    ns.db.cityGuessesMoved = nil
+    ns.db.nodes[1456] = {
+        { id = "o1617", name = "Silverleaf", type = "herb", x = 0.3, y = 0.4, count = 1, seenOnly = true },
+        { id = "o1618", name = "Peacebloom", type = "herb", x = 0.6, y = 0.2, count = 3 },
+    }
+    local before = #(ns.db.nodes[1412] or {})
+    local wx, wy = HBD:GetWorldCoordinatesFromZone(0.3, 0.4, 1456)
+    local moved = ns.MoveCityGuesses()
+    assert(moved == 1, moved .. " moved, want the one guess")
+    assert(#ns.db.nodes[1456] == 1 and ns.db.nodes[1456][1].name == "Peacebloom", "the harvested node left the city map")
+    local m = ns.db.nodes[1412][#ns.db.nodes[1412]]
+    assert(#ns.db.nodes[1412] == before + 1 and m.name == "Silverleaf" and m.movedFrom == 1456, "the guess is not in Mulgore")
+    local mx, my = HBD:GetWorldCoordinatesFromZone(m.x, m.y, 1412)
+    assert(math.abs(mx - wx) < 0.01 and math.abs(my - wy) < 0.01, "the guess moved in the world")
+    assert(ns.MoveCityGuesses() == 0, "moved twice")
+    table.remove(ns.db.nodes[1412])
+    ns.db.nodes[1456] = nil
+    ns.NotifyNodesChanged()
+    HBD.GetWorldCoordinatesFromZone, HBD.GetZoneCoordinatesFromWorld, HBD.GetPlayerWorldPosition = W, Z, P
+    player.map, player.x, player.y = 1412, 0.45, 0.72
+end)
 step("Pin tooltip", function()
     for _, f in ipairs(allFrames) do
         if f.node and f.__scripts.OnEnter then f.__scripts.OnEnter(f) f.__scripts.OnLeave(f) break end
