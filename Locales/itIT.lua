@@ -490,4 +490,5 @@ ns.Locales.itIT = {
     ["Nothing to farm for 10 minutes: run stopped. Start it again any time."] = "Niente da raccogliere per 10 minuti: giro interrotto. Riavvialo quando vuoi.",
     ["%s was always empty and only came from other players: left out of routes until someone new reports it."] = "%s era sempre vuoto e veniva solo da altri giocatori: escluso dai percorsi finché qualcuno di nuovo non lo segnala.",
     ["Always empty so far: left out of routes until someone new reports it or you harvest it."] = "Sempre vuoto finora: escluso dai percorsi finché qualcuno di nuovo non lo segnala o non lo raccogli.",
+    ["Skill"] = "Abilità",
 }

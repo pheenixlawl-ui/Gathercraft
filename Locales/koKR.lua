@@ -490,4 +490,5 @@ ns.Locales.koKR = {
     ["Nothing to farm for 10 minutes: run stopped. Start it again any time."] = "10분 동안 채집할 것이 없어 경로를 멈췄습니다. 언제든 다시 시작하세요.",
     ["%s was always empty and only came from other players: left out of routes until someone new reports it."] = "%s은(는) 항상 비어 있었고 다른 플레이어에게서만 받은 정보입니다: 새로운 플레이어가 알려 줄 때까지 경로에서 제외합니다.",
     ["Always empty so far: left out of routes until someone new reports it or you harvest it."] = "지금까지 항상 비어 있음: 새로운 플레이어가 알려 주거나 직접 채집할 때까지 경로에서 제외됩니다.",
+    ["Skill"] = "숙련도",
 }

@@ -6764,6 +6764,56 @@ step("Recipe data: Blizzard hotfix for the Tanning Rack (v0.1.17)", function()
     assert(GathercraftRecipeData.colors[spell] == "125:130", "Tanning Rack: colours " .. tostring(GathercraftRecipeData.colors[spell]))
     assert(not (GathercraftRecipeData.guessed.Leatherworking or {})["Tanning Rack"], "Tanning Rack: marked as a guess")
 end)
+step("Crafting: sort by a column, both ways, remembered (v0.1.17)", function()
+    local function R(name, req, profit, value, cost, can, extra)
+        local r = { name = name, prof = "Tailoring", req = req, profit = profit, value = value, valueSource = "AH scan",
+            cost = cost, costUnknown = 0, reagents = { {} }, canMake = can, missing = false, enchant = false }
+        for k, v in pairs(extra or {}) do r[k] = v end
+        return r
+    end
+    local function Rows()
+        return { R("Bolt", 50, 100, 300, 200, 3), R("Shirt", 10, 500, 900, 400, 0), R("Gloves", 75, -50, 100, 150, 9),
+            R("Cloak", nil, 20, 120, 100, 1), R("Robe", 30, 0, 0, 0, 2, { missing = true, valueSource = nil, costUnknown = 1 }) }
+    end
+    local function Order(key, desc)
+        local names = {}
+        for _, r in ipairs(ns.CraftSortRows(Rows(), key, desc)) do names[#names + 1] = r.name end
+        return table.concat(names, " ")
+    end
+    local want = {
+        { "skill", false, "Shirt Robe Bolt Gloves Cloak" }, { "skill", true, "Gloves Bolt Robe Shirt Cloak" },
+        { "profit", true, "Shirt Bolt Cloak Gloves Robe" }, { "profit", false, "Gloves Cloak Bolt Shirt Robe" },
+        { "value", true, "Shirt Bolt Cloak Gloves Robe" }, { "cost", false, "Cloak Gloves Bolt Shirt Robe" },
+        { "can", true, "Gloves Bolt Robe Cloak Shirt" }, { "name", false, "Bolt Cloak Gloves Robe Shirt" },
+        { "name", true, "Shirt Robe Gloves Cloak Bolt" },
+    }
+    local bad = {}
+    for _, w in ipairs(want) do
+        local got = Order(w[1], w[2])
+        if got ~= w[3] then bad[#bad + 1] = ("%s %s: %s"):format(w[1], tostring(w[2]), got) end
+    end
+    assert(#bad == 0, #bad .. " wrong: " .. table.concat(bad, " | "))
+
+    -- the page: skill, low first, by default; a click sorts, a second click turns it round
+    ns.db.craftSort, ns.db.craftSortDesc = nil, nil
+    ns.ToggleMain("craft") advance(1)
+    local titles = {}
+    for _, f in ipairs(allFrames) do
+        if f.__kind == "Button" and f.label and f.text and f.__scripts.OnClick then titles[f.label] = f end
+    end
+    for _, label in ipairs({ "Item", "Skill", "Profit", "Sells for", "Costs", "Can make" }) do
+        assert(titles[label], "no clickable column title " .. label)
+    end
+    assert(titles.Skill.text.__text:find("Arrow-Up", 1, true), "skill is not the default sort: " .. tostring(titles.Skill.text.__text))
+    titles.Profit.__scripts.OnClick(titles.Profit)
+    assert(ns.db.craftSort == "profit" and ns.db.craftSortDesc == true, "profit click: " .. tostring(ns.db.craftSort))
+    assert(titles.Profit.text.__text:find("Arrow-Down", 1, true), "profit: no arrow")
+    assert(not titles.Skill.text.__text:find("Arrow", 1, true), "skill still marked")
+    titles.Profit.__scripts.OnClick(titles.Profit)
+    assert(ns.db.craftSort == "profit" and ns.db.craftSortDesc == false, "second click did not turn it round")
+    ns.HideMain()
+    ns.db.craftSort, ns.db.craftSortDesc = nil, nil
+end)
 step("Long run (10 min) for leaks", function() slash("run herb") advance(600) slash("stop") end)
 
 io.write("\n--- errors: " .. #errors .. "\n")

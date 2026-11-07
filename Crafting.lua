@@ -1104,6 +1104,40 @@ local function Evaluate(profFilter, mineOnly)
     return rows
 end
 
+-- Sorting the page by a column. Rows without a number for that column
+-- (no price, no skill known) always go last, in both directions; equal
+-- rows by name.
+local CRAFT_SORTS = {
+    skill = function(r) return r.req end,
+    profit = function(r) if not r.missing and not r.enchant then return r.profit end end,
+    value = function(r) if r.valueSource and not r.enchant then return r.value end end,
+    cost = function(r) if not (r.costUnknown > 0 and r.costUnknown >= #r.reagents) then return r.cost end end,
+    can = function(r) return r.canMake end,
+}
+local CRAFT_SORT_DEFAULT = "skill"
+-- first click on a column: high first for money and counts, low first for skill and names
+local CRAFT_SORT_DESC = { profit = true, value = true, cost = false, can = true, skill = false, name = false }
+
+local function SortRows(rows, key, desc)
+    local get = CRAFT_SORTS[key]
+    table.sort(rows, function(a, b)
+        if get then
+            local x, y = get(a), get(b)
+            if (x == nil) ~= (y == nil) then return x ~= nil end
+            if x and y and math.abs(x - y) > 0.5 then
+                if desc then return x > y end
+                return x < y
+            end
+        elseif a.name ~= b.name then
+            if desc then return a.name > b.name end
+            return a.name < b.name
+        end
+        if a.name ~= b.name then return a.name < b.name end
+        return a.prof < b.prof
+    end)
+    return rows
+end
+
 -- The costs of a recipe as text: "?" when no reagent has a price, "~" in
 -- front when some have none (or a vendor price is estimated). "0c" only
 -- when the materials really cost nothing.
@@ -1266,18 +1300,46 @@ ns.BuildCraftPage = function(page, style)
         Refresh()
     end)
 
-    local function Col(text, x, width, justify)
-        local fs = page:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-        fs:SetPoint("TOPLEFT", x, -94)
-        fs:SetWidth(width)
-        fs:SetJustifyH(justify or "LEFT")
-        ns.LText(fs, text)
+    -- column titles, click to sort, click again for the other direction
+    local sortKey, sortDesc -- read from the saved choice on first show
+    local cols = {}
+    local function Col(key, text, x, width, justify)
+        local b = CreateFrame("Button", nil, page)
+        b:SetPoint("TOPLEFT", x, -94)
+        b:SetSize(width, 16)
+        b.text = b:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        b.text:SetAllPoints()
+        b.text:SetJustifyH(justify or "LEFT")
+        b.text:SetWordWrap(false)
+        b.label = text
+        b.right = justify == "RIGHT"
+        b:SetScript("OnClick", function()
+            if sortKey == key then
+                sortDesc = not sortDesc
+            else
+                sortKey, sortDesc = key, CRAFT_SORT_DESC[key]
+            end
+            ns.db.craftSort, ns.db.craftSortDesc = sortKey, sortDesc
+            Refresh()
+        end)
+        cols[key] = b
     end
-    Col("Item", 30, 330)
-    Col("Profit", 364, 80, "RIGHT")
-    Col("Sells for", 448, 80, "RIGHT")
-    Col("Costs", 532, 80, "RIGHT")
-    Col("Can make", 616, 80, "RIGHT")
+    Col("name", "Item", 30, 250)
+    Col("skill", "Skill", 284, 72, "RIGHT")
+    Col("profit", "Profit", 364, 80, "RIGHT")
+    Col("value", "Sells for", 448, 80, "RIGHT")
+    Col("cost", "Costs", 532, 80, "RIGHT")
+    Col("can", "Can make", 616, 80, "RIGHT")
+    local function ColTitles()
+        for key, b in pairs(cols) do
+            local text = L[b.label]
+            if key == sortKey then
+                local arrow = sortDesc and "|TInterface\\Buttons\\Arrow-Down-Up:12:12|t" or "|TInterface\\Buttons\\Arrow-Up-Up:12:12|t"
+                text = "|cffffffff" .. (b.right and (arrow .. text) or (text .. arrow)) .. "|r"
+            end
+            b.text:SetText(text)
+        end
+    end
 
     local scroll = CreateFrame("ScrollFrame", "GathercraftCraftScroll", page, "UIPanelScrollFrameTemplate")
     scroll:SetPoint("TOPLEFT", 0, -110)
@@ -1526,14 +1588,21 @@ ns.BuildCraftPage = function(page, style)
 
         sub:SetText((L["Profit after the 5%% auction cut  ·  %s"]):format(ns.PriceSourceText and ns.PriceSourceText() or ""))
 
-        local list = Evaluate(filter ~= "mine" and filter or nil, filter == "mine" or mineOnly)
+        sortKey = sortKey or ns.db.craftSort
+        if sortKey ~= "name" and not CRAFT_SORTS[sortKey] then sortKey = CRAFT_SORT_DEFAULT end
+        if sortDesc == nil then
+            if ns.db.craftSortDesc ~= nil then sortDesc = ns.db.craftSortDesc else sortDesc = CRAFT_SORT_DESC[sortKey] end
+        end
+        ColTitles()
+        local list = SortRows(Evaluate(filter ~= "mine" and filter or nil, filter == "mine" or mineOnly), sortKey, sortDesc)
         for i, r in ipairs(list) do
             local row = Row(i)
             row.data = r
             row.icon:SetTexture(r.enchant and "Interface\\Icons\\Trade_Engraving"
                 or (C_Item and C_Item.GetItemIconByID and C_Item.GetItemIconByID(r.product)) or 134400)
             if r.learned then
-                row.name:SetText((DIFF_COLORS[r.diff] or "|cffffffff") .. r.name .. "|r")
+                row.name:SetText((DIFF_COLORS[r.diff] or "|cffffffff") .. r.name .. "|r"
+                    .. ((r.req and r.req > 0) and ("  |cff777777(" .. (r.reqGuessed and "~" or "") .. r.req .. ")|r") or ""))
             else
                 row.name:SetText("|cffa0a0a0" .. r.name .. "|r" .. ((r.req and r.req > 0) and ("  |cff777777(" .. (r.reqGuessed and "~" or "") .. r.req .. ")|r") or ""))
             end
@@ -1605,6 +1674,7 @@ ns.RecipeTest = function()
 end
 
 ns.CraftAdvice = Evaluate
+ns.CraftSortRows = SortRows -- for the tests
 ns.CraftCostText = CostText -- for the tests (tools/smoke_test.lua)
 ns.CraftValueText = ValueText
 

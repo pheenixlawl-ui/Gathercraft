@@ -490,4 +490,5 @@ ns.Locales.zhCN = {
     ["Nothing to farm for 10 minutes: run stopped. Start it again any time."] = "10分钟内没有可采集的目标：路线已停止。随时可以重新开始。",
     ["%s was always empty and only came from other players: left out of routes until someone new reports it."] = "%s 一直是空的，且只来自其他玩家：在有新玩家报告之前不再加入路线。",
     ["Always empty so far: left out of routes until someone new reports it or you harvest it."] = "至今一直是空的：在有新玩家报告或你亲自采集之前不加入路线。",
+    ["Skill"] = "技能",
 }

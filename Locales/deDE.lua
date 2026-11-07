@@ -519,4 +519,5 @@ ns.Locales.deDE = {
     ["Nothing to farm for 10 minutes: run stopped. Start it again any time."] = "10 Minuten lang nichts zu farmen: Runde beendet. Starte sie einfach wieder, wann du willst.",
     ["%s was always empty and only came from other players: left out of routes until someone new reports it."] = "%s war bisher immer leer und kam nur von anderen Spielern: bleibt aus den Routen draußen, bis es jemand Neues meldet.",
     ["Always empty so far: left out of routes until someone new reports it or you harvest it."] = "Bisher immer leer: bleibt aus den Routen draußen, bis es jemand Neues meldet oder du es erntest.",
+    ["Skill"] = "Skill",
 }

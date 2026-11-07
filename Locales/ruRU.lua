@@ -490,4 +490,5 @@ ns.Locales.ruRU = {
     ["Nothing to farm for 10 minutes: run stopped. Start it again any time."] = "10 минут нечего собирать: маршрут остановлен. Запустите его снова в любое время.",
     ["%s was always empty and only came from other players: left out of routes until someone new reports it."] = "%s всегда был пуст и пришёл только от других игроков: исключён из маршрутов, пока о нём не сообщит кто-то новый.",
     ["Always empty so far: left out of routes until someone new reports it or you harvest it."] = "Пока всегда пуст: исключён из маршрутов, пока о нём не сообщит кто-то новый или вы его не соберёте.",
+    ["Skill"] = "Навык",
 }
