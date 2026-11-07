@@ -491,4 +491,7 @@ ns.Locales.esES = {
     ["%s was always empty and only came from other players: left out of routes until someone new reports it."] = "%s siempre estaba vacío y solo venía de otros jugadores: queda fuera de las rutas hasta que alguien nuevo lo informe.",
     ["Always empty so far: left out of routes until someone new reports it or you harvest it."] = "Siempre vacío hasta ahora: queda fuera de las rutas hasta que alguien nuevo lo informe o lo recolectes.",
     ["Skill"] = "Habilidad",
+    ["Scan incomplete: %d auctions could not be read, old prices kept (%d updated)."] = "Escaneo incompleto: no se pudieron leer %d subastas, se mantienen los precios anteriores (%d actualizados).",
+    ["prices: own scan (newest %s ago), fresher Auctionator, vendor"] = "precios: escaneo propio (el más reciente hace %s), Auctionator más reciente, vendedor",
+    ["prices: own scan (newest %s ago), vendor"] = "precios: escaneo propio (el más reciente hace %s), vendedor",
 }

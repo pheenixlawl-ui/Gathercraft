@@ -491,4 +491,7 @@ ns.Locales.ptBR = {
     ["%s was always empty and only came from other players: left out of routes until someone new reports it."] = "%s sempre esteve vazio e só veio de outros jogadores: fica fora das rotas até alguém novo informar.",
     ["Always empty so far: left out of routes until someone new reports it or you harvest it."] = "Sempre vazio até agora: fica fora das rotas até alguém novo informar ou você coletar.",
     ["Skill"] = "Perícia",
+    ["Scan incomplete: %d auctions could not be read, old prices kept (%d updated)."] = "Varredura incompleta: %d leilões não puderam ser lidos, preços antigos mantidos (%d atualizados).",
+    ["prices: own scan (newest %s ago), fresher Auctionator, vendor"] = "preços: varredura própria (a mais nova há %s), Auctionator mais recente, vendedor",
+    ["prices: own scan (newest %s ago), vendor"] = "preços: varredura própria (a mais nova há %s), vendedor",
 }

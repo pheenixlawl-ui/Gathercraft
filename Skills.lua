@@ -49,30 +49,65 @@ local function Bonus(modifier)
     return modifier > 0 and modifier or 0
 end
 
-local function GetSkill(nodeType)
+-- The profession's line is found by what it is (skill line ID or name). Its
+-- numbers may be hidden while the line itself is readable (R4-B1): then the
+-- profession is there, with the numbers of the last readable look.
+local lastRank = {} -- "herb"/"ore" -> { rank, maxRank, effective }
+
+-- One profession line: present = it is this profession; unclear = it can't
+-- be told (hidden identity); rank... = its numbers, nil while hidden
+local function Remember(nodeType, rank, maxRank, modifier)
+    if ns.AnySecret("skills", rank, maxRank, modifier) or not rank then
+        local r = lastRank[nodeType]
+        if r then return r[1], r[2], r[3] end
+        return
+    end
+    local effective = rank + Bonus(modifier)
+    lastRank[nodeType] = { rank, maxRank, effective }
+    return rank, maxRank, effective
+end
+
+-- found, unclear, rank, maxRank, effective: found = a line readable as this
+-- profession; unclear = some line could be it but can't be read
+local function FindProfession(nodeType)
+    local unclear = false
     if GetProfessions and GetProfessionInfo then
         -- prof1, prof2, archaeology, fishing, cooking, first aid (some may be nil)
         local profs = { GetProfessions() }
         for i = 1, 6 do
             local index = profs[i]
-            if index and not ns.AnySecret("skills", index) then
-                local _, _, rank, maxRank, _, _, skillLine, modifier = GetProfessionInfo(index)
-                if not ns.AnySecret("skills", rank, maxRank, skillLine, modifier) and skillLine == SKILL_LINE[nodeType] then
-                    return rank, maxRank, rank + Bonus(modifier)
+            if index then
+                if ns.AnySecret("skills", index) then
+                    unclear = true
+                else
+                    local _, _, rank, maxRank, _, _, skillLine, modifier = GetProfessionInfo(index)
+                    if ns.AnySecret("skills", skillLine) then
+                        unclear = true
+                    elseif skillLine == SKILL_LINE[nodeType] then
+                        return true, false, Remember(nodeType, rank, maxRank, modifier)
+                    end
                 end
             end
         end
     end
     if GetNumSkillLines and GetSkillLineInfo then
-        for i = 1, ns.Readable(GetNumSkillLines(), "skills") or 0 do
+        local count = ns.Readable(GetNumSkillLines(), "skills")
+        if not count then unclear = true end
+        for i = 1, count or 0 do
             local name, isHeader, _, rank, _, modifier, maxRank = GetSkillLineInfo(i)
-            if ns.AnySecret("skills", name, isHeader, rank, modifier, maxRank) then
-                -- hidden: this line can't tell
+            if ns.AnySecret("skills", name, isHeader) then
+                unclear = true -- hidden: this line can't tell
             elseif not isHeader and name and SKILL_NAMES[nodeType] and SKILL_NAMES[nodeType][name:lower()] then
-                return rank, maxRank, rank + Bonus(modifier)
+                return true, false, Remember(nodeType, rank, maxRank, modifier)
             end
         end
     end
+    return false, unclear
+end
+
+local function GetSkill(nodeType)
+    local found, _, rank, maxRank, effective = FindProfession(nodeType)
+    if found then return rank, maxRank, effective end
 end
 
 -- GetSkill found nothing: true when that may only be because the old skill
@@ -340,13 +375,19 @@ end
 
 -- herb, ore, known, source: known is nil while nothing can be said
 local function ReadGatherProfessions()
-    local herb, ore = GetSkill("herb") and true or false, GetSkill("ore") and true or false
+    -- a profession counts when its line is readable as it, whatever its
+    -- numbers; a line that can't be read never proves "not learned" (R4-B1)
+    local herb, herbUnclear = FindProfession("herb")
+    local ore, oreUnclear = FindProfession("ore")
+    local unclear = (not herb and herbUnclear) or (not ore and oreUnclear)
     if ProfessionIDsWork() then
+        if unclear then return herb, ore, nil, "IDs" end
         if herb or ore or settled then return herb, ore, true, "IDs" end
         return herb, ore, nil, "IDs"
     end
     local source = GetNumSkillLines and GetSkillLineInfo and "skill lines" or "nothing"
     if herb and ore then return herb, ore, true, source end
+    if unclear then return herb, ore, nil, source end
     if (herb or ore or settled) and SkillListProves() then return herb, ore, true, source end
     return herb, ore, nil, source
 end

@@ -3677,6 +3677,50 @@ step("Auction house: a search replaces an old price, a failed scan changes nothi
     AHX.GetNumReplicateItems, AHX.GetReplicateItemInfo, AHX.GetBrowseResults = keepNum, keepInfo, keepBrowse
     time, ns.db.debug = keepTime, keepDebug
 end)
+step("Auction house: a scan with unreadable auctions keeps the old prices (R4-B2)", function()
+    local p = ns.db.prices[next(ns.db.prices)]
+    local keep = { items = p.items, qty = p.qty, seen = p.seen, scanned = p.scanned }
+    local AHX = C_AuctionHouse
+    local keepNum, keepInfo, keepReplicate = AHX.GetNumReplicateItems, AHX.GetReplicateItemInfo, AHX.ReplicateItems
+    local TIN, PEACE = 2771, 2447
+    local function Prices() p.items, p.qty, p.seen, p.scanned = { [TIN] = 295 }, { [TIN] = 10 }, { [TIN] = time() - 3600 }, time() - 7200 end
+    local function Scan(info, n)
+        AHX.GetNumReplicateItems = function() return n end
+        AHX.GetReplicateItemInfo = info
+        fire("AUCTION_HOUSE_CLOSED")
+        fire("AUCTION_HOUSE_SHOW") advance(1)
+        ns.db.prices[next(ns.db.prices)].lastScanStart = nil
+        slash("scan") advance(1)
+        fire("REPLICATE_ITEM_LIST_UPDATE") advance(3)
+        fire("AUCTION_HOUSE_CLOSED") advance(1)
+    end
+    local function Good() return "Peacebloom", 1, 1, 1, true, 1, 0, 0, 0, 20, 0, false, nil, "Seller", nil, 0, PEACE, true end
+    -- Codex's probe: Tin 295c known; one good Peacebloom auction, one that throws
+    Prices()
+    local scanned = p.scanned
+    local mark = #log
+    Scan(function(i) if i == 0 then return Good() end error("read failed") end, 2)
+    p = ns.db.prices[next(ns.db.prices)]
+    assert(p.items[TIN] == 295, "Tin lost: " .. tostring(p.items[TIN]))
+    assert(p.items[PEACE] == 20, "Peacebloom not updated: " .. tostring(p.items[PEACE]))
+    assert(p.scanned == scanned, "an incomplete scan counts as a full one")
+    local told
+    for i = mark + 1, #log do if log[i]:find("incomplete", 1, true) or log[i]:find(ns.L["Scan incomplete: %d auctions could not be read, old prices kept (%d updated)."]:sub(1, 12), 1, true) then told = true end end
+    assert(told, "no word that the scan was incomplete")
+    -- an auction that gives back nothing at all counts the same
+    Prices()
+    Scan(function(i) if i == 0 then return Good() end end, 2)
+    p = ns.db.prices[next(ns.db.prices)]
+    assert(p.items[TIN] == 295 and p.items[PEACE] == 20, "no answer for one auction: Tin " .. tostring(p.items[TIN]))
+    -- a full scan without errors still replaces everything
+    Prices()
+    Scan(function() return Good() end, 2)
+    p = ns.db.prices[next(ns.db.prices)]
+    assert(p.items[TIN] == nil and p.items[PEACE] == 20 and p.scanned > scanned, "a complete scan did not replace the prices")
+    AHX.GetNumReplicateItems, AHX.GetReplicateItemInfo, AHX.ReplicateItems = keepNum, keepInfo, keepReplicate
+    p.items, p.qty, p.seen, p.scanned = keep.items, keep.qty, keep.seen, keep.scanned
+    p.lastScanStart = nil
+end)
 step("Market price: the cheapest offer with stock behind it (v0.1.16)", function()
     local p = ns.db.prices[next(ns.db.prices)]
     local AHX = C_AuctionHouse
@@ -3817,12 +3861,18 @@ step("Prices: fresh before own, and the label says which (v0.1.16)", function()
 
     -- the labels: "prices: ..." and the source of a mix
     p.seen, p.scanned = { [ID] = clock - 7 * 3600 }, clock - 7 * 3600
-    local ah, atr = ns.L["prices: auction house, updated "], ns.L["prices: Auctionator (scan at the auction house for our own)"]
-    Check(ns.PriceSourceText():find(ah, 1, true), "label, 7 h, alone")
+    -- R4-H1: the label names the sources in their order, never one for all
+    local atr = ns.L["prices: Auctionator (scan at the auction house for our own)"]
+    local own = ns.L["prices: own scan (newest %s ago), vendor"]:format("7 h")
+    local mix = ns.L["prices: own scan (newest %s ago), fresher Auctionator, vendor"]
+    Check(ns.PriceSourceText() == own, "label, 7 h, alone: " .. ns.PriceSourceText())
     Atr(187)
-    Check(ns.PriceSourceText() == atr, "label, 7 h, Auctionator: " .. ns.PriceSourceText())
+    Check(ns.PriceSourceText() == mix:format("7 h"), "label, 7 h, Auctionator: " .. ns.PriceSourceText())
+    -- Codex's probe: own Tin 21 h old, Auctionator 3 days: the own price is used, the label says own scan first
+    p.seen[ID], p.scanned = clock - 21 * 3600, clock - 21 * 3600
+    Check(ns.PriceSourceText() == mix:format("21 h"), "label, 21 h: " .. ns.PriceSourceText())
     p.seen[ID] = clock - 3600
-    Check(ns.PriceSourceText():find(ah, 1, true), "label, 1 h")
+    Check(ns.PriceSourceText() == mix:format("60" .. ns.L[" min"]) or ns.PriceSourceText() == mix:format("1 h"), "label, 1 h: " .. ns.PriceSourceText())
     p.seen[ID] = clock - 86400 * 8
     p.scanned = clock - 86400 * 8
     Check(ns.PriceSourceText() == atr, "label, 8 days")
@@ -6736,6 +6786,69 @@ step("Secret values: nothing breaks, nothing is learned (v0.1.16)", function()
     Clean("the rest")
     if not ok then fails[#fails + 1] = tostring(err) end
     assert(#fails == 0, #fails .. " wrong: " .. table.concat(fails, " | "):sub(1, 1500))
+end)
+step("Professions: a hidden number is no proof the profession is gone (R4-B1)", function()
+    local T = ProfessionTest()
+    local SECRET = newproxy(true)
+    local meta = getmetatable(SECRET)
+    for _, k in ipairs({ "__index", "__concat", "__lt", "__le", "__eq", "__add", "__sub", "__mul", "__div", "__unm", "__len", "__call", "__tostring" }) do
+        meta[k] = function() error("attempt to use a secret value", 2) end
+    end
+    local keepSecret, keepInfo = issecretvalue, GetProfessionInfo
+    issecretvalue = function(v) return rawequal(v, SECRET) end
+    local fails = {}
+    local function Check(ok, text) if not ok then fails[#fails + 1] = text end end
+    local herbNode = { type = "herb" }
+    local function Sure(what, wantHerb)
+        local herb, ore, known = ns.GatherProfessions()
+        Check(known and herb == wantHerb and ore, ("%s: herb %s ore %s known %s"):format(what, tostring(herb), tostring(ore), tostring(known)))
+        Check(ns.HiddenByProfession(herbNode) == not wantHerb, what .. ": herb pins " .. (wantHerb and "hidden" or "shown"))
+    end
+    -- the ID way: Herbalism 52/75 read once, then one number hidden at a time
+    GetProfessionInfo = keepInfo
+    T.Login(T.Both) T.Settle()
+    Sure("readable", true)
+    ns.db.noProfessionHint = nil
+    for slot, what in pairs({ [3] = "rank", [4] = "max rank", [8] = "modifier" }) do
+        GetProfessionInfo = function(i)
+            local v = { keepInfo(i) }
+            if i == 1 then v[slot] = SECRET end
+            return unpack(v, 1, 8)
+        end
+        T.Set(T.Both)
+        Sure("IDs, hidden " .. what, true)
+        local rank = ns.GetSkill("herb")
+        Check(rank == 52, ("IDs, hidden %s: rank %s, want the last read 52"):format(what, tostring(rank)))
+    end
+    -- the skill line ID itself hidden: can't tell, what was known stays
+    GetProfessionInfo = function(i)
+        local v = { keepInfo(i) }
+        if i == 1 then v[7] = SECRET end
+        return unpack(v, 1, 8)
+    end
+    T.Set(T.Both)
+    Sure("IDs, hidden skill line", true)
+    Check(not ns.db.noProfessionHint, "the 'no gathering profession' hint came")
+    -- the old skill list (no GetProfessions): name readable, numbers hidden
+    GetProfessionInfo = keepInfo
+    GetProfessions = nil
+    for slot, what in pairs({ [4] = "rank", [6] = "modifier", [7] = "max rank" }) do
+        local lines = { { "Professions", true, true }, { "Herbalism", false, false, 52, 0, 0, 75 }, { "Mining", false, false, 30, 0, 0, 75 } }
+        lines[2][slot] = SECRET
+        GetNumSkillLines = function() return #lines end
+        GetSkillLineInfo = function(i) return unpack(lines[i], 1, 7) end
+        fire("SKILL_LINES_CHANGED") advance(2)
+        Sure("skill list, hidden " .. what, true)
+    end
+    -- really unlearned, all readable: still noticed
+    GetProfessions = T.Ore
+    GetNumSkillLines = function() return 0 end
+    T.Set(T.Ore)
+    Sure("Herbalism unlearned (readable)", false)
+    Check(#errors == 0 or not errors[#errors]:find("secret", 1, true), "a secret value was used")
+    issecretvalue, GetProfessionInfo = keepSecret, keepInfo
+    T.Restore()
+    assert(#fails == 0, #fails .. " wrong: " .. table.concat(fails, " | "))
 end)
 step("Sync: unconfirmed reports wait 7 days, in new zones 14 (v0.1.16)", function()
     local s = ns.db.sync

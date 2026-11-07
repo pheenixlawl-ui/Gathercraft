@@ -491,4 +491,7 @@ ns.Locales.zhCN = {
     ["%s was always empty and only came from other players: left out of routes until someone new reports it."] = "%s 一直是空的，且只来自其他玩家：在有新玩家报告之前不再加入路线。",
     ["Always empty so far: left out of routes until someone new reports it or you harvest it."] = "至今一直是空的：在有新玩家报告或你亲自采集之前不加入路线。",
     ["Skill"] = "技能",
+    ["Scan incomplete: %d auctions could not be read, old prices kept (%d updated)."] = "扫描不完整：%d 个拍卖无法读取，保留旧价格（已更新 %d 个）。",
+    ["prices: own scan (newest %s ago), fresher Auctionator, vendor"] = "价格：自己扫描（最新于 %s 前），更新的 Auctionator，商人",
+    ["prices: own scan (newest %s ago), vendor"] = "价格：自己扫描（最新于 %s 前），商人",
 }

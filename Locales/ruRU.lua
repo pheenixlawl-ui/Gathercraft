@@ -491,4 +491,7 @@ ns.Locales.ruRU = {
     ["%s was always empty and only came from other players: left out of routes until someone new reports it."] = "%s всегда был пуст и пришёл только от других игроков: исключён из маршрутов, пока о нём не сообщит кто-то новый.",
     ["Always empty so far: left out of routes until someone new reports it or you harvest it."] = "Пока всегда пуст: исключён из маршрутов, пока о нём не сообщит кто-то новый или вы его не соберёте.",
     ["Skill"] = "Навык",
+    ["Scan incomplete: %d auctions could not be read, old prices kept (%d updated)."] = "Сканирование неполное: не удалось прочитать лотов: %d, старые цены сохранены (обновлено: %d).",
+    ["prices: own scan (newest %s ago), fresher Auctionator, vendor"] = "цены: свой скан (новейший %s назад), более свежий Auctionator, торговец",
+    ["prices: own scan (newest %s ago), vendor"] = "цены: свой скан (новейший %s назад), торговец",
 }

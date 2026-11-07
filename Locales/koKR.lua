@@ -491,4 +491,7 @@ ns.Locales.koKR = {
     ["%s was always empty and only came from other players: left out of routes until someone new reports it."] = "%s은(는) 항상 비어 있었고 다른 플레이어에게서만 받은 정보입니다: 새로운 플레이어가 알려 줄 때까지 경로에서 제외합니다.",
     ["Always empty so far: left out of routes until someone new reports it or you harvest it."] = "지금까지 항상 비어 있음: 새로운 플레이어가 알려 주거나 직접 채집할 때까지 경로에서 제외됩니다.",
     ["Skill"] = "숙련도",
+    ["Scan incomplete: %d auctions could not be read, old prices kept (%d updated)."] = "검색 불완전: 경매 %d개를 읽지 못해 이전 가격을 유지합니다 (%d개 갱신).",
+    ["prices: own scan (newest %s ago), fresher Auctionator, vendor"] = "가격: 직접 검색 (최근 %s 전), 더 최신 Auctionator, 상인",
+    ["prices: own scan (newest %s ago), vendor"] = "가격: 직접 검색 (최근 %s 전), 상인",
 }

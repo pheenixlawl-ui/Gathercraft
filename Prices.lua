@@ -326,13 +326,26 @@ local function FinishScan()
         items[itemID], qty[itemID], seen[itemID] = price, total, now
         count = count + 1
     end
-    ns.Debug(("SCAN read %d of %d: %d items, skipped %d without itemID, %d with count 0, %d with buyout 0"):format(
-        scan.index, scan.total, count, scan.noItem, scan.noCount, scan.noBuyout))
+    ns.Debug(("SCAN read %d of %d: %d items, skipped %d without itemID, %d with count 0, %d with buyout 0, %d could not be read"):format(
+        scan.index, scan.total, count, scan.noItem, scan.noCount, scan.noBuyout, scan.readErrors))
     if count == 0 then
         ScanFailed(L["The auction house sent no auctions. Try again in a moment."])
         return
     end
     for itemID, price in pairs(items) do AddHistory(p, itemID, price) end
+    if scan.readErrors > 0 then
+        -- some auctions could not be read (R4-B2): this is no full picture.
+        -- The prices read are real and replace the old ones of their items;
+        -- every other price stays, and it does not count as a full scan.
+        for itemID, price in pairs(items) do
+            p.items[itemID], p.qty[itemID], p.seen[itemID] = price, qty[itemID], now
+        end
+        ns.Print((L["Scan incomplete: %d auctions could not be read, old prices kept (%d updated)."]):format(scan.readErrors, count))
+        scan = nil
+        UpdateButton()
+        if CheckAlerts then CheckAlerts() end
+        return
+    end
     -- a full scan shows everything: items no longer listed have no price now
     p.items, p.qty, p.seen, p.scanned = items, qty, seen, now
     ns.Print((L["Auction house scanned: %d auctions, prices for %d items."]):format(scan.total, count))
@@ -341,17 +354,24 @@ local function FinishScan()
     if CheckAlerts then CheckAlerts() end
 end
 
+-- read = false when the game could not give this auction at all (an error,
+-- or no answer): a technical gap, not an auction without a price
+local function Pack(...) return select("#", ...), { ... } end
 local function ReadInfo(index)
-    local ok, name, _, count, _, _, _, _, _, _, buyout, _, _, _, _, _, _, itemID = pcall(AH.GetReplicateItemInfo, index)
-    if ok then return itemID, count, buyout, name end
+    local n, result = Pack(pcall(AH.GetReplicateItemInfo, index))
+    if not result[1] or n <= 1 then return false end
+    local name, count, buyout, itemID = result[2], result[4], result[11], result[18]
+    return true, itemID, count, buyout, name
 end
 
 local function ReadStep()
     if not scan then return end
     local last = math.min(scan.index + SCAN_CHUNK, scan.total) - 1
     for i = scan.index, last do
-        local itemID, count, buyout, name = ReadInfo(i + scan.base)
-        if not itemID then
+        local read, itemID, count, buyout, name = ReadInfo(i + scan.base)
+        if not read then
+            scan.readErrors = scan.readErrors + 1
+        elseif not itemID then
             scan.noItem = scan.noItem + 1
         elseif not (count and count > 0) then
             scan.noCount = scan.noCount + 1
@@ -378,7 +398,7 @@ local function ReadStep()
 end
 
 local function NewScan()
-    return { state = "waiting", started = GetTime(), acc = {}, noItem = 0, noCount = 0, noBuyout = 0 }
+    return { state = "waiting", started = GetTime(), acc = {}, noItem = 0, noCount = 0, noBuyout = 0, readErrors = 0 }
 end
 
 local function OnReplicateReady()
@@ -874,7 +894,10 @@ ns.GetPrice = GetPrice
 ns.BetterPriceSource = BetterSource
 ns.Money = Money
 ns.PriceTest = PriceTest
--- "prices: AH scan, 25 min ago" for labels
+-- The label of the price rule as a whole (Crafting, Farm Spots). Each item
+-- picks its own price (GetPrice), so this names the sources in their order
+-- instead of guessing one for everything (R4-H1): own auction data, a
+-- fresher Auctionator price where there is one, the vendor price otherwise.
 ns.PriceSourceText = function()
     local p = PriceDB()
     local last = p and (p.scanned or 0) or 0
@@ -883,10 +906,11 @@ ns.PriceSourceText = function()
     end
     local api = Auctionator and Auctionator.API and Auctionator.API.v1
     local since = time() - last
-    if last > 0 and since < MAX_PRICE_AGE and (since < FRESH_PRICE or not api) then
+    if last > 0 and since < MAX_PRICE_AGE then
         local mins = math.floor(since / 60)
         local age = mins < 60 and (mins .. L[" min"]) or mins < 2880 and (math.floor(mins / 60) .. " h") or (math.floor(mins / 1440) .. L[" days"])
-        return L["prices: auction house, updated "] .. age .. L[" ago"]
+        if api then return (L["prices: own scan (newest %s ago), fresher Auctionator, vendor"]):format(age) end
+        return (L["prices: own scan (newest %s ago), vendor"]):format(age)
     end
     if api then return L["prices: Auctionator (scan at the auction house for our own)"] end
     return L["prices: vendor (scan at the auction house for real prices)"]
