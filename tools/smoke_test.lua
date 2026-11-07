@@ -6757,6 +6757,13 @@ step("Sync: unconfirmed reports wait 7 days, in new zones 14 (v0.1.16)", functio
     assert(pending[1437] == nil, "a report of 8 days stayed, or its empty zone")
     assert(new and #new == 2, ("new zone: %d reports left, want 2"):format(new and #new or 0))
 end)
+step("Recipe data: Blizzard hotfix for the Tanning Rack (v0.1.17)", function()
+    local rack = GathercraftRecipeData.professions.Leatherworking["Tanning Rack"]
+    assert(rack and rack:match("^%d+:%d+:%d+:(%d+)|") == "125", "Tanning Rack: required skill " .. tostring(rack))
+    local spell = GathercraftRecipeData.spells.Leatherworking["Tanning Rack"]
+    assert(GathercraftRecipeData.colors[spell] == "125:130", "Tanning Rack: colours " .. tostring(GathercraftRecipeData.colors[spell]))
+    assert(not (GathercraftRecipeData.guessed.Leatherworking or {})["Tanning Rack"], "Tanning Rack: marked as a guess")
+end)
 step("Long run (10 min) for leaks", function() slash("run herb") advance(600) slash("stop") end)
 
 io.write("\n--- errors: " .. #errors .. "\n")
