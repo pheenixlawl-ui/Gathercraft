@@ -894,7 +894,10 @@ ns.GetPrice = GetPrice
 ns.BetterPriceSource = BetterSource
 ns.Money = Money
 ns.PriceTest = PriceTest
--- "prices: AH scan, 25 min ago" for labels
+-- The label of the price rule as a whole (Crafting, Farm Spots). Each item
+-- picks its own price (GetPrice), so this names the sources in their order
+-- instead of guessing one for everything (R4-H1): own auction data, a
+-- fresher Auctionator price where there is one, the vendor price otherwise.
 ns.PriceSourceText = function()
     local p = PriceDB()
     local last = p and (p.scanned or 0) or 0
@@ -903,10 +906,11 @@ ns.PriceSourceText = function()
     end
     local api = Auctionator and Auctionator.API and Auctionator.API.v1
     local since = time() - last
-    if last > 0 and since < MAX_PRICE_AGE and (since < FRESH_PRICE or not api) then
+    if last > 0 and since < MAX_PRICE_AGE then
         local mins = math.floor(since / 60)
         local age = mins < 60 and (mins .. L[" min"]) or mins < 2880 and (math.floor(mins / 60) .. " h") or (math.floor(mins / 1440) .. L[" days"])
-        return L["prices: auction house, updated "] .. age .. L[" ago"]
+        if api then return (L["prices: own scan (newest %s ago), fresher Auctionator, vendor"]):format(age) end
+        return (L["prices: own scan (newest %s ago), vendor"]):format(age)
     end
     if api then return L["prices: Auctionator (scan at the auction house for our own)"] end
     return L["prices: vendor (scan at the auction house for real prices)"]

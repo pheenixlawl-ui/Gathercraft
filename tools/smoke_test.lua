@@ -3861,12 +3861,18 @@ step("Prices: fresh before own, and the label says which (v0.1.16)", function()
 
     -- the labels: "prices: ..." and the source of a mix
     p.seen, p.scanned = { [ID] = clock - 7 * 3600 }, clock - 7 * 3600
-    local ah, atr = ns.L["prices: auction house, updated "], ns.L["prices: Auctionator (scan at the auction house for our own)"]
-    Check(ns.PriceSourceText():find(ah, 1, true), "label, 7 h, alone")
+    -- R4-H1: the label names the sources in their order, never one for all
+    local atr = ns.L["prices: Auctionator (scan at the auction house for our own)"]
+    local own = ns.L["prices: own scan (newest %s ago), vendor"]:format("7 h")
+    local mix = ns.L["prices: own scan (newest %s ago), fresher Auctionator, vendor"]
+    Check(ns.PriceSourceText() == own, "label, 7 h, alone: " .. ns.PriceSourceText())
     Atr(187)
-    Check(ns.PriceSourceText() == atr, "label, 7 h, Auctionator: " .. ns.PriceSourceText())
+    Check(ns.PriceSourceText() == mix:format("7 h"), "label, 7 h, Auctionator: " .. ns.PriceSourceText())
+    -- Codex's probe: own Tin 21 h old, Auctionator 3 days: the own price is used, the label says own scan first
+    p.seen[ID], p.scanned = clock - 21 * 3600, clock - 21 * 3600
+    Check(ns.PriceSourceText() == mix:format("21 h"), "label, 21 h: " .. ns.PriceSourceText())
     p.seen[ID] = clock - 3600
-    Check(ns.PriceSourceText():find(ah, 1, true), "label, 1 h")
+    Check(ns.PriceSourceText() == mix:format("60" .. ns.L[" min"]) or ns.PriceSourceText() == mix:format("1 h"), "label, 1 h: " .. ns.PriceSourceText())
     p.seen[ID] = clock - 86400 * 8
     p.scanned = clock - 86400 * 8
     Check(ns.PriceSourceText() == atr, "label, 8 days")

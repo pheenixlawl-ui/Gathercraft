@@ -520,4 +520,6 @@ ns.Locales.deDE = {
     ["%s was always empty and only came from other players: left out of routes until someone new reports it."] = "%s war bisher immer leer und kam nur von anderen Spielern: bleibt aus den Routen draußen, bis es jemand Neues meldet.",
     ["Always empty so far: left out of routes until someone new reports it or you harvest it."] = "Bisher immer leer: bleibt aus den Routen draußen, bis es jemand Neues meldet oder du es erntest.",
     ["Scan incomplete: %d auctions could not be read, old prices kept (%d updated)."] = "Scan unvollständig: %d Auktionen konnten nicht gelesen werden, alte Preise bleiben (%d aktualisiert).",
+    ["prices: own scan (newest %s ago), fresher Auctionator, vendor"] = "Preise: eigener Scan (neuester vor %s), frischeres Auctionator, Händler",
+    ["prices: own scan (newest %s ago), vendor"] = "Preise: eigener Scan (neuester vor %s), Händler",
 }

@@ -491,4 +491,6 @@ ns.Locales.frFR = {
     ["%s was always empty and only came from other players: left out of routes until someone new reports it."] = "%s était toujours vide et ne venait que d'autres joueurs : exclu des itinéraires jusqu'à ce qu'un nouveau joueur le signale.",
     ["Always empty so far: left out of routes until someone new reports it or you harvest it."] = "Toujours vide jusqu'ici : exclu des itinéraires jusqu'à ce qu'un nouveau joueur le signale ou que vous le récoltiez.",
     ["Scan incomplete: %d auctions could not be read, old prices kept (%d updated)."] = "Analyse incomplète : %d enchères n'ont pas pu être lues, anciens prix conservés (%d mis à jour).",
+    ["prices: own scan (newest %s ago), fresher Auctionator, vendor"] = "prix : analyse perso (la plus récente il y a %s), Auctionator plus récent, marchand",
+    ["prices: own scan (newest %s ago), vendor"] = "prix : analyse perso (la plus récente il y a %s), marchand",
 }
