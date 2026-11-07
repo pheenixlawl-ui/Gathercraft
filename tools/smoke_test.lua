@@ -3755,6 +3755,51 @@ step("Auction house: a scan with unreadable auctions keeps the old prices (R4-B2
     p.items, p.qty, p.seen, p.scanned = keep.items, keep.qty, keep.seen, keep.scanned
     p.lastScanStart = nil
 end)
+step("Auction house: \"left out\" once per scan, the rest as one count (v0.1.17)", function()
+    local p = ns.db.prices[next(ns.db.prices)]
+    local keep = { items = p.items, qty = p.qty, seen = p.seen, scanned = p.scanned }
+    local AHX = C_AuctionHouse
+    local keepNum, keepInfo = AHX.GetNumReplicateItems, AHX.GetReplicateItemInfo
+    local wasDebug = ns.db.debug
+    ns.db.debug = true
+    local function Count(text, from)
+        local n = 0
+        for i = from + 1, #log do if log[i]:find(text, 1, true) then n = n + 1 end end
+        return n
+    end
+    local LEFT = "REPLICATE_ITEM_LIST_UPDATE left out"
+    -- the test loads Prices.lua twice (see "Own auction house scan"): each
+    -- copy has its own frame and says it once; in the game there is one
+    local copies = 0
+    for _ in pairs(eventFrames["REPLICATE_ITEM_LIST_UPDATE"] or {}) do copies = copies + 1 end
+    -- another addon's scan: 120 updates, none of them ours
+    fire("AUCTION_HOUSE_CLOSED")
+    fire("AUCTION_HOUSE_SHOW") advance(1)
+    local mark = #log
+    for _ = 1, 120 do fire("REPLICATE_ITEM_LIST_UPDATE") end
+    advance(1)
+    assert(Count(LEFT, mark) == copies, ("%d left-out lines, want %d (one per copy)"):format(Count(LEFT, mark), copies))
+    fire("AUCTION_HOUSE_CLOSED")
+    assert(Count("119 further updates ignored (no scan of ours", mark) == copies, "no count of the other 119")
+    -- our scan, and 50 more updates while it reads
+    AHX.GetNumReplicateItems = function() return 4000 end
+    AHX.GetReplicateItemInfo = function() return "Peacebloom", 1, 1, 1, true, 1, 0, 0, 0, 20, 0, false, nil, "Seller", nil, 0, 2447, true end
+    fire("AUCTION_HOUSE_SHOW") advance(1)
+    p.lastScanStart = nil
+    mark = #log
+    slash("scan") advance(1)
+    fire("REPLICATE_ITEM_LIST_UPDATE")
+    for _ = 1, 50 do fire("REPLICATE_ITEM_LIST_UPDATE") end
+    advance(30)
+    fire("AUCTION_HOUSE_CLOSED") advance(1)
+    assert(Count("left out: already reading", mark) == 1, Count("left out: already reading", mark) .. " already-reading lines, want 1")
+    assert(Count("49 further updates ignored (already reading)", mark) == 1, "no count of the other 49")
+    AHX.GetNumReplicateItems, AHX.GetReplicateItemInfo = keepNum, keepInfo
+    p = ns.db.prices[next(ns.db.prices)]
+    p.items, p.qty, p.seen, p.scanned = keep.items, keep.qty, keep.seen, keep.scanned
+    p.lastScanStart = nil
+    ns.db.debug = wasDebug
+end)
 step("Market price: the cheapest offer with stock behind it (v0.1.16)", function()
     local p = ns.db.prices[next(ns.db.prices)]
     local AHX = C_AuctionHouse

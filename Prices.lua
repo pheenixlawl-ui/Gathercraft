@@ -307,9 +307,30 @@ local function StorePrice(itemID, price, qty)
     AddHistory(p, itemID, p.items[itemID])
 end
 
+-- "left out" comes for every list update the game sends: over a hundred
+-- times in one scan (Sven's log, 07.11.). The first one of a kind is shown,
+-- the rest counted and named once when the scan ends or the window closes.
+local ignored = { n = 0 }
+local function FlushIgnored()
+    if ignored.n > 0 then
+        ns.Debug(("SCAN REPLICATE_ITEM_LIST_UPDATE left out: %d further updates ignored (%s)"):format(ignored.n, ignored.why))
+    end
+    ignored.n, ignored.why = 0, nil
+end
+local function LeftOut(why)
+    if ignored.why == why then
+        ignored.n = ignored.n + 1
+        return
+    end
+    FlushIgnored()
+    ignored.why = why
+    ns.Debug("SCAN REPLICATE_ITEM_LIST_UPDATE left out: " .. why)
+end
+
 -- A scan without a result: the prices stay, and the 15 minutes count from the
 -- start. Nobody knows when the server would take the next one, so we wait.
 local function ScanFailed(message)
+    FlushIgnored()
     scan = nil
     ns.Print(message)
     local left = Cooldown()
@@ -341,6 +362,7 @@ local function FinishScan()
             p.items[itemID], p.qty[itemID], p.seen[itemID] = price, qty[itemID], now
         end
         ns.Print((L["Scan incomplete: %d auctions could not be read, old prices kept (%d updated)."]):format(scan.readErrors, count))
+        FlushIgnored()
         scan = nil
         UpdateButton()
         if CheckAlerts then CheckAlerts() end
@@ -349,6 +371,7 @@ local function FinishScan()
     -- a full scan shows everything: items no longer listed have no price now
     p.items, p.qty, p.seen, p.scanned = items, qty, seen, now
     ns.Print((L["Auction house scanned: %d auctions, prices for %d items."]):format(scan.total, count))
+    FlushIgnored()
     scan = nil
     UpdateButton()
     if CheckAlerts then CheckAlerts() end
@@ -409,7 +432,7 @@ local function OnReplicateReady()
     end
     lateAnswer = false
     if not scan or scan.state ~= "waiting" then
-        ns.Debug("SCAN REPLICATE_ITEM_LIST_UPDATE left out: " .. (scan and "already reading" or "no scan of ours (another addon?)"))
+        LeftOut(scan and "already reading" or "no scan of ours (another addon?)")
         return
     end
     scan.state = "reading"
@@ -444,6 +467,7 @@ local function StartScan()
         ns.Print((L["The server allows one full scan every 15 minutes. Next scan in %d:%02d."]):format(math.floor(left / 60), left % 60))
         return
     end
+    FlushIgnored()
     local ok, err = pcall(AH.ReplicateItems)
     ns.Debug("SCAN ReplicateItems called: " .. (ok and "ok" or tostring(err)))
     if not ok then
@@ -677,6 +701,7 @@ ahEvents:SetScript("OnEvent", function(_, event, arg)
         end)
     elseif event == "AUCTION_HOUSE_CLOSED" then
         ahOpen, lateAnswer = false, false
+        FlushIgnored()
         if scan then -- also while reading: what is left of the list is gone
             ns.Debug(("SCAN cancelled, auction house closed (%s)"):format(scan.state))
             ScanFailed(L["Auction house closed, scan cancelled."])
