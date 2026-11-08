@@ -3891,6 +3891,20 @@ step("Sharing counts what other players sent, over all sessions (v0.1.18 S7)", f
     ns.NotifyNodesChanged()
     if not ok then error(err, 0) end
 end)
+step("README says what the addon does, no more (v0.1.18 S8)", function()
+    local f = assert(io.open(ROOT .. "/README.md"))
+    local text = f:read("*a") f:close()
+    -- the plan follows your prices: never "the cheapest"
+    assert(not text:lower():find("cheapest", 1, true), "README calls the plan the cheapest")
+    -- prices: your own scan first, the others only when fresher (Prices.lua, v0.1.16)
+    assert(not text:find("only used if you have no scan yet", 1, true) and not text:find("are used until your first own scan", 1, true),
+        "README: Auctionator or TSM only until the first scan")
+    assert(text:find("your own scan comes first; Auctionator or TSM only fill in when they have a fresher price", 1, true), "README: the price order")
+    assert(text:find("An optional louder splash helps in busy spots.", 1, true), "README: the louder splash")
+    local nextUp = text:match("Next up.-\n\n(.-)\n\n")
+    assert(nextUp and nextUp:find("Skill plan rebuilt", 1, true) and nextUp:find("Smoother Loop routes", 1, true)
+        and nextUp:find("Disenchant values", 1, true) and nextUp:find("new Forever zones", 1, true), "README: Next up")
+end)
 step("Skill plan: hints, fees and totals fit, also long translations and big amounts (v0.1.14)", function()
     -- no real font metrics: the estimate of TextHeight (6 px a letter, 11 px
     -- a CJK sign) shows whether the window makes room, not how the game draws it

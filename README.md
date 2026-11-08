@@ -58,7 +58,7 @@ Every zone of your continent – or any other, one click away – ranked by **go
 
 **🏷️ Your own auction house scan**
 
-One click on the Gathercraft tab at the auction house reads every auction and keeps a fair market price per item. Prices show in item tooltips with how many are listed and how old the price is. Every search you do at the auction house teaches it too. **Price alerts** tell you when something you gather sells well above normal. Works on its own – Auctionator or TSM prices are only used if you have no scan yet.
+One click on the Gathercraft tab at the auction house reads every auction and keeps a fair market price per item. Prices show in item tooltips with how many are listed and how old the price is. Every search you do at the auction house teaches it too. **Price alerts** tell you when something you gather sells well above normal. Works on its own – your own scan comes first; Auctionator or TSM only fill in when they have a fresher price.
 
 **➤ The Gathercraft Arrow & Farm Panel**
 
@@ -66,7 +66,7 @@ A forged golden arrow points to your next node with live distance. The farm pane
 
 **🎣 One Key. One Fish. Repeat.**
 
-Bind one key. It equips your pole, applies your best lure, casts, and reels in the bobber. While you fish, the panel shows your catches, catches per hour, gold per hour and how long your lure lasts. Every press is one action – you're always in control.
+Bind one key. It equips your pole, applies your best lure, casts, and reels in the bobber. While you fish, the panel shows your catches, catches per hour, gold per hour and how long your lure lasts. Every press is one action – you're always in control. An optional louder splash helps in busy spots.
 
 **👁️ RARE!**
 
@@ -74,7 +74,7 @@ A rare walks into view and an announcer roars **"RARE!"**, with a warning across
 
 **🤝 Stronger Together**
 
-Optional node sharing with other Gathercraft players. Guild and friends are trusted instantly; strangers need confirmations, so fake nodes go nowhere. In brand-new zones, a node someone else found shows up right away as a grey pin – it joins your routes once confirmed. `/gcr sync` shows who shared what, and where.
+Optional node sharing with other Gathercraft players. Guild and friends are trusted instantly; strangers need confirmations, so fake nodes go nowhere. In brand-new zones, a node someone else found shows up right away as a grey pin – it joins your routes once confirmed. `/gcr sync` shows who shared what, and where; *Options → Sharing* counts the spots other players sent you.
 
 **🌍 Every client language**
 
@@ -120,7 +120,7 @@ Known spawn points are *possible* spawns – not every one is up at the same tim
 
 **"Do I need Auctionator?"**
 
-No. Gathercraft scans the auction house itself. If you have Auctionator or TSM, their prices are used until your first own scan.
+No. Gathercraft scans the auction house itself. Your own scan comes first – Auctionator or TSM only fill in when they have a fresher price.
 
 **"Are the crafting numbers exact?"**
 
@@ -156,10 +156,10 @@ Gathercraft is **actively developed** – during the Forever launch weeks expect
 
 **🔨 Next up (launch weeks)**
 
-- **More spawn points for the new and reworked Forever zones** (Hyjal, Riverglades, Shen'dralas, Zephras Isle) as soon as they are known
-- **A short guided tour** on first start
-- **Better Loop routes** for mixed Herbs + Ores runs
-- **Fresh recipe data** for Forever
+- **Skill plan rebuilt** – correct amounts for every profession, honest estimates
+- **Smoother Loop routes**
+- **More spawn points for the new Forever zones** as soon as they are known
+- **Disenchant values**
 
 **🔮 Later**
 
