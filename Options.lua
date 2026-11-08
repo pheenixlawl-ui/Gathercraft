@@ -927,6 +927,13 @@ local function Build()
     AddRouteMode()
     AddRouteGoal()
     nextY = nextY - 4
+    -- v0.1.19 (Q6): during farm runs and the questing mode (Fishing.lua)
+    AddCheck("Mark the node you walk towards (one at a time)",
+        function() return ns.db.gatherMark end,
+        function(on)
+            ns.db.gatherMark = on or nil
+            if ns.UpdateGatherHelp then ns.UpdateGatherHelp("option") end
+        end)
     AddCheck("Show Gathercraft arrow during farm runs",
         function() return not ns.db.arrowHidden end,
         function(on)

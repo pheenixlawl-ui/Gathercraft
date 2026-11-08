@@ -5837,6 +5837,137 @@ step("Questing mode: looks again only after 5 yd, a change or 2 s; nothing while
     ns.NotifyNodesChanged() advance(1)
     if not ok then error(err, 0) end
 end)
+step("Gathering help: mark the node you walk towards, put back like fishing (v0.1.19 Q6 A)", function()
+    local saved = { get = GetCVar, set = SetCVar, mark = ns.db.gatherMark, bobber = ns.db.fishMarkBobber, loud = ns.db.fishLoudSplash,
+        cvars = ns.db.fishingCVars, map = player.map, x = player.x, y = player.y }
+    local store
+    local ORIG = { SoftTargetInteract = "1", SoftTargetInteractRange = "10", SoftTargetInteractArc = "0", SoftTargetIconGameObject = "0",
+        Sound_SFXVolume = "0.5", Sound_MusicVolume = "0.8", Sound_AmbienceVolume = "0.8" }
+    local function Reset()
+        store = {}
+        for k, v in pairs(ORIG) do store[k] = v end
+    end
+    local function Is(want, what)
+        for k, v in pairs(want) do
+            assert(store[k] == v, ("%s: %s = %s, want %s"):format(what, k, tostring(store[k]), v))
+        end
+    end
+    local MARKED = { SoftTargetInteract = "3", SoftTargetInteractRange = "30", SoftTargetInteractArc = "2", SoftTargetIconGameObject = "1" }
+    local function Untouched(what)
+        Is(ORIG, what)
+        assert(ns.db.fishingCVars == nil, what .. ": an entry is left in the saved list")
+    end
+    local fishFrame = next(eventFrames["UNIT_SPELLCAST_CHANNEL_STOP"])
+    local function Cast() fire("UNIT_SPELLCAST_CHANNEL_START", "player", "q6fish", 7620) end
+    local function Reel() fire("UNIT_SPELLCAST_CHANNEL_STOP", "player", "q6fish", 7620) advance(1) end
+    local ok, err = pcall(function()
+        GetCVar = function(k) if store[k] ~= nil then return store[k] end return saved.get(k) end
+        SetCVar = function(k, v) store[k] = tostring(v) return true end
+        ns.db.fishingCVars, ns.db.fishMarkBobber, ns.db.fishLoudSplash = nil, false, true
+        player.map, player.x, player.y = 1412, 0.45, 0.72
+        ns.SetQuestMode(false)
+        if ns.run then ns.StopRun(true) end
+        -- (1) off (the default): runs and the questing mode change nothing
+        ns.db.gatherMark = nil
+        Reset()
+        slash("run herb") advance(2)
+        assert(ns.run, "test setup: no run")
+        Untouched("option off, during a run")
+        ns.StopRun(true) advance(1)
+        ns.SetQuestMode(true) advance(1)
+        Untouched("option off, questing mode")
+        ns.SetQuestMode(false) advance(1)
+        Untouched("option off, after")
+        -- (2) on: during the questing mode the four settings, after it yours again
+        ns.db.gatherMark = true
+        Reset()
+        ns.UpdateGatherHelp("test")
+        Untouched("option on, nothing going on")
+        ns.SetQuestMode(true) advance(1)
+        Is(MARKED, "questing mode")
+        assert(ns.db.fishingCVars and ns.db.fishingCVars.SoftTargetInteractRange.orig == "10", "not in the saved list")
+        ns.SetQuestMode(false) advance(1)
+        Untouched("questing mode off")
+        -- (3) a farm run the same
+        slash("run herb") advance(2)
+        Is(MARKED, "farm run")
+        slash("stop") advance(1)
+        Untouched("run stopped")
+        -- (4) you change one during the run: it stays as you set it
+        slash("run herb") advance(2)
+        store.SoftTargetInteractRange = "50"
+        slash("stop") advance(1)
+        Is({ SoftTargetInteract = "1", SoftTargetInteractRange = "50", SoftTargetInteractArc = "0", SoftTargetIconGameObject = "0" }, "changed by you during the run")
+        assert(ns.db.fishingCVars == nil, "changed by you: an entry is left")
+        -- (5) fishing during a run: fishing takes over, the run keeps its mark
+        Reset()
+        slash("run herb") advance(2)
+        Cast()
+        Is(MARKED, "line out during a run")
+        Is({ Sound_SFXVolume = "1", Sound_MusicVolume = "0.1" }, "line out: the splash settings")
+        Reel()
+        Is(MARKED, "line in, the run goes on")
+        Is({ Sound_SFXVolume = "0.5", Sound_MusicVolume = "0.8", Sound_AmbienceVolume = "0.8" }, "line in: the splash settings came back")
+        slash("stop") advance(1)
+        Untouched("run stopped after fishing")
+        -- the other way round: a run starts while the line is out
+        Reset()
+        Cast()
+        slash("run herb") advance(2)
+        Reel()
+        Is(MARKED, "run started with the line out, line in")
+        slash("stop") advance(1)
+        Untouched("run stopped, the line came in first")
+        Reset()
+        Cast()
+        slash("run herb") advance(2)
+        slash("stop") advance(1)
+        Is({ SoftTargetInteractRange = "30", Sound_SFXVolume = "1" }, "run stopped, the line still out: fishing keeps its settings")
+        Reel()
+        Untouched("line in after the run")
+        -- (6) the option switched off and on during a run
+        slash("run herb") advance(2)
+        Is(MARKED, "run")
+        ns.db.gatherMark = nil
+        ns.UpdateGatherHelp("option")
+        Untouched("option switched off during the run")
+        ns.db.gatherMark = true
+        ns.UpdateGatherHelp("option")
+        Is(MARKED, "option switched on again during the run")
+        -- (7) /reload or logout during the run: back before the game saves
+        fishFrame.__scripts.OnEvent(fishFrame, "PLAYER_LOGOUT")
+        Untouched("logout during a run")
+        -- the reloaded addon, the run going on: marked again after login
+        fishFrame.__scripts.OnEvent(fishFrame, "PLAYER_LOGIN")
+        advance(2)
+        Is(MARKED, "login, the run going on")
+        -- (8) a crash during the run: no stop, no logout - the list stays in
+        -- the saved variables, the settings stay ours. The next login (no run
+        -- going on now) puts them back.
+        assert(ns.db.fishingCVars and ns.db.fishingCVars.SoftTargetInteractRange, "test setup: the list during the run")
+        local crashed = ns.run
+        ns.run = nil -- gone with the crash, without its stop
+        fishFrame.__scripts.OnEvent(fishFrame, "PLAYER_LOGIN")
+        advance(2)
+        Untouched("login after a crash")
+        ns.run = crashed
+        ns.StopRun(true)
+        Untouched("the old run's stop after the crash login")
+        -- (9) the option text says honestly what it does
+        local found
+        for _, o in ipairs(allFrames) do
+            if o.__kind == "FontString" and o:GetText() == ns.L["Mark the node you walk towards (one at a time)"] then found = o end
+        end
+        assert(found, "no option \"Mark the node you walk towards (one at a time)\"")
+    end)
+    GetCVar, SetCVar = saved.get, saved.set
+    if ns.run then ns.StopRun(true) end
+    ns.SetQuestMode(false)
+    ns.db.gatherMark, ns.db.fishMarkBobber, ns.db.fishLoudSplash, ns.db.fishingCVars = saved.mark, saved.bobber, saved.loud, saved.cvars
+    if ns.StopFishing then ns.StopFishing() end
+    player.map, player.x, player.y = saved.map, saved.x, saved.y
+    if not ok then error(err, 0) end
+end)
 step("Options: the herbs/minerals switch is under General, every page fits (v0.1.19)", function()
     -- Sven (08.11.): Map & minimap makes room for the questing mode
     local function PageOf(text)

@@ -155,6 +155,11 @@ end
 --   next login tries again.
 --   Limit: if you set exactly the value we use, nothing tells it apart from
 --   ours, and your old value comes back.
+--   v0.1.19 (Q6): gathering ("Mark the node you walk towards") uses the same
+--   list. Each entry knows who needs it (by: fish, gather); it goes back only
+--   when nobody needs it any more, so fishing and gathering never put back
+--   each other's values or put one back twice. Login and logout put back
+--   everything, as before.
 --   A hard crash: the game writes saved variables only on logout and
 --   /reload, so after a crash there may be nothing to put back. Then the
 --   widened values stay until you set them again (Options > Controls, or
@@ -177,11 +182,29 @@ local function SameValue(a, b)
     return x ~= nil and x == y
 end
 
-local function SetOurs(saved, name, value)
+local function SetOurs(saved, name, value, who)
     local before = GetCVar(name)
     if pcall(SetCVar, name, value) and SameValue(GetCVar(name), value) then
-        saved[name] = saved[name] or { orig = before, ours = value }
+        saved[name] = saved[name] or { orig = before, ours = value, by = {} }
+        saved[name].by[who] = true
     end
+end
+
+-- who needs an entry (entries saved before 0.1.19 were the cast's)
+local function By(s)
+    s.by = s.by or { fish = true }
+    return s.by
+end
+
+-- one setting someone needs: still ours -> it needs it too; else set it if
+-- the present value is not enough (short: whether to set it)
+local function Claim(saved, name, value, who, short)
+    local s = saved[name]
+    if s and SameValue(GetCVar(name), s.ours) then
+        By(s)[who] = true
+        return
+    end
+    if short then SetOurs(saved, name, value, who) end
 end
 
 -- debug: one setting of the saved list (what we found, what we kept)
@@ -190,7 +213,9 @@ local function DebugEntry(what, event, name, s, now, result)
         tostring(s.orig), tostring(s.ours), tostring(now), result))
 end
 
-local function WidenInteract(event)
+-- who: "fish" (the line is out, default) or "gather" (Q6)
+local function WidenInteract(event, who)
+    who = who or "fish"
     if not (GetCVar and SetCVar and ns.db) then return end
     ns.db.fishingCVars = ns.db.fishingCVars or {}
     local saved = ns.db.fishingCVars
@@ -209,20 +234,21 @@ local function WidenInteract(event)
     -- 0 = off, 1 = gamepad only, 2 = keyboard/mouse only, 3 = both:
     -- the keyboard needs 2 or 3
     local mode = GetCVar("SoftTargetInteract")
-    if mode ~= "2" and mode ~= "3" then SetOurs(saved, "SoftTargetInteract", "3") end
+    Claim(saved, "SoftTargetInteract", "3", who, mode ~= "2" and mode ~= "3")
     for name, value in pairs(BOBBER_CVARS) do
         local current = tonumber(GetCVar(name))
-        if current and current < value then SetOurs(saved, name, tostring(value)) end
+        Claim(saved, name, tostring(value), who, current and current < value)
     end
-    -- a client without the setting answers nil: nothing to set or put back
-    local icon = ns.db.fishMarkBobber ~= false and GetCVar(BOBBER_ICON)
-    if icon and icon ~= "1" then SetOurs(saved, BOBBER_ICON, "1") end
-    if ns.db.fishLoudSplash then
+    -- a client without the setting answers nil: nothing to set or put back.
+    -- Gathering always marks: that is what its option is for.
+    local icon = (who == "gather" or ns.db.fishMarkBobber ~= false) and GetCVar(BOBBER_ICON)
+    if icon then Claim(saved, BOBBER_ICON, "1", who, icon ~= "1") end
+    if who == "fish" and ns.db.fishLoudSplash then
         local sfx = tonumber(GetCVar("Sound_SFXVolume"))
-        if sfx and sfx < 1 then SetOurs(saved, "Sound_SFXVolume", SPLASH_LOUD) end
+        Claim(saved, "Sound_SFXVolume", SPLASH_LOUD, who, sfx and sfx < 1)
         for _, name in ipairs(SPLASH_QUIETER) do
             local v = tonumber(GetCVar(name))
-            if v and v > SPLASH_QUIET then SetOurs(saved, name, tostring(SPLASH_QUIET)) end
+            Claim(saved, name, tostring(SPLASH_QUIET), who, v and v > SPLASH_QUIET)
         end
     end
     if not next(saved) then ns.db.fishingCVars = nil end
@@ -231,7 +257,9 @@ end
 -- Puts back what we changed (end of the cast, or the next login after a
 -- /reload with the line out). A setting you changed meanwhile stays. One
 -- that could not be set stays in the list: the next login tries again.
-local function RestoreInteract(event)
+-- who: "fish" or "gather" - only what nobody else needs goes back; nil
+-- (login, logout): everything
+local function RestoreInteract(event, who)
     local saved = ns.db and ns.db.fishingCVars
     if not saved then
         ns.Debug(("FISH restore (%s): nothing of ours to put back"):format(event))
@@ -239,7 +267,11 @@ local function RestoreInteract(event)
     end
     for name, s in pairs(saved) do
         local now = GetCVar(name)
-        if SameValue(now, s.ours) then
+        local by = By(s)
+        if who then by[who] = nil end
+        if who and next(by) and SameValue(now, s.ours) then
+            DebugEntry("restore", event, name, s, now, "still needed (" .. (next(by)) .. "), kept")
+        elseif SameValue(now, s.ours) then
             if s.orig == nil or (pcall(SetCVar, name, s.orig) and SameValue(GetCVar(name), s.orig)) then
                 DebugEntry("restore", event, name, s, now, "put back")
                 saved[name] = nil
@@ -253,6 +285,36 @@ local function RestoreInteract(event)
     end
     if not next(saved) then ns.db.fishingCVars = nil end
 end
+
+---------------------------------------------------------------------------
+-- Gathering help (v0.1.19 Q6, Sven 08.11.), both off by default, both only
+-- during a farm run or the questing mode:
+--   * "Mark the node you walk towards": the game's soft target marks the
+--     one node in front of you (hand icon) from further away - the same four
+--     settings as for the bobber, kept and put back by the list above
+-- Nothing happens without a key press: the game only marks.
+---------------------------------------------------------------------------
+local gathering = false -- our settings are claimed for gathering
+
+local function GatherTime()
+    return ns.run ~= nil or (ns.QuestModeOn and ns.QuestModeOn()) or false
+end
+local function MarkWanted() return ns.db and ns.db.gatherMark and GatherTime() end
+
+local function UpdateGatherHelp(event)
+    if not ns.db then return end
+    event = event or "gather"
+    if MarkWanted() then
+        if not gathering then
+            WidenInteract(event, "gather")
+            gathering = true
+        end
+    elseif gathering then
+        gathering = false
+        RestoreInteract(event, "gather")
+    end
+end
+ns.UpdateGatherHelp = UpdateGatherHelp
 
 local function IsFishingCast(spellID)
     if ns.AnySecret("fishing", spellID) then return false end
@@ -306,23 +368,29 @@ events:SetScript("OnEvent", function(_, event, _, _, spellID)
             lineOut = false
             fishing.reeledAt = GetTime()
             SetReelBinding(false)
-            RestoreInteract(event)
+            RestoreInteract(event, "fish")
             C_Timer.After(0.3, Prepare)
         end
     elseif event == "PLAYER_LOGOUT" then
-        -- logout (or /reload) with the line out: your settings go back now,
-        -- before the game saves them; what fails stays for the next login
+        -- logout (or /reload) with the line out or a run with the gathering
+        -- help: your settings go back now, before the game saves them; what
+        -- fails stays for the next login
         if ns.db and ns.db.fishingCVars then RestoreInteract(event) end
+        gathering = false
     elseif event == "PLAYER_REGEN_ENABLED" then
         SetReelBinding(lineOut)
         Prepare()
     elseif event == "PLAYER_LOGIN" then
-        -- left over from a /reload or logout with the line out: put it back
+        -- left over from a /reload or logout with the line out (or during a
+        -- run with the gathering help): put it back
         if not lineOut and ns.db and ns.db.fishingCVars then
             ns.Debug("FISH interact settings of an earlier cast found at login: putting yours back")
             RestoreInteract(event)
         end
+        gathering = false
         Prepare()
+        -- a run or the questing mode going on: the gathering help again
+        C_Timer.After(1, function() UpdateGatherHelp("login") end)
     else
         Prepare()
     end
@@ -422,7 +490,7 @@ ns.StopFishing = function(summary)
     -- at once, even with the line still out (Sven, 08.11., Codex M2). The
     -- end of the cast then finds nothing of ours; a value you changed
     -- yourself meanwhile stays. The line itself is left alone.
-    if ns.db and ns.db.fishingCVars then RestoreInteract("stop") end
+    if ns.db and ns.db.fishingCVars then RestoreInteract("stop", "fish") end
     if not (summary and f and ns.ShowRunSummary) then return end
     local now = ns.GetSkill and ns.GetSkill("fish") or 0
     local mapID = ns.PlayerMap and ns.PlayerMap()

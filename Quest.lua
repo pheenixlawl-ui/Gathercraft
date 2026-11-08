@@ -151,6 +151,9 @@ local function Tick()
     Update()
 end
 
+-- the gathering help (Fishing.lua) follows it too
+table.insert(listeners, function() if ns.UpdateGatherHelp then ns.UpdateGatherHelp("questing mode") end end)
+
 -- the rings follow the state: a ticker only while it is on
 table.insert(listeners, function(on)
     if ticker then ticker:Cancel() ticker = nil end

@@ -1303,6 +1303,7 @@ local function StopRun(silent, summary)
     preview = nil
     if ns.run then
         ns.run = nil
+        if ns.UpdateGatherHelp then ns.UpdateGatherHelp("run stop") end
         ClearTargetMarks()
         if not silent then
             ns.Print(L["Run stopped."])
@@ -2012,6 +2013,7 @@ local function StartRun(filter, zone, quick)
     local run = ns.run
     if not run then return end -- nothing to farm
     if ns.QuestModeOff then ns.QuestModeOff("run") end -- a run shows its own way
+    if ns.UpdateGatherHelp then ns.UpdateGatherHelp("run start") end
     if run.path and run.loopMode and run.loop then
         ns.Print((L["Loop started: %d spawn points in %d zone(s), one round %d yd."]):format(
             #run.loop, run.zones, run.loopLength or 0))

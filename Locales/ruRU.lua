@@ -549,4 +549,5 @@ ns.Locales.ruRU = {
     ["Coming next"] = "Скоро",
     ["Skill plan 2.0 · Shopping list on the map · Smoother Loop routes"] = "План навыка 2.0 · Список покупок на карте · Более плавные круговые маршруты",
     ["Ideas or bugs? Tell us on CurseForge or Discord."] = "Идеи или ошибки? Напишите нам на CurseForge или в Discord.",
+    ["Mark the node you walk towards (one at a time)"] = "Отмечать точку, к которой вы идёте (по одной)",
 }

@@ -549,4 +549,5 @@ ns.Locales.zhTW = {
     ["Coming next"] = "即將推出",
     ["Skill plan 2.0 · Shopping list on the map · Smoother Loop routes"] = "技能計畫 2.0 · 地圖上的購物清單 · 更順暢的環形路線",
     ["Ideas or bugs? Tell us on CurseForge or Discord."] = "有想法或發現錯誤？請在 CurseForge 或 Discord 告訴我們。",
+    ["Mark the node you walk towards (one at a time)"] = "標記你正走向的採集點（一次一個）",
 }
