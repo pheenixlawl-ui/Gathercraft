@@ -2011,6 +2011,7 @@ local function StartRun(filter, zone, quick)
     Plan()
     local run = ns.run
     if not run then return end -- nothing to farm
+    if ns.QuestModeOff then ns.QuestModeOff("run") end -- a run shows its own way
     if run.path and run.loopMode and run.loop then
         ns.Print((L["Loop started: %d spawn points in %d zone(s), one round %d yd."]):format(
             #run.loop, run.zones, run.loopLength or 0))

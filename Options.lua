@@ -863,6 +863,10 @@ local function Build()
     AddMiniStyle()
     AddMiniAlpha()
     AddPinSize()
+    -- v0.1.19: nearby nodes you can gather get a gold ring (Quest.lua)
+    AddCheck("Questing mode",
+        function() return ns.QuestModeOn and ns.QuestModeOn() end,
+        function(on) if ns.SetQuestMode then ns.SetQuestMode(on) end end)
 
     Section(2) -- Farm runs
     AddRouteMode()
@@ -1117,7 +1121,9 @@ local launcher = LDB and LDB:NewDataObject(ADDON_NAME, {
     text = "Gathercraft",
     icon = ICON,
     OnClick = function(_, mouse)
-        if mouse == "RightButton" then
+        if mouse == "RightButton" and IsControlKeyDown and IsControlKeyDown() then
+            if ns.ToggleQuestMode then ns.ToggleQuestMode() end
+        elseif mouse == "RightButton" then
             ToggleRun()
         elseif IsShiftKeyDown() then
             ns.ToggleOptions()
@@ -1133,6 +1139,9 @@ local launcher = LDB and LDB:NewDataObject(ADDON_NAME, {
         tooltip:AddLine(ns.run and L["Right-click: stop farm run"] or FishingHidden() and L["Right-click: stop fishing"]
             or L["Right-click: start farm run"], 1, 1, 1)
         tooltip:AddLine(L["Shift-click: options"], 1, 1, 1)
+        local quest = ns.QuestModeOn and ns.QuestModeOn()
+        tooltip:AddLine(L["Ctrl + right-click: questing mode"] .. " " .. (quest and ("|cff00ff00" .. L["on"] .. "|r")
+            or ("|cff999999" .. L["off"] .. "|r")), 1, 1, 1)
         tooltip:AddLine(L["Drag: move button"], 0.6, 0.6, 0.6)
     end,
 })
@@ -1165,6 +1174,7 @@ local function BindingNames()
     BINDING_NAME_GATHERCRAFT_TOGGLERUN = L["Start / stop farm run"]
     BINDING_NAME_GATHERCRAFT_SKIP = L["Skip current node (empty)"]
     BINDING_NAME_GATHERCRAFT_ZONES = L["Zones and materials window"]
+    BINDING_NAME_GATHERCRAFT_QUEST = L["Questing mode on / off"]
 end
 BindingNames()
 table.insert(ns.languageListeners, BindingNames)

@@ -272,6 +272,7 @@ local fishing = { active = false }
 local lootGuard = {}
 
 local function StartFishingSession()
+    if ns.QuestModeOff then ns.QuestModeOff("fishing") end
     fishing.active = true
     fishing.start = GetTime()
     fishing.catches, fishing.items, fishing.value = 0, 0, 0

@@ -5408,6 +5408,108 @@ step("World map pins in a ring (default), normal by option", function()
     ns.db.worldPinStyle = nil
     ns.NotifyNodesChanged() advance(2)
 end)
+step("Questing mode: on and off by command, Ctrl + right-click, key and option; a run or fishing ends it (v0.1.19 Q1)", function()
+    local L = ns.L
+    local keepCtrl = IsControlKeyDown
+    local calls = {}
+    local function Listen(on) calls[#calls + 1] = on end
+    local ok, err = pcall(function()
+        assert(ns.QuestModeOn and ns.SetQuestMode and ns.questModeListeners, "no questing mode")
+        table.insert(ns.questModeListeners, Listen)
+        ns.SetQuestMode(false)
+        local function Said(text, mark)
+            for i = mark + 1, #log do if log[i]:find(text, 1, true) then return true end end
+        end
+        -- /gcr quest
+        local mark = #log
+        slash("quest")
+        assert(ns.QuestModeOn() and ns.db.questMode, "/gcr quest did not turn it on")
+        assert(Said(L["Questing mode on – nearby nodes get a gold ring"], mark), "no chat line when turned on")
+        mark = #log
+        slash("quest")
+        assert(not ns.QuestModeOn() and ns.db.questMode == nil, "/gcr quest did not turn it off")
+        assert(Said(L["Questing mode off"], mark), "no chat line when turned off")
+        assert(#calls == 2 and calls[1] == true and calls[2] == false, "the rings are not told: " .. #calls)
+        -- Ctrl + right-click on the minimap button: no farm run
+        IsControlKeyDown = function() return true end
+        ldbObj.OnClick(nil, "RightButton")
+        assert(ns.QuestModeOn() and not ns.run, "Ctrl + right-click: not on, or a run started")
+        -- the tooltip says it, with the state
+        local lines = {}
+        local tt = { AddLine = function(_, t) lines[#lines + 1] = t end }
+        ldbObj.OnTooltipShow(tt)
+        local onLine = L["Ctrl + right-click: questing mode"] .. " |cff00ff00" .. L["on"] .. "|r"
+        local found = false
+        for _, l in ipairs(lines) do if l == onLine then found = true end end
+        assert(found, "tooltip: " .. onLine .. " | " .. table.concat(lines, " | "))
+        ldbObj.OnClick(nil, "RightButton")
+        assert(not ns.QuestModeOn() and not ns.run, "Ctrl + right-click again: not off")
+        lines = {}
+        ldbObj.OnTooltipShow(tt)
+        local offLine = L["Ctrl + right-click: questing mode"] .. " |cff999999" .. L["off"] .. "|r"
+        found = false
+        for _, l in ipairs(lines) do if l == offLine then found = true end end
+        assert(found, "tooltip: " .. offLine)
+        IsControlKeyDown = keepCtrl
+        -- a plain right-click still starts the run
+        ldbObj.OnClick(nil, "RightButton") advance(1)
+        assert(ns.run, "right-click no longer starts a run")
+        ns.StopRun()
+        -- key binding
+        local f = assert(io.open(ROOT .. "/Bindings.xml"))
+        local xml = f:read("*a") f:close()
+        assert(xml:find('<Binding name="GATHERCRAFT_QUEST" category="ADDONS">Gathercraft_QuestMode()</Binding>', 1, true), "no key binding")
+        assert(BINDING_NAME_GATHERCRAFT_QUEST == L["Questing mode on / off"], "binding name: " .. tostring(BINDING_NAME_GATHERCRAFT_QUEST))
+        Gathercraft_QuestMode()
+        assert(ns.QuestModeOn(), "the key did not turn it on")
+        Gathercraft_QuestMode()
+        assert(not ns.QuestModeOn(), "the key did not turn it off")
+        -- Options > Map & minimap
+        local box
+        for _, o in ipairs(allFrames) do
+            if o.__kind == "FontString" and o:GetText() == L["Questing mode"] and o.__pts and o.__pts.LEFT then
+                local cb = o.__pts.LEFT[1]
+                if cb and cb.__kind == "CheckButton" and cb.get then box = cb end
+                local p = o.__parent
+                while p and not p.key do p = p.__parent end
+                assert(p and p.key == "map", "the switch is not under Map & minimap")
+            end
+        end
+        assert(box, "no switch in the options")
+        assert(box.get() == false, "the switch shows on while off")
+        box:SetChecked(true) box.__scripts.OnClick(box)
+        assert(ns.QuestModeOn() and box.get() == true, "the switch did not turn it on")
+        -- kept over /reload and login (saved variables); the rings are told again
+        local before = #calls
+        local watch = _G.GathercraftQuestWatch
+        assert(watch and eventFrames.PLAYER_LOGIN[watch], "test setup: the questing mode's login frame")
+        watch.__scripts.OnEvent(watch, "PLAYER_LOGIN")
+        assert(ns.db.questMode and ns.QuestModeOn(), "not kept over the login")
+        assert(#calls > before and calls[#calls] == true, "after the login the rings are not told")
+        -- a farm run turns it off, with a word; after the run it stays off
+        mark = #log
+        slash("run herb") advance(2)
+        assert(ns.run, "test setup: no run")
+        assert(not ns.QuestModeOn(), "still on during a farm run")
+        assert(Said(L["Questing mode off: a farm run started."], mark), "no word why it went off (run)")
+        slash("stop") advance(1)
+        assert(not ns.QuestModeOn(), "back on after the run")
+        -- fishing too
+        ns.SetQuestMode(true)
+        mark = #log
+        fire("UNIT_SPELLCAST_CHANNEL_START", "player", "q1fish", 7620) advance(1)
+        assert(not ns.QuestModeOn(), "still on while fishing")
+        assert(Said(L["Questing mode off: you started fishing."], mark), "no word why it went off (fishing)")
+        fire("UNIT_SPELLCAST_CHANNEL_STOP", "player", "q1fish", 7620) advance(1)
+        ns.StopFishing()
+        assert(not ns.QuestModeOn(), "back on after fishing")
+    end)
+    IsControlKeyDown = keepCtrl
+    for i = #ns.questModeListeners, 1, -1 do if ns.questModeListeners[i] == Listen then table.remove(ns.questModeListeners, i) end end
+    if ns.StopRun then ns.StopRun() end
+    if ns.SetQuestMode then ns.SetQuestMode(false) end
+    if not ok then error(err, 0) end
+end)
 step("Options: the herbs/minerals switch is under General, every page fits (v0.1.19)", function()
     -- Sven (08.11.): Map & minimap makes room for the questing mode
     local function PageOf(text)

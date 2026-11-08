@@ -39,6 +39,7 @@ Skills.lua
 Fishing.lua
 Rares.lua
 Options.lua
+Quest.lua
 Advisor.lua
 Crafting.lua
 Main.lua
