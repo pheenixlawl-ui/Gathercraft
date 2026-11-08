@@ -1045,6 +1045,21 @@ local function KnownProfessions()
     return set
 end
 
+-- The skill a recipe needs: from a trainer we saw (own data), else from the
+-- shipped data. 0 means "not known" in both (the profession window doesn't
+-- tell it; SkillUp lacks it for some quest and drop recipes): then nil, so
+-- the list shows "?" and sorts it last instead of first (Sven, 08.11.).
+local function ReqOf(packed)
+    local req = packed and tonumber(packed:match("^%d+:%d+:%d+:(%d+)|"))
+    if req and req > 0 then return req end
+end
+local function RequiredSkill(prof, name)
+    local own = ns.db.recipeDB and ns.db.recipeDB[prof]
+    local shipped = GathercraftRecipeData and GathercraftRecipeData.professions and GathercraftRecipeData.professions[prof]
+    return ReqOf(own and own[name]) or ReqOf(shipped and shipped[name])
+end
+ns.CraftRequiredSkill = RequiredSkill
+
 -- One profession (or nil = the ones this character has), with numbers,
 -- best profit first. mineOnly = only recipes this character knows.
 local function Evaluate(profFilter, mineOnly)
@@ -1063,12 +1078,12 @@ local function Evaluate(profFilter, mineOnly)
         for name, packed in pairs(all) do
             local learned = known[name] ~= nil
             if learned or not mineOnly then
-                local product, made, req, reagents = Unpack(packed)
+                local product, made, _, reagents = Unpack(packed)
+                local req = RequiredSkill(prof, name)
                 local diff
                 if learned then
                     local _, kMade, kDiff = Unpack(known[name])
                     diff, made = kDiff, kMade or made
-                    if all[name] == known[name] then req = nil end -- own data has no required skill
                 end
                 local price, source = nil, nil
                 local enchant = product == 0
@@ -1131,7 +1146,9 @@ local function SortRows(rows, key, desc)
         if get then
             local x, y = get(a), get(b)
             if (x == nil) ~= (y == nil) then return x ~= nil end
-            if x and y and math.abs(x - y) > 0.5 then
+            -- strict: only equal values go on by name (Codex N1: with "close
+            -- enough" 100.8 / 100.4 / 100.0 had no order)
+            if x and y and x ~= y then
                 if desc then return x > y end
                 return x < y
             end
@@ -1538,7 +1555,9 @@ ns.BuildCraftPage = function(page, style)
             fs:SetWordWrap(false)
             return fs
         end
-        row.name = Text(26, 330, "LEFT")
+        -- the name ends before the skill column and is cut with "..."
+        row.name = Text(26, 250, "LEFT")
+        row.skill = Text(280, 72, "RIGHT")
         row.profit = Text(360, 80, "RIGHT")
         row.value = Text(444, 80, "RIGHT")
         row.cost = Text(528, 80, "RIGHT")
@@ -1609,11 +1628,12 @@ ns.BuildCraftPage = function(page, style)
             row.icon:SetTexture(r.enchant and "Interface\\Icons\\Trade_Engraving"
                 or (C_Item and C_Item.GetItemIconByID and C_Item.GetItemIconByID(r.product)) or 134400)
             if r.learned then
-                row.name:SetText((DIFF_COLORS[r.diff] or "|cffffffff") .. r.name .. "|r"
-                    .. ((r.req and r.req > 0) and ("  |cff777777(" .. (r.reqGuessed and "~" or "") .. r.req .. ")|r") or ""))
+                row.name:SetText((DIFF_COLORS[r.diff] or "|cffffffff") .. r.name .. "|r")
             else
-                row.name:SetText("|cffa0a0a0" .. r.name .. "|r" .. ((r.req and r.req > 0) and ("  |cff777777(" .. (r.reqGuessed and "~" or "") .. r.req .. ")|r") or ""))
+                row.name:SetText("|cffa0a0a0" .. r.name .. "|r")
             end
+            row.skill:SetText(r.req and ((r.learned and "|cffffffff" or "|cffa0a0a0") .. (r.reqGuessed and "~" or "") .. r.req .. "|r")
+                or "|cff777777?|r")
             if r.enchant then
                 row.profit:SetText(r.missing and L["|cff777777?|r"] or L["|cff777777-|r"])
             elseif r.missing then

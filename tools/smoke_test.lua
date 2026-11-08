@@ -7620,6 +7620,65 @@ step("Crafting: sort by a column, both ways, remembered (v0.1.17)", function()
     ns.HideMain()
     ns.db.craftSort, ns.db.craftSortDesc = nil, nil
 end)
+step("Crafting: the skill in its own column, never 0, unknown ones last (v0.1.17)", function()
+    -- Sven's find (08.11.): learned cooking recipes had no number and stood
+    -- first when sorted by skill, the number sat in brackets after the name
+    local keepDB = ns.db.recipeDB
+    ns.db.recipeDB = { Cooking = {
+        -- read from the profession window: no skill there (0)
+        ["Brilliant Smallfish"] = "6290:1:1:0|6291:1",
+        ["Smoked Desert Dumplings"] = "20452:1:1:0|3713:1,20424:1",
+        -- seen at a trainer
+        ["Herb Baked Egg"] = "6888:1:1:40|2678:1,6889:1",
+    } }
+    local shipped = GathercraftRecipeData.professions.Cooking
+    assert(shipped["Brilliant Smallfish"]:match("^%d+:%d+:%d+:(%d+)") == "1", "test setup: shipped Brilliant Smallfish")
+    local rows = ns.CraftAdvice("Cooking")
+    local byName, zero = {}, 0
+    for _, r in ipairs(rows) do
+        byName[r.key] = r
+        if r.req == 0 then zero = zero + 1 end
+    end
+    assert(zero == 0, zero .. " recipes with skill 0")
+    assert(byName["Brilliant Smallfish"] and byName["Brilliant Smallfish"].req == 1, "own 0 hid the shipped skill: " .. tostring(byName["Brilliant Smallfish"] and byName["Brilliant Smallfish"].req))
+    assert(byName["Herb Baked Egg"] and byName["Herb Baked Egg"].req == 40, "the skill seen at a trainer was not used")
+    assert(byName["Smoked Desert Dumplings"] and byName["Smoked Desert Dumplings"].req == nil, "an unknown skill is not unknown")
+    -- low first: the ones without a skill come last
+    local sorted = ns.CraftSortRows(rows, "skill", false)
+    local seenUnknown, bad = false, nil
+    for i, r in ipairs(sorted) do
+        if r.req == nil then seenUnknown = true elseif seenUnknown then bad = r.key end
+        if i > 1 and r.req and sorted[i - 1].req and r.req < sorted[i - 1].req then bad = r.key end
+    end
+    assert(not bad, "skill low first is out of order at " .. tostring(bad))
+    assert(sorted[#sorted].req == nil and sorted[1].req, "unknown skills are not last")
+    -- Codex N1: costs a fraction of a copper apart still have one order
+    local function C(name, cost) return { name = name, prof = "Cooking", cost = cost, costUnknown = 0, reagents = { {} } } end
+    for _, desc in ipairs({ false, true }) do
+        local list = ns.CraftSortRows({ C("A", 100.8), C("B", 100.4), C("C", 100.0) }, "cost", desc)
+        local got = list[1].name .. list[2].name .. list[3].name
+        assert(got == (desc and "ABC" or "CBA"), ("costs 100.8/100.4/100.0, %s: %s"):format(desc and "high first" or "low first", got))
+    end
+    -- the page: a skill column, names cut before it, no number in brackets
+    ns.db.craftSort, ns.db.craftSortDesc = nil, nil
+    ns.ToggleMain("craft") advance(1)
+    local shown = 0
+    for _, f in ipairs(allFrames) do
+        if f.name and f.profit and f.icon and f.__shown and type(f.data) == "table" and f.data.reagents then
+            shown = shown + 1
+            assert(f.skill, "no skill column in the recipe rows")
+            local nx, sx = f.name.__pts.LEFT[1], f.skill.__pts.LEFT[1]
+            assert(nx + f.name.__w < sx, ("the name (%d + %d) runs into the skill column at %d"):format(nx, f.name.__w, sx))
+            assert(f.name.__wrap == false, "a long name can wrap")
+            assert(not tostring(f.name.__text):find("%(~?%d+%)"), "the skill still sits in brackets after the name: " .. tostring(f.name.__text))
+            local want = f.data.req and tostring(f.data.req) or "?"
+            assert(tostring(f.skill.__text):find(want, 1, true), ("skill column says %s, want %s"):format(tostring(f.skill.__text), want))
+        end
+    end
+    assert(shown > 0, "test setup: no recipe rows on the page")
+    ns.HideMain()
+    ns.db.recipeDB = keepDB
+end)
 step("Long run (10 min) for leaks", function() slash("run herb") advance(600) slash("stop") end)
 
 io.write("\n--- errors: " .. #errors .. "\n")
