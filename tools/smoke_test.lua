@@ -5583,18 +5583,18 @@ step("Questing mode: gold rings on nearby nodes you can gather, minimap only (v0
         assert(mine and mine.__alpha == 0, "the normal minimap pin still shows under the ring")
         -- chests only while shown
         ns.db.chestsHidden = true
-        advance(1)
+        advance(3) -- the questing mode looks again at least every 2 s (Q4)
         assert(not ns.QuestRings()[chest] and ns.QuestRings()[near], "a chest lit while chests are hidden")
         ns.db.chestsHidden = nil
-        advance(1)
+        advance(3) -- the questing mode looks again at least every 2 s (Q4)
         assert(ns.QuestRings()[chest], "the chest not lit again")
         -- a profession you don't have: none of its nodes
         ns.GatherProfessions = function() return false, true, true end
-        advance(1)
+        advance(3) -- the questing mode looks again at least every 2 s (Q4)
         assert(not ns.QuestRings()[near] and not ns.QuestRings()[edge] and ns.QuestRings()[ore], "herbs lit without Herbalism")
         ns.GatherProfessions = keep.gp
         ns.GetSkill = function(t) if t == "herb" then return keep.skill(t) end end -- Mining not learned
-        advance(1)
+        advance(3) -- the questing mode looks again at least every 2 s (Q4)
         assert(ns.QuestRings()[near] and not ns.QuestRings()[ore], "ore lit without Mining")
         -- "Hide grey nodes" (Options > Leveling): a node that gives no more
         -- skill-ups gets no ring while the option is on (Sven, 09.11.)
@@ -5611,15 +5611,16 @@ step("Questing mode: gold rings on nearby nodes you can gather, minimap only (v0
         local SECRET = newproxy(true)
         issecretvalue = function(v) return rawequal(v, SECRET) end
         ns.GetSkill = function(t) if t == "herb" then return SECRET, 75, SECRET end return keep.skill(t) end
-        advance(1)
+        ns.GetSkill("ore") -- (only the questing mode reads it now: no other timer meets the stand-in)
+        ns.UpdateQuestRings()
         assert(not ns.QuestRings()[near] and ns.QuestRings()[ore], "a hidden Herbalism skill: herbs lit")
         ns.GetSkill, issecretvalue = keep.skill, keep.secret
         -- the position can't be read (hidden): no rings, no error
         ns.GetPlayerPos = function() end
-        advance(1)
+        advance(3) -- the questing mode looks again at least every 2 s (Q4)
         assert(not next(ns.QuestRings()), "rings without a position")
         ns.GetPlayerPos = keep.pos
-        advance(1)
+        advance(3) -- the questing mode looks again at least every 2 s (Q4)
         assert(ns.QuestRings()[near], "the rings did not come back")
         -- another zone: its nodes, not the old ones
         player.map, player.x, player.y = Z2, px, py
@@ -5629,10 +5630,10 @@ step("Questing mode: gold rings on nearby nodes you can gather, minimap only (v0
         fire("ZONE_CHANGED_NEW_AREA") advance(1)
         -- walking away: the rings go
         player.x = px + 0.05
-        advance(1)
+        advance(3) -- the questing mode looks again at least every 2 s (Q4)
         assert(not next(ns.QuestRings()), "rings 250 yd away")
         player.x = px
-        advance(1)
+        advance(3) -- the questing mode looks again at least every 2 s (Q4)
         -- off: all rings go, the normal pin is back
         ns.SetQuestMode(false) advance(1)
         assert(not next(ns.QuestRings()), "rings after turning it off")
@@ -5762,6 +5763,76 @@ step("Questing mode: radius 50 / 75 / 100 yd and the arrow to the nearest ring (
     player.map, player.x, player.y = keep.map, keep.x, keep.y
     ns.ShowOptionsSection(wasSection or "map")
     if win:IsShown() ~= wasOpen then ns.ToggleOptions() end
+    fire("ZONE_CHANGED_NEW_AREA") advance(1)
+    ns.NotifyNodesChanged() advance(1)
+    if not ok then error(err, 0) end
+end)
+step("Questing mode: looks again only after 5 yd, a change or 2 s; nothing while off; Hillsbrad (v0.1.19 Q4)", function()
+    local Z = 1424 -- Hillsbrad Foothills: every herb and ore spawn point of the Questie data
+    local keep = { nodes = ns.db.nodes[Z], map = player.map, x = player.x, y = player.y }
+    local ok, err = pcall(function()
+        ns.SetQuestMode(false)
+        ns.ImportQuestieZone(Z, true)
+        local questie = #(ns.db.nodes[Z] or {})
+        assert(questie >= 600, "test setup: Hillsbrad has " .. questie .. " Questie nodes")
+        -- plus own finds up to 700 (Sven's zone had 680+)
+        for i = questie + 1, 700 do
+            table.insert(ns.db.nodes[Z], { id = "o1617", name = "Silverleaf", type = "herb", x = (i % 40) / 40, y = math.floor(i / 40) / 20, count = 1, last = 1, hits = 1 })
+        end
+        local count = #ns.db.nodes[Z]
+        ns.NotifyNodesChanged() advance(1)
+        note("Hillsbrad nodes", questie, "from Questie,", count, "in all")
+        player.map, player.x, player.y = Z, 0.5, 0.5
+        fire("ZONE_CHANGED_NEW_AREA") advance(1)
+        -- off: nothing is gone through, however long
+        local p0 = ns.QuestPicks()
+        advance(10)
+        assert(ns.QuestPicks() == p0, "the nodes were gone through while the mode is off")
+        -- on: once at once
+        ns.SetQuestMode(true)
+        local p1 = ns.QuestPicks()
+        assert(p1 == p0 + 1, "not looked at once when turned on")
+        -- standing still for 10 s (20 ticks): only the 2 s refresh
+        advance(10)
+        local still = ns.QuestPicks() - p1
+        assert(still >= 3 and still <= 6, "standing still 10 s: gone through " .. still .. " times (want every 2 s, not every tick)")
+        -- 4 yd walked: nothing new; 6 yd: at once
+        advance(2.1)
+        local p2 = ns.QuestPicks()
+        player.x = player.x + 4 / 5000
+        advance(0.6)
+        assert(ns.QuestPicks() == p2, "4 yd walked: gone through again")
+        player.x = player.x + 2 / 5000
+        advance(0.6)
+        assert(ns.QuestPicks() == p2 + 1, "6 yd walked: not gone through again")
+        -- a node changed (harvested, options): at the next tick
+        local p3 = ns.QuestPicks()
+        ns.NotifyNodesChanged()
+        advance(0.6)
+        assert(ns.QuestPicks() > p3, "a node change: not looked again")
+        -- one look at 680+ nodes is quick (the mock's clock: a rough bound only)
+        local t0 = os.clock()
+        for _ = 1, 20 do ns.UpdateQuestRings() end
+        local ms = (os.clock() - t0) * 1000 / 20
+        note("questing mode, one look at Hillsbrad", ("%.2f ms"):format(ms), "rings", (function() local c = 0 for _ in pairs(ns.QuestRings()) do c = c + 1 end return c end)())
+        assert(ms < 25, ("one look at %d nodes takes %.1f ms"):format(count, ms))
+        -- only this zone: a node of another zone is never looked at
+        local seen = {}
+        local realDistance = ns.Distance
+        ns.Distance = function(mapID, ...) seen[mapID] = true return realDistance(mapID, ...) end
+        ns.UpdateQuestRings()
+        ns.Distance = realDistance
+        for m in pairs(seen) do assert(m == Z, "a node of another zone was measured: " .. tostring(m)) end
+        -- off: the ticker stops (no more looks)
+        ns.SetQuestMode(false)
+        local p4 = ns.QuestPicks()
+        player.x = player.x + 0.01
+        advance(5)
+        assert(ns.QuestPicks() == p4, "still looking after turning it off")
+    end)
+    ns.SetQuestMode(false)
+    ns.db.nodes[Z] = keep.nodes
+    player.map, player.x, player.y = keep.map, keep.x, keep.y
     fire("ZONE_CHANGED_NEW_AREA") advance(1)
     ns.NotifyNodesChanged() advance(1)
     if not ok then error(err, 0) end

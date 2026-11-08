@@ -60,7 +60,12 @@ end
 local RADII = { 50, 75, 100 }
 ns.QUEST_RADII = RADII
 local RADIUS = 75
+-- Q4: every TICK it looks whether anything changed: MOVE yards walked, a new
+-- zone, a node changed, or REFRESH seconds gone (rest times run out, your
+-- skill went up). Only then the zone's nodes are gone through again.
 local TICK = 0.5
+local MOVE = 5      -- yards
+local REFRESH = 2   -- seconds
 
 local function Radius()
     local r = ns.db and ns.db.questRadius
@@ -117,20 +122,40 @@ ns.QuestArrowNode = function()
 end
 
 local ticker
+local picks = 0 -- how often the nodes were gone through (the tests count it)
+local last = { at = -math.huge }
+local dirty = true
+
 local function Update()
     if not (On() and ns.SetQuestRings) then return end
-    local mapID, want, nearest = Pick()
+    picks = picks + 1
+    local mapID, px, py = ns.GetPlayerPos()
+    last.map, last.x, last.y, last.at = mapID, px, py, GetTime()
+    dirty = false
+    local want, nearest
+    mapID, want, nearest = Pick()
     arrowNode, arrowMap = nearest, mapID
     ns.SetQuestRings(mapID, want)
     if ns.UpdateArrow then ns.UpdateArrow() end
 end
 ns.UpdateQuestRings = Update
+ns.QuestPicks = function() return picks end
+
+-- every TICK while on: go through the nodes only when something changed
+local function Tick()
+    if not On() then return end
+    if not dirty and GetTime() - last.at < REFRESH then
+        local mapID, px, py = ns.GetPlayerPos()
+        if mapID == last.map and px and last.x and ns.Distance(mapID, last.x, last.y, px, py) < MOVE then return end
+    end
+    Update()
+end
 
 -- the rings follow the state: a ticker only while it is on
 table.insert(listeners, function(on)
     if ticker then ticker:Cancel() ticker = nil end
     if on then
-        ticker = C_Timer.NewTicker(TICK, Update)
+        ticker = C_Timer.NewTicker(TICK, Tick)
         Update()
     else
         arrowNode, arrowMap = nil, nil
@@ -138,6 +163,9 @@ table.insert(listeners, function(on)
         if ns.UpdateArrow then ns.UpdateArrow() end
     end
 end)
+
+-- a node came, went or changed (harvested, found empty, options): look again
+table.insert(ns.nodeListeners, function() dirty = true end)
 
 -- Key binding (Bindings.xml)
 function Gathercraft_QuestMode() ns.ToggleQuestMode() end
