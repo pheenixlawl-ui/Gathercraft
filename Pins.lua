@@ -29,6 +29,9 @@ local DEFAULT_ICON = "Interface\\Icons\\INV_Misc_QuestionMark"
 -- The next node of a farm run gets a gold ring and is always shown.
 local MEDIA = "Interface\\AddOns\\" .. ADDON_NAME .. "\\Media\\"
 local RING_SILVER, RING_GOLD = MEDIA .. "RingSilver", MEDIA .. "RingGold"
+-- "Ring only" on the minimap: the run target is a broader gold ring without
+-- an icon, so the yellow dot of the game's tracking shows in its middle too
+local RING_GOLD_BOLD = MEDIA .. "RingGoldBold"
 local ROUND_MASK = "Interface\\CharacterFrame\\TempPortraitAlphaMask"
 local SUBTLE_ICON_ALPHA = 0.6
 local TARGET_REF = ADDON_NAME .. "Target"
@@ -681,14 +684,17 @@ local function PlaceTarget()
     local worldSize, miniSize = Sizes()
     target.world = target.world or TargetPin()
     target.mini = target.mini or TargetPin()
-    for _, pair in ipairs({ { target.world, math.floor(worldSize * 1.7 + 0.5) }, { target.mini, math.max(16, math.floor(miniSize * 1.6 + 0.5)) } }) do
-        local pin, size = pair[1], pair[2]
+    local ringOnly = MiniStyle() == "ring"
+    local miniTarget = ringOnly and math.max(22, math.floor(miniSize * 2.2 + 0.5)) or math.max(16, math.floor(miniSize * 1.6 + 0.5))
+    for _, pair in ipairs({ { target.world, math.floor(worldSize * 1.7 + 0.5), false }, { target.mini, miniTarget, ringOnly } }) do
+        local pin, size, bare = pair[1], pair[2], pair[3]
         pin.node, pin.mapID, pin.others = n, mapID, nil
         pin:SetSize(size, size)
-        Decorate(pin, RING_GOLD) -- the icon inset follows the size
+        Decorate(pin, bare and RING_GOLD_BOLD or RING_GOLD) -- the icon inset follows the size
         pin.icon:SetTexture(NodeIcon(n))
         pin.icon:SetDesaturated(false)
         pin.icon:SetAlpha(1)
+        pin.icon:SetShown(not bare)
         pin:SetAlpha(1)
     end
     target.world:EnableMouse(true)
@@ -886,6 +892,7 @@ end
 
 ns.SetRouteTarget = SetRouteTarget
 ns.ClearRouteTarget = ClearRouteTarget
+ns.RouteTargetPins = function() return target.world, target.mini end
 
 -- Where the minimap pins are (world yards) and how big (pixels): the route
 -- line leaves a little gap around each one (Route.lua)

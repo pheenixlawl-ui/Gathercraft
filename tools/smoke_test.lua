@@ -5116,6 +5116,41 @@ step("Run window: a long title is cut before the time, the time before the butto
     assert(shown, "a cut title has no tooltip with the whole text")
     assert(hit.__scripts.OnDragStart, "the window can't be dragged by its title any more")
 end)
+step("Minimap style ring only: the run target is a broad gold ring without an icon (v0.1.17)", function()
+    -- Sven's find (08.11.): the target kept its icon and hid the yellow dot
+    local list = ns.db.nodes[1412]
+    local n = list and list[1]
+    assert(n, "test setup: no node on map 1412")
+    local keepStyle = ns.db.miniPinStyle
+    local function Place(style)
+        ns.db.miniPinStyle = style
+        ns.ClearRouteTarget()
+        ns.SetRouteTarget(1412, n)
+        local world, mini = ns.RouteTargetPins()
+        return world, mini
+    end
+    local function Tex(pin) return tostring(pin.ring and pin.ring.__tex or "") end
+    local world, mini = Place("subtle")
+    assert(mini and mini.icon.__shown ~= false and Tex(mini):find("RingGold$"), "subtle: the target is no longer the icon in a gold ring")
+    local subtleSize = mini.__w
+    world, mini = Place("normal")
+    assert(mini.icon.__shown ~= false and Tex(mini):find("RingGold$"), "normal: the target is no longer the icon in a gold ring")
+    world, mini = Place(nil) -- ring only, the default
+    assert(mini.icon.__shown == false, "ring only: the target still shows its icon over the tracking dot")
+    assert(Tex(mini):find("RingGoldBold$"), "ring only: not the broad gold ring: " .. Tex(mini))
+    assert((mini.__w or 0) > (subtleSize or 0), ("ring only: target ring %s px, not bigger than %s"):format(tostring(mini.__w), tostring(subtleSize)))
+    assert(world.icon.__shown ~= false and Tex(world):find("RingGold$"), "the world map target changed")
+    -- switched in the options while a target is set: it follows
+    ns.db.miniPinStyle = "subtle"
+    ns.NotifyNodesChanged() advance(1)
+    assert(mini.icon.__shown ~= false, "back to subtle: the target icon did not come back")
+    ns.db.miniPinStyle = nil
+    ns.NotifyNodesChanged() advance(1)
+    assert(mini.icon.__shown == false, "to ring only: the target icon stayed")
+    ns.ClearRouteTarget()
+    ns.db.miniPinStyle = keepStyle
+    ns.NotifyNodesChanged() advance(1)
+end)
 step("Minimap style: ring only is the default, a choice stays (v0.1.17)", function()
     player.map, player.x, player.y = 1412, 0.45, 0.72
     local function rebuild() MINI_ICONS = {} ns.NotifyNodesChanged() advance(1) end
@@ -5136,9 +5171,9 @@ step("Minimap style: ring only is the default, a choice stays (v0.1.17)", functi
         end
     end
     assert(rings > 0, "test setup: no minimap pins")
-    -- world map pins are not touched
+    -- world map pins are not touched (the run target has its own step)
     for _, f in ipairs(allFrames) do
-        if f.node and not f.isMini and f.icon then assert(not f.ringOnly and f.icon:IsShown(), "a world map pin went ring-only") end
+        if f.node and not f.isMini and not f.isTarget and f.icon then assert(not f.ringOnly and f.icon:IsShown(), "a world map pin went ring-only") end
     end
     -- your choice stays: normal and subtle, saved by name, with the icon back
     for _, style in ipairs({ "normal", "subtle" }) do
