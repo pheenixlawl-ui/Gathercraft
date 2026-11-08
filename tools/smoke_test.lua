@@ -3703,6 +3703,93 @@ step("Minimap guesses nobody confirmed go after 30 days (v0.1.18 S6)", function(
     ns.NotifyNodesChanged() ns.ForgetSeenKinds()
     player.map, player.x, player.y = 1412, 0.45, 0.72
 end)
+step("Minimap guesses: merging at login keeps what protects them from the 30 days (v0.1.18 F1)", function()
+    -- Codex H1 (08.11.): ConsolidateSeen runs right before ExpireGuesses. Two
+    -- undated guesses got the date 0 (gone at once), and a confirmation on
+    -- the second guess of a pair was lost (gone, or not, by list order).
+    local DAY = 24 * 3600
+    local Z = 1450
+    local keep = ns.db.nodes[Z]
+    ns.db.nodes[Z] = {}
+    local spot = 0
+    -- a pair of guesses of one kind about 5 yd apart, each pair far from the others
+    local function Pair(id, a, b)
+        spot = spot + 1
+        local x = 0.05 + spot * 0.07
+        local out = {}
+        for i, extra in ipairs({ a, b }) do
+            local n = { id = id, name = "Peacebloom", type = "herb", x = x + (i - 1) * 0.001, y = 0.4, count = 1, last = 1,
+                seenOnly = true, seenErr = 20, upAt = 1 }
+            for k, v in pairs(extra) do n[k] = v end
+            table.insert(ns.db.nodes[Z], n)
+            out[i] = n
+        end
+        return out[1], out[2], x
+    end
+    local now = time()
+    local function Ago(days) return now - days * DAY end
+    -- A: both without a date
+    local A1, A2, ax = Pair("o2101", {}, {})
+    -- B: 40 days old, the confirmed one second, then first
+    local B1, B2, bx = Pair("o2102", { seenAt = Ago(40) }, { seenAt = Ago(40), heard = 1, heardBy = { Reporter = true } })
+    local C1, C2, cx = Pair("o2103", { seenAt = Ago(40), heard = 1, heardBy = { Reporter = true } }, { seenAt = Ago(40) })
+    -- shared spots: the source of the second one counts too
+    local S1, S2, sx = Pair("o2104", { seenAt = Ago(90) }, { seenAt = Ago(90), source = "sync" })
+    -- the youngest known date counts; an unknown one is no date
+    local D29a, D29b, d29x = Pair("o2105", { seenAt = Ago(35) }, { seenAt = Ago(29) })
+    local D30a, D30b, d30x = Pair("o2106", { seenAt = Ago(40) }, { seenAt = Ago(30) })
+    local D31a, D31b, d31x = Pair("o2107", { seenAt = Ago(45) }, { seenAt = Ago(31) })
+    local U1, U2, ux = Pair("o2108", {}, { seenAt = Ago(29) })
+    -- confirmations by the same and by another player: each player once
+    local H1, H2, hx = Pair("o2109", { seenAt = Ago(60), heard = 1, heardBy = { Ann = true } },
+        { seenAt = Ago(60), heard = 2, heardBy = { Ann = true, Bob = true } })
+    -- close to a harvested node: the guesses merge and go, the node stays
+    local G1, G2, gx = Pair("o2110", { seenAt = Ago(40) }, { seenAt = Ago(40) })
+    local harvested = { id = "o2110", name = "Peacebloom", type = "herb", x = gx + 0.0005, y = 0.4, count = 3, hits = 3, last = Ago(90) }
+    table.insert(ns.db.nodes[Z], harvested)
+    ns.NotifyNodesChanged() ns.ForgetSeenKinds()
+    -- the login: merge, then the 30 days (the whole chain)
+    for f in pairs(eventFrames.PLAYER_LOGIN) do
+        if eventFrames.ADDON_LOADED and eventFrames.ADDON_LOADED[f] then f.__scripts.OnEvent(f, "PLAYER_LOGIN") end
+    end
+    local at = {}
+    for _, n in ipairs(ns.db.nodes[Z] or {}) do
+        local key = math.floor((n.x - 0.05) / 0.07 + 0.5)
+        at[key] = at[key] or {}
+        table.insert(at[key], n)
+    end
+    local function Left(x, what)
+        local list = at[math.floor((x - 0.05) / 0.07 + 0.5)] or {}
+        local guesses = {}
+        for _, n in ipairs(list) do if n.seenOnly then guesses[#guesses + 1] = n end end
+        assert(#guesses <= 1, ("%s: %d guesses left, not merged into one"):format(what, #guesses))
+        return guesses[1], list
+    end
+    local a = Left(ax, "A")
+    assert(a, "A: two close undated guesses went at the login")
+    assert(a.seenAt and a.seenAt >= now, "A: no date of today after the merge: " .. tostring(a.seenAt))
+    local b = Left(bx, "B")
+    assert(b and (b.heard or 0) >= 1 and b.heardBy and b.heardBy.Reporter, "B: the confirmation of the second guess was lost")
+    local c = Left(cx, "B reversed")
+    assert(c and (c.heard or 0) >= 1 and c.heardBy and c.heardBy.Reporter, "B reversed: the confirmed guess went")
+    local s = Left(sx, "shared")
+    assert(s and s.source == "sync", "a shared spot merged into an own guess went: " .. tostring(s and s.source))
+    local d29 = Left(d29x, "29 days")
+    assert(d29 and d29.seenAt == Ago(29), "29 days after the merge: gone, or not the youngest date")
+    assert(not Left(d30x, "30 days") and not Left(d31x, "31 days"), "30 / 31 days after the merge: still there")
+    local u = Left(ux, "one date unknown")
+    assert(u and u.seenAt == Ago(29), "an unknown date took the place of the known one: " .. tostring(u and u.seenAt))
+    local h = Left(hx, "confirmations")
+    assert(h and h.heardBy and h.heardBy.Ann and h.heardBy.Bob, "confirmations: not every player kept")
+    local names = 0
+    for _ in pairs(h.heardBy) do names = names + 1 end
+    assert(names == 2 and h.heard == 2, ("confirmations: %d players, heard %s (each player once)"):format(names, tostring(h.heard)))
+    local g, glist = Left(gx, "harvested")
+    assert(not g, "next to a harvested node: 40 days old guesses stayed")
+    assert(#glist == 1 and glist[1] == harvested, "next to a harvested node: the harvested node went or changed")
+    ns.db.nodes[Z] = keep
+    ns.NotifyNodesChanged() ns.ForgetSeenKinds()
+end)
 step("Craft log: one entry per finished craft, failures and odd cases marked apart (v0.1.18 S5)", function()
     local data = GathercraftRecipeData
     local spell = data.spells.Leatherworking["Light Leather"]

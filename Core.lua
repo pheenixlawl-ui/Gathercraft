@@ -1747,6 +1747,10 @@ end
 -- Rough guesses of the same kind that lie within their errors of each other
 -- are one node seen several times (older versions made a new one each time
 -- the guess was more than 25 yd off). Merged into their weighted average.
+local function Latest(a, b)
+    if a and b then return math.max(a, b) end
+    return a or b
+end
 local function ConsolidateSeen(mapID)
     local list = GetZoneNodes(mapID)
     if not list then return 0 end
@@ -1770,8 +1774,24 @@ local function ConsolidateSeen(mapID)
                         a.seenErr = math.max(SEEN_ERR_MIN, 1 / math.sqrt(a.seenW))
                         a.seenLooks = (a.seenLooks or 1) + (b.seenLooks or 1)
                         a.lookErr = math.max(la, lb)
-                        a.seenAt = math.max(a.seenAt or 0, b.seenAt or 0)
-                        a.upAt = math.max(a.upAt or 0, b.upAt or 0)
+                        -- what keeps a guess from the 30 days (ExpireGuesses)
+                        -- survives the merge, in any list order (Codex H1):
+                        -- the youngest known date (none known stays none,
+                        -- never 0), every player who confirmed it once, and
+                        -- where it came from
+                        a.seenAt = Latest(a.seenAt, b.seenAt)
+                        a.upAt = Latest(a.upAt, b.upAt)
+                        if b.heardBy then
+                            a.heardBy = a.heardBy or {}
+                            for who in pairs(b.heardBy) do a.heardBy[who] = true end
+                        end
+                        local names = 0
+                        for _ in pairs(a.heardBy or {}) do names = names + 1 end
+                        local heard = math.max(a.heard or 0, b.heard or 0, names)
+                        a.heard = heard > 0 and heard or nil
+                        a.source = a.source or b.source
+                        local hits = (a.hits or 0) + (b.hits or 0)
+                        a.hits = hits > 0 and hits or a.hits
                         table.remove(list, j)
                         merged = merged + 1
                     end
