@@ -3498,6 +3498,39 @@ step("Skill plan: what the plan makes itself is counted once, every profession (
     d.AllRecipes, data.spells, data.colors = saved.all, saved.spells, saved.colors
     if not ok then error(err, 0) end
 end)
+step("Skill plan: counts again when the bags change (v0.1.18 S2)", function()
+    -- Sven had 35 Light Leather, the plan said 34: the plan counted once when
+    -- it opened, and loot, crafting or the bank after that never reached it
+    local d = ns.CraftData
+    local saved = { have = d.Have, rank = ns.ProfessionRank }
+    local stock = { [2318] = 34 }
+    d.Have = function(id) return stock[id] or 0 end
+    ns.ProfessionRank = function(p) if p == "Leatherworking" then return 30, 75 end end
+    ns.ShowSkillPlan("Leatherworking") advance(1)
+    local win = _G.GathercraftSkillPlan
+    local name = ns.ItemName and ns.ItemName(2318) or "2318"
+    local function Row()
+        for _, o in ipairs(allFrames) do
+            local t = o.GetText and o:IsShown() and o:GetText()
+            if type(t) == "string" and t:find(name .. "  ", 1, true) == 1 and t:find(" / ", 1, true) then return t end
+        end
+    end
+    local before = Row()
+    assert(before and before:find("/ 34|r", 1, true), "test setup: Light Leather is not in the plan: " .. tostring(before))
+    for _, e in ipairs({ "BAG_UPDATE_DELAYED", "PLAYERBANKSLOTS_CHANGED", "BANKFRAME_OPENED" }) do
+        stock[2318] = (stock[2318] or 0) + 1
+        fire(e) fire(e) fire(e) advance(1)
+        local want = "/ " .. stock[2318] .. "|r"
+        assert((Row() or ""):find(want, 1, true), ("after %s: %s, want %s"):format(e, tostring(Row()), want))
+    end
+    -- closed: nothing is counted
+    win:Hide()
+    local calls = 0
+    d.Have = function(id) calls = calls + 1 return stock[id] or 0 end
+    fire("BAG_UPDATE_DELAYED") advance(1)
+    assert(calls == 0, "the closed plan counted again")
+    d.Have, ns.ProfessionRank = saved.have, saved.rank
+end)
 step("Skill plan: hints, fees and totals fit, also long translations and big amounts (v0.1.14)", function()
     -- no real font metrics: the estimate of TextHeight (6 px a letter, 11 px
     -- a CJK sign) shows whether the window makes room, not how the game draws it

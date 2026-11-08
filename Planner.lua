@@ -532,6 +532,22 @@ local function Build()
     noteText:SetWidth(500)
     noteText:SetJustifyH("LEFT")
     win:SetScript("OnShow", Refresh)
+    -- what you have changes while the plan is open (loot, crafting, the bank):
+    -- count again, once for a burst of bag updates. Events this client
+    -- doesn't know are left out.
+    local pending
+    win:SetScript("OnEvent", function()
+        if pending or not win:IsShown() then return end
+        pending = true
+        C_Timer.After(0.2, function()
+            pending = false
+            Refresh()
+        end)
+    end)
+    for _, e in ipairs({ "BAG_UPDATE_DELAYED", "BANKFRAME_OPENED", "BANKFRAME_CLOSED",
+        "PLAYERBANKSLOTS_CHANGED", "PLAYERREAGENTBANKSLOTS_CHANGED" }) do
+        pcall(win.RegisterEvent, win, e)
+    end
 end
 
 -- Opens the planner for a profession (default: one of yours)
