@@ -529,4 +529,6 @@ ns.Locales.zhTW = {
     ["green"] = "綠色",
     ["grey"] = "灰色",
     ["unknown"] = "未知",
+    ["Received from other players: %d spots (%d new)"] = "從其他玩家收到：%d 個點位（%d 個新的）",
+    ["  Received from other players (all sessions): %d spots, %d new (%d guild/friends, %d public, confirmed), %d confirm spots you know"] = "  從其他玩家收到（所有工作階段）：%d 個點位，%d 個新的（公會/好友 %d 個，公開 %d 個，已確認），%d 個確認了已知點位",
 }

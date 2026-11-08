@@ -529,4 +529,6 @@ ns.Locales.ruRU = {
     ["green"] = "зелёный",
     ["grey"] = "серый",
     ["unknown"] = "неизвестно",
+    ["Received from other players: %d spots (%d new)"] = "Получено от других игроков: %d точек (%d новых)",
+    ["  Received from other players (all sessions): %d spots, %d new (%d guild/friends, %d public, confirmed), %d confirm spots you know"] = "  Получено от других игроков (за все сеансы): %d точек, %d новых (%d гильдия/друзья, %d публичных, подтверждено), %d подтверждают известные точки",
 }

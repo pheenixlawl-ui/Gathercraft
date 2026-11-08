@@ -807,6 +807,8 @@ UpdateSyncStatus = function()
     local lines = {
         (L["Gathercraft players seen in the last hour: %d"]):format(peers),
         (L["Spots received this session: %d"]):format(received),
+        (L["Received from other players: %d spots (%d new)"]):format(ns.SyncCounts and ns.SyncCounts() or 0,
+            ns.SyncCounts and select(2, ns.SyncCounts()) or 0),
         (L["Waiting for a second player to confirm them: %d"]):format(waiting),
     }
     if ns.db.sync.public and not joined then
@@ -953,7 +955,7 @@ local function Build()
     syncStatus:SetPoint("TOPLEFT", colX + 6, nextY)
     syncStatus:SetPoint("RIGHT", page, "RIGHT", 0, 0)
     syncStatus:SetJustifyH("LEFT")
-    nextY = nextY - 60
+    nextY = nextY - 76 -- four lines and the channel note
     local statusElapsed = 0
     page:SetScript("OnUpdate", function(_, elapsed)
         statusElapsed = statusElapsed + elapsed

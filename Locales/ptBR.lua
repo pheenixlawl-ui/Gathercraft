@@ -529,4 +529,6 @@ ns.Locales.ptBR = {
     ["green"] = "verde",
     ["grey"] = "cinza",
     ["unknown"] = "desconhecido",
+    ["Received from other players: %d spots (%d new)"] = "Recebidos de outros jogadores: %d pontos (%d novos)",
+    ["  Received from other players (all sessions): %d spots, %d new (%d guild/friends, %d public, confirmed), %d confirm spots you know"] = "  Recebidos de outros jogadores (todas as sessões): %d pontos, %d novos (%d guilda/amigos, %d públicos, confirmados), %d confirmam pontos conhecidos",
 }

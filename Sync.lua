@@ -325,6 +325,24 @@ local function AnnounceImport(mapID)
     end)
 end
 
+-- What other players sent, over all sessions (ns.db.sync.counts): a spot
+-- counts once per player who sent it, and only when it is taken (a new node:
+-- right away from guild and friends, after the confirmations from others)
+-- or when it confirms a node you know (a player not heard for it before).
+-- Reports still waiting for confirmations are not counted here.
+local function Counted(what, trusted)
+    local db = DB()
+    db.counts = db.counts or {}
+    local c = db.counts
+    c.received = (c.received or 0) + 1
+    if what == "new" then
+        c.new = (c.new or 0) + 1
+        if trusted then c.trusted = (c.trusted or 0) + 1 else c.public = (c.public or 0) + 1 end
+    else
+        c.confirmed = (c.confirmed or 0) + 1
+    end
+end
+
 local function Import(mapID, p)
     ns.db.nodes[mapID] = ns.db.nodes[mapID] or {}
     local node = {
@@ -457,6 +475,7 @@ local function HandleNode(mapID, entry, sender, trusted, dry)
                 if names < HEARD_KEEP then
                     known.heardBy[who] = true
                     known.heard = (known.heard or 0) + 1
+                    Counted("confirmed")
                     -- someone new has it: it is real after all
                     if known.parked then Unpark(known, "reported by " .. who, mapID) end
                 end
@@ -520,6 +539,7 @@ local function HandleNode(mapID, entry, sender, trusted, dry)
         else
             if ns.OnPendingChanged then ns.OnPendingChanged(mapID, p, "remove") end
             Import(mapID, p)
+            Counted("new", trusted)
             Debug(("imported %s in %d (%s)"):format(id, mapID, trusted and "trusted" or (p.rc .. " reports")))
         end
     end
@@ -786,6 +806,9 @@ local function Status()
     print((L["  Players seen (1h): %d   Messages received: %d   Incoming: %.1f/s"]):format(
         peers, stats.received, incomingRate))
     print((L["  Imported this session: %d   Waiting for confirmation: %d"]):format(stats.imported, CountPending()))
+    local c = DB().counts or {}
+    print((L["  Received from other players (all sessions): %d spots, %d new (%d guild/friends, %d public, confirmed), %d confirm spots you know"]):format(
+        c.received or 0, c.new or 0, c.trusted or 0, c.public or 0, c.confirmed or 0))
     print((L["  Not sent (already known): %d   Not sent (busy): %d   Dropped (budget): %d"]):format(
         stats.skippedKnown, stats.skippedBusy, stats.dropped))
     print((L["  Confirmations needed: %d (guild and friends count instantly)"]):format(CONFIRMATIONS))
@@ -925,6 +948,11 @@ ns.SyncSummary = function()
     return peers, stats.imported, CountPending(), joined
 end
 ns.SyncUnpark = Unpark
+-- over all sessions: received, new, confirmations, new from guild and friends, new from others
+ns.SyncCounts = function()
+    local c = (ns.db and ns.db.sync and ns.db.sync.counts) or {}
+    return c.received or 0, c.new or 0, c.confirmed or 0, c.trusted or 0, c.public or 0
+end
 ns.SyncPending = function(mapID)
     local db = ns.db and ns.db.sync
     return db and db.pending and db.pending[mapID]

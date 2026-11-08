@@ -558,4 +558,6 @@ ns.Locales.deDE = {
     ["green"] = "grün",
     ["grey"] = "grau",
     ["unknown"] = "unbekannt",
+    ["Received from other players: %d spots (%d new)"] = "Von anderen Spielern erhalten: %d Fundorte (%d neu)",
+    ["  Received from other players (all sessions): %d spots, %d new (%d guild/friends, %d public, confirmed), %d confirm spots you know"] = "  Von anderen Spielern erhalten (alle Sitzungen): %d Fundorte, %d neu (%d Gilde/Freunde, %d öffentlich, bestätigt), %d bestätigen bekannte Fundorte",
 }

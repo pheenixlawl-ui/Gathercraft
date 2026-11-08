@@ -529,4 +529,6 @@ ns.Locales.koKR = {
     ["green"] = "초록",
     ["grey"] = "회색",
     ["unknown"] = "알 수 없음",
+    ["Received from other players: %d spots (%d new)"] = "다른 플레이어에게서 받음: %d곳 (새로운 곳 %d)",
+    ["  Received from other players (all sessions): %d spots, %d new (%d guild/friends, %d public, confirmed), %d confirm spots you know"] = "  다른 플레이어에게서 받음 (모든 세션): %d곳, 새로운 곳 %d (길드/친구 %d, 공개 %d, 확인됨), 아는 곳 확인 %d",
 }

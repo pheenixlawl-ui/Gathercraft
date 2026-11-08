@@ -3804,6 +3804,93 @@ step("Craft log: one entry per finished craft, failures and odd cases marked apa
     ns.db.craftLog, ns.db.craftLogOff, issecretvalue = saved.log, saved.off, saved.secret
     if not ok then error(err, 0) end
 end)
+step("Sharing counts what other players sent, over all sessions (v0.1.18 S7)", function()
+    local db = ns.db.sync
+    local saved = { counts = db.counts, enabled = db.enabled, public = db.public, friend = C_FriendList.GetFriendInfo }
+    db.enabled, db.public, db.counts = true, true, nil
+    local Z = 1463
+    ns.db.nodes[Z] = {}
+    local function Send(id, x, who, where)
+        local text = ("N:%d;%s,h,%d,5000,2447"):format(Z, id, x)
+        if where == "GUILD" then
+            fire("CHAT_MSG_ADDON", "Gathercraft", text, "GUILD", who)
+        else
+            fire("CHAT_MSG_ADDON", "Gathercraft", text, "CHANNEL", who, nil, nil, nil, "GathercraftSync")
+        end
+        advance(1)
+    end
+    local function Counts(what, received, new, confirmed, trusted, public)
+        local r, n, c, t, p = ns.SyncCounts()
+        assert(r == received and n == new and c == confirmed and t == trusted and p == public,
+            ("%s: received %d, new %d, confirmed %d, guild/friends %d, public %d"):format(what, r, n, c, t, p))
+    end
+    local ok, err = pcall(function()
+        -- a guild member: a new spot at once
+        Send("o3001", 1000, "Guild Mate", "GUILD")
+        Counts("guild", 1, 1, 0, 1, 0)
+        -- the same message again: nothing more
+        Send("o3001", 1000, "Guild Mate", "GUILD")
+        Counts("the same message twice", 1, 1, 0, 1, 0)
+        -- public: one report, two reports, waiting; the third takes it
+        Send("o3002", 3000, "Stranger One")
+        Counts("public, 1 report", 1, 1, 0, 1, 0)
+        Send("o3002", 3000, "Stranger One") -- one player twice is still one report
+        Send("o3002", 3000, "Stranger Two")
+        Counts("public, 2 reports", 1, 1, 0, 1, 0)
+        Send("o3002", 3000, "Stranger Three")
+        Counts("public, 3 reports", 2, 2, 0, 1, 1)
+        -- someone new reports a spot you know: a confirmation, once per player
+        Send("o3001", 1000, "Stranger Four")
+        Counts("a known spot", 3, 2, 1, 1, 1)
+        Send("o3001", 1000, "Stranger Four")
+        Send("o3002", 3000, "Stranger Two") -- already one of its reporters
+        Counts("the same players again", 3, 2, 1, 1, 1)
+        -- a friend in the public channel counts like the guild
+        C_FriendList.GetFriendInfo = function(name) if name == "Good Friend" then return { name = name } end end
+        Send("o3003", 5000, "Good Friend")
+        Counts("a friend", 4, 3, 1, 2, 1)
+        C_FriendList.GetFriendInfo = saved.friend
+        -- one report waiting: shown as waiting, not counted
+        Send("o3004", 7000, "Stranger Five")
+        Counts("waiting", 4, 3, 1, 2, 1)
+        -- kept over sessions: in the saved variables
+        assert(ns.db.sync.counts and ns.db.sync.counts.received == 4, "not in the saved variables")
+        -- /gcr sync and Options > Sharing
+        local mark = #log
+        slash("sync")
+        local said
+        local want = (ns.L["  Received from other players (all sessions): %d spots, %d new (%d guild/friends, %d public, confirmed), %d confirm spots you know"]):format(4, 3, 2, 1, 1)
+        for i = mark + 1, #log do if log[i]:find(want, 1, true) then said = true end end
+        assert(said, "/gcr sync: " .. want)
+        -- the Sharing section, also when an earlier step left the options open elsewhere
+        local win = _G.GathercraftOptions
+        local wasOpen, wasSection = win:IsShown(), ns.db.optionsSection
+        if not wasOpen then ns.ToggleOptions() end
+        ns.ShowOptionsSection("sync")
+        win:Refresh()
+        advance(1)
+        local line = (ns.L["Received from other players: %d spots (%d new)"]):format(4, 3)
+        local shown
+        for _, o in ipairs(allFrames) do
+            local t = o.GetText and o:GetText()
+            if type(t) == "string" and t:find(line, 1, true) and o:IsShown() then shown = true end
+        end
+        assert(shown, "Options > Sharing: " .. line)
+        -- no names in the options
+        for _, o in ipairs(allFrames) do
+            local t = o.GetText and o:IsShown() and o:GetText()
+            if type(t) == "string" and t:find(line, 1, true) then assert(not t:find("Stranger", 1, true), "a name in the options") end
+        end
+        ns.ShowOptionsSection(wasSection or "map")
+        if not wasOpen then ns.ToggleOptions() end
+    end)
+    C_FriendList.GetFriendInfo = saved.friend
+    db.counts, db.enabled, db.public = saved.counts, saved.enabled, saved.public
+    ns.db.nodes[Z] = nil
+    if db.pending then db.pending[Z] = nil end
+    ns.NotifyNodesChanged()
+    if not ok then error(err, 0) end
+end)
 step("Skill plan: hints, fees and totals fit, also long translations and big amounts (v0.1.14)", function()
     -- no real font metrics: the estimate of TextHeight (6 px a letter, 11 px
     -- a CJK sign) shows whether the window makes room, not how the game draws it
