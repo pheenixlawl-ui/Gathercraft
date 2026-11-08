@@ -1348,6 +1348,7 @@ local function Help()
     print(L["  /gcr clear        - remove waypoint"])
     print(L["  /gcr options      - options window (or shift-click the minimap button)"])
     print(L["  /gcr plan [profession] - skill plan with material list"])
+    print(L["  /gcr craftlog     - skill-ups of your crafts (craftlog clear: empty it)"])
     print(L["  /gcr welcome      - show the welcome again"])
     print(L["  /gcr whatsnew     - what's new in this version"])
     print(L["  /gcr skills       - your gathering skills and what we learned"])
@@ -1448,6 +1449,8 @@ SlashCmdList.GATHERCRAFT = function(msg)
         if ns.StartScan then ns.StartScan() end
     elseif cmd == "plan" then
         if ns.ShowSkillPlan then ns.ShowSkillPlan(rest) end
+    elseif cmd == "craftlog" then
+        if ns.CraftLogCommand then ns.CraftLogCommand(rest) end
     elseif cmd == "welcome" then
         if ns.ShowWelcome then ns.ShowWelcome() end
     elseif cmd == "whatsnew" or cmd == "new" then

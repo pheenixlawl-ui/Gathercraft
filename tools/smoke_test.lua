@@ -3703,6 +3703,107 @@ step("Minimap guesses nobody confirmed go after 30 days (v0.1.18 S6)", function(
     ns.NotifyNodesChanged() ns.ForgetSeenKinds()
     player.map, player.x, player.y = 1412, 0.45, 0.72
 end)
+step("Craft log: one entry per finished craft, failures and odd cases marked apart (v0.1.18 S5)", function()
+    local data = GathercraftRecipeData
+    local spell = data.spells.Leatherworking["Light Leather"]
+    local saved = { rank = ns.ProfessionRank, have = ns.CraftData.Have, colors = data.colors[spell], log = ns.db.craftLog,
+        off = ns.db.craftLogOff, secret = issecretvalue }
+    local rank, maxRank, bag = 10, 75, 0
+    ns.ProfessionRank = function(p) if p == "Leatherworking" then return rank, maxRank end end
+    ns.CraftData.Have = function(id) return id == 2318 and bag or 0 end
+    data.colors[spell] = "20:40" -- orange below 20, yellow below 30, green below 40, grey from 40
+    ns.db.craftLog, ns.db.craftLogOff = {}, nil
+    local n = 0
+    local function Craft(gain, events, made)
+        n = n + 1
+        local guid = "Cast-3-1-1-1-" .. spell .. "-" .. n
+        for _, e in ipairs(events or { "UNIT_SPELLCAST_START", "UNIT_SPELLCAST_SUCCEEDED" }) do
+            if e == "UNIT_SPELLCAST_SUCCEEDED" then
+                if gain and gain ~= 0 then rank = rank + gain end
+                bag = bag + (made or 1)
+            end
+            fire(e, "player", guid, spell)
+        end
+        advance(2)
+        return guid
+    end
+    local function Last() return ns.db.craftLog[#ns.db.craftLog] end
+    local ok, err = pcall(function()
+        -- a skill-up: everything that is known about it
+        Craft(1)
+        local e = Last()
+        assert(#ns.db.craftLog == 1 and e.result == "ok", "no entry for a finished craft")
+        assert(e.prof == "Leatherworking" and e.recipe == "Light Leather" and e.spell == spell, "profession or recipe")
+        assert(e.before == 10 and e.after == 11 and e.gain == 1 and e.max == 75, ("skill %s -> %s"):format(tostring(e.before), tostring(e.after)))
+        assert(e.colour == "orange" and e.yellow == 20 and e.grey == 40, "colour " .. tostring(e.colour))
+        assert(e.made == 1 and e.build == 70450 and e.t, ("made %s, build %s"):format(tostring(e.made), tostring(e.build)))
+        assert(not e.multi and not e.atCap and not e.secret, "marked although nothing odd")
+        -- no skill-up (yellow at 25)
+        rank = 25
+        Craft(0)
+        assert(Last().gain == 0 and Last().colour == "yellow", "a craft without a skill-up")
+        -- failed: FAILED and INTERRUPTED of one cast are one entry
+        Craft(0, { "UNIT_SPELLCAST_START", "UNIT_SPELLCAST_FAILED", "UNIT_SPELLCAST_INTERRUPTED" })
+        assert(#ns.db.craftLog == 3 and Last().result == "failed", "a failed cast")
+        Craft(0, { "UNIT_SPELLCAST_START", "UNIT_SPELLCAST_INTERRUPTED" })
+        assert(#ns.db.craftLog == 4 and Last().result == "interrupted", "an interrupted cast")
+        -- more than one point
+        rank = 35
+        Craft(2)
+        assert(Last().multi and Last().gain == 2 and Last().colour == "green", "a gain of two points")
+        -- at the rank's maximum
+        rank, maxRank = 75, 75
+        Craft(0)
+        assert(Last().atCap, "a craft at the maximum")
+        rank, maxRank = 45, 75
+        -- the same cast twice, and a late failure of it: one craft
+        local count = #ns.db.craftLog
+        local guid = Craft(1)
+        fire("UNIT_SPELLCAST_SUCCEEDED", "player", guid, spell)
+        fire("UNIT_SPELLCAST_FAILED", "player", guid, spell)
+        advance(2)
+        assert(#ns.db.craftLog == count + 1 and Last().colour == "grey", ("one cast: %d entries"):format(#ns.db.craftLog - count))
+        -- a value the client hides: marked, nothing made up
+        local SECRET = newproxy(true)
+        issecretvalue = function(v) return rawequal(v, SECRET) end
+        rank = SECRET
+        Craft(0)
+        assert(Last().secret and Last().before == nil and Last().gain == nil, "a hidden skill")
+        rank = 45
+        fire("UNIT_SPELLCAST_SUCCEEDED", "player", SECRET, spell) advance(2)
+        assert(Last().secret and Last().recipe == nil, "a hidden cast")
+        issecretvalue = saved.secret
+        -- not a recipe (a gathering spell): nothing
+        count = #ns.db.craftLog
+        fire("UNIT_SPELLCAST_START", "player", "Cast-x", 2366) fire("UNIT_SPELLCAST_SUCCEEDED", "player", "Cast-x", 2366) advance(2)
+        assert(#ns.db.craftLog == count, "a gathering spell in the craft log")
+        -- /gcr craftlog: per colour and per distance to grey; the odd ones apart
+        local mark = #log
+        slash("craftlog")
+        local text = table.concat(log, "\n", mark + 1)
+        assert(text:find((ns.L["Craft log: %d crafts (kept on this computer, never shared)."]):format(9), 1, true), "no count in /gcr craftlog: " .. text)
+        assert(text:find((ns.L["  %s: %d crafts, %d skill-ups (%d%%)"]):format("|cffff8040" .. ns.L["orange"] .. "|r", 1, 1, 100), 1, true), "orange line: " .. text)
+        assert(text:find((ns.L["  %s points below grey: %d crafts, %d skill-ups (%d%%)"]):format("5-9", 1, 1, 100), 1, true), "distance line: " .. text)
+        assert(text:find((ns.L["  Not counted: %d failed or interrupted, %d unreadable, %d at the rank's maximum; %d gave more than one point."]):format(2, 2, 1, 1), 1, true), "not counted: " .. text)
+        -- turned off: nothing is recorded
+        ns.db.craftLogOff = true
+        count = #ns.db.craftLog
+        Craft(1)
+        assert(#ns.db.craftLog == count, "recorded although turned off")
+        ns.db.craftLogOff = nil
+        -- the newest 5000 are kept
+        local full = {}
+        for i = 1, 5000 do full[i] = { t = i, result = "ok", colour = "unknown" } end
+        ns.db.craftLog = full
+        Craft(1)
+        assert(#ns.db.craftLog == 5000 and ns.db.craftLog[1].t == 2 and Last().recipe == "Light Leather", "the list is not kept at 5000")
+        slash("craftlog clear")
+        assert(#ns.db.craftLog == 0, "/gcr craftlog clear")
+    end)
+    ns.ProfessionRank, ns.CraftData.Have, data.colors[spell] = saved.rank, saved.have, saved.colors
+    ns.db.craftLog, ns.db.craftLogOff, issecretvalue = saved.log, saved.off, saved.secret
+    if not ok then error(err, 0) end
+end)
 step("Skill plan: hints, fees and totals fit, also long translations and big amounts (v0.1.14)", function()
     -- no real font metrics: the estimate of TextHeight (6 px a letter, 11 px
     -- a CJK sign) shows whether the window makes room, not how the game draws it
