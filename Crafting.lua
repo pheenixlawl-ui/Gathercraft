@@ -935,12 +935,18 @@ end
 
 local events = CreateFrame("Frame")
 -- events of other clients are asked for too: the ones this client doesn't
--- know are kept, for /gcr crafttest and one debug line at login (R4-H2)
+-- know are kept, for /gcr crafttest and one debug line at login (R4-H2).
+-- The Classic profession window's events only where its API is there
+-- (WoW: Forever has only the modern window and refuses them).
+local CLASSIC_ONLY = { TRADE_SKILL_UPDATE = "GetNumTradeSkills", CRAFT_SHOW = "GetNumCrafts", CRAFT_UPDATE = "GetNumCrafts" }
 local missingEvents = {}
 for _, e in ipairs({ "GET_ITEM_INFO_RECEIVED", "ITEM_DATA_LOAD_RESULT", "PLAYER_LOGIN", "TRADE_SKILL_SHOW", "TRADE_SKILL_UPDATE", "TRADE_SKILL_LIST_UPDATE",
     "TRADE_SKILL_DATA_SOURCE_CHANGED", "NEW_RECIPE_LEARNED", "CRAFT_SHOW", "CRAFT_UPDATE", "MERCHANT_SHOW",
     "TRAINER_SHOW", "TRAINER_UPDATE", "TRAINER_CLOSED", "AUCTION_HOUSE_CLOSED" }) do
-    if not pcall(events.RegisterEvent, events, e) then missingEvents[#missingEvents + 1] = e end
+    local api = CLASSIC_ONLY[e]
+    if not api or _G[api] then
+        if not pcall(events.RegisterEvent, events, e) then missingEvents[#missingEvents + 1] = e end
+    end
 end
 local function MissingEventsText()
     return #missingEvents > 0 and table.concat(missingEvents, ", ") or "none"

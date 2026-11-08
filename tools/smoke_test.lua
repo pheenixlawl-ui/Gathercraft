@@ -5820,6 +5820,23 @@ step("Crafting: an event the client refuses is named by /gcr crafttest and at lo
     ns2 = ReloadCrafting(function() return true end)
     assert(CraftTestLine(ns2) == "none", "every event taken: " .. tostring(CraftTestLine(ns2)))
 end)
+step("Crafting: Classic-only events only with the Classic API (v0.1.18)", function()
+    -- WoW: Forever has only the modern profession window: no GetNumTradeSkills,
+    -- no GetNumCrafts, and the client refuses TRADE_SKILL_UPDATE, CRAFT_SHOW
+    -- and CRAFT_UPDATE. They are not asked for there, so the list says "none"
+    local classic = { TRADE_SKILL_UPDATE = true, CRAFT_SHOW = true, CRAFT_UPDATE = true }
+    local ns2, _, registered = ReloadCrafting(function(e) return not classic[e] end, { GetNumTradeSkills = false, GetNumCrafts = false })
+    assert(CraftTestLine(ns2) == "none", "Forever: " .. tostring(CraftTestLine(ns2)))
+    assert(registered.TRADE_SKILL_SHOW and registered.TRADE_SKILL_LIST_UPDATE, "the modern events are not asked for")
+    -- a Classic client: asked for, and each with its own API
+    _, _, registered = ReloadCrafting(function() return true end, { GetNumTradeSkills = function() return 0 end, GetNumCrafts = false })
+    assert(registered.TRADE_SKILL_UPDATE and not registered.CRAFT_SHOW and not registered.CRAFT_UPDATE, "trade skills without crafts")
+    _, _, registered = ReloadCrafting(function() return true end, { GetNumTradeSkills = false, GetNumCrafts = function() return 0 end })
+    assert(registered.CRAFT_SHOW and registered.CRAFT_UPDATE and not registered.TRADE_SKILL_UPDATE, "crafts without trade skills")
+    -- the Classic API there, the event refused anyway: still named
+    ns2 = ReloadCrafting(function(e) return e ~= "CRAFT_UPDATE" end, { GetNumTradeSkills = false, GetNumCrafts = function() return 0 end })
+    assert(CraftTestLine(ns2) == "CRAFT_UPDATE", "a refused Classic event: " .. tostring(CraftTestLine(ns2)))
+end)
 step("Fishing: Stop with the line still out gives the settings back at once (v0.1.17, Codex M2)", function()
     local saved = { get = GetCVar, set = SetCVar }
     local store
