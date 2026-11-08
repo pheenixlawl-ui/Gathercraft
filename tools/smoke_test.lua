@@ -3645,6 +3645,64 @@ step("Recipe import: a hotfix only changes the source values it was written for 
     os.execute(windows and ('rmdir /s /q "' .. dir .. '"') or ("rm -rf '" .. dir .. "'"))
     if not ok then error(err, 0) end
 end)
+step("Minimap guesses nobody confirmed go after 30 days (v0.1.18 S6)", function()
+    local DAY = 24 * 3600
+    local now = time()
+    local keep = ns.db.nodes[1450]
+    local function Guess(id, age, extra)
+        local n = { id = id, name = "Peacebloom", type = "herb", x = 0.1 + #ns.db.nodes[1450] * 0.05, y = 0.3, count = 1, last = 1,
+            seenOnly = true, seenAt = age and (now - age) or nil, upAt = 1, seenErr = 20 }
+        for k, v in pairs(extra or {}) do n[k] = v end
+        table.insert(ns.db.nodes[1450], n)
+        return n
+    end
+    ns.db.nodes[1450] = {}
+    local d29 = Guess("o2001", 29 * DAY)
+    local d30 = Guess("o2002", 30 * DAY)
+    local d31 = Guess("o2003", 31 * DAY)
+    local again = Guess("o2004", 40 * DAY)
+    local undated = Guess("o2005", nil)
+    local questie = Guess("o2006", 90 * DAY, { source = "questie" })
+    local starter = Guess("o2007", 90 * DAY, { source = "starter" })
+    local synced = Guess("o2008", 90 * DAY, { source = "sync", heard = 1 })
+    local confirmed = Guess("o2009", 90 * DAY, { heard = 1, heardBy = { Someone = true } })
+    -- harvested: a normal node (no longer a guess), however old
+    local harvested = { id = "o2010", name = "Peacebloom", type = "herb", x = 0.9, y = 0.9, count = 3, hits = 3, last = now - 90 * DAY }
+    table.insert(ns.db.nodes[1450], harvested)
+    ns.NotifyNodesChanged() ns.ForgetSeenKinds()
+    -- seen again on the minimap just now: its 40 days start over
+    player.map, player.x, player.y = 1450, again.x, again.y
+    advance(10)
+    ns.SeenOnMinimap(1450, again.x, again.y, "Peacebloom", 20)
+    assert(again.seenAt == time(), "test setup: the new look didn't reach the old guess")
+    -- the ages exactly at the login below: 29, 30 and 31 days
+    d29.seenAt, d30.seenAt, d31.seenAt = time() - 29 * DAY, time() - 30 * DAY, time() - 31 * DAY
+    -- the login clears up (all zones in one go, one debug line)
+    local wasDebug = ns.db.debug
+    ns.db.debug = true
+    local mark = #log
+    for f in pairs(eventFrames.PLAYER_LOGIN) do
+        if eventFrames.ADDON_LOADED and eventFrames.ADDON_LOADED[f] then f.__scripts.OnEvent(f, "PLAYER_LOGIN") end
+    end
+    ns.db.debug = wasDebug
+    local left = {}
+    for _, n in ipairs(ns.db.nodes[1450] or {}) do left[n] = true end
+    assert(left[d29], "29 days: gone")
+    assert(not left[d30] and not left[d31], "30 / 31 days: still there")
+    assert(left[again], "seen again: gone")
+    assert(left[undated] and undated.seenAt and undated.seenAt >= now, "without a date: gone or no date set")
+    assert(left[questie] and left[starter] and left[synced], "a Questie, starter or shared node went")
+    assert(left[confirmed], "a guess another player confirmed went")
+    assert(left[harvested], "a harvested node went")
+    local said = 0
+    for i = mark + 1, #log do
+        if log[i]:find("2 rough minimap guesses gone", 1, true) then said = said + 1 end
+    end
+    assert(said == 1, "the login said it " .. said .. " times")
+    ns.db.nodes[1450] = keep
+    ns.NotifyNodesChanged() ns.ForgetSeenKinds()
+    player.map, player.x, player.y = 1412, 0.45, 0.72
+end)
 step("Skill plan: hints, fees and totals fit, also long translations and big amounts (v0.1.14)", function()
     -- no real font metrics: the estimate of TextHeight (6 px a letter, 11 px
     -- a CJK sign) shows whether the window makes room, not how the game draws it

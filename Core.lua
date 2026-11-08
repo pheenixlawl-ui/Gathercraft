@@ -1268,6 +1268,13 @@ frame:SetScript("OnEvent", function(self, event, ...)
                 NodesChanged()
             end
         end
+        if ns.ExpireGuesses then
+            local gone = ns.ExpireGuesses()
+            if gone > 0 then
+                Debug(("%d rough minimap guesses gone: not seen again for 30 days and never harvested"):format(gone))
+                NodesChanged()
+            end
+        end
         -- v0.1.13: herbs gathered while our herbs/minerals switch showed its
         -- tooltip were named after it: give them a real name
         local wrong = { ["find herbs / find minerals"] = true, [L["Find Herbs / Find Minerals"]:lower()] = true }
@@ -1773,6 +1780,37 @@ local function ConsolidateSeen(mapID)
     return merged
 end
 ns.ConsolidateSeen = ConsolidateSeen
+
+-- v0.1.18 (Sven, 08.11.2026): a rough minimap guess that nobody confirmed
+-- goes when it wasn't seen again for 30 days and was never harvested (each
+-- new look sets seenAt again; harvesting makes it a normal node). Nodes of
+-- Questie, the starter set and sharing (n.source) and guesses another
+-- player confirmed (n.heard) stay. A guess without a date gets today's:
+-- nothing goes without its 30 days. At login, all zones in one go.
+local GUESS_KEEP = 30 * 24 * 3600
+local function ExpireGuesses(now)
+    now = now or time()
+    local gone = 0
+    for mapID, list in pairs(ns.db.nodes) do
+        local here = 0
+        for i = #list, 1, -1 do
+            local n = list[i]
+            if n.seenOnly and not n.source and (n.hits or 0) == 0 and (n.heard or 0) == 0 then
+                if not n.seenAt then
+                    n.seenAt = now
+                elseif now - n.seenAt >= GUESS_KEEP then
+                    table.remove(list, i)
+                    here = here + 1
+                end
+            end
+        end
+        if here > 0 and #list == 0 then ns.db.nodes[mapID] = nil end
+        gone = gone + here
+    end
+    if gone > 0 then nameCache = nil end
+    return gone
+end
+ns.ExpireGuesses = ExpireGuesses
 
 local function FrameName(f)
     if not f then return "none" end
