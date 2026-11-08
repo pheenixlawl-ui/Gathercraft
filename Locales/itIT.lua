@@ -331,7 +331,7 @@ ns.Locales.itIT = {
     ["Close"] = "Chiudi",
     ["A skill plan with a material list (Crafting tab), a summary at the end of every farm run, and right-click farms the zone you are in."] = "Un piano abilità con lista dei materiali (scheda Crafting), un riepilogo alla fine di ogni giro di raccolta, e il clic destro raccoglie nella zona in cui sei.",
     ["  /gcr welcome      - show the welcome again"] = "  /gcr welcome      - mostra di nuovo il benvenuto",
-    ["  /gcr whatsnew     - what's new in this version"] = "  /gcr whatsnew     - novità di questa versione",
+    ["  /gcr news         - what's new and what comes next"] = "  /gcr news         - novità e cosa arriverà",
     ["Click: waypoint to %s"] = "Clic: punto di riferimento verso %s",
     ["Waypoint set: %s (%s)."] = "Punto di riferimento: %s (%s).",
     ["Skill plan"] = "Piano abilità",
@@ -545,4 +545,8 @@ ns.Locales.itIT = {
     ["Questing radius"] = "Raggio modalità missioni",
     ["How far around you the questing mode lights nodes you can gather."] = "Fino a che distanza attorno a te la modalità missioni segna i nodi che puoi raccogliere.",
     ["Arrow to the nearest gold ring"] = "Freccia verso l'anello d'oro più vicino",
+    ["What's new in %s"] = "Novità della %s",
+    ["Coming next"] = "In arrivo",
+    ["Skill plan 2.0 · Shopping list on the map · Smoother Loop routes"] = "Piano abilità 2.0 · Lista della spesa sulla mappa · Giri ad anello più fluidi",
+    ["Ideas or bugs? Tell us on CurseForge or Discord."] = "Idee o bug? Scrivici su CurseForge o Discord.",
 }

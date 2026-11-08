@@ -331,7 +331,7 @@ ns.Locales.zhTW = {
     ["Close"] = "關閉",
     ["A skill plan with a material list (Crafting tab), a summary at the end of every farm run, and right-click farms the zone you are in."] = "附材料清單的技能規劃（Crafting 分頁）、每次採集路線結束時的總結，以及右鍵點擊即可採集你所在的區域。",
     ["  /gcr welcome      - show the welcome again"] = "  /gcr welcome      - 再次顯示歡迎",
-    ["  /gcr whatsnew     - what's new in this version"] = "  /gcr whatsnew     - 本版本的新內容",
+    ["  /gcr news         - what's new and what comes next"] = "  /gcr news         - 新內容與即將推出",
     ["Click: waypoint to %s"] = "點擊：設定前往 %s 的路徑點",
     ["Waypoint set: %s (%s)."] = "已設定路徑點：%s（%s）。",
     ["Skill plan"] = "技能規劃",
@@ -545,4 +545,8 @@ ns.Locales.zhTW = {
     ["Questing radius"] = "任務模式範圍",
     ["How far around you the questing mode lights nodes you can gather."] = "任務模式在你周圍多遠的範圍內標記你能採集的採集點。",
     ["Arrow to the nearest gold ring"] = "指向最近金色圓環的箭頭",
+    ["What's new in %s"] = "%s 更新內容",
+    ["Coming next"] = "即將推出",
+    ["Skill plan 2.0 · Shopping list on the map · Smoother Loop routes"] = "技能計畫 2.0 · 地圖上的購物清單 · 更順暢的環形路線",
+    ["Ideas or bugs? Tell us on CurseForge or Discord."] = "有想法或發現錯誤？請在 CurseForge 或 Discord 告訴我們。",
 }

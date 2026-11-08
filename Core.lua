@@ -1351,7 +1351,7 @@ local function Help()
     print(L["  /gcr craftlog     - skill-ups of your crafts (craftlog clear: empty it)"])
     print(L["  /gcr quest        - questing mode on/off (gold rings on nearby nodes)"])
     print(L["  /gcr welcome      - show the welcome again"])
-    print(L["  /gcr whatsnew     - what's new in this version"])
+    print(L["  /gcr news         - what's new and what comes next"])
     print(L["  /gcr skills       - your gathering skills and what we learned"])
     print(L["  /gcr sync         - sync status and options"])
     print(L["  /gcr loadall      - load known spawn points for the whole continent"])
@@ -1456,7 +1456,7 @@ SlashCmdList.GATHERCRAFT = function(msg)
         if ns.ToggleQuestMode then ns.ToggleQuestMode() end
     elseif cmd == "welcome" then
         if ns.ShowWelcome then ns.ShowWelcome() end
-    elseif cmd == "whatsnew" or cmd == "new" then
+    elseif cmd == "news" or cmd == "whatsnew" or cmd == "new" then
         if ns.WhatsNew then ns.WhatsNew(true) end
     else
         Help()

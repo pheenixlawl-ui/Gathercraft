@@ -331,7 +331,7 @@ ns.Locales.ptBR = {
     ["Close"] = "Fechar",
     ["A skill plan with a material list (Crafting tab), a summary at the end of every farm run, and right-click farms the zone you are in."] = "Um plano de perícia com lista de materiais (aba Crafting), um resumo ao fim de cada rota de coleta, e o clique direito coleta na zona onde você está.",
     ["  /gcr welcome      - show the welcome again"] = "  /gcr welcome      - mostrar as boas-vindas de novo",
-    ["  /gcr whatsnew     - what's new in this version"] = "  /gcr whatsnew     - novidades desta versão",
+    ["  /gcr news         - what's new and what comes next"] = "  /gcr news         - novidades e o que vem a seguir",
     ["Click: waypoint to %s"] = "Clique: ponto de rota até %s",
     ["Waypoint set: %s (%s)."] = "Ponto de rota: %s (%s).",
     ["Skill plan"] = "Plano de perícia",
@@ -545,4 +545,8 @@ ns.Locales.ptBR = {
     ["Questing radius"] = "Raio do modo de missões",
     ["How far around you the questing mode lights nodes you can gather."] = "Até que distância ao seu redor o modo de missões marca os nós que você pode coletar.",
     ["Arrow to the nearest gold ring"] = "Seta para o anel dourado mais próximo",
+    ["What's new in %s"] = "Novidades da %s",
+    ["Coming next"] = "Em breve",
+    ["Skill plan 2.0 · Shopping list on the map · Smoother Loop routes"] = "Plano de perícia 2.0 · Lista de compras no mapa · Rotas em circuito mais suaves",
+    ["Ideas or bugs? Tell us on CurseForge or Discord."] = "Ideias ou bugs? Conte para nós no CurseForge ou no Discord.",
 }

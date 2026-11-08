@@ -7174,7 +7174,10 @@ step("Welcome, what's new and the run summary (v0.1.13)", function()
     assert(_G.GathercraftWelcome:IsShown(), "/gcr welcome does not show it again")
     _G.GathercraftWelcome:Hide()
     slash("whatsnew")
-    assert(said("0.1.13") or said("CurseForge"), "/gcr whatsnew says nothing")
+    -- since 0.1.19 a window (Q5); a version without an entry: the chat line
+    local newsWin = _G.GathercraftWhatsNew
+    assert((newsWin and newsWin:IsShown()) or said("CurseForge"), "/gcr whatsnew says nothing")
+    if newsWin then newsWin:Hide() end
     -- a run that brought something: the summary shows when you stop it
     local sent = {}
     SendChatMessage = function(msg, chatType) sent[#sent + 1] = { msg = msg, type = chatType } end
@@ -7234,24 +7237,94 @@ step("What's new: 0.1.18 after an update, in this language and all translations"
         ns.freshInstall = false
         local text = ns.L[key]
         assert(LOCALE == "enUS" or text ~= key, "English text in " .. LOCALE)
-        -- the login after the update says it once, in this language
-        clear()
+        -- the login after the update shows it once, in this language
+        -- (since 0.1.19 in its own window, Q5)
+        local win = _G.GathercraftWhatsNew
+        if win then win:Hide() end
         ns.db.lastVersion = "0.1.17"
         ns.WelcomeOnLogin()
-        local line = said(text)
-        assert(line and line:find("0.1.18", 1, true), "no what's new at the login after the update")
+        win = _G.GathercraftWhatsNew
+        assert(win and win:IsShown() and win.body:GetText() == text and win.title:GetText():find(version, 1, true),
+            "no what's new at the login after the update")
         assert(ns.db.lastVersion == version, "the new version is not remembered")
-        note("what's new", line)
-        clear()
+        note("what's new", win.body:GetText())
+        win:Hide()
         ns.WelcomeOnLogin()
-        assert(not said("0.1.18"), "what's new again on the next login")
+        assert(not win:IsShown(), "what's new again on the next login")
         slash("whatsnew")
-        assert(said(text), "/gcr whatsnew does not show it")
+        assert(win:IsShown() and win.body:GetText() == text, "/gcr whatsnew does not show it")
+        win:Hide()
     end)
     C_AddOns.GetAddOnMetadata, ns.db.lastVersion, ns.freshInstall = keepMeta, keepVersion, keepFresh
     if not ok then error(err, 0) end
 end)
 
+step("What's new: a window with a box \"Coming next\", once per update, /gcr news (v0.1.19 Q5)", function()
+    local L = ns.L
+    local keep = { meta = C_AddOns.GetAddOnMetadata, last = ns.db.lastVersion, fresh = ns.freshInstall, height = methods.GetStringHeight }
+    local version = toc:match("## Version: ([%d%.]+)")
+    local ok, err = pcall(function()
+        C_AddOns.GetAddOnMetadata = function() return version end
+        ns.freshInstall = false
+        -- the texts are their own keys, translated
+        local f = assert(io.open(ROOT .. "/Welcome.lua"))
+        local src = f:read("*a") f:close()
+        local coming = src:match('local COMING_NEXT = "([^"]+)"')
+        local feedback = src:match('local FEEDBACK = "([^"]+)"')
+        assert(coming and feedback, "no COMING_NEXT / FEEDBACK key in Welcome.lua")
+        assert(coming:find("Skill plan 2.0", 1, true) and not coming:find("%d%d%d%d") and not coming:lower():find("soon", 1, true), "Coming next: " .. coming)
+        for _, key in ipairs({ coming, feedback, "Coming next", "What's new in %s" }) do
+            for _, code in ipairs({ "deDE", "esES", "frFR", "itIT", "koKR", "ptBR", "ruRU", "zhCN", "zhTW" }) do
+                local tr = ns.Locales[code] and ns.Locales[code][key]
+                assert(type(tr) == "string" and tr ~= "" and tr ~= key, ("no %s translation of %q"):format(code, key))
+            end
+        end
+        -- the login after an update: the window, once
+        local win = _G.GathercraftWhatsNew
+        if win then win:Hide() end
+        methods.GetStringHeight = TextHeight -- room for the text, as the game would wrap it (estimate)
+        ns.db.lastVersion = "0.0.1"
+        ns.WelcomeOnLogin()
+        win = _G.GathercraftWhatsNew
+        assert(win and win:IsShown(), "no window after the update")
+        local box = win.box
+        assert(box and box:IsShown() ~= false, "no box Coming next")
+        assert(box.head:GetText() == L["Coming next"] and box.line:GetText() == L[coming] and box.feedback:GetText() == L[feedback],
+            "the box does not say what comes next: " .. tostring(box.line:GetText()))
+        -- set apart below the text, everything inside the window, nothing on top of another
+        local bodyBottom = 70 + TextHeight(win.body)
+        local boxTop = -box.__pts.TOPLEFT[4]
+        assert(boxTop >= bodyBottom + 8, ("the box (from %d px) runs into the text (down to %d px)"):format(boxTop, bodyBottom))
+        local inBox = 10 + 16 + 5 + TextHeight(box.line) + 8 + TextHeight(box.feedback)
+        assert(box.__h >= inBox + 8, ("the box is %d px for %d px of text"):format(box.__h, inBox))
+        local buttonTop = win.__h - 20 - 24
+        assert(boxTop + box.__h + 8 <= buttonTop, ("the box (to %d px) runs into the button (from %d px)"):format(boxTop + box.__h, buttonTop))
+        assert(win.__h <= 560, "the window is too high: " .. win.__h)
+        note("what's new window", LOCALE, win.__h .. " px high")
+        win:Hide()
+        -- not again on the next login
+        ns.WelcomeOnLogin()
+        assert(not win:IsShown(), "the window again without an update")
+        -- /gcr news and /gcr whatsnew bring it back
+        slash("news")
+        assert(win:IsShown(), "/gcr news does not show it")
+        win:Hide()
+        slash("whatsnew")
+        assert(win:IsShown(), "/gcr whatsnew does not show it")
+        -- Got it closes it
+        win.ok.__scripts.OnClick(win.ok)
+        assert(not win:IsShown(), "Got it does not close it")
+        -- the help names /gcr news
+        local mark = #log
+        slash("help")
+        local said = false
+        for i = mark + 1, #log do if log[i]:find("/gcr news", 1, true) then said = true end end
+        assert(said, "/gcr help does not name /gcr news")
+    end)
+    C_AddOns.GetAddOnMetadata, ns.db.lastVersion, ns.freshInstall, methods.GetStringHeight = keep.meta, keep.last, keep.fresh, keep.height
+    if _G.GathercraftWhatsNew then _G.GathercraftWhatsNew:Hide() end
+    if not ok then error(err, 0) end
+end)
 step("Crafting: waypoint to a recipe vendor (v0.1.13)", function()
     slash("") ns.ToggleMain("crafting") advance(1)
     assert(ns.RecipeVendorWaypoint, "crafting page not built")

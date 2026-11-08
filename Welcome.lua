@@ -5,7 +5,8 @@ local L = ns.L or setmetatable({}, { __index = function(_, k) return k end })
 -- First start, updates and the end of a farm run
 --   Welcome     : once after a fresh install, three steps to get going
 --                 (/gcr welcome shows it again)
---   What's new  : one chat line after an update (/gcr whatsnew)
+--   What's new  : a small window once after an update, with a box "Coming
+--                 next" below (/gcr news or /gcr whatsnew shows it again)
 --   Run summary : when a farm run ends, what it brought - shared in guild
 --                 or party chat only when you click the button
 ---------------------------------------------------------------------------
@@ -24,6 +25,11 @@ local WHATS_NEW = {
     ["0.1.17"] = "Run and fishing windows fold into one line or hide. Minimap pins are a plain ring by default, with the route line below them. Fishing marks your bobber and ends with a summary. Crafting sorts by any column.",
     ["0.1.18"] = "Skill plan: correct material amounts – crafted intermediates and all bags now counted. Sharing shows how many spots other players sent you.",
 }
+
+-- What comes next (Sven, 08.11.2026): only what is really planned, no dates;
+-- one key in Locales, changed with each release
+local COMING_NEXT = "Skill plan 2.0 · Shopping list on the map · Smoother Loop routes"
+local FEEDBACK = "Ideas or bugs? Tell us on CurseForge or Discord."
 
 local function Version()
     if C_AddOns and C_AddOns.GetAddOnMetadata then
@@ -158,11 +164,77 @@ local function ShowWelcome()
 end
 ns.ShowWelcome = ShowWelcome
 
+---------------------------------------------------------------------------
+-- What's new (v0.1.19, Q5): what this version brings, and below it, set
+-- apart, what comes next. The window grows with its texts (long
+-- translations).
+---------------------------------------------------------------------------
+local NEWS_W = 470
+local news
+local function BuildNews()
+    news = Card("GathercraftWhatsNew", NEWS_W, 300)
+    news.body = news:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    news.body:SetPoint("TOPLEFT", 26, -70)
+    news.body:SetWidth(NEWS_W - 52)
+    news.body:SetJustifyH("LEFT")
+    local box = CreateFrame("Frame", nil, news, "BackdropTemplate")
+    box:SetBackdrop({
+        bgFile = "Interface\\Buttons\\WHITE8X8",
+        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+        edgeSize = 10,
+        insets = { left = 2, right = 2, top = 2, bottom = 2 },
+    })
+    box:SetBackdropColor(0.16, 0.12, 0.08, 0.9)
+    box:SetBackdropBorderColor(GOLD[1], GOLD[2], GOLD[3], 0.6)
+    box:SetWidth(NEWS_W - 40)
+    news.box = box
+    box.head = box:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    box.head:SetPoint("TOPLEFT", 12, -10)
+    box.line = box:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    box.line:SetPoint("TOPLEFT", box.head, "BOTTOMLEFT", 0, -5)
+    box.line:SetWidth(NEWS_W - 64)
+    box.line:SetJustifyH("LEFT")
+    box.feedback = box:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    box.feedback:SetWidth(NEWS_W - 64)
+    box.feedback:SetJustifyH("LEFT")
+    local ok = Button(news, "Got it", 150)
+    ok:SetPoint("BOTTOM", news, "BOTTOM", 0, 20)
+    ok:SetScript("OnClick", function() news:Hide() end)
+    news.ok = ok
+end
+
+-- the heights follow the texts (the language may have changed)
+local function LayoutNews()
+    local box = news.box
+    local bodyH = math.max(14, news.body:GetStringHeight() or 14)
+    local lineH = math.max(12, box.line:GetStringHeight() or 12)
+    local feedH = math.max(12, box.feedback:GetStringHeight() or 12)
+    box.feedback:ClearAllPoints()
+    box.feedback:SetPoint("TOPLEFT", box.line, "BOTTOMLEFT", 0, -8)
+    local boxH = 10 + 16 + 5 + lineH + 8 + feedH + 12
+    local boxTop = 70 + bodyH + 16
+    box:ClearAllPoints()
+    box:SetPoint("TOPLEFT", news, "TOPLEFT", 20, -boxTop)
+    box:SetHeight(boxH)
+    news:SetHeight(boxTop + boxH + 16 + 24 + 20)
+end
+
+local function ShowNews(v, text)
+    if not news then BuildNews() end
+    news.title:SetText((L["What's new in %s"]):format(v))
+    news.body:SetText(L[text])
+    news.box.head:SetText(L["Coming next"])
+    news.box.line:SetText(L[COMING_NEXT])
+    news.box.feedback:SetText(L[FEEDBACK])
+    LayoutNews()
+    news:Show()
+end
+
 local function WhatsNew(always)
     local v = Version()
     local text = v and WHATS_NEW[v]
     if text then
-        ns.Print((L["New in %s: %s"]):format(v, L[text]))
+        ShowNews(v, text)
     elseif always then
         ns.Print(L["All changes: Gathercraft's page on CurseForge (Changelog)."])
     end

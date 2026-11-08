@@ -331,7 +331,7 @@ ns.Locales.ruRU = {
     ["Close"] = "Закрыть",
     ["A skill plan with a material list (Crafting tab), a summary at the end of every farm run, and right-click farms the zone you are in."] = "План навыка со списком материалов (вкладка Crafting), итог в конце каждого маршрута сбора, а правый клик собирает в зоне, где вы находитесь.",
     ["  /gcr welcome      - show the welcome again"] = "  /gcr welcome      - снова показать приветствие",
-    ["  /gcr whatsnew     - what's new in this version"] = "  /gcr whatsnew     - что нового в этой версии",
+    ["  /gcr news         - what's new and what comes next"] = "  /gcr news         - что нового и что дальше",
     ["Click: waypoint to %s"] = "Клик: путевая точка к %s",
     ["Waypoint set: %s (%s)."] = "Путевая точка: %s (%s).",
     ["Skill plan"] = "План навыка",
@@ -545,4 +545,8 @@ ns.Locales.ruRU = {
     ["Questing radius"] = "Радиус режима заданий",
     ["How far around you the questing mode lights nodes you can gather."] = "Насколько далеко вокруг вас режим заданий отмечает точки, которые вы можете собрать.",
     ["Arrow to the nearest gold ring"] = "Стрелка к ближайшему золотому кольцу",
+    ["What's new in %s"] = "Что нового в %s",
+    ["Coming next"] = "Скоро",
+    ["Skill plan 2.0 · Shopping list on the map · Smoother Loop routes"] = "План навыка 2.0 · Список покупок на карте · Более плавные круговые маршруты",
+    ["Ideas or bugs? Tell us on CurseForge or Discord."] = "Идеи или ошибки? Напишите нам на CurseForge или в Discord.",
 }

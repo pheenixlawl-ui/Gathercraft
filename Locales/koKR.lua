@@ -331,7 +331,7 @@ ns.Locales.koKR = {
     ["Close"] = "닫기",
     ["A skill plan with a material list (Crafting tab), a summary at the end of every farm run, and right-click farms the zone you are in."] = "재료 목록이 포함된 숙련도 계획(Crafting 탭), 모든 채집 경로가 끝날 때의 요약, 그리고 오른쪽 클릭으로 현재 지역을 채집합니다.",
     ["  /gcr welcome      - show the welcome again"] = "  /gcr welcome      - 환영 안내 다시 보기",
-    ["  /gcr whatsnew     - what's new in this version"] = "  /gcr whatsnew     - 이번 버전의 새 기능",
+    ["  /gcr news         - what's new and what comes next"] = "  /gcr news         - 새 기능과 다음 예정",
     ["Click: waypoint to %s"] = "클릭: %s 위치 표시",
     ["Waypoint set: %s (%s)."] = "위치 표시: %s (%s).",
     ["Skill plan"] = "숙련도 계획",
@@ -545,4 +545,8 @@ ns.Locales.koKR = {
     ["Questing radius"] = "퀘스트 모드 반경",
     ["How far around you the questing mode lights nodes you can gather."] = "퀘스트 모드가 채집할 수 있는 채집물을 표시하는 주변 거리입니다.",
     ["Arrow to the nearest gold ring"] = "가장 가까운 금색 고리로 화살표",
+    ["What's new in %s"] = "%s 새 소식",
+    ["Coming next"] = "다음 예정",
+    ["Skill plan 2.0 · Shopping list on the map · Smoother Loop routes"] = "숙련도 계획 2.0 · 지도 위 구매 목록 · 더 매끄러운 순환 경로",
+    ["Ideas or bugs? Tell us on CurseForge or Discord."] = "아이디어나 버그가 있나요? CurseForge나 Discord에서 알려 주세요.",
 }
