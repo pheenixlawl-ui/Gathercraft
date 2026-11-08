@@ -550,4 +550,5 @@ ns.Locales.zhCN = {
     ["Skill plan 2.0 · Shopping list on the map · Smoother Loop routes"] = "技能计划 2.0 · 地图上的购物清单 · 更顺畅的环形路线",
     ["Ideas or bugs? Tell us on CurseForge or Discord."] = "有想法或发现错误？请在 CurseForge 或 Discord 告诉我们。",
     ["Mark the node you walk towards (one at a time)"] = "标记你正走向的采集点（一次一个）",
+    ["Fish key gathers the marked node"] = "钓鱼键采集已标记的采集点",
 }

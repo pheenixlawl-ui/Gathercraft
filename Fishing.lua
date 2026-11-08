@@ -292,14 +292,34 @@ end
 --   * "Mark the node you walk towards": the game's soft target marks the
 --     one node in front of you (hand icon) from further away - the same four
 --     settings as for the bobber, kept and put back by the list above
--- Nothing happens without a key press: the game only marks.
+--   * "Fish key gathers the marked node": the key you bound to Fish does the
+--     game's "interact with target" instead (like reeling in), so one press
+--     gathers the marked node. It needs the mark, so it turns that on too.
+--     An override binding: never kept over a /reload or logout; never
+--     changed in combat (it waits for the end of the fight)
+-- Nothing happens without a key press: the game only marks, the key only
+-- does what you press it for.
 ---------------------------------------------------------------------------
 local gathering = false -- our settings are claimed for gathering
+local gatherOwner = CreateFrame("Frame") -- holds the gathering key
+local gatherKey = false -- the Fish key gathers now
 
 local function GatherTime()
     return ns.run ~= nil or (ns.QuestModeOn and ns.QuestModeOn()) or false
 end
-local function MarkWanted() return ns.db and ns.db.gatherMark and GatherTime() end
+local function MarkWanted() return ns.db and (ns.db.gatherMark or ns.db.gatherKey) and GatherTime() end
+local function KeyWanted() return ns.db and ns.db.gatherKey and GatherTime() and true or false end
+
+local function SetGatherKey(on)
+    if on == gatherKey or InCombatLockdown() then return end -- in combat: at its end
+    ClearOverrideBindings(gatherOwner)
+    if on then
+        for _, key in ipairs({ GetBindingKey(BINDING) }) do
+            SetOverrideBinding(gatherOwner, true, key, "INTERACTTARGET")
+        end
+    end
+    gatherKey = on
+end
 
 local function UpdateGatherHelp(event)
     if not ns.db then return end
@@ -313,6 +333,7 @@ local function UpdateGatherHelp(event)
         gathering = false
         RestoreInteract(event, "gather")
     end
+    SetGatherKey(KeyWanted())
 end
 ns.UpdateGatherHelp = UpdateGatherHelp
 
@@ -379,6 +400,7 @@ events:SetScript("OnEvent", function(_, event, _, _, spellID)
         gathering = false
     elseif event == "PLAYER_REGEN_ENABLED" then
         SetReelBinding(lineOut)
+        UpdateGatherHelp(event) -- a run or the questing mode began or ended in the fight
         Prepare()
     elseif event == "PLAYER_LOGIN" then
         -- left over from a /reload or logout with the line out (or during a

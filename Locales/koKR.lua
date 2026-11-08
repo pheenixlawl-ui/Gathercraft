@@ -550,4 +550,5 @@ ns.Locales.koKR = {
     ["Skill plan 2.0 · Shopping list on the map · Smoother Loop routes"] = "숙련도 계획 2.0 · 지도 위 구매 목록 · 더 매끄러운 순환 경로",
     ["Ideas or bugs? Tell us on CurseForge or Discord."] = "아이디어나 버그가 있나요? CurseForge나 Discord에서 알려 주세요.",
     ["Mark the node you walk towards (one at a time)"] = "향해 걸어가는 채집물 표시 (한 번에 하나)",
+    ["Fish key gathers the marked node"] = "낚시 키로 표시된 채집물 채집",
 }

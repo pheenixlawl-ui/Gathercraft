@@ -5968,6 +5968,110 @@ step("Gathering help: mark the node you walk towards, put back like fishing (v0.
     player.map, player.x, player.y = saved.map, saved.x, saved.y
     if not ok then error(err, 0) end
 end)
+step("Gathering help: the Fish key gathers during a run or the questing mode, never in combat (v0.1.19 Q6 B)", function()
+    local saved = { get = GetCVar, set = SetCVar, set2 = SetOverrideBinding, clear = ClearOverrideBindings, combat = InCombatLockdown,
+        mark = ns.db.gatherMark, key = ns.db.gatherKey, cvars = ns.db.fishingCVars, bobber = ns.db.fishMarkBobber,
+        map = player.map, x = player.x, y = player.y }
+    local store = {}
+    local binds = {} -- owner -> key -> command
+    local fighting = false
+    local function Gathers()
+        for _, keys in pairs(binds) do if keys.F == "INTERACTTARGET" then return true end end
+        return false
+    end
+    local function Owners()
+        local n = 0
+        for _, keys in pairs(binds) do if next(keys) then n = n + 1 end end
+        return n
+    end
+    local function Cast() fire("UNIT_SPELLCAST_CHANNEL_START", "player", "q6b", 7620) end
+    local function Reel() fire("UNIT_SPELLCAST_CHANNEL_STOP", "player", "q6b", 7620) advance(1) end
+    local L = ns.L
+    local ok, err = pcall(function()
+        GetCVar = function(k) return store[k] or "0" end
+        SetCVar = function(k, v) store[k] = tostring(v) return true end
+        SetOverrideBinding = function(owner, _, key, cmd) binds[owner] = binds[owner] or {} binds[owner][key] = cmd end
+        ClearOverrideBindings = function(owner) binds[owner] = nil end
+        InCombatLockdown = function() return fighting end
+        ns.db.fishingCVars, ns.db.fishMarkBobber = nil, false
+        player.map, player.x, player.y = 1412, 0.45, 0.72
+        ns.SetQuestMode(false)
+        if ns.run then ns.StopRun(true) end
+        -- (1) off: the Fish key stays the Fish key
+        ns.db.gatherMark, ns.db.gatherKey = nil, nil
+        slash("run herb") advance(2)
+        assert(ns.run and not Gathers(), "option off: the Fish key gathers during a run")
+        slash("stop") advance(1)
+        -- (2) the switch turns the mark on too; the mark off turns it off
+        local keyBox, markBox
+        for _, o in ipairs(allFrames) do
+            if o.__kind == "FontString" and o.__pts and o.__pts.LEFT then
+                if o:GetText() == L["Fish key gathers the marked node"] then keyBox = o.__pts.LEFT[1] end
+                if o:GetText() == L["Mark the node you walk towards (one at a time)"] then markBox = o.__pts.LEFT[1] end
+            end
+        end
+        assert(keyBox and markBox and keyBox.get and markBox.get, "no switches under Farm runs")
+        keyBox:SetChecked(true) keyBox.__scripts.OnClick(keyBox)
+        assert(ns.db.gatherKey and ns.db.gatherMark and markBox.get(), "the key switch did not turn the mark on")
+        markBox:SetChecked(false) markBox.__scripts.OnClick(markBox)
+        assert(not ns.db.gatherKey and not ns.db.gatherMark, "the mark off left the key on")
+        keyBox:SetChecked(true) keyBox.__scripts.OnClick(keyBox)
+        assert(not Gathers(), "the key gathers with nothing going on")
+        -- (3) a run: the Fish key gathers, and the node is marked; after the run: fishing again
+        slash("run herb") advance(2)
+        assert(Gathers() and store.SoftTargetInteract == "3", "during the run: the key does not gather, or nothing marked")
+        slash("stop") advance(1)
+        assert(not Gathers() and Owners() == 0, "after the run the key still gathers")
+        assert(ns.db.fishingCVars == nil, "after the run settings are left")
+        -- (4) the questing mode the same
+        ns.SetQuestMode(true) advance(1)
+        assert(Gathers(), "questing mode: the key does not gather")
+        ns.SetQuestMode(false) advance(1)
+        assert(not Gathers(), "questing mode off: the key still gathers")
+        -- (5) combat: nothing is changed in the fight, it follows at its end
+        fighting = true
+        slash("run herb") advance(2)
+        assert(ns.run and not Gathers(), "a key changed in combat (run start)")
+        fighting = false
+        fire("PLAYER_REGEN_ENABLED") advance(1)
+        assert(Gathers(), "after the fight the key does not gather")
+        fighting = true
+        slash("stop") advance(1)
+        assert(Gathers(), "a key changed in combat (run stop)")
+        fighting = false
+        fire("PLAYER_REGEN_ENABLED") advance(1)
+        assert(not Gathers() and Owners() == 0, "after the fight the key still gathers")
+        -- (6) fishing during a run: reeling in ends the line, not the gathering key
+        slash("run herb") advance(2)
+        Cast()
+        assert(Gathers(), "line out during a run")
+        Reel()
+        assert(Gathers(), "line in: the run's gathering key went")
+        slash("stop") advance(1)
+        assert(not Gathers() and Owners() == 0, "after the run and fishing a key is left")
+        -- (7) the option off during the run
+        slash("run herb") advance(2)
+        keyBox:SetChecked(false) keyBox.__scripts.OnClick(keyBox)
+        assert(not Gathers(), "the switch off: the key still gathers")
+        slash("stop") advance(1)
+        -- (8) the key saved on, the mark saved off (settings of another
+        -- version): the key still brings the mark with it
+        ns.db.gatherKey, ns.db.gatherMark = true, nil
+        slash("run herb") advance(2)
+        assert(Gathers() and store.SoftTargetInteract == "3", "the key without a saved mark: nothing marked")
+        slash("stop") advance(1)
+        assert(not Gathers() and ns.db.fishingCVars == nil, "the key without a saved mark: left after the run")
+        ns.db.gatherKey = nil
+    end)
+    GetCVar, SetCVar, SetOverrideBinding, ClearOverrideBindings, InCombatLockdown = saved.get, saved.set, saved.set2, saved.clear, saved.combat
+    if ns.run then ns.StopRun(true) end
+    ns.SetQuestMode(false)
+    ns.db.gatherMark, ns.db.gatherKey, ns.db.fishingCVars, ns.db.fishMarkBobber = saved.mark, saved.key, saved.cvars, saved.bobber
+    if ns.UpdateGatherHelp then ns.UpdateGatherHelp("test end") end
+    if ns.StopFishing then ns.StopFishing() end
+    player.map, player.x, player.y = saved.map, saved.x, saved.y
+    if not ok then error(err, 0) end
+end)
 step("Options: the herbs/minerals switch is under General, every page fits (v0.1.19)", function()
     -- Sven (08.11.): Map & minimap makes room for the questing mode
     local function PageOf(text)

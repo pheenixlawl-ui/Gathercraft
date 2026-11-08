@@ -932,6 +932,14 @@ local function Build()
         function() return ns.db.gatherMark end,
         function(on)
             ns.db.gatherMark = on or nil
+            if not on then ns.db.gatherKey = nil end -- the key needs the mark
+            if ns.UpdateGatherHelp then ns.UpdateGatherHelp("option") end
+        end)
+    AddCheck("Fish key gathers the marked node",
+        function() return ns.db.gatherKey end,
+        function(on)
+            ns.db.gatherKey = on or nil
+            if on then ns.db.gatherMark = true end -- it needs the mark
             if ns.UpdateGatherHelp then ns.UpdateGatherHelp("option") end
         end)
     AddCheck("Show Gathercraft arrow during farm runs",

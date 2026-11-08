@@ -550,4 +550,5 @@ ns.Locales.itIT = {
     ["Skill plan 2.0 · Shopping list on the map · Smoother Loop routes"] = "Piano abilità 2.0 · Lista della spesa sulla mappa · Giri ad anello più fluidi",
     ["Ideas or bugs? Tell us on CurseForge or Discord."] = "Idee o bug? Scrivici su CurseForge o Discord.",
     ["Mark the node you walk towards (one at a time)"] = "Segna il nodo verso cui cammini (uno alla volta)",
+    ["Fish key gathers the marked node"] = "Il tasto pesca raccoglie il nodo segnato",
 }
