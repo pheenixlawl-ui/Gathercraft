@@ -3858,7 +3858,8 @@ step("Craft log: one entry per finished craft, failures and odd cases marked apa
         assert(Last().secret and Last().before == nil and Last().gain == nil, "a hidden skill")
         rank = 45
         fire("UNIT_SPELLCAST_SUCCEEDED", "player", SECRET, spell) advance(2)
-        assert(Last().secret and Last().recipe == nil, "a hidden cast")
+        -- since F2 (Codex M2): only a recipe spell counts, and it says which
+        assert(Last().secret and Last().recipe == "Light Leather" and Last().gain == nil, "a hidden cast")
         issecretvalue = saved.secret
         -- not a recipe (a gathering spell): nothing
         count = #ns.db.craftLog
@@ -3871,7 +3872,7 @@ step("Craft log: one entry per finished craft, failures and odd cases marked apa
         assert(text:find((ns.L["Craft log: %d crafts (kept on this computer, never shared)."]):format(9), 1, true), "no count in /gcr craftlog: " .. text)
         assert(text:find((ns.L["  %s: %d crafts, %d skill-ups (%d%%)"]):format("|cffff8040" .. ns.L["orange"] .. "|r", 1, 1, 100), 1, true), "orange line: " .. text)
         assert(text:find((ns.L["  %s points below grey: %d crafts, %d skill-ups (%d%%)"]):format("5-9", 1, 1, 100), 1, true), "distance line: " .. text)
-        assert(text:find((ns.L["  Not counted: %d failed or interrupted, %d unreadable, %d at the rank's maximum; %d gave more than one point."]):format(2, 2, 1, 1), 1, true), "not counted: " .. text)
+        assert(text:find((ns.L["  Not counted: %d failed or interrupted, %d unreadable, %d overlapping, %d at the rank's maximum; %d gave more than one point."]):format(2, 2, 0, 1, 1), 1, true), "not counted: " .. text)
         -- turned off: nothing is recorded
         ns.db.craftLogOff = true
         count = #ns.db.craftLog
@@ -3886,6 +3887,127 @@ step("Craft log: one entry per finished craft, failures and odd cases marked apa
         assert(#ns.db.craftLog == 5000 and ns.db.craftLog[1].t == 2 and Last().recipe == "Light Leather", "the list is not kept at 5000")
         slash("craftlog clear")
         assert(#ns.db.craftLog == 0, "/gcr craftlog clear")
+    end)
+    ns.ProfessionRank, ns.CraftData.Have, data.colors[spell] = saved.rank, saved.have, saved.colors
+    ns.db.craftLog, ns.db.craftLogOff, issecretvalue = saved.log, saved.off, saved.secret
+    if not ok then error(err, 0) end
+end)
+step("Craft log: only clear observations count; no other spells, hidden amounts, clear (v0.1.18 F2)", function()
+    -- Codex M1, M2, V1, N2 (08.11.)
+    local data = GathercraftRecipeData
+    local spell = data.spells.Leatherworking["Light Leather"]
+    local saved = { rank = ns.ProfessionRank, have = ns.CraftData.Have, colors = data.colors[spell], log = ns.db.craftLog,
+        off = ns.db.craftLogOff, secret = issecretvalue }
+    local SECRET = newproxy(true)
+    local rank, maxRank, bag = 10, 75, 0
+    ns.ProfessionRank = function(p) if p == "Leatherworking" then return rank, maxRank end end
+    ns.CraftData.Have = function(id) if id == 2318 then return bag end return 0 end
+    data.colors[spell] = "20:40"
+    ns.db.craftLog, ns.db.craftLogOff = {}, nil
+    local n = 0
+    local function Guid() n = n + 1 return "Cast-3-1-1-1-" .. spell .. "-f2-" .. n end
+    local function Line()
+        local mark = #log
+        slash("craftlog")
+        return table.concat(log, "\n", mark + 1)
+    end
+    local ok, err = pcall(function()
+        -- M1: two crafts, the second ends before the first is read again.
+        -- Really: one skill-up, two items. Neither may count as a clear 1/1.
+        local g1, g2 = Guid(), Guid()
+        fire("UNIT_SPELLCAST_START", "player", g1, spell)
+        fire("UNIT_SPELLCAST_SUCCEEDED", "player", g1, spell)
+        bag = bag + 1
+        advance(0.5)
+        fire("UNIT_SPELLCAST_START", "player", g2, spell)
+        rank = rank + 1
+        fire("UNIT_SPELLCAST_SUCCEEDED", "player", g2, spell)
+        bag = bag + 1
+        advance(2)
+        assert(#ns.db.craftLog == 2, "overlapping crafts: " .. #ns.db.craftLog .. " entries")
+        for _, e in ipairs(ns.db.craftLog) do assert(e.overlap, "an overlapping craft not marked") end
+        local byColour, _, other = ns.CraftLogSummary()
+        assert(not byColour.orange, ("overlapping crafts in the rate: %s/%s"):format(
+            tostring(byColour.orange and byColour.orange.ups), tostring(byColour.orange and byColour.orange.tries)))
+        assert(other.overlap == 2, "not counted as overlapping: " .. tostring(other.overlap))
+        local text = Line()
+        assert(text:find((ns.L["  Not counted: %d failed or interrupted, %d unreadable, %d overlapping, %d at the rank's maximum; %d gave more than one point."]):format(0, 0, 2, 0, 0), 1, true),
+            "/gcr craftlog: overlapping not named apart: " .. text)
+        -- started while the one before was still being read: overlapping too
+        local g3, g4 = Guid(), Guid()
+        fire("UNIT_SPELLCAST_START", "player", g3, spell)
+        fire("UNIT_SPELLCAST_SUCCEEDED", "player", g3, spell)
+        advance(0.5)
+        fire("UNIT_SPELLCAST_START", "player", g4, spell)
+        advance(1.5)
+        fire("UNIT_SPELLCAST_SUCCEEDED", "player", g4, spell)
+        advance(2)
+        assert(ns.db.craftLog[3].overlap and ns.db.craftLog[4].overlap, "a craft started inside the last one's reading: not marked")
+        -- single crafts with time between them: as before
+        ns.db.craftLog = {}
+        rank = 10
+        local g5 = Guid()
+        fire("UNIT_SPELLCAST_START", "player", g5, spell)
+        rank = rank + 1 bag = bag + 1
+        fire("UNIT_SPELLCAST_SUCCEEDED", "player", g5, spell)
+        advance(2)
+        local g6 = Guid()
+        fire("UNIT_SPELLCAST_START", "player", g6, spell)
+        bag = bag + 1
+        fire("UNIT_SPELLCAST_SUCCEEDED", "player", g6, spell)
+        advance(2)
+        byColour = ns.CraftLogSummary()
+        assert(byColour.orange and byColour.orange.tries == 2 and byColour.orange.ups == 1, "single crafts no longer counted")
+        assert(not ns.db.craftLog[1].overlap and not ns.db.craftLog[2].overlap and ns.db.craftLog[1].made == 1, "single crafts marked")
+        -- M2: a hidden cast ID, but a spell that is no recipe (Herbalism): nothing
+        issecretvalue = function(v) return rawequal(v, SECRET) end
+        local count = #ns.db.craftLog
+        fire("UNIT_SPELLCAST_SUCCEEDED", "player", SECRET, 2366)
+        fire("UNIT_SPELLCAST_SUCCEEDED", "player", SECRET, 2366)
+        advance(2)
+        assert(#ns.db.craftLog == count, "a gathering spell with a hidden cast ID in the craft log: " .. (#ns.db.craftLog - count))
+        -- spell hidden too: not a craft
+        fire("UNIT_SPELLCAST_SUCCEEDED", "player", SECRET, SECRET) advance(2)
+        assert(#ns.db.craftLog == count, "a cast with nothing readable stored as a craft")
+        -- a real craft with a hidden cast ID, its event twice: one entry
+        fire("UNIT_SPELLCAST_SUCCEEDED", "player", SECRET, spell)
+        fire("UNIT_SPELLCAST_SUCCEEDED", "player", SECRET, spell)
+        advance(2)
+        assert(#ns.db.craftLog == count + 1, "a hidden-ID craft twice: " .. (#ns.db.craftLog - count) .. " entries")
+        local e = ns.db.craftLog[#ns.db.craftLog]
+        assert(e.secret and e.recipe == "Light Leather" and e.gain == nil, "a hidden-ID craft: what it is or that it is unreadable")
+        -- V1: the amount in the bags is hidden: unreadable, no error
+        local g7 = Guid()
+        bag = SECRET
+        fire("UNIT_SPELLCAST_START", "player", g7, spell)
+        fire("UNIT_SPELLCAST_SUCCEEDED", "player", g7, spell)
+        advance(2)
+        e = ns.db.craftLog[#ns.db.craftLog]
+        assert(e.recipe == "Light Leather" and e.secret and e.made == nil, "a hidden amount: not marked unreadable")
+        bag = 5
+        local g8 = Guid()
+        fire("UNIT_SPELLCAST_START", "player", g8, spell)
+        fire("UNIT_SPELLCAST_SUCCEEDED", "player", g8, spell)
+        bag = SECRET
+        advance(2)
+        e = ns.db.craftLog[#ns.db.craftLog]
+        assert(e.secret and e.made == nil, "a hidden amount after the craft: not marked unreadable")
+        bag = 5
+        issecretvalue = saved.secret
+        -- N2: clear while a craft is still being read: it stays empty
+        local g9 = Guid()
+        fire("UNIT_SPELLCAST_START", "player", g9, spell)
+        fire("UNIT_SPELLCAST_SUCCEEDED", "player", g9, spell)
+        advance(0.5)
+        slash("craftlog clear")
+        advance(2)
+        assert(#ns.db.craftLog == 0, "/gcr craftlog clear: a craft read afterwards came back")
+        -- after the clear the log works again
+        local g10 = Guid()
+        fire("UNIT_SPELLCAST_START", "player", g10, spell)
+        fire("UNIT_SPELLCAST_SUCCEEDED", "player", g10, spell)
+        advance(2)
+        assert(#ns.db.craftLog == 1 and not ns.db.craftLog[1].overlap, "after the clear: no new entry, or marked overlapping")
     end)
     ns.ProfessionRank, ns.CraftData.Have, data.colors[spell] = saved.rank, saved.have, saved.colors
     ns.db.craftLog, ns.db.craftLogOff, issecretvalue = saved.log, saved.off, saved.secret

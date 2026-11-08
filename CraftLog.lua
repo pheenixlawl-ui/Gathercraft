@@ -13,6 +13,11 @@ local L = ns.L or setmetatable({}, { __index = function(_, k) return k end })
 --     (secret), a gain of more than one point, a craft at the rank's maximum
 --   * one entry per cast: a repeated or late event of the same cast is not
 --     another craft
+--   * only clear observations count (Codex M1, 08.11.): a craft that starts
+--     or ends while the one before is still being read shares its readings
+--     with it; both are marked overlapping and left out of the rates
+--   * a cast the client hides the ID of counts only when its spell is a
+--     known recipe (Codex M2); hidden amounts or skills: unreadable (V1)
 --   * the newest MAX_ENTRIES are kept; Options > General turns it off
 --   * nothing here crafts or changes a craft: it only watches
 --   /gcr craftlog         what the log says, per colour and per distance to grey
@@ -66,9 +71,12 @@ local function Product(prof, key)
     if product and product > 0 then return product end
 end
 
+-- the amount in the bags, or nil and true when the client hid it (Codex V1)
 local function Count(item)
     local d = ns.CraftData
-    return item and d and d.Have and d.Have(item) or nil
+    local v = item and d and d.Have and d.Have(item)
+    if v ~= nil and ns.AnySecret("craft log", v) then return nil, true end
+    return v
 end
 
 local function Add(e)
@@ -82,6 +90,14 @@ local function Add(e)
 end
 
 local casts = {}   -- castGUID -> the cast while it runs
+local reading = {} -- entries waiting for their second reading (SETTLE)
+local generation = 0 -- /gcr craftlog clear: readings started before it are dropped
+-- a reading is going on: what starts or ends now shares it
+local function Overlap(c)
+    if not next(reading) then return end
+    if c then c.overlap = true end
+    for e in pairs(reading) do e.overlap = true end
+end
 local done = {}    -- castGUID -> true: logged, later events of it change nothing
 local doneOrder = {}
 
@@ -96,8 +112,10 @@ local function Start(guid, spell)
     if not r then return end
     local before, maxRank, secret = Rank(r.prof)
     local product = Product(r.prof, r.key)
-    local c = { spell = spell, prof = r.prof, key = r.key, before = before, max = maxRank, secret = secret,
-        product = product, had = Count(product), t = time() }
+    local had, hidden = Count(product)
+    local c = { spell = spell, prof = r.prof, key = r.key, before = before, max = maxRank, secret = secret or hidden,
+        product = product, had = had, t = time() }
+    Overlap(c)
     casts[guid] = c
     return c
 end
@@ -107,7 +125,7 @@ local function Entry(c, result)
     local build = GetBuildInfo and select(2, GetBuildInfo())
     return { t = c.t, build = tonumber(build) or build, prof = c.prof, spell = c.spell, recipe = c.key,
         before = c.before, max = c.max, colour = colour, yellow = yellow, grey = grey,
-        result = result, secret = c.secret or nil,
+        result = result, secret = c.secret or nil, overlap = c.overlap or nil,
         atCap = (c.before and c.max and c.before >= c.max) or nil }
 end
 
@@ -117,7 +135,12 @@ local function Succeeded(guid, spell)
     casts[guid] = nil
     Done(guid)
     local e = Entry(c, "ok")
+    Overlap(e)
+    reading[e] = true
+    local gen = generation
     C_Timer.After(SETTLE, function()
+        reading[e] = nil
+        if gen ~= generation then return end -- cleared meanwhile (Codex N2)
         local after, _, secret = Rank(c.prof)
         e.after = after
         if secret then e.secret = true end
@@ -127,7 +150,8 @@ local function Succeeded(guid, spell)
             if gain > 1 then e.multi = true end
         end
         if c.product and c.had then
-            local now = Count(c.product)
+            local now, hidden = Count(c.product)
+            if hidden then e.secret = true end
             if now and now >= c.had then e.made = now - c.had end
         end
         if On() then Add(e) end
@@ -142,15 +166,27 @@ local function Failed(guid, spell, result)
     if On() then Add(Entry(c, result)) end
 end
 
+local HIDDEN_REPEAT = 0.5 -- seconds; no craft is that fast
+local hiddenLast = {}     -- recipe spell -> when its last hidden-ID success came
+
 local watch = CreateFrame("Frame")
 for _, e in ipairs({ "UNIT_SPELLCAST_START", "UNIT_SPELLCAST_SUCCEEDED", "UNIT_SPELLCAST_FAILED", "UNIT_SPELLCAST_INTERRUPTED" }) do
     if watch.RegisterUnitEvent then pcall(watch.RegisterUnitEvent, watch, e, "player") else pcall(watch.RegisterEvent, watch, e) end
 end
 watch:SetScript("OnEvent", function(_, event, unit, guid, spell)
     if not On() or unit ~= "player" then return end
-    if ns.AnySecret("craft log " .. event, guid, spell) then
-        -- the client hid which cast it was: counted as such, nothing else known
-        if event == "UNIT_SPELLCAST_SUCCEEDED" then Add({ t = time(), result = "ok", secret = true, colour = "unknown" }) end
+    if ns.AnySecret("craft log " .. event, guid) then
+        -- the client hid which cast it was. A craft only when its spell can
+        -- be read and is a recipe (a hidden spell is no craft at all; Codex
+        -- M2); its events repeat without an ID to tell them apart: one
+        -- success of a recipe within HIDDEN_REPEAT is the same craft
+        if event ~= "UNIT_SPELLCAST_SUCCEEDED" or ns.AnySecret("craft log " .. event, spell) then return end
+        local r = Recipe(spell)
+        if not r then return end
+        local now = GetTime()
+        if hiddenLast[spell] and now - hiddenLast[spell] < HIDDEN_REPEAT then return end
+        hiddenLast[spell] = now
+        Add({ t = time(), prof = r.prof, spell = spell, recipe = r.key, result = "ok", secret = true, colour = "unknown" })
         return
     end
     if not guid or done[guid] then return end
@@ -176,10 +212,12 @@ local COLOUR_NAME = { orange = L["orange"], yellow = L["yellow"], green = L["gre
 -- before and after, not at the rank's maximum
 local function Summary(log)
     local byColour, byGap = {}, {}
-    local other = { failed = 0, secret = 0, cap = 0, multi = 0 }
+    local other = { failed = 0, secret = 0, cap = 0, multi = 0, overlap = 0 }
     for _, e in ipairs(log) do
         if e.result ~= "ok" then
             other.failed = other.failed + 1
+        elseif e.overlap then
+            other.overlap = other.overlap + 1
         elseif e.secret or not e.gain then
             other.secret = other.secret + 1
         elseif e.atCap then
@@ -209,6 +247,10 @@ ns.CraftLogCommand = function(rest)
     rest = (rest or ""):lower()
     if rest == "clear" then
         ns.db.craftLog = {}
+        -- crafts still being read are dropped too (Codex N2)
+        generation = generation + 1
+        wipe(reading)
+        wipe(casts)
         ns.Print(L["Craft log cleared."])
         return
     end
@@ -231,6 +273,6 @@ ns.CraftLogCommand = function(rest)
             print((L["  %s points below grey: %d crafts, %d skill-ups (%d%%)"]):format(GAPS[bucket + 1], g.tries, g.ups, Rate(g)))
         end
     end
-    print((L["  Not counted: %d failed or interrupted, %d unreadable, %d at the rank's maximum; %d gave more than one point."]):format(
-        other.failed, other.secret, other.cap, other.multi))
+    print((L["  Not counted: %d failed or interrupted, %d unreadable, %d overlapping, %d at the rank's maximum; %d gave more than one point."]):format(
+        other.failed, other.secret, other.overlap, other.cap, other.multi))
 end
