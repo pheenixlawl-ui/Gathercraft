@@ -7687,15 +7687,28 @@ step("Welcome, what's new and the run summary (v0.1.13)", function()
     ns.db.summaryOff = nil
     SendChatMessage = nil
 end)
-step("What's new: 0.1.18 after an update, in this language and all translations", function()
+step("What's new: 0.1.19 after an update, in this language and all translations", function()
     local version = toc:match("## Version: ([%d%.]+)")
-    assert(version == "0.1.18", "TOC version: " .. tostring(version))
+    assert(version == "0.1.19", "TOC version: " .. tostring(version))
     assert(toc:match("## Interface: (%d+)") == "16001", "TOC interface changed")
     local f = assert(io.open(ROOT .. "/Welcome.lua"))
     local src = f:read("*a") f:close()
-    local key = src:match('%["0%.1%.18"%] = "([^"]+)"')
-    assert(key and key:find("correct material amounts", 1, true) and key:find("intermediates", 1, true) and key:find("all bags", 1, true)
-        and key:find("spots other players sent you", 1, true), "no entry for 0.1.18 in Welcome.lua")
+    local key = src:match('%["0%.1%.19"%] = "([^"]+)"')
+    assert(key and key:find("Questing mode", 1, true) and key:find("gold ring", 1, true) and key:find("/gcr quest", 1, true)
+        and key:find("Options, General", 1, true), "no entry for 0.1.19 in Welcome.lua")
+    -- the switch moved: every translation names the General page as the options show it
+    for _, code in ipairs({ "deDE", "esES", "frFR", "itIT", "koKR", "ptBR", "ruRU", "zhCN", "zhTW" }) do
+        local general = ns.Locales[code] and ns.Locales[code]["General"]
+        local t = ns.Locales[code] and ns.Locales[code][key]
+        assert(general and t and t:find(general, 1, true), ("%s: the new place is not named as the options call it (%s)"):format(code, tostring(general)))
+    end
+    -- README and CHANGELOG say it
+    local rf = assert(io.open(ROOT .. "/README.md"))
+    local readme = rf:read("*a") rf:close()
+    assert(readme:find("Questing mode – gather along the way", 1, true) and readme:find("`/gcr quest`", 1, true), "README: no questing mode")
+    local cf = assert(io.open(ROOT .. "/CHANGELOG.md"))
+    local changelog = cf:read("*a") cf:close()
+    assert(changelog:find("^## v0%.1%.19") and not changelog:find("v0.1.18", 1, true), "CHANGELOG: not 0.1.19 only")
     -- every translation is there, whatever language this run is in
     for _, code in ipairs({ "deDE", "esES", "frFR", "itIT", "koKR", "ptBR", "ruRU", "zhCN", "zhTW" }) do
         local t = ns.Locales[code] and ns.Locales[code][key]
@@ -7715,7 +7728,7 @@ step("What's new: 0.1.18 after an update, in this language and all translations"
         -- (since 0.1.19 in its own window, Q5)
         local win = _G.GathercraftWhatsNew
         if win then win:Hide() end
-        ns.db.lastVersion = "0.1.17"
+        ns.db.lastVersion = "0.1.18"
         ns.WelcomeOnLogin()
         win = _G.GathercraftWhatsNew
         assert(win and win:IsShown() and win.body:GetText() == text and win.title:GetText():find(version, 1, true),

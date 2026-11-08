@@ -24,6 +24,7 @@ local WHATS_NEW = {
     ["0.1.16"] = "Pins now show only what your professions can gather (switch it off in Options, Map & minimap). Right-click without a gathering profession tells you what to do. Gathering spells are learned more carefully, and shared finds wait 7 days for confirmation. Fixed a flood of Lua errors when casting spells in dungeons or combat. Prices now show the cheapest offer, and fresh data comes first.",
     ["0.1.17"] = "Run and fishing windows fold into one line or hide. Minimap pins are a plain ring by default, with the route line below them. Fishing marks your bobber and ends with a summary. Crafting sorts by any column.",
     ["0.1.18"] = "Skill plan: correct material amounts – crafted intermediates and all bags now counted. Sharing shows how many spots other players sent you.",
+    ["0.1.19"] = "Questing mode: no route, no window – nearby nodes you can gather get a gold ring (Ctrl + right-click on the minimap button, or /gcr quest). The herbs/minerals switch is now under Options, General.",
 }
 
 -- What comes next (Sven, 08.11.2026): only what is really planned, no dates;

@@ -44,6 +44,10 @@ Herbs and ores are recorded the moment you gather them, no setup. On top of that
 
 Hit *Herbs*, *Ores* or *Herbs + Ores* and go. Gathercraft plans the shortest path through every node you selected on your continent and re-plans while you ride – or, with the **route type** *Loop*, rides one fixed round through all spawn points again and again, like the routes in farming guides. It only sends you to nodes you can actually gather, and with the **route goal** it goes for what you need: **skill-ups** while you level, **gold** once you're done – or simply as many nodes as possible. Your target stays put until you reach it, and at 25 yards (you choose) it already moves on to the next one. Grab a node you spotted yourself and the route picks up from where you are. Spawn points that keep turning up empty get visited less – Gathercraft learns them while you farm. Pick the route line you like: seven colors, dots, fine dots, a solid line or big dots. The Zones tab shows Kalimdor and the Eastern Kingdoms side by side: *Only herbs* or *Only ores* is one click – or tick single materials per zone.
 
+**🗡️ Questing mode – gather along the way**
+
+No farm run, just questing? Switch on the **questing mode** (Ctrl + right-click on the minimap emblem, `/gcr quest` or a key) and the nodes near you that you can gather get a gold ring on the minimap – no route, no line, no window. Choose 50, 75 or 100 yards; an optional arrow points at the nearest one. Starting a farm run or fishing switches it off. During farm runs and the questing mode the game can also mark the node you walk towards (one at a time), and your Fish key can gather it – Options, Farm runs, both off by default; your settings come back afterwards.
+
 **💰 Farm Spots – where gold grows**
 
 Every zone of your continent – or any other, one click away – ranked by **gold per hour**, nodes per hour and skill-ups for *your* skill. Estimates from spawn points and prices to start with, your own numbers once you've farmed there. Plus what sells above its usual price right now. *Go* starts a run right there.
@@ -90,7 +94,7 @@ Minimap button via LibDBIcon – works with ElvUI, minimap button bags and broke
 Then visit the auction house once and press *Gathercraft Scan* – from now on everything shows its gold value.
 
 ## 🎮 Controls
-**Everything lives in the Gathercraft window** – click the emblem on your minimap (right-click starts a farm run) or type `/gcr`.
+**Everything lives in the Gathercraft window** – click the emblem on your minimap (right-click starts a farm run, Ctrl + right-click switches the questing mode) or type `/gcr`.
 
 | | |
 |---|---|
@@ -103,7 +107,7 @@ Then visit the auction house once and press *Gathercraft Scan* – from now on e
 
 For power users and macros: `/gcr run herb|ore|both` · `/gcr route` *(preview)* · `/gcr loadall` *(whole continent)* · `/gcr help` *(all commands)*
 
-**Key bindings:** Options › Keybindings › AddOns › Gathercraft *(Fish · Start/stop run · Skip node · Zones window · Find Herbs / Find Minerals)*
+**Key bindings:** Options › Keybindings › AddOns › Gathercraft *(Fish · Start/stop run · Skip node · Zones window · Questing mode · Find Herbs / Find Minerals)*
 
 ## ❓ FAQ
 **"Does it play for me?"**

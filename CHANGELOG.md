@@ -1,14 +1,11 @@
-## v0.1.18 – 2026-11-08
-
-### Fixed
-- **Skill plan, material amounts:** what the plan crafts along the way (Light Leather, bolts of cloth, bars, stones, powder, oils) was made a second time for the whole need. Now it is counted once, for every profession: one stock per item for the whole plan – what you have plus what the plan's own steps make – and only what is still missing after that is crafted extra. Example, Leatherworking to ~75 with 35 Light Leather in your bags: 249 Ruined Leather Scraps instead of 324.
-- **Skill plan, what you have:** the open plan counts again when your bags or the bank change (it counted only when it opened). The reagent bag is always counted, also if the game leaves it out of its own count. With /gcr debug the plan says per material where its count comes from (bags, reagent bag, bank).
-- **Sharing status:** Options, Sharing now says how many players a spot waits for (3 different players; guild and friends count at once), not "a second player".
-- **Crafting:** WoW: Forever has only the modern profession window; the events of the old window are no longer asked for there, so /gcr crafttest says "none".
+## v0.1.19 – 2026-11-09
 
 ### New
-- **Craft log:** what each finished craft did to your skill (skill before and after, the recipe's colour, how many it made), to make the skill plan better later. On your computer only, never shared; failed casts, hidden values, crafts at the rank's maximum and crafts that overlap the one before are kept apart; only clear single crafts count. Other spells never land in it. /gcr craftlog sums it up per colour, /gcr craftlog clear empties it; switch it off in Options, General.
-- **Sharing:** counts over all sessions what other players sent you – spots in all, new ones (guild and friends, others after confirmation) and confirmations of spots you know. /gcr sync shows all of it, Options, Sharing one line.
+- **Questing mode:** gather along the way while you quest, without a farm run. The nodes near you that you can gather – your professions, enough skill, chests only while shown, no grey nodes while "Hide grey nodes" is on – get the gold ring of a run target on the minimap; the world map stays as it is. No route, no line, no window. Nodes just harvested or found empty stay dark. Switch it with Ctrl + right-click on the minimap button (the tooltip shows on or off), /gcr quest, a key binding or Options, Map & minimap. It stays on over /reload and login; a farm run or fishing turns it off.
+- **Questing mode options:** radius 50, 75 (default) or 100 yards; an arrow to the nearest ring (off by default) shows only which way and how far.
+- **Gathering help (off by default, Options, Farm runs):** during a farm run or the questing mode the game marks the node you walk towards (one at a time), and the Fish key can gather it with one press. Your settings come back when the run or the mode ends, on /reload and on logout, with the same care as for fishing; after a crash the next login puts back what was saved before it, as well as it can. In combat no key is changed.
+- **Skinning log:** what you skin is written down on this computer only, never shared – beast, zone, your skill, leather – as the base for skinning areas later. A loot that cannot be tied to the beast you cast on is kept apart as unclear, never counted. /gcr skinlog sums it up, /gcr skinlog clear empties it; switch it off in Options, General.
+- **What's new window:** after an update a small window shows what is new, with a box "Coming next" below it. /gcr news shows it again.
 
 ### Changed
-- **Minimap guesses:** a spot learned from the minimap that you never gather and nobody confirms is dropped after 30 days without a new look. Every new look starts the 30 days again; gathered, Questie, starter and shared spots stay, and so do guesses another player confirmed – also when close guesses are merged into one at login.
+- **Options:** the herbs/minerals switch (and "Put it on an action bar") moved from Map & minimap to General.
