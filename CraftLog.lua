@@ -186,7 +186,10 @@ watch:SetScript("OnEvent", function(_, event, unit, guid, spell)
         local now = GetTime()
         if hiddenLast[spell] and now - hiddenLast[spell] < HIDDEN_REPEAT then return end
         hiddenLast[spell] = now
-        Add({ t = time(), prof = r.prof, spell = spell, recipe = r.key, result = "ok", secret = true, colour = "unknown" })
+        local e = { t = time(), prof = r.prof, spell = spell, recipe = r.key, result = "ok", secret = true, colour = "unknown" }
+        -- a craft all the same: one still being read shares its readings (Codex B1)
+        Overlap(e)
+        Add(e)
         return
     end
     if not guid or done[guid] then return end

@@ -4013,6 +4013,48 @@ step("Craft log: only clear observations count; no other spells, hidden amounts,
     ns.db.craftLog, ns.db.craftLogOff, issecretvalue = saved.log, saved.off, saved.secret
     if not ok then error(err, 0) end
 end)
+step("Craft log: a craft with a hidden cast ID marks the one still being read as overlapping (v0.1.18 B1)", function()
+    -- Codex round 2 (08.11.): A readable, no skill-up; 0.5 s later B, same
+    -- recipe, hidden cast ID, one skill-up. A must not count as 1/1.
+    local data = GathercraftRecipeData
+    local spell = data.spells.Leatherworking["Light Leather"]
+    local saved = { rank = ns.ProfessionRank, have = ns.CraftData.Have, colors = data.colors[spell], log = ns.db.craftLog,
+        off = ns.db.craftLogOff, secret = issecretvalue }
+    local SECRET = newproxy(true)
+    local rank, bag = 10, 0
+    ns.ProfessionRank = function(p) if p == "Leatherworking" then return rank, 75 end end
+    ns.CraftData.Have = function(id) if id == 2318 then return bag end return 0 end
+    data.colors[spell] = "20:40"
+    ns.db.craftLog, ns.db.craftLogOff = {}, nil
+    local ok, err = pcall(function()
+        issecretvalue = function(v) return rawequal(v, SECRET) end
+        fire("UNIT_SPELLCAST_START", "player", "Cast-b1-A", spell)
+        fire("UNIT_SPELLCAST_SUCCEEDED", "player", "Cast-b1-A", spell)
+        bag = bag + 1
+        advance(0.5)
+        rank, bag = rank + 1, bag + 1
+        fire("UNIT_SPELLCAST_SUCCEEDED", "player", SECRET, spell)
+        advance(2)
+        assert(#ns.db.craftLog == 2, "entries: " .. #ns.db.craftLog)
+        local a = ns.db.craftLog[1].recipe and not ns.db.craftLog[1].secret and ns.db.craftLog[1] or ns.db.craftLog[2]
+        assert(a.overlap, ("A was read alone: gain %s, made %s"):format(tostring(a.gain), tostring(a.made)))
+        local byColour, _, other = ns.CraftLogSummary()
+        assert(not byColour.orange, ("A in the rate: %s/%s"):format(tostring(byColour.orange and byColour.orange.ups),
+            tostring(byColour.orange and byColour.orange.tries)))
+        assert(other.overlap >= 1, "not counted as overlapping")
+        -- the other way round: B hidden first, A readable while nothing is read: A alone counts
+        ns.db.craftLog = {}
+        advance(3)
+        fire("UNIT_SPELLCAST_START", "player", "Cast-b1-C", spell)
+        rank, bag = rank + 1, bag + 1
+        fire("UNIT_SPELLCAST_SUCCEEDED", "player", "Cast-b1-C", spell)
+        advance(2)
+        assert(not ns.db.craftLog[1].overlap and ns.db.craftLog[1].gain == 1, "a single readable craft is marked")
+    end)
+    ns.ProfessionRank, ns.CraftData.Have, data.colors[spell] = saved.rank, saved.have, saved.colors
+    ns.db.craftLog, ns.db.craftLogOff, issecretvalue = saved.log, saved.off, saved.secret
+    if not ok then error(err, 0) end
+end)
 step("Sharing counts what other players sent, over all sessions (v0.1.18 S7)", function()
     local db = ns.db.sync
     local saved = { counts = db.counts, enabled = db.enabled, public = db.public, friend = C_FriendList.GetFriendInfo }
