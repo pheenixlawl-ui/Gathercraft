@@ -26,6 +26,7 @@ local L = ns.L or setmetatable({}, { __index = function(_, k) return k end })
 local PREFIX = "Gathercraft"
 local CHANNEL = "GathercraftSync"
 local CONFIRMATIONS = 3       -- different players needed for a public node
+ns.SYNC_CONFIRMATIONS = CONFIRMATIONS -- Options > Sharing says it
 local PUSH_KNOWN_LIMIT = 3    -- stop live-sending a node once this many others reported it
 local MERGE_RADIUS = 10       -- yards: same kind closer than this = same node
 -- Self-healing: a node that only came from other players, that you found

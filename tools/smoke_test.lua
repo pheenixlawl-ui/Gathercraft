@@ -4283,6 +4283,43 @@ step("Farm Spots: the Go buttons of reused rows follow a language change (v0.1.1
     ns.db.language = keep ns.ApplyLanguage()
     ns.NotifyNodesChanged() advance(2)
 end)
+step("Sharing status: waiting spots need the number of players the code asks for (v0.1.18 F4)", function()
+    -- Sven's find (08.11.): "Waiting for a second player" - a public spot
+    -- needs CONFIRMATIONS (3) different players; guild and friends count at once
+    local f = assert(io.open(ROOT .. "/Sync.lua"))
+    local code = f:read("*a") f:close()
+    local need = tonumber(code:match("local CONFIRMATIONS = (%d+)"))
+    assert(need and need >= 2, "test setup: CONFIRMATIONS in Sync.lua")
+    local db = ns.db.sync
+    local was = { enabled = db.enabled, public = db.public }
+    db.enabled, db.public = true, true
+    local win = _G.GathercraftOptions
+    local wasOpen = win:IsShown()
+    local ok, err = pcall(function()
+        if not wasOpen then ns.ToggleOptions() end
+        ns.ShowOptionsSection("sync")
+        win:Refresh()
+        advance(3)
+        local waiting = select(3, ns.SyncSummary())
+        local want = (ns.L["Waiting for confirmation by %d different players: %d"]):format(need, waiting)
+        assert(want ~= ("Waiting for confirmation by %d different players: %d"):format(need, waiting) or LOCALE == "enUS" or LOCALE == "enGB",
+            "no translation of the waiting line in " .. LOCALE)
+        local status
+        for _, o in ipairs(allFrames) do
+            local t = o.GetText and o:IsShown() and o:GetText()
+            if type(t) == "string" and t:find(want, 1, true) then status = t end
+        end
+        assert(status, "Options > Sharing: " .. want)
+        assert(not status:lower():find("second", 1, true), "still a second player: " .. status)
+        -- one line in the status area (6 px a letter, 11 px a CJK sign; about 500 px wide)
+        local px = 0
+        for ch in want:gmatch("[%z\1-\127\194-\244][\128-\191]*") do px = px + (#ch >= 3 and 11 or 6) end
+        assert(px <= 480, ("the waiting line needs %d px: %s"):format(px, want))
+    end)
+    db.enabled, db.public = was.enabled, was.public
+    if not wasOpen then ns.ToggleOptions() end
+    if not ok then error(err, 0) end
+end)
 step("Sharing shows what it does; chests can be hidden", function()
     slash("sync on")
     local function said(text)

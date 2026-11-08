@@ -809,7 +809,8 @@ UpdateSyncStatus = function()
         (L["Spots received this session: %d"]):format(received),
         (L["Received from other players: %d spots (%d new)"]):format(ns.SyncCounts and ns.SyncCounts() or 0,
             ns.SyncCounts and select(2, ns.SyncCounts()) or 0),
-        (L["Waiting for a second player to confirm them: %d"]):format(waiting),
+        -- a public spot needs this many different players (guild and friends count at once)
+        (L["Waiting for confirmation by %d different players: %d"]):format(ns.SYNC_CONFIRMATIONS or 3, waiting),
     }
     if ns.db.sync.public and not joined then
         lines[#lines + 1] = "|cffff8040" .. L["Not in the sharing channel yet (it is joined a few seconds after login)."] .. "|r"
