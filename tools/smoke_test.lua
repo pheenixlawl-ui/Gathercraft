@@ -333,6 +333,10 @@ local ldbObj
 libs["LibDataBroker-1.1"] = { NewDataObject = function(_, name, o) ldbObj = o return o end }
 libs["LibDBIcon-1.0"] = { Register = function() end, Show = function() end, Hide = function() end, SetButtonIcon = function() end }
 
+-- the auction house API is there from the start, as in the game: Prices.lua
+-- keeps this table from its load on, the tests fill in its functions
+C_AuctionHouse = {}
+
 -- ---------------------------------------------------------------- load addon
 local ns = {}
 local toc = io.open(ROOT .. "/Gathercraft.toc"):read("*a")
@@ -3888,19 +3892,20 @@ step("Own auction house scan", function()
         if i == 7 then unit = 1 end -- one silly cheap auction must not set the price
         auctions[i] = { id = id, count = count, buyout = unit * count }
     end
-    C_AuctionHouse = {
-        ReplicateItems = function() end,
-        GetNumReplicateItems = function() return #auctions end,
-        GetReplicateItemInfo = function(i)
-            local a = auctions[i + 1]
-            if not a then return nil end
-            return "Item", 1, a.count, 1, true, 1, 0, 0, 0, a.buyout, 0, false, nil, "Seller", nil, 0, a.id, true
-        end,
-    }
+    -- the table Prices.lua has kept since its load (loaded once, Codex N4)
+    C_AuctionHouse.ReplicateItems = function() end
+    C_AuctionHouse.GetNumReplicateItems = function() return #auctions end
+    C_AuctionHouse.GetReplicateItemInfo = function(i)
+        local a = auctions[i + 1]
+        if not a then return nil end
+        return "Item", 1, a.count, 1, true, 1, 0, 0, 0, a.buyout, 0, false, nil, "Seller", nil, 0, a.id, true
+    end
     AuctionHouseFrame = CreateFrame("Frame", "AuctionHouseFrame", UIParent)
-    -- Prices.lua captured C_AuctionHouse at load time: reload just that file
-    local chunk = assert(loadfile(ROOT .. "/Prices.lua"))
-    chunk("Gathercraft", ns)
+    -- one copy of the price module, as in the game: one frame for the scan
+    -- event, one price line in the tooltip
+    local copies = 0
+    for _ in pairs(eventFrames["REPLICATE_ITEM_LIST_UPDATE"] or {}) do copies = copies + 1 end
+    assert(copies == 1, copies .. " frames of the price module wait for the scan")
     fire("AUCTION_HOUSE_SHOW")
     slash("scan") advance(1)
     fire("REPLICATE_ITEM_LIST_UPDATE") advance(2)
@@ -4131,17 +4136,15 @@ step("Auction house: \"left out\" once per scan, the rest as one count (v0.1.17)
         return n
     end
     local LEFT = "REPLICATE_ITEM_LIST_UPDATE left out"
-    -- the test loads Prices.lua twice (see "Own auction house scan"): each
-    -- copy has its own frame and says it once; in the game there is one
-    local copies = 0
-    for _ in pairs(eventFrames["REPLICATE_ITEM_LIST_UPDATE"] or {}) do copies = copies + 1 end
+    -- Prices.lua is loaded once (Codex N4): one line each
+    local copies = 1
     -- another addon's scan: 120 updates, none of them ours
     fire("AUCTION_HOUSE_CLOSED")
     fire("AUCTION_HOUSE_SHOW") advance(1)
     local mark = #log
     for _ = 1, 120 do fire("REPLICATE_ITEM_LIST_UPDATE") end
     advance(1)
-    assert(Count(LEFT, mark) == copies, ("%d left-out lines, want %d (one per copy)"):format(Count(LEFT, mark), copies))
+    assert(Count(LEFT, mark) == copies, ("%d left-out lines, want %d"):format(Count(LEFT, mark), copies))
     fire("AUCTION_HOUSE_CLOSED")
     assert(Count("119 further updates ignored (no scan of ours", mark) == copies, "no count of the other 119")
     -- our scan, and 50 more updates while it reads
