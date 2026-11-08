@@ -551,4 +551,11 @@ ns.Locales.esES = {
     ["Ideas or bugs? Tell us on CurseForge or Discord."] = "¿Ideas o errores? Cuéntanoslo en CurseForge o Discord.",
     ["Mark the node you walk towards (one at a time)"] = "Marcar el nodo hacia el que caminas (de uno en uno)",
     ["Fish key gathers the marked node"] = "La tecla de pesca recoge el nodo marcado",
+    ["Skinning log cleared."] = "Registro de desuello vaciado.",
+    ["Skinning log: %d skinned, %d kinds of beasts (kept on this computer, never shared)."] = "Registro de desuello: %d desollados, %d tipos de bestias (solo en este ordenador, nunca se comparte).",
+    ["  Your skill while skinning: %d-%d"] = "  Tu habilidad al desollar: %d-%d",
+    ["  %s: %d skinned, skill %s"] = "  %s: %d desollados, habilidad %s",
+    ["(needs %d)"] = "(requiere %d)",
+    ["  /gcr skinlog      - what you skinned (skinlog clear: empty it)"] = "  /gcr skinlog      - lo que has desollado (skinlog clear: vaciarlo)",
+    ["Record skinning (helps build skinning areas)"] = "Registrar el desuello (ayuda a crear zonas de desuello)",
 }

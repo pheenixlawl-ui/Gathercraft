@@ -1350,6 +1350,7 @@ local function Help()
     print(L["  /gcr plan [profession] - skill plan with material list"])
     print(L["  /gcr craftlog     - skill-ups of your crafts (craftlog clear: empty it)"])
     print(L["  /gcr quest        - questing mode on/off (gold rings on nearby nodes)"])
+    print(L["  /gcr skinlog      - what you skinned (skinlog clear: empty it)"])
     print(L["  /gcr welcome      - show the welcome again"])
     print(L["  /gcr news         - what's new and what comes next"])
     print(L["  /gcr skills       - your gathering skills and what we learned"])
@@ -1452,6 +1453,8 @@ SlashCmdList.GATHERCRAFT = function(msg)
         if ns.ShowSkillPlan then ns.ShowSkillPlan(rest) end
     elseif cmd == "craftlog" then
         if ns.CraftLogCommand then ns.CraftLogCommand(rest) end
+    elseif cmd == "skinlog" then
+        if ns.SkinLogCommand then ns.SkinLogCommand(rest) end
     elseif cmd == "quest" then
         if ns.ToggleQuestMode then ns.ToggleQuestMode() end
     elseif cmd == "welcome" then

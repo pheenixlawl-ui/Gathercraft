@@ -1044,8 +1044,7 @@ local function Build()
     Section(6) -- General
     AddHeader("Language")
     AddLanguage()
-    nextY = nextY - 6
-    AddHeader("Other")
+    AddHeader("Other") -- (no gap above since 0.1.19: room for the skinning log)
     AddCheck("Minimap button",
         function() return not ns.db.minimapHidden end,
         function(on)
@@ -1090,6 +1089,9 @@ local function Build()
     AddCheck("Record crafting skill-ups (helps improve the skill plan)",
         function() return not ns.db.craftLogOff end,
         function(on) ns.db.craftLogOff = not on or nil end)
+    AddCheck("Record skinning (helps build skinning areas)",
+        function() return not ns.db.skinLogOff end,
+        function(on) ns.db.skinLogOff = not on or nil end)
     AddCheck("Debug output (chat tab \"Gathercraft\")",
         function() return ns.db.debug end,
         function(on)

@@ -9,7 +9,7 @@ local L = ns.L or setmetatable({}, { __index = function(_, k) return k end })
 --     maxUp    : highest skill at which a skill point was gained
 --     minNoUp  : lowest skill at which no point was gained
 ---------------------------------------------------------------------------
-local SKILL_LINE = { herb = 182, ore = 186, fish = 356, cook = 185, aid = 129 } -- Herbalism, Mining, Fishing, Cooking, First Aid
+local SKILL_LINE = { herb = 182, ore = 186, fish = 356, cook = 185, aid = 129, skin = 393 } -- Herbalism, Mining, Fishing, Cooking, First Aid, Skinning
 -- Compared in lower case. string.lower leaves Cyrillic capitals alone, so the
 -- Russian names are here as the client writes them too.
 local SKILL_NAMES = {
@@ -24,6 +24,8 @@ local SKILL_NAMES = {
     cook = { ["cooking"] = true, ["kochkunst"] = true, ["cuisine"] = true, ["cocina"] = true, ["cucina"] = true,
         ["culinária"] = true, ["кулинария"] = true,
         ["Кулинария"] = true, ["요리"] = true, ["烹饪"] = true, ["烹飪"] = true },
+    skin = { ["skinning"] = true, ["kürschnerei"] = true, ["dépeçage"] = true, ["desuello"] = true, ["scuoiatura"] = true,
+        ["esfolamento"] = true, ["снятие шкур"] = true, ["Снятие шкур"] = true, ["무두질"] = true, ["剥皮"] = true, ["剝皮"] = true },
     aid = { ["first aid"] = true, ["erste hilfe"] = true, ["secourisme"] = true, ["primeros auxilios"] = true,
         ["primo soccorso"] = true, ["primeiros socorros"] = true, ["первая помощь"] = true,
         ["Первая помощь"] = true, ["응급치료"] = true, ["急救"] = true },

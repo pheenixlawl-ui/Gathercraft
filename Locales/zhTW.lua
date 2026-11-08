@@ -551,4 +551,11 @@ ns.Locales.zhTW = {
     ["Ideas or bugs? Tell us on CurseForge or Discord."] = "有想法或發現錯誤？請在 CurseForge 或 Discord 告訴我們。",
     ["Mark the node you walk towards (one at a time)"] = "標記你正走向的採集點（一次一個）",
     ["Fish key gathers the marked node"] = "釣魚鍵採集已標記的採集點",
+    ["Skinning log cleared."] = "剝皮記錄已清空。",
+    ["Skinning log: %d skinned, %d kinds of beasts (kept on this computer, never shared)."] = "剝皮記錄：已剝皮 %d 次，%d 種野獸（只保存在這台電腦上，從不共享）。",
+    ["  Your skill while skinning: %d-%d"] = "  剝皮時的技能：%d-%d",
+    ["  %s: %d skinned, skill %s"] = "  %s：剝皮 %d 次，技能 %s",
+    ["(needs %d)"] = "（需要 %d）",
+    ["  /gcr skinlog      - what you skinned (skinlog clear: empty it)"] = "  /gcr skinlog      - 你的剝皮記錄（skinlog clear：清空）",
+    ["Record skinning (helps build skinning areas)"] = "記錄剝皮（幫助建立剝皮區域）",
 }

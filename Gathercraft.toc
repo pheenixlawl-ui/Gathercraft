@@ -46,6 +46,7 @@ Main.lua
 Welcome.lua
 Planner.lua
 CraftLog.lua
+SkinLog.lua
 Data\StarterData.lua
 Data\QuestieNodes.lua
 Data\NodeNames.lua

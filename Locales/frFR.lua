@@ -551,4 +551,11 @@ ns.Locales.frFR = {
     ["Ideas or bugs? Tell us on CurseForge or Discord."] = "Des idées ou des bugs ? Dites-le-nous sur CurseForge ou Discord.",
     ["Mark the node you walk towards (one at a time)"] = "Marquer le nœud vers lequel vous marchez (un seul à la fois)",
     ["Fish key gathers the marked node"] = "La touche de pêche récolte le nœud marqué",
+    ["Skinning log cleared."] = "Journal de dépeçage vidé.",
+    ["Skinning log: %d skinned, %d kinds of beasts (kept on this computer, never shared)."] = "Journal de dépeçage : %d dépecés, %d sortes de bêtes (sur cet ordinateur seulement, jamais partagé).",
+    ["  Your skill while skinning: %d-%d"] = "  Votre compétence en dépeçant : %d-%d",
+    ["  %s: %d skinned, skill %s"] = "  %s : %d dépecés, compétence %s",
+    ["(needs %d)"] = "(requiert %d)",
+    ["  /gcr skinlog      - what you skinned (skinlog clear: empty it)"] = "  /gcr skinlog      - ce que vous avez dépecé (skinlog clear : le vider)",
+    ["Record skinning (helps build skinning areas)"] = "Noter le dépeçage (aide à créer des zones de dépeçage)",
 }

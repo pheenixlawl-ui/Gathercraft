@@ -551,4 +551,11 @@ ns.Locales.ptBR = {
     ["Ideas or bugs? Tell us on CurseForge or Discord."] = "Ideias ou bugs? Conte para nós no CurseForge ou no Discord.",
     ["Mark the node you walk towards (one at a time)"] = "Marcar o nó para o qual você caminha (um por vez)",
     ["Fish key gathers the marked node"] = "A tecla de pesca coleta o nó marcado",
+    ["Skinning log cleared."] = "Registro de esfolamento limpo.",
+    ["Skinning log: %d skinned, %d kinds of beasts (kept on this computer, never shared)."] = "Registro de esfolamento: %d esfolados, %d tipos de feras (só neste computador, nunca compartilhado).",
+    ["  Your skill while skinning: %d-%d"] = "  Sua perícia ao esfolar: %d-%d",
+    ["  %s: %d skinned, skill %s"] = "  %s: %d esfolados, perícia %s",
+    ["(needs %d)"] = "(requer %d)",
+    ["  /gcr skinlog      - what you skinned (skinlog clear: empty it)"] = "  /gcr skinlog      - o que você esfolou (skinlog clear: limpar)",
+    ["Record skinning (helps build skinning areas)"] = "Registrar esfolamento (ajuda a criar áreas de esfolamento)",
 }

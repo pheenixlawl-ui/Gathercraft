@@ -580,4 +580,11 @@ ns.Locales.deDE = {
     ["Ideas or bugs? Tell us on CurseForge or Discord."] = "Ideen oder Fehler? Schreib uns auf CurseForge oder Discord.",
     ["Mark the node you walk towards (one at a time)"] = "Den Node markieren, auf den du zuläufst (immer nur einen)",
     ["Fish key gathers the marked node"] = "Angeltaste sammelt den markierten Node",
+    ["Skinning log cleared."] = "Kürschner-Protokoll geleert.",
+    ["Skinning log: %d skinned, %d kinds of beasts (kept on this computer, never shared)."] = "Kürschner-Protokoll: %d gehäutet, %d Tierarten (nur auf diesem Computer, wird nie geteilt).",
+    ["  Your skill while skinning: %d-%d"] = "  Dein Skill beim Kürschnern: %d-%d",
+    ["  %s: %d skinned, skill %s"] = "  %s: %d gehäutet, Skill %s",
+    ["(needs %d)"] = "(braucht %d)",
+    ["  /gcr skinlog      - what you skinned (skinlog clear: empty it)"] = "  /gcr skinlog      - was du gehäutet hast (skinlog clear: leeren)",
+    ["Record skinning (helps build skinning areas)"] = "Kürschnern mitschreiben (hilft bei Kürschner-Gebieten)",
 }

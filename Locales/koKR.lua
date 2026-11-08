@@ -551,4 +551,11 @@ ns.Locales.koKR = {
     ["Ideas or bugs? Tell us on CurseForge or Discord."] = "아이디어나 버그가 있나요? CurseForge나 Discord에서 알려 주세요.",
     ["Mark the node you walk towards (one at a time)"] = "향해 걸어가는 채집물 표시 (한 번에 하나)",
     ["Fish key gathers the marked node"] = "낚시 키로 표시된 채집물 채집",
+    ["Skinning log cleared."] = "무두질 기록을 비웠습니다.",
+    ["Skinning log: %d skinned, %d kinds of beasts (kept on this computer, never shared)."] = "무두질 기록: %d회, 야수 %d종 (이 컴퓨터에만 저장, 공유되지 않음).",
+    ["  Your skill while skinning: %d-%d"] = "  무두질할 때의 숙련도: %d-%d",
+    ["  %s: %d skinned, skill %s"] = "  %s: %d회, 숙련도 %s",
+    ["(needs %d)"] = "(필요 %d)",
+    ["  /gcr skinlog      - what you skinned (skinlog clear: empty it)"] = "  /gcr skinlog      - 무두질한 기록 (skinlog clear: 비우기)",
+    ["Record skinning (helps build skinning areas)"] = "무두질 기록 (무두질 지역 만들기에 도움)",
 }

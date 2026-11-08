@@ -551,4 +551,11 @@ ns.Locales.itIT = {
     ["Ideas or bugs? Tell us on CurseForge or Discord."] = "Idee o bug? Scrivici su CurseForge o Discord.",
     ["Mark the node you walk towards (one at a time)"] = "Segna il nodo verso cui cammini (uno alla volta)",
     ["Fish key gathers the marked node"] = "Il tasto pesca raccoglie il nodo segnato",
+    ["Skinning log cleared."] = "Registro di scuoiatura svuotato.",
+    ["Skinning log: %d skinned, %d kinds of beasts (kept on this computer, never shared)."] = "Registro di scuoiatura: %d scuoiati, %d tipi di bestie (solo su questo computer, mai condiviso).",
+    ["  Your skill while skinning: %d-%d"] = "  La tua abilità mentre scuoiavi: %d-%d",
+    ["  %s: %d skinned, skill %s"] = "  %s: %d scuoiati, abilità %s",
+    ["(needs %d)"] = "(richiede %d)",
+    ["  /gcr skinlog      - what you skinned (skinlog clear: empty it)"] = "  /gcr skinlog      - cosa hai scuoiato (skinlog clear: svuotalo)",
+    ["Record skinning (helps build skinning areas)"] = "Registra la scuoiatura (aiuta a creare zone di scuoiatura)",
 }

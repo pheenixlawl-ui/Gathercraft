@@ -6072,6 +6072,156 @@ step("Gathering help: the Fish key gathers during a run or the questing mode, ne
     player.map, player.x, player.y = saved.map, saved.x, saved.y
     if not ok then error(err, 0) end
 end)
+step("Skinning log: one entry per skinned beast, needed skill from the client's message, local only (v0.1.19 Q7)", function()
+    local L = ns.L
+    local saved = { guid = UnitGUID, name = UnitName, isPlayer = UnitIsPlayer, skill = ns.GetSkill, secret = issecretvalue,
+        log = ns.db.skinLog, needs = ns.db.skinNeeds, off = ns.db.skinLogOff, err = _G.ERR_USE_LOCKED_WITH_SPELL_KNOWN_SI,
+        map = player.map, x = player.x, y = player.y }
+    local units = {}
+    local SECRET = newproxy(true)
+    local CORPSE = "Creature-0-1-1-1-3035-0000AA0001"
+    local function Skin(guid, items, opts)
+        opts = opts or {}
+        units.target = guid
+        if not opts.noCast then fire("UNIT_SPELLCAST_SUCCEEDED", "player", "Cast-skin-" .. tostring(guid), opts.spell or 8613) end
+        if opts.wait then advance(opts.wait) end
+        loot = {}
+        for _, it in ipairs(items) do loot[#loot + 1] = { guid = opts.source or guid, item = it[1], qty = it[2] } end
+        for _, e in ipairs(opts.events or { "LOOT_READY", "LOOT_OPENED", "LOOT_READY", "LOOT_CLOSED", "LOOT_CLOSED" }) do fire(e) end
+        loot = {}
+        advance(1)
+    end
+    local ok, err = pcall(function()
+        UnitGUID = function(u) return units[u] end
+        UnitName = function(u) if u == "player" then return "Test Player" end return units[u] and "Plainstrider" or nil end
+        UnitIsPlayer = function() return false end
+        ns.GetSkill = function(t) if t == "skin" then return 50, 75, 50 end return saved.skill(t) end
+        ns.db.skinLog, ns.db.skinNeeds, ns.db.skinLogOff = {}, {}, nil
+        player.map, player.x, player.y = 1412, 0.4567, 0.7123
+        local nodesBefore = #(ns.db.nodes[1412] or {})
+        -- a normal skinning; the loot window seen twice is one entry
+        Skin(CORPSE, { { 2318, 2 }, { 2934, 1 } })
+        assert(#ns.db.skinLog == 1, "entries after one skinning: " .. #ns.db.skinLog)
+        local e = ns.db.skinLog[1]
+        assert(e.npc == 3035 and e.name == "Plainstrider" and e.map == 1412, ("npc %s, name %s, map %s"):format(tostring(e.npc), tostring(e.name), tostring(e.map)))
+        assert(e.x == 0.46 and e.y == 0.71, ("a rough position, not the exact one: %s %s"):format(tostring(e.x), tostring(e.y)))
+        assert(e.skill == 50 and e.build == 70450 and e.t, "skill, build or time")
+        assert(e.items[2318] == 2 and e.items[2934] == 1, "the items and amounts")
+        assert(#(ns.db.nodes[1412] or {}) == nodesBefore, "the herb and ore recorder took the skinning as a node")
+        -- the same corpse again (a late loot event): nothing more
+        Skin(CORPSE, { { 2318, 2 } }, { noCast = true })
+        assert(#ns.db.skinLog == 1, "the same corpse counted twice")
+        -- looting a corpse without skinning it: nothing
+        Skin("Creature-0-1-1-1-3035-0000AA0002", { { 4865, 1 } }, { noCast = true })
+        assert(#ns.db.skinLog == 1, "a normal corpse loot counted as skinning")
+        -- a cast that was broken off (no success), then the normal loot: nothing
+        units.target = "Creature-0-1-1-1-3035-0000AA0003"
+        fire("UNIT_SPELLCAST_START", "player", "Cast-abort", 8613)
+        fire("UNIT_SPELLCAST_INTERRUPTED", "player", "Cast-abort", 8613)
+        Skin("Creature-0-1-1-1-3035-0000AA0003", { { 4865, 1 } }, { noCast = true })
+        assert(#ns.db.skinLog == 1, "an interrupted skinning counted")
+        -- another spell (Herbalism) before a loot: nothing
+        Skin("Creature-0-1-1-1-3035-0000AA0004", { { 2318, 1 } }, { spell = 2366 })
+        assert(#ns.db.skinLog == 1, "a herb spell made a skinning")
+        -- the loot of a chest or a herb right after a skinning cast: nothing
+        Skin("Creature-0-1-1-1-3035-0000AA0005", { { 2447, 1 } }, { source = "GameObject-0-1-1-1-1617-0000BB0001" })
+        Skin("Creature-0-1-1-1-3035-0000AA0006", { { 858, 1 } }, { source = "GameObject-0-1-1-1-106318-0000BB0002" })
+        assert(#ns.db.skinLog == 1, "a chest or herb loot counted as skinning")
+        -- a loot long after the cast: nothing
+        Skin("Creature-0-1-1-1-3035-0000AA0007", { { 2318, 1 } }, { wait = 6 })
+        assert(#ns.db.skinLog == 1, "a loot 6 s after the cast counted")
+        -- a second skinning cast on the corpse already skinned, its loot again: still one
+        Skin(CORPSE, { { 2318, 2 } })
+        assert(#ns.db.skinLog == 1, "the same corpse counted again after a second cast")
+        -- no beast to tell (no target, no mouseover): a chest after a skinning cast is still no entry
+        units.target, units.mouseover = nil, nil
+        fire("UNIT_SPELLCAST_SUCCEEDED", "player", "Cast-nt", 8613)
+        loot = { { guid = "GameObject-0-1-1-1-106318-0000BB0003", item = 858, qty = 1 } }
+        fire("LOOT_READY") loot = {} advance(1)
+        assert(#ns.db.skinLog == 1, "a chest counted as skinning when no beast was targeted")
+        -- hidden values: nothing compared or kept
+        issecretvalue = function(v) return rawequal(v, SECRET) end
+        Skin("Creature-0-1-1-1-3035-0000AA0008", { { 2318, 1 } }, { source = SECRET })
+        assert(#ns.db.skinLog == 1, "a hidden loot source counted")
+        loot = {}
+        units.target = "Creature-0-1-1-1-3035-0000AA0009"
+        fire("UNIT_SPELLCAST_SUCCEEDED", "player", "Cast-s9", 8613)
+        loot = { { guid = "Creature-0-1-1-1-3035-0000AA0009", item = 2318, qty = SECRET } }
+        fire("LOOT_READY") loot = {} advance(1)
+        assert(#ns.db.skinLog == 1, "a hidden amount counted")
+        ns.GetSkill = function(t) if t == "skin" then return SECRET end return saved.skill(t) end
+        Skin("Creature-0-1-1-1-3035-0000AA0010", { { 2318, 1 } })
+        assert(#ns.db.skinLog == 2 and ns.db.skinLog[2].skill == nil, "a hidden skill: kept, or the entry missing")
+        ns.GetSkill = function(t) if t == "skin" then return 50, 75, 50 end return saved.skill(t) end
+        issecretvalue = saved.secret
+        -- "Requires Skinning N": the client's own text, the client's name of Skinning
+        local skin = C_Spell.GetSpellName(8613)
+        _G.ERR_USE_LOCKED_WITH_SPELL_KNOWN_SI = "Requires %s %d"
+        units.target, units.mouseover = "Creature-0-1-1-1-2956-0000CC0001", nil
+        fire("UI_ERROR_MESSAGE", 51, "Requires " .. skin .. " 100")
+        assert(ns.db.skinNeeds[2956] == 100, "the needed skill is not kept: " .. tostring(ns.db.skinNeeds[2956]))
+        -- the older form (message only)
+        units.target = "Creature-0-1-1-1-2957-0000CC0002"
+        fire("UI_ERROR_MESSAGE", "Requires " .. skin .. " 85")
+        assert(ns.db.skinNeeds[2957] == 85, "the older message form")
+        -- a client whose text puts the number first (numbered places)
+        _G.ERR_USE_LOCKED_WITH_SPELL_KNOWN_SI = "%2$d %1$s benötigt"
+        units.target = "Creature-0-1-1-1-2958-0000CC0003"
+        fire("UI_ERROR_MESSAGE", 51, "120 " .. skin .. " benötigt")
+        assert(ns.db.skinNeeds[2958] == 120, "a text with the number first")
+        _G.ERR_USE_LOCKED_WITH_SPELL_KNOWN_SI = "Requires %s %d"
+        -- another skill (Lockpicking), or two beasts at once: nothing
+        units.target = "Creature-0-1-1-1-2959-0000CC0004"
+        fire("UI_ERROR_MESSAGE", 51, "Requires Lockpicking 100")
+        units.target, units.mouseover = "Creature-0-1-1-1-2960-0000CC0005", "Creature-0-1-1-1-2961-0000CC0006"
+        fire("UI_ERROR_MESSAGE", 51, "Requires " .. skin .. " 100")
+        assert(not ns.db.skinNeeds[2959] and not ns.db.skinNeeds[2960] and not ns.db.skinNeeds[2961], "kept although not clear")
+        units.mouseover = nil
+        -- no text in the client: nothing is guessed
+        _G.ERR_USE_LOCKED_WITH_SPELL_KNOWN_SI = nil
+        units.target = "Creature-0-1-1-1-2962-0000CC0007"
+        fire("UI_ERROR_MESSAGE", 51, "Requires " .. skin .. " 100")
+        assert(not ns.db.skinNeeds[2962], "a needed skill without the client's text")
+        _G.ERR_USE_LOCKED_WITH_SPELL_KNOWN_SI = saved.err
+        -- /gcr skinlog
+        local mark = #log
+        slash("skinlog")
+        local text = table.concat(log, "\n", mark + 1)
+        assert(text:find((L["Skinning log: %d skinned, %d kinds of beasts (kept on this computer, never shared)."]):format(2, 1), 1, true), "/gcr skinlog: " .. text)
+        assert(text:find("Plainstrider", 1, true) and text:find((L["  Your skill while skinning: %d-%d"]):format(50, 50), 1, true), "/gcr skinlog: beasts or skill")
+        -- off: nothing
+        ns.db.skinLogOff = true
+        Skin("Creature-0-1-1-1-3035-0000AA0011", { { 2318, 1 } })
+        assert(#ns.db.skinLog == 2, "recorded although turned off")
+        ns.db.skinLogOff = nil
+        -- the newest 5000
+        local full = {}
+        for i = 1, 5000 do full[i] = { t = i, npc = 1, items = {} } end
+        ns.db.skinLog = full
+        Skin("Creature-0-1-1-1-3035-0000AA0012", { { 2318, 1 } })
+        assert(#ns.db.skinLog == 5000 and ns.db.skinLog[1].t == 2 and ns.db.skinLog[5000].npc == 3035, "not kept at 5000")
+        -- clear
+        slash("skinlog clear")
+        assert(#ns.db.skinLog == 0 and not next(ns.db.skinNeeds), "/gcr skinlog clear")
+        -- never in what is shared: no sync message carries it
+        for _, m in ipairs(sentMessages) do assert(not m:find("3035", 1, true) or m:find("^N:"), "a skinning in a sync message: " .. m) end
+        -- the option under General
+        local found
+        for _, o in ipairs(allFrames) do
+            if o.__kind == "FontString" and o:GetText() == L["Record skinning (helps build skinning areas)"] then
+                local p = o.__parent
+                while p and not p.key do p = p.__parent end
+                found = p and p.key
+            end
+        end
+        assert(found == "general", "the option is not under General: " .. tostring(found))
+    end)
+    UnitGUID, UnitName, UnitIsPlayer, ns.GetSkill, issecretvalue = saved.guid, saved.name, saved.isPlayer, saved.skill, saved.secret
+    ns.db.skinLog, ns.db.skinNeeds, ns.db.skinLogOff, _G.ERR_USE_LOCKED_WITH_SPELL_KNOWN_SI = saved.log, saved.needs, saved.off, saved.err
+    player.map, player.x, player.y = saved.map, saved.x, saved.y
+    loot = {}
+    if not ok then error(err, 0) end
+end)
 step("Options: the herbs/minerals switch is under General, every page fits (v0.1.19)", function()
     -- Sven (08.11.): Map & minimap makes room for the questing mode
     local function PageOf(text)

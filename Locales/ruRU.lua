@@ -551,4 +551,11 @@ ns.Locales.ruRU = {
     ["Ideas or bugs? Tell us on CurseForge or Discord."] = "Идеи или ошибки? Напишите нам на CurseForge или в Discord.",
     ["Mark the node you walk towards (one at a time)"] = "Отмечать точку, к которой вы идёте (по одной)",
     ["Fish key gathers the marked node"] = "Клавиша рыбалки собирает отмеченную точку",
+    ["Skinning log cleared."] = "Журнал снятия шкур очищен.",
+    ["Skinning log: %d skinned, %d kinds of beasts (kept on this computer, never shared)."] = "Журнал снятия шкур: %d снято, %d видов зверей (только на этом компьютере, никому не передаётся).",
+    ["  Your skill while skinning: %d-%d"] = "  Ваш навык при снятии шкур: %d-%d",
+    ["  %s: %d skinned, skill %s"] = "  %s: снято %d, навык %s",
+    ["(needs %d)"] = "(нужно %d)",
+    ["  /gcr skinlog      - what you skinned (skinlog clear: empty it)"] = "  /gcr skinlog      - с кого вы сняли шкуры (skinlog clear: очистить)",
+    ["Record skinning (helps build skinning areas)"] = "Записывать снятие шкур (поможет найти места для него)",
 }
