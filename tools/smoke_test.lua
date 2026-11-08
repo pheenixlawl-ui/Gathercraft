@@ -5408,6 +5408,31 @@ step("World map pins in a ring (default), normal by option", function()
     ns.db.worldPinStyle = nil
     ns.NotifyNodesChanged() advance(2)
 end)
+step("Options: the herbs/minerals switch is under General, every page fits (v0.1.19)", function()
+    -- Sven (08.11.): Map & minimap makes room for the questing mode
+    local function PageOf(text)
+        for _, o in ipairs(allFrames) do
+            if o.GetText and o:GetText() == text then
+                local p = o.__parent
+                while p and not p.key do p = p.__parent end
+                if p then return p.key end
+            end
+        end
+    end
+    assert(PageOf(ns.L["Herbs / minerals switch button"]) == "general", "the switch is not under General: " .. tostring(PageOf(ns.L["Herbs / minerals switch button"])))
+    assert(PageOf(ns.L["Put it on an action bar"]) == "general", "its macro button is not under General")
+    assert(PageOf(ns.L["Next to the minimap, when you know both: one click switches your tracking."]) == "general", "its hint is not under General")
+    -- every page that does not flow ends above the footer, also inside the
+    -- main window (its options page is 6 px lower than the standalone window)
+    local used = ns.OptionsUsedHeight and ns.OptionsUsedHeight()
+    assert(used and used.map and used.general, "test setup: how far the pages go")
+    local ROOM = 640 - 112 - 18 - 4 - 66 -- main window body, minus the options' top and footer
+    for key, h in pairs(used) do
+        if key ~= "level" then -- Leveling flows (own step)
+            assert(h <= ROOM, ("Options %s: %d px of %d"):format(key, h, ROOM))
+        end
+    end
+end)
 step("Herbs / minerals switch button", function()
     local btn = GathercraftTrackButton
     assert(btn, "no switch button")

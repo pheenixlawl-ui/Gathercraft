@@ -154,9 +154,13 @@ end
 local page -- the section the Add* functions below fill
 local colX, nextY = 0, 0
 
+local usedHeight = {} -- section key -> how far its controls go down (px)
+ns.OptionsUsedHeight = function() return usedHeight end
 local function Section(index, flow)
+    if page and page.key then usedHeight[page.key] = -nextY end
     local info = SECTIONS[index]
     page = CreateFrame("Frame", nil, content)
+    page.key = info.key
     page:SetAllPoints(content)
     page:Hide()
     sectionPages[info.key] = page
@@ -854,29 +858,7 @@ local function Build()
         function() return not ns.db.minimapLearnOff end,
         function(on) ns.db.minimapLearnOff = not on or nil end)
     AddHint("Hover a herb or vein on the minimap: Gathercraft remembers the spot.")
-    AddCheck("Herbs / minerals switch button",
-        function() return not ns.db.trackButtonHidden end,
-        function(on)
-            ns.db.trackButtonHidden = not on or nil
-            if ns.UpdateTrackButton then ns.UpdateTrackButton() end
-        end)
-    AddHint("Next to the minimap, when you know both: one click switches your tracking.")
-    do
-        local macro = CreateFrame("Button", nil, page, "UIPanelButtonTemplate")
-        macro:SetSize(180, 22)
-        macro:SetPoint("TOPLEFT", colX + 30, nextY)
-        ns.LText(macro, "Put it on an action bar")
-        macro:SetScript("OnClick", function() if ns.TrackMacro then ns.TrackMacro() end end)
-        macro:SetScript("OnEnter", function(self)
-            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-            GameTooltip:AddLine(L["Put it on an action bar"], 1, 0.82, 0)
-            GameTooltip:AddLine(L["Creates the macro \"GC Tracking\" and puts it on your cursor. Works with the button hidden too."], 1, 1, 1, true)
-            GameTooltip:Show()
-        end)
-        macro:SetScript("OnLeave", GameTooltip_Hide)
-        nextY = nextY - 28
-    end
-    nextY = nextY - 10
+    nextY = nextY - 4
     AddWorldStyle()
     AddMiniStyle()
     AddMiniAlpha()
@@ -996,6 +978,29 @@ local function Build()
             ns.db.minimapHidden = not on
             ns.UpdateMinimapButton()
         end)
+    -- here since 0.1.19 (Sven, 08.11.): Map & minimap makes room for the questing mode
+    AddCheck("Herbs / minerals switch button",
+        function() return not ns.db.trackButtonHidden end,
+        function(on)
+            ns.db.trackButtonHidden = not on or nil
+            if ns.UpdateTrackButton then ns.UpdateTrackButton() end
+        end)
+    AddHint("Next to the minimap, when you know both: one click switches your tracking.")
+    do
+        local macro = CreateFrame("Button", nil, page, "UIPanelButtonTemplate")
+        macro:SetSize(180, 22)
+        macro:SetPoint("TOPLEFT", colX + 30, nextY)
+        ns.LText(macro, "Put it on an action bar")
+        macro:SetScript("OnClick", function() if ns.TrackMacro then ns.TrackMacro() end end)
+        macro:SetScript("OnEnter", function(self)
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            GameTooltip:AddLine(L["Put it on an action bar"], 1, 0.82, 0)
+            GameTooltip:AddLine(L["Creates the macro \"GC Tracking\" and puts it on your cursor. Works with the button hidden too."], 1, 1, 1, true)
+            GameTooltip:Show()
+        end)
+        macro:SetScript("OnLeave", GameTooltip_Hide)
+        nextY = nextY - 28
+    end
     AddCheck("Fish key applies a lure when the pole has none",
         function() return ns.db.fishLure ~= false end,
         function(on) ns.db.fishLure = on end)
@@ -1018,6 +1023,7 @@ local function Build()
             if ns.ShowDebugTab then ns.ShowDebugTab() end
         end)
 
+    usedHeight[page.key] = -nextY
     ShowSection(ns.db.optionsSection)
 
     -- footer: key bindings and credits, below a thin line
