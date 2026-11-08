@@ -191,16 +191,30 @@ local function NodeFor(itemID)
 end
 
 -- Materials of the plan: { id, need, have, missing, cost, node, made = from },
--- the cost of what is missing, and how many missing items have no price
+-- the cost of what is missing, and how many missing items have no price.
+-- One stock per item for the whole plan: what you have plus what the plan's
+-- own steps make (Light Leather of a Light Leather step, bars of a smelting
+-- step). An intermediate is made again only for the need that stays after
+-- that stock: extra crafts = max(0, need - have - made by the steps).
 local function Materials(prof, steps, from)
     local d = Data()
-    local need = {}
+    local need, planned = {}, {}
     for _, s in ipairs(steps) do
         for _, r in ipairs(s.recipe.reagents) do
             need[r.id] = (need[r.id] or 0) + r.n * s.crafts
         end
+        local product = s.recipe.product
+        if product and product > 0 then
+            planned[product] = (planned[product] or 0) + math.floor((s.recipe.made or 1) * s.crafts)
+        end
     end
-    -- bars, bolts...: what you don't have is made from its own materials
+    local have = {}
+    local function Have(id)
+        if have[id] == nil then have[id] = d.Have(id) or 0 end
+        return have[id]
+    end
+    local function Stock(id) return Have(id) + (planned[id] or 0) end
+    -- bars, bolts...: what the stock doesn't cover is made from its own materials
     -- (again and again: bronze bars need copper bars, which need ore)
     local producers = Producers(prof, from)
     local madeTimes, madeFrom = {}, {}
@@ -209,7 +223,7 @@ local function Materials(prof, steps, from)
         for id, n in pairs(need) do
             local p = producers[id]
             if p then
-                local times = math.ceil(math.max(0, n - d.Have(id)) / p.made)
+                local times = math.ceil(math.max(0, n - Stock(id)) / p.made)
                 local extra = times - (madeTimes[id] or 0)
                 if extra > 0 then
                     madeTimes[id], madeFrom[id] = times, p
@@ -225,14 +239,13 @@ local function Materials(prof, steps, from)
     end
     local list, total, unknown = {}, 0, 0
     for id, n in pairs(need) do
-        local have = d.Have(id)
-        local missing = math.max(0, n - have)
+        local missing = math.max(0, n - Stock(id))
         if madeFrom[id] then missing = 0 end -- listed by its materials
         local price = d.ReagentCost(id)
         local cost = price and price * missing or nil
         total = total + (cost or 0)
         if missing > 0 and not price then unknown = unknown + 1 end -- not 0: unknown
-        list[#list + 1] = { id = id, need = n, have = have, missing = missing, cost = cost,
+        list[#list + 1] = { id = id, need = n, have = Have(id), missing = missing, cost = cost,
             node = NodeFor(id), madeFrom = madeFrom[id] }
     end
     table.sort(list, function(a, b)

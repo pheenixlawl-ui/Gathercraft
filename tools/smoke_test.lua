@@ -3281,6 +3281,223 @@ step("Skill plan: unknown prices, fees, training, what you can make yourself (v0
     d.Known, d.Have, ns.ProfessionRank, ns.GetPrice, ns.db.vendorPrices = saved.known, saved.have, saved.rank, saved.price, saved.vendor
     if _G.GathercraftSkillPlan then _G.GathercraftSkillPlan:Hide() end
 end)
+step("Skill plan: what the plan makes itself is counted once, every profession (v0.1.18 S1-S4)", function()
+    -- One shared stock per item for the whole plan: what you have plus what
+    -- the plan's own steps make. Extra crafts of an intermediate only for the
+    -- need that is still not covered after that.
+    -- The steps are fixed by the test: each recipe gets a required skill and
+    -- colours (yellow = grey = "upto") so it gives one point per craft from
+    -- its required skill up to "upto" and nothing after it. Reagent amounts
+    -- come from Data/RecipeData.lua; the test checks them first.
+    local d = ns.CraftData
+    local data = GathercraftRecipeData
+    local saved = { known = d.Known, have = d.Have, rank = ns.ProfessionRank, price = ns.GetPrice,
+        vendor = ns.db.vendorPrices, all = d.AllRecipes, spells = data.spells, colors = data.colors }
+    local recipes = data.professions
+    -- the stand-ins go back also when an assert fails (later steps use them)
+    local ok, err = pcall(function()
+    local function Uses(prof, key, id)
+        local _, reagents = recipes[prof][key]:match("^([^|]+)|(.*)$")
+        return tonumber((reagents or ""):match("%f[%d]" .. id .. ":(%d+)")) or 0
+    end
+    local function Makes(prof, key)
+        local product, lo, hi = recipes[prof][key]:match("^(%d+):(%d+):(%d+):")
+        return tonumber(product), (tonumber(lo) + tonumber(hi)) / 2
+    end
+    local stock, ranks, known = {}, {}, {}
+    d.Have = function(id) return stock[id] or 0 end
+    ns.ProfessionRank = function(p) local r = ranks[p] if r then return r, r end end
+    d.Known = function(p) return known[p] or {} end
+    -- prices: everything 10c at the auction house; vendor items cost what a vendor showed
+    ns.GetPrice = function() return 10, "AH scan" end
+    ns.db.vendorPrices = {}
+    -- plan(prof, from, to, { { key, req, upto[, start] }, ... }): only these recipes, all known
+    local function Plan(prof, from, to, list)
+        local all, spells, colors = {}, {}, {}
+        known[prof] = {}
+        for i, r in ipairs(list) do
+            local packed = recipes[prof][r[1]]:gsub("^(%d+:%d+:%d+:)%d+", "%1" .. r[2])
+            all[r[1]], known[prof][r[1]] = packed, packed
+            spells[r[1]] = 900000 + i
+            colors[900000 + i] = r[3] .. ":" .. r[3]
+        end
+        d.AllRecipes = function(p) return p == prof and all or {} end
+        data.spells, data.colors = { [prof] = spells }, colors
+        local steps, mats, total, stuck = ns.SkillPlan(prof, from, to)
+        data.spells, data.colors = saved.spells, saved.colors
+        assert(not stuck, prof .. ": test setup: the plan got stuck at " .. tostring(stuck))
+        for i, r in ipairs(list) do
+            local s = steps[i]
+            -- r[4]: where the step starts when that is not its required skill
+            assert(s and s.recipe.key == r[1] and s.crafts == r[3] - (r[4] or math.max(r[2], from)),
+                ("%s: test setup: step %d is %s x%s"):format(prof, i, s and s.recipe.key or "-", s and s.crafts or "-"))
+        end
+        local byId = {}
+        for _, m in ipairs(mats) do
+            assert(not byId[m.id], prof .. ": item " .. m.id .. " listed twice")
+            byId[m.id] = m
+        end
+        return byId, total
+    end
+    local function Is(prof, m, id, need, missing, made)
+        local row = m[id]
+        assert(row, ("%s: item %d not in the list"):format(prof, id))
+        assert(row.need == need and row.missing == missing,
+            ("%s: item %d need %d missing %d, want %d / %d"):format(prof, id, row.need, row.missing, need, missing))
+        assert((row.madeFrom ~= nil) == (made == true), ("%s: item %d %s"):format(prof, id, made and "is not made" or "is made"))
+        if made then assert(row.cost == 0, prof .. ": an item you make has a cost") end
+    end
+
+    -- Leatherworking, Sven's plan: 1-25 Light Leather x24, 25-74 Light Armor Kit
+    -- x49, 74-97 Embossed Leather Gloves x23
+    assert(Uses("Leatherworking", "Light Leather", 2934) == 3 and Uses("Leatherworking", "Light Armor Kit", 2318) == 1
+        and Uses("Leatherworking", "Embossed Leather Gloves", 2318) == 3 and Uses("Leatherworking", "Embossed Leather Gloves", 2320) == 2,
+        "test setup: leather amounts changed in RecipeData")
+    local LW = { { "Light Leather", 1, 25 }, { "Light Armor Kit", 25, 74 }, { "Embossed Leather Gloves", 74, 97 } }
+    -- Light Leather: need 49 x 1 + 23 x 3 = 118; you have 35, the steps make 24
+    -- -> 118 - 35 - 24 = 59 more; made in all 24 + 59 = 83 -> scraps 83 x 3 = 249
+    -- Coarse Thread 23 x 2 = 46 (vendor 10c, at the AH 50c: the vendor counts)
+    ns.GetPrice = function(id) return id == 2320 and 50 or 10, "AH scan" end
+    ns.db.vendorPrices[2320] = 10
+    stock = { [2318] = 35 }
+    local m, total = Plan("Leatherworking", 1, 97, LW)
+    Is("Leatherworking", m, 2318, 118, 0, true)
+    Is("Leatherworking", m, 2934, 249, 249)
+    Is("Leatherworking", m, 2320, 46, 46)
+    -- what is missing, nothing else: 249 x 10c + 46 x 10c (vendor)
+    assert(total == 249 * 10 + 46 * 10, ("Leatherworking: total %d, want %d"):format(total, 249 * 10 + 46 * 10))
+    -- 34 in your bags: 60 more -> 84 crafts -> 252 scraps (S1 apart from S2)
+    stock = { [2318] = 34 }
+    m = Plan("Leatherworking", 1, 97, LW)
+    Is("Leatherworking", m, 2934, 252, 252)
+    -- enough leather already: no extra crafts, only the 24 of the steps (72 scraps)
+    stock = { [2318] = 200, [2934] = 10 }
+    m = Plan("Leatherworking", 1, 97, LW)
+    Is("Leatherworking", m, 2934, 72, 62)
+    ns.GetPrice = function() return 10, "AH scan" end
+
+    -- Tailoring: 1-11 Bolt of Linen Cloth x10, 11-31 Brown Linen Robe x20
+    assert(Uses("Tailoring", "Bolt of Linen Cloth", 2589) == 2 and Uses("Tailoring", "Brown Linen Robe", 2996) == 3
+        and Uses("Tailoring", "Brown Linen Robe", 2320) == 1, "test setup: tailoring amounts changed")
+    -- bolts: need 20 x 3 = 60; you have 5, the steps make 10 -> 45 more;
+    -- linen (10 + 45) x 2 = 110; thread 20
+    stock = { [2996] = 5 }
+    m = Plan("Tailoring", 1, 31, { { "Bolt of Linen Cloth", 1, 11 }, { "Brown Linen Robe", 11, 31 } })
+    Is("Tailoring", m, 2996, 60, 0, true)
+    Is("Tailoring", m, 2589, 110, 110)
+    Is("Tailoring", m, 2320, 20, 20)
+
+    -- Blacksmithing with smelting (Mining 150, Smelt Copper known):
+    -- 1-11 Rough Sharpening Stone x10, 11-21 Rough Grinding Stone x10,
+    -- 21-41 Runed Copper Gauntlets x20
+    assert(Uses("Blacksmithing", "Rough Sharpening Stone", 2835) == 1 and Uses("Blacksmithing", "Rough Grinding Stone", 2835) == 2
+        and Uses("Blacksmithing", "Runed Copper Gauntlets", 2840) == 8 and Uses("Blacksmithing", "Runed Copper Gauntlets", 3470) == 2
+        and Uses("Mining", "Smelt Copper", 2770) == 1, "test setup: blacksmithing amounts changed")
+    ranks.Mining = 150
+    known.Mining = { ["Smelt Copper"] = recipes.Mining["Smelt Copper"] }
+    -- grinding stones: need 20 x 2 = 40, the steps make 10 -> 30 more (Rough
+    -- Grinding Stone from skill 1 here, so you can make it at the start);
+    -- rough stone 10 + (10 + 30) x 2 = 90; copper bars 20 x 8 = 160, you have
+    -- 30 -> 130 smelted -> copper ore 130
+    stock = { [2840] = 30 }
+    m = Plan("Blacksmithing", 1, 41, { { "Rough Sharpening Stone", 1, 11 }, { "Rough Grinding Stone", 1, 21, 11 }, { "Runed Copper Gauntlets", 21, 41 } })
+    Is("Blacksmithing", m, 3470, 40, 0, true)
+    Is("Blacksmithing", m, 2835, 90, 90)
+    Is("Blacksmithing", m, 2840, 160, 0, true)
+    Is("Blacksmithing", m, 2770, 130, 130)
+
+    -- Engineering: 1-11 Rough Blasting Powder x10, 11-31 Handful of Copper
+    -- Bolts x20, 31-51 Rough Copper Bomb x20 (two bombs a craft)
+    assert(Uses("Engineering", "Rough Blasting Powder", 2835) == 1 and Uses("Engineering", "Handful of Copper Bolts", 2840) == 1
+        and Uses("Engineering", "Rough Copper Bomb", 4357) == 2 and Uses("Engineering", "Rough Copper Bomb", 4359) == 1
+        and Uses("Engineering", "Rough Copper Bomb", 2840) == 1 and Uses("Engineering", "Rough Copper Bomb", 2589) == 1,
+        "test setup: engineering amounts changed")
+    -- powder: need 20 x 2 = 40, the steps make 10 -> 30 more -> rough stone 40;
+    -- bolts: need 20, the steps make 20 -> none more; copper bars 20 (bolts)
+    -- + 20 (bombs) = 40, you have 5 -> 35 smelted -> copper ore 35; linen 20
+    ns.GetPrice = function(id) return id == 2840 and 50 or 10, "AH scan" end -- bars dear: powder first
+    stock = { [2840] = 5 }
+    m = Plan("Engineering", 1, 51, { { "Rough Blasting Powder", 1, 11 }, { "Handful of Copper Bolts", 11, 31 }, { "Rough Copper Bomb", 31, 51 } })
+    Is("Engineering", m, 4357, 40, 0, true)
+    Is("Engineering", m, 2835, 40, 40)
+    Is("Engineering", m, 4359, 20, 0)
+    Is("Engineering", m, 2840, 40, 0, true)
+    Is("Engineering", m, 2770, 35, 35)
+    Is("Engineering", m, 2589, 20, 20)
+    ns.GetPrice = function() return 10, "AH scan" end
+    ranks.Mining, known.Mining = nil, nil
+
+    -- Enchanting: 1-2 Runed Copper Rod x1, 2-22 Enchant Bracer - Minor Stamina
+    -- x20. The rod is a tool: no enchanting recipe lists it as a reagent, so
+    -- it is made once and never counted again. The Copper Rod comes from a
+    -- vendor (an enchanter can't make it): 1 x its vendor price.
+    assert(Uses("Enchanting", "Runed Copper Rod", 6217) == 1 and Uses("Enchanting", "Enchant Bracer - Minor Stamina", 10940) == 2,
+        "test setup: enchanting amounts changed")
+    for key in pairs(recipes.Enchanting) do
+        assert(Uses("Enchanting", key, 6218) == 0, "test setup: " .. key .. " uses up a Runed Copper Rod")
+    end
+    ns.db.vendorPrices[6217] = 124
+    ns.GetPrice = function(id) if id ~= 6217 then return 10, "AH scan" end end -- the rod: vendor only
+    stock = {}
+    m, total = Plan("Enchanting", 1, 22, { { "Runed Copper Rod", 1, 2 }, { "Enchant Bracer - Minor Stamina", 2, 22 } })
+    Is("Enchanting", m, 6217, 1, 1)
+    assert(not m[6218], "Enchanting: the Runed Copper Rod is listed as a material")
+    Is("Enchanting", m, 10940, 40, 40)
+    local other = Uses("Enchanting", "Runed Copper Rod", 247786)
+    Is("Enchanting", m, 247786, other, other)
+    assert(total == 124 + 40 * 10 + other * 10, ("Enchanting: total %d"):format(total))
+    ns.GetPrice = function() return 10, "AH scan" end
+
+    -- Mining: 1-66 Smelt Copper x65, 66-76 Smelt Bronze x10 (1 copper + 1 tin
+    -- -> 2 bronze). Copper bars: need 10, the steps make 65 -> none more ->
+    -- copper ore 65 (not 75); tin bars 10, you have 10
+    assert(Uses("Mining", "Smelt Bronze", 2840) == 1 and Uses("Mining", "Smelt Bronze", 3576) == 1, "test setup: smelting amounts changed")
+    stock = { [3576] = 10 }
+    m = Plan("Mining", 1, 76, { { "Smelt Copper", 1, 66 }, { "Smelt Bronze", 66, 76 } })
+    Is("Mining", m, 2770, 65, 65)
+    Is("Mining", m, 2840, 10, 0) -- the steps make them all: nothing extra to smelt
+    Is("Mining", m, 3576, 10, 0)
+
+    -- Alchemy: 1-21 Blackmouth Oil x20, 21-46 Swim Speed Potion x25
+    assert(Uses("Alchemy", "Blackmouth Oil", 6358) == 2 and Uses("Alchemy", "Blackmouth Oil", 3371) == 1
+        and Uses("Alchemy", "Swim Speed Potion", 6370) == 1 and Uses("Alchemy", "Swim Speed Potion", 3371) == 1
+        and Uses("Alchemy", "Swim Speed Potion", 2452) == 1, "test setup: alchemy amounts changed")
+    -- oil: need 25, you have 2, the steps make 20 -> 3 more; oily blackmouth
+    -- (20 + 3) x 2 = 46; vials 20 + 3 (oil) + 25 (potions) = 48 at the vendor (4c)
+    ns.db.vendorPrices[3371] = 4
+    stock = { [6370] = 2 }
+    m, total = Plan("Alchemy", 1, 46, { { "Blackmouth Oil", 1, 21 }, { "Swim Speed Potion", 21, 46 } })
+    Is("Alchemy", m, 6370, 25, 0, true)
+    Is("Alchemy", m, 6358, 46, 46)
+    Is("Alchemy", m, 3371, 48, 48)
+    Is("Alchemy", m, 2452, 25, 25)
+    assert(total == 46 * 10 + 48 * 4 + 25 * 10, ("Alchemy: total %d"):format(total))
+
+    -- Cooking and First Aid: the same calculation, no list of exceptions.
+    -- 1-11 Charred Wolf Meat x10, 11-31 Spiced Wolf Meat x20: meat 30, spices
+    -- 20 at the vendor (10c) -> 30 x 10c + 20 x 10c
+    assert(Uses("Cooking", "Charred Wolf Meat", 2672) == 1 and Uses("Cooking", "Spiced Wolf Meat", 2678) == 1, "test setup: cooking amounts changed")
+    ns.GetPrice = function(id) return id == 2678 and 99 or 10, "AH scan" end
+    ns.db.vendorPrices[2678] = 10
+    stock = {}
+    m, total = Plan("Cooking", 1, 31, { { "Charred Wolf Meat", 1, 11 }, { "Spiced Wolf Meat", 11, 31 } })
+    Is("Cooking", m, 2672, 30, 30)
+    Is("Cooking", m, 2678, 20, 20)
+    assert(total == 30 * 10 + 20 * 10, ("Cooking: total %d"):format(total))
+    ns.GetPrice = function() return 10, "AH scan" end
+    -- 1-41 Linen Bandage x40, 41-61 Heavy Linen Bandage x20: linen 40 + 40 = 80,
+    -- you have 15 -> 65 missing
+    assert(Uses("First Aid", "Linen Bandage", 2589) == 1 and Uses("First Aid", "Heavy Linen Bandage", 2589) == 2, "test setup: first aid amounts changed")
+    stock = { [2589] = 15 }
+    m, total = Plan("First Aid", 1, 61, { { "Linen Bandage", 1, 41 }, { "Heavy Linen Bandage", 41, 61 } })
+    Is("First Aid", m, 2589, 80, 65)
+    assert(total == 65 * 10, ("First Aid: total %d"):format(total))
+
+    end)
+    d.Known, d.Have, ns.ProfessionRank, ns.GetPrice, ns.db.vendorPrices = saved.known, saved.have, saved.rank, saved.price, saved.vendor
+    d.AllRecipes, data.spells, data.colors = saved.all, saved.spells, saved.colors
+    if not ok then error(err, 0) end
+end)
 step("Skill plan: hints, fees and totals fit, also long translations and big amounts (v0.1.14)", function()
     -- no real font metrics: the estimate of TextHeight (6 px a letter, 11 px
     -- a CJK sign) shows whether the window makes room, not how the game draws it
