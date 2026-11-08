@@ -531,4 +531,5 @@ ns.Locales.ptBR = {
     ["unknown"] = "desconhecido",
     ["Received from other players: %d spots (%d new)"] = "Recebidos de outros jogadores: %d pontos (%d novos)",
     ["  Received from other players (all sessions): %d spots, %d new (%d guild/friends, %d public, confirmed), %d confirm spots you know"] = "  Recebidos de outros jogadores (todas as sessões): %d pontos, %d novos (%d guilda/amigos, %d públicos, confirmados), %d confirmam pontos conhecidos",
+    ["Skill plan: correct material amounts – crafted intermediates and all bags now counted. Sharing shows how many spots other players sent you."] = "Plano de perícia: quantidades de materiais corretas – agora contam os produtos intermediários que você cria e todas as bolsas. O compartilhamento mostra quantos pontos outros jogadores enviaram para você.",
 }

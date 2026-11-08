@@ -22,6 +22,7 @@ local WHATS_NEW = {
     ["0.1.15"] = "Fishing: each catch is counted once – catches per hour and gold per hour were doubled before. Gathering: a herb or ore you gather right after a spell on a target (a buff, a heal, an attack) is recorded again – it was dropped before.",
     ["0.1.16"] = "Pins now show only what your professions can gather (switch it off in Options, Map & minimap). Right-click without a gathering profession tells you what to do. Gathering spells are learned more carefully, and shared finds wait 7 days for confirmation. Fixed a flood of Lua errors when casting spells in dungeons or combat. Prices now show the cheapest offer, and fresh data comes first.",
     ["0.1.17"] = "Run and fishing windows fold into one line or hide. Minimap pins are a plain ring by default, with the route line below them. Fishing marks your bobber and ends with a summary. Crafting sorts by any column.",
+    ["0.1.18"] = "Skill plan: correct material amounts – crafted intermediates and all bags now counted. Sharing shows how many spots other players sent you.",
 }
 
 local function Version()

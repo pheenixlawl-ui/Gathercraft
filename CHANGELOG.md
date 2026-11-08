@@ -1,18 +1,14 @@
-## v0.1.17 – 2026-11-08
-
-### New
-- **Run window:** the "-" button folds it into one slim line (title, time, next node, Skip, Stop); "+" brings it back. "Hide the run window" (Options, Farm runs) hides it completely: arrow, target ring and minimap keep guiding you, Stop with a right-click on the minimap button or /gcr stop. The same for the fishing window (Options, General).
-- **Minimap:** new style "Ring only", now the default on the minimap: a coloured ring without an icon, so the yellow dot of the game's tracking shows in the middle; the run target there is a broad gold ring without an icon. "Normal" stays if you chose it. "Subtle" was the old default and saved the same way, so if you had picked it on purpose, pick it again once in the options. The world map is unchanged.
-- **Route line:** on the minimap it lies below the pins and stops just before each one. It has its own switch ("Route line on the minimap"), and "Route line shows" picks the whole route, the next 10 points or nothing (Smart: next 10, Loop: whole round until you choose). /gcr line says where colour and style are set.
-- **Fishing:** "Mark my bobber" (on by default) puts the game's icon over your bobber while the line is out. Stop ends the session with a summary like a farm run, ready to share. "Louder bobber splash while fishing" (off by default) turns effects up and music and ambience down while the line is out. Your settings come back when the line comes in or you press Stop; a value you change meanwhile stays as you set it.
-- **Crafting:** click a column title to sort (Item, Skill, Profit, Sells for, Costs, Can make), click again for the other direction. By default the required skill, lowest first; it has its own column. Recipes whose skill isn't known show "?" and come last.
-
-### Changed
-- **Smart route:** the shown route is untangled once more after points were left out, so the line crosses itself less often.
-- **Tanning Rack (Leatherworking):** needs skill 125 instead of 140, its skill-up colours are 15 lower (Blizzard hotfix of 06.11.).
-- **Debug output:** "SCAN REPLICATE_ITEM_LIST_UPDATE left out" comes once per scan; further updates are counted in one line.
+## v0.1.18 – 2026-11-08
 
 ### Fixed
-- **Cities:** pointing at the minimap from a capital city (Thunder Bluff) put the herbs below on the small city map. They go to the zone around the city now; old guesses move there once.
-- **Continent map:** nodes found where the game reported only the continent (Kalimdor) go to their zone, when the map knows it at that spot.
-- **Crafting:** events this client doesn't know are no longer dropped silently: /gcr crafttest names them, and /gcr debug once at login.
+- **Skill plan, material amounts:** what the plan crafts along the way (Light Leather, bolts of cloth, bars, stones, powder, oils) was made a second time for the whole need. Now it is counted once, for every profession: one stock per item for the whole plan – what you have plus what the plan's own steps make – and only what is still missing after that is crafted extra. Example, Leatherworking to ~75 with 35 Light Leather in your bags: 249 Ruined Leather Scraps instead of 324.
+- **Skill plan, what you have:** the open plan counts again when your bags or the bank change (it counted only when it opened). The reagent bag is always counted, also if the game leaves it out of its own count. With /gcr debug the plan says per material where its count comes from (bags, reagent bag, bank).
+- **Sharing status:** Options, Sharing now says how many players a spot waits for (3 different players; guild and friends count at once), not "a second player".
+- **Crafting:** WoW: Forever has only the modern profession window; the events of the old window are no longer asked for there, so /gcr crafttest says "none".
+
+### New
+- **Craft log:** what each finished craft did to your skill (skill before and after, the recipe's colour, how many it made), to make the skill plan better later. On your computer only, never shared; failed casts, hidden values, crafts at the rank's maximum and crafts that overlap the one before are kept apart; only clear single crafts count. Other spells never land in it. /gcr craftlog sums it up per colour, /gcr craftlog clear empties it; switch it off in Options, General.
+- **Sharing:** counts over all sessions what other players sent you – spots in all, new ones (guild and friends, others after confirmation) and confirmations of spots you know. /gcr sync shows all of it, Options, Sharing one line.
+
+### Changed
+- **Minimap guesses:** a spot learned from the minimap that you never gather and nobody confirms is dropped after 30 days without a new look. Every new look starts the 30 days again; gathered, Questie, starter and shared spots stay, and so do guesses another player confirmed – also when close guesses are merged into one at login.

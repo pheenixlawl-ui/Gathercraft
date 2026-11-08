@@ -6756,14 +6756,15 @@ step("Welcome, what's new and the run summary (v0.1.13)", function()
     ns.db.summaryOff = nil
     SendChatMessage = nil
 end)
-step("What's new: 0.1.17 after an update, in this language and all translations", function()
+step("What's new: 0.1.18 after an update, in this language and all translations", function()
     local version = toc:match("## Version: ([%d%.]+)")
-    assert(version == "0.1.17", "TOC version: " .. tostring(version))
+    assert(version == "0.1.18", "TOC version: " .. tostring(version))
     assert(toc:match("## Interface: (%d+)") == "16001", "TOC interface changed")
     local f = assert(io.open(ROOT .. "/Welcome.lua"))
     local src = f:read("*a") f:close()
-    local key = src:match('%["0%.1%.17"%] = "([^"]+)"')
-    assert(key and key:find("one line", 1, true) and key:find("plain ring", 1, true) and key:find("bobber", 1, true) and key:find("sorts", 1, true), "no entry for 0.1.17 in Welcome.lua")
+    local key = src:match('%["0%.1%.18"%] = "([^"]+)"')
+    assert(key and key:find("correct material amounts", 1, true) and key:find("intermediates", 1, true) and key:find("all bags", 1, true)
+        and key:find("spots other players sent you", 1, true), "no entry for 0.1.18 in Welcome.lua")
     -- every translation is there, whatever language this run is in
     for _, code in ipairs({ "deDE", "esES", "frFR", "itIT", "koKR", "ptBR", "ruRU", "zhCN", "zhTW" }) do
         local t = ns.Locales[code] and ns.Locales[code][key]
@@ -6781,15 +6782,15 @@ step("What's new: 0.1.17 after an update, in this language and all translations"
         assert(LOCALE == "enUS" or text ~= key, "English text in " .. LOCALE)
         -- the login after the update says it once, in this language
         clear()
-        ns.db.lastVersion = "0.1.16"
+        ns.db.lastVersion = "0.1.17"
         ns.WelcomeOnLogin()
         local line = said(text)
-        assert(line and line:find("0.1.17", 1, true), "no what's new at the login after the update")
+        assert(line and line:find("0.1.18", 1, true), "no what's new at the login after the update")
         assert(ns.db.lastVersion == version, "the new version is not remembered")
         note("what's new", line)
         clear()
         ns.WelcomeOnLogin()
-        assert(not said("0.1.17"), "what's new again on the next login")
+        assert(not said("0.1.18"), "what's new again on the next login")
         slash("whatsnew")
         assert(said(text), "/gcr whatsnew does not show it")
     end)

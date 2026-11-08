@@ -531,4 +531,5 @@ ns.Locales.zhTW = {
     ["unknown"] = "未知",
     ["Received from other players: %d spots (%d new)"] = "從其他玩家收到：%d 個點位（%d 個新的）",
     ["  Received from other players (all sessions): %d spots, %d new (%d guild/friends, %d public, confirmed), %d confirm spots you know"] = "  從其他玩家收到（所有工作階段）：%d 個點位，%d 個新的（公會/好友 %d 個，公開 %d 個，已確認），%d 個確認了已知點位",
+    ["Skill plan: correct material amounts – crafted intermediates and all bags now counted. Sharing shows how many spots other players sent you."] = "技能規劃：材料數量正確了——現在會計算你自己製作的中間產品和所有背包。分享會顯示其他玩家傳給你多少個點位。",
 }

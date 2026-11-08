@@ -531,4 +531,5 @@ ns.Locales.ruRU = {
     ["unknown"] = "неизвестно",
     ["Received from other players: %d spots (%d new)"] = "Получено от других игроков: %d точек (%d новых)",
     ["  Received from other players (all sessions): %d spots, %d new (%d guild/friends, %d public, confirmed), %d confirm spots you know"] = "  Получено от других игроков (за все сеансы): %d точек, %d новых (%d гильдия/друзья, %d публичных, подтверждено), %d подтверждают известные точки",
+    ["Skill plan: correct material amounts – crafted intermediates and all bags now counted. Sharing shows how many spots other players sent you."] = "План навыка: правильное количество материалов – теперь учитываются изготовленные промежуточные предметы и все сумки. Обмен показывает, сколько точек тебе прислали другие игроки.",
 }

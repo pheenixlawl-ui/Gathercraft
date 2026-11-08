@@ -531,4 +531,5 @@ ns.Locales.frFR = {
     ["unknown"] = "inconnu",
     ["Received from other players: %d spots (%d new)"] = "Reçus d'autres joueurs : %d points (%d nouveaux)",
     ["  Received from other players (all sessions): %d spots, %d new (%d guild/friends, %d public, confirmed), %d confirm spots you know"] = "  Reçus d'autres joueurs (toutes les sessions) : %d points, %d nouveaux (%d guilde/amis, %d publics, confirmés), %d confirment des points connus",
+    ["Skill plan: correct material amounts – crafted intermediates and all bags now counted. Sharing shows how many spots other players sent you."] = "Plan de compétence : quantités de matériaux justes – les produits intermédiaires fabriqués et tous les sacs sont maintenant comptés. Le partage indique combien de points d'autres joueurs t'ont envoyés.",
 }

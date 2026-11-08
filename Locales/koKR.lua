@@ -531,4 +531,5 @@ ns.Locales.koKR = {
     ["unknown"] = "알 수 없음",
     ["Received from other players: %d spots (%d new)"] = "다른 플레이어에게서 받음: %d곳 (새로운 곳 %d)",
     ["  Received from other players (all sessions): %d spots, %d new (%d guild/friends, %d public, confirmed), %d confirm spots you know"] = "  다른 플레이어에게서 받음 (모든 세션): %d곳, 새로운 곳 %d (길드/친구 %d, 공개 %d, 확인됨), 아는 곳 확인 %d",
+    ["Skill plan: correct material amounts – crafted intermediates and all bags now counted. Sharing shows how many spots other players sent you."] = "숙련도 계획: 재료 수량이 정확해졌습니다 – 직접 만드는 중간 재료와 모든 가방을 이제 셉니다. 공유에서 다른 플레이어가 보낸 위치 수를 볼 수 있습니다.",
 }
