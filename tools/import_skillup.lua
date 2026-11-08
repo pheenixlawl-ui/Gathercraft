@@ -41,13 +41,23 @@ end
 -- hotfix text says; applied on top of the import.
 --   06.11.2026, WoW: Forever hotfixes: Tanning Rack (Leatherworking) needs
 --   skill 125 instead of 140, its skill-up thresholds are 15 lower.
+-- Each one is bound to the source values it was written for ("from": the
+-- required skill and the yellow and grey thresholds before the hotfix). A
+-- source that has the new values already is left alone (with a note); one
+-- with other values too, with a warning: look at the hotfix again.
 local HOTFIXES = {
-    [1263031] = { name = "Tanning Rack", required = 125, shift = -15 },
+    [1263031] = { name = "Tanning Rack", from = { required = 140, yellow = 140, grey = 145 }, required = 125, shift = -15 },
 }
+local function Warn(text) io.stderr:write("hotfix " .. text .. "\n") end
 for spell, h in pairs(HOTFIXES) do
     local t = ns.Thresholds and ns.Thresholds[spell]
-    if t then
+    if t and t[2] == h.from.yellow and t[4] == h.from.grey then
         for i = 1, 4 do if t[i] then t[i] = t[i] + h.shift end end
+    elseif t and t[2] == h.from.yellow + h.shift and t[4] == h.from.grey + h.shift then
+        Warn(("%s: the source has the new thresholds already, left as they are"):format(h.name))
+    elseif t then
+        Warn(("%s: thresholds %s:%s in the source, the hotfix is for %d:%d: left as they are"):format(h.name,
+            tostring(t[2]), tostring(t[4]), h.from.yellow, h.from.grey))
     end
 end
 
@@ -69,7 +79,12 @@ for spell, r in pairs(ns.RecipeData) do
         if type(fee) == "table" and fee[2] then req = fee[2]
         elseif scroll and scroll[2] then req = scroll[2]
         elseif t and t[1] and t[1] > 1 then req = t[1] end
-        if HOTFIXES[spell] then req = HOTFIXES[spell].required; isGuess = false end
+        local h = HOTFIXES[spell]
+        if h and req == h.from.required then
+            req, isGuess = h.required, false
+        elseif h and req ~= h.required then
+            Warn(("%s: skill %d in the source, the hotfix is for %d: left as it is"):format(h.name, req, h.from.required))
+        end
         local parts = {}
         for _, g in ipairs(r.reagents) do parts[#parts + 1] = g.itemID .. ":" .. g.quantity end
         local lo, hi = math.floor(qty), math.ceil(qty)

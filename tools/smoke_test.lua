@@ -3593,6 +3593,54 @@ step("Skill plan: the reagent bag counts, /gcr debug shows the parts (v0.1.18 S2
     Enum.BagIndex, ns.db.debug = saved.enum, saved.debug
     fire("BAG_UPDATE_DELAYED")
 end)
+step("Recipe import: a hotfix only changes the source values it was written for (v0.1.18, Codex N3)", function()
+    -- tools/import_skillup.lua on a small SkillUp source of one recipe,
+    -- Tanning Rack (hotfix 06.11.2026: skill 140 -> 125, thresholds 15
+    -- lower), written to a temp folder
+    local windows = package.config:sub(1, 1) == "\\"
+    local dir = os.tmpname()
+    os.remove(dir)
+    os.execute(windows and ('mkdir "' .. dir .. '\\Data"') or ("mkdir -p '" .. dir .. "/Data'"))
+    local function Write(file, body)
+        local f = assert(io.open(dir .. "/Data/" .. file, "w"))
+        f:write("local _, ns = ...\n" .. body .. "\n")
+        f:close()
+    end
+    local function Import(required, t)
+        Write("Recipes.lua", "ns.RecipeData = { [1263031] = { skillLine = 165, output = { itemID = 1263032, quantity = 1 }, "
+            .. "reagents = { { itemID = 2318, quantity = 4 } } } }\nns.RecipeNames = { [165] = { [\"Tanning Rack\"] = 1263031 } }")
+        Write("Thresholds.lua", ("ns.Thresholds = { [1263031] = { %d, %d, %d, %d } }"):format(t[1], t[2], t[3], t[4]))
+        Write("Trainer.lua", ("ns.TrainerFees = { [1263031] = { 500, %d } }"):format(required))
+        local out, warn = {}, {}
+        local keep = { print = print, arg = arg, stderr = io.stderr }
+        print = function(s) out[#out + 1] = tostring(s) end
+        arg = { dir }
+        io.stderr = { write = function(_, s) warn[#warn + 1] = s end }
+        local ok, err = pcall(assert(loadfile(ROOT .. "/tools/import_skillup.lua")))
+        print, arg, io.stderr = keep.print, keep.arg, keep.stderr
+        assert(ok, "import: " .. tostring(err))
+        local text = table.concat(out, "\n")
+        local req = tonumber(text:match('%["Tanning Rack"%] = "%d+:%d+:%d+:(%d+)|'))
+        local colors = text:match('%[1263031%]="(%d+:%d+)"')
+        local hotfixWarn
+        for _, w in ipairs(warn) do if w:find("hotfix Tanning Rack", 1, true) then hotfixWarn = w end end
+        return req, colors, hotfixWarn
+    end
+    local ok, err = pcall(function()
+        -- the old source: the hotfix applies
+        local req, colors, warn = Import(140, { 140, 140, 142, 145 })
+        assert(req == 125 and colors == "125:130" and not warn, ("old source: %s %s %s"):format(tostring(req), tostring(colors), tostring(warn)))
+        -- a source that has the hotfix already: not lowered a second time (was 110:115)
+        req, colors, warn = Import(125, { 125, 125, 127, 130 })
+        assert(req == 125 and colors == "125:130", ("updated source: %s %s"):format(tostring(req), tostring(colors)))
+        assert(warn and warn:find("already", 1, true), "updated source: no note")
+        -- other values: left as they are, with a warning
+        req, colors, warn = Import(150, { 150, 150, 152, 155 })
+        assert(req == 150 and colors == "150:155" and warn, ("other source: %s %s %s"):format(tostring(req), tostring(colors), tostring(warn)))
+    end)
+    os.execute(windows and ('rmdir /s /q "' .. dir .. '"') or ("rm -rf '" .. dir .. "'"))
+    if not ok then error(err, 0) end
+end)
 step("Skill plan: hints, fees and totals fit, also long translations and big amounts (v0.1.14)", function()
     -- no real font metrics: the estimate of TextHeight (6 px a letter, 11 px
     -- a CJK sign) shows whether the window makes room, not how the game draws it
