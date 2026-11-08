@@ -148,6 +148,9 @@ function methods:SetAttribute(k, v) self.__attr = self.__attr or {} self.__attr[
 function methods:GetAttribute(k) return self.__attr and self.__attr[k] end
 function methods:GetStringWidth() return 50 end
 function methods:SetPoint(p, ...) if p then self.__pts = self.__pts or {} self.__pts[p] = { ... } end end -- last anchor per point
+function methods:ClearAllPoints() self.__pts = nil end
+function methods:SetWordWrap(on) self.__wrap = on end
+function methods:SetJustifyH(j) self.__justify = j end
 function methods:GetStringHeight() return self.__strH end
 function methods:GetMapID() return 1412 end
 function methods:SetRotation(r) self.__rot = r end
@@ -4995,6 +4998,123 @@ step("Run window: one slim line or hidden, fishing too, Stop still works (v0.1.1
     ldbObj.OnClick(nil, "RightButton")
     assert(not ns.FishingSession() and not ns.run, "right-click did not end the hidden fishing session (or started a run)")
     ns.db.fishPanelHidden = nil
+end)
+step("Run window: a long title is cut before the time, the time before the button (v0.1.17)", function()
+    -- Sven's find (08.11.): "Farm run  Herbs + Ores · Hillsbrad Foothills" ran
+    -- into "0:09" and "-". Here the left and right edges are worked out from
+    -- the anchors; a text is as wide as 9 px a letter, 16 px a CJK sign.
+    local panel = _G.GathercraftPanel
+    local title, clock, b = panel.title, panel.clock, panel.compactButton
+    assert(title and clock and panel.nextText, "the run window does not name its title, time and next-node text")
+    local function TextWidth(s)
+        s = tostring(s or ""):gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")
+        local w = 0
+        for i = 1, #s do
+            local c = s:byte(i)
+            if c < 128 or (c >= 192 and c < 224) then w = w + 9 elseif c >= 224 then w = w + 16 end
+        end
+        return w
+    end
+    local function Side(p)
+        if p:find("LEFT") then return "L" elseif p:find("RIGHT") then return "R" end
+        return "C"
+    end
+    local Edges
+    local function At(o, p, a)
+        local rel, relPoint, x = a[1], a[2], a[3]
+        if type(rel) == "number" or rel == nil then rel, relPoint, x = o.__parent, p, rel end
+        if type(rel) == "string" then rel = _G[rel] end
+        local l, r = Edges(rel)
+        local s = Side(relPoint or p)
+        return (s == "L" and l or s == "R" and r or (l + r) / 2) + (x or 0)
+    end
+    function Edges(o)
+        if o == panel then return 0, panel.__w end
+        local pts = o.__pts or {}
+        local left, right, center
+        for p, a in pairs(pts) do
+            local s = Side(p)
+            if s == "L" then left = At(o, p, a) elseif s == "R" then right = At(o, p, a) else center = At(o, p, a) end
+        end
+        local w = (o.__w and o.__w > 0) and o.__w or (o.__kind == "FontString" and TextWidth(o.__text)) or 0
+        if left and right then return left, right end
+        if left then return left, left + w end
+        if right then return right - w, right end
+        return (center or 0) - w / 2, (center or 0) + w / 2
+    end
+    local function Button(text)
+        for _, f in ipairs(allFrames) do
+            if f.__parent == panel and f.__kind == "Button" and f.__text == text and f.__shown then return f end
+        end
+    end
+    local ZONES = { "Hillsbrad Foothills", "Stranglethorn Vale", "Western Plaguelands", "Eastern Plaguelands", "Swamp of Sorrows" }
+    local keepZone, keepMode = ns.GetZoneName, ns.db.routeMode
+    local fails = {}
+    local function Check(what)
+        clock:SetText("1:23:45")
+        local tl, tr = Edges(title)
+        local cl, cr = Edges(clock)
+        local nl, nr = Edges(panel.nextText)
+        if TextWidth(clock.__text) > cr - cl then fails[#fails + 1] = what .. ": the time is cut" end
+        if title.__wrap ~= false then fails[#fails + 1] = what .. ": the title can wrap" end
+        if ns.db.panelCompact then
+            local right = Button(ns.L["Skip"]) or Button(ns.L["Stop"])
+            local bl = Edges(right)
+            if not (tr <= nl and nr < cl and cr < bl) then
+                fails[#fails + 1] = ("%s: title %d-%d, next %d-%d, time %d-%d, button at %d"):format(what, tl, tr, nl, nr, cl, cr, bl)
+            end
+        else
+            local bl = Edges(b)
+            if not (tr < cl and cr < bl) then
+                fails[#fails + 1] = ("%s: title ends at %d, time %d-%d, button at %d"):format(what, tr, cl, cr, bl)
+            end
+        end
+    end
+    player.map, player.x, player.y = 1412, 0.45, 0.72
+    for _, compact in ipairs({ false, true }) do
+        ns.db.panelCompact = compact or nil
+        ns.PanelLayout()
+        for _, mode in ipairs({ "smart", "loop" }) do
+            ns.db.routeMode = mode
+            for _, filter in ipairs({ "herb", "ore", "both" }) do
+                for _, zone in ipairs(ZONES) do
+                    ns.GetZoneName = function() return zone end
+                    ns.StartRun(filter, 1412) advance(1)
+                    if ns.run then ns.run.zone = 1412 end
+                    advance(1)
+                    if not ns.run then fails[#fails + 1] = ("no run: %s %s"):format(mode, filter) end
+                    Check(("%s, %s, %s, %s"):format(compact and "slim" or "full", mode, filter, zone))
+                    ns.StopRun(true)
+                end
+            end
+        end
+    end
+    ns.GetZoneName, ns.db.routeMode = keepZone, keepMode
+    -- fishing: the same window, without Skip
+    for _, compact in ipairs({ false, true }) do
+        ns.db.panelCompact = compact or nil
+        ns.PanelLayout()
+        fire("UNIT_SPELLCAST_CHANNEL_START", "player", "ft", 7620)
+        fire("UNIT_SPELLCAST_CHANNEL_STOP", "player", "ft", 7620)
+        advance(1)
+        Check((compact and "slim" or "full") .. ", fishing")
+        ns.StopFishing()
+    end
+    ns.db.panelCompact = nil
+    ns.PanelLayout()
+    assert(#fails == 0, #fails .. " wrong: " .. table.concat(fails, " | ", 1, math.min(#fails, 4)))
+    -- the whole title as a tooltip when it is cut
+    local hit = panel.titleHit
+    assert(hit, "no tooltip for a cut title")
+    title:SetText("Farm run  Herbs + Ores · Hillsbrad Foothills")
+    title.IsTruncated = function() return true end
+    local mark = #log
+    hit.__scripts.OnEnter(hit)
+    local shown
+    for i = mark + 1, #log do if log[i]:find("Hillsbrad Foothills", 1, true) then shown = true end end
+    title.IsTruncated = nil
+    assert(shown, "a cut title has no tooltip with the whole text")
+    assert(hit.__scripts.OnDragStart, "the window can't be dragged by its title any more")
 end)
 step("Minimap style: ring only is the default, a choice stays (v0.1.17)", function()
     player.map, player.x, player.y = 1412, 0.45, 0.72

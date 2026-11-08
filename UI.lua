@@ -117,15 +117,48 @@ emblem:SetSize(26, 26)
 emblem:SetPoint("TOPLEFT", 8, -7)
 emblem:SetTexture(MEDIA .. "IconRound")
 
+-- Title and time share the top line: the time has a fixed place (wide
+-- enough for "1:23:45") right before the "-" button, the title ends a few
+-- pixels before the time and is cut with "..." (Sven, 08.11.: "Herbs + Ores
+-- · Hillsbrad Foothills" ran into the time). Placed in Layout() below.
+local CLOCK_WIDTH = 70
 local title = panel:CreateFontString(nil, "OVERLAY")
 title:SetFont(TITLE_FONT, 16, "")
 title:SetTextColor(unpack(GOLD))
+title:SetJustifyH("LEFT")
+title:SetWordWrap(false)
 title:SetPoint("LEFT", emblem, "RIGHT", 6, 0)
+panel.title = title
 
 local clock = panel:CreateFontString(nil, "OVERLAY")
 clock:SetFont(TITLE_FONT, 16, "")
 clock:SetTextColor(1, 0.95, 0.85)
+clock:SetJustifyH("RIGHT")
+clock:SetWordWrap(false)
+clock:SetWidth(CLOCK_WIDTH)
 clock:SetPoint("TOPRIGHT", -10, -11)
+panel.clock = clock
+
+-- A cut title shows the whole of it in a tooltip; dragging the title still
+-- moves the window
+local titleHit = CreateFrame("Frame", nil, panel)
+titleHit:SetPoint("TOPLEFT", title, "TOPLEFT")
+titleHit:SetPoint("BOTTOMRIGHT", title, "BOTTOMRIGHT")
+titleHit:EnableMouse(true)
+titleHit:RegisterForDrag("LeftButton")
+titleHit:SetScript("OnDragStart", function() panel:StartMoving() end)
+titleHit:SetScript("OnDragStop", function()
+    local stop = panel:GetScript("OnDragStop")
+    if stop then stop(panel) end
+end)
+titleHit:SetScript("OnEnter", function(self)
+    if not (title.IsTruncated and title:IsTruncated()) then return end
+    GameTooltip:SetOwner(self, "ANCHOR_TOP")
+    GameTooltip:AddLine(title:GetText(), 1, 1, 1)
+    GameTooltip:Show()
+end)
+titleHit:SetScript("OnLeave", GameTooltip_Hide)
+panel.titleHit = titleHit
 
 -- Four big numbers: gathered, per hour, gold per hour, skill points
 local cells, cellLabels = {}, {}
@@ -143,6 +176,7 @@ nextText:SetPoint("BOTTOMLEFT", 10, 12)
 nextText:SetWidth(212)
 nextText:SetJustifyH("LEFT")
 nextText:SetWordWrap(false)
+panel.nextText = nextText
 
 local stopButton = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
 stopButton:SetSize(52, 20)
@@ -189,24 +223,26 @@ local function Layout()
         emblem:SetPoint("LEFT", 6, 0)
         title:SetPoint("LEFT", emblem, "RIGHT", 4, 0)
         title:SetWidth(100)
-        title:SetWordWrap(false)
-        nextText:SetPoint("LEFT", title, "RIGHT", 6, 0)
-        nextText:SetWidth(130)
         compactButton:SetPoint("RIGHT", -6, 0)
         stopButton:SetPoint("RIGHT", compactButton, "LEFT", -4, 0)
         skipButton:SetPoint("RIGHT", stopButton, "LEFT", -4, 0)
         clock:SetPoint("RIGHT", skipButton, "LEFT", -6, 0)
+        -- the next node fills what is left between title and time
+        nextText:SetPoint("LEFT", title, "RIGHT", 6, 0)
+        nextText:SetPoint("RIGHT", clock, "LEFT", -6, 0)
+        nextText:SetWidth(0)
         compactButton:SetText("+")
     else
         panel:SetSize(340, 120)
         emblem:SetSize(26, 26)
         emblem:SetPoint("TOPLEFT", 8, -7)
-        title:SetPoint("LEFT", emblem, "RIGHT", 6, 0)
-        title:SetWidth(0) -- as wide as its text
-        nextText:SetPoint("BOTTOMLEFT", 10, 12)
-        nextText:SetWidth(212)
         compactButton:SetPoint("TOPRIGHT", -6, -8)
         clock:SetPoint("RIGHT", compactButton, "LEFT", -6, 0)
+        title:SetPoint("LEFT", emblem, "RIGHT", 6, 0)
+        title:SetPoint("RIGHT", clock, "LEFT", -6, 0)
+        title:SetWidth(0)
+        nextText:SetPoint("BOTTOMLEFT", 10, 12)
+        nextText:SetWidth(212)
         stopButton:SetPoint("BOTTOMRIGHT", -8, 8)
         skipButton:SetPoint("RIGHT", stopButton, "LEFT", -4, 0)
         compactButton:SetText("-")
