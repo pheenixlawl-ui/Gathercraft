@@ -571,4 +571,7 @@ ns.Locales.deDE = {
     ["  /gcr quest        - questing mode on/off (gold rings on nearby nodes)"] = "  /gcr quest        - Questmodus an/aus (goldene Ringe an Nodes in der Nähe)",
     ["on"] = "an",
     ["off"] = "aus",
+    ["Questing radius"] = "Questmodus-Radius",
+    ["How far around you the questing mode lights nodes you can gather."] = "Wie weit um dich herum der Questmodus Nodes markiert, die du sammeln kannst.",
+    ["Arrow to the nearest gold ring"] = "Pfeil zum nächsten goldenen Ring",
 }

@@ -56,10 +56,17 @@ end
 -- counts). Chests only while chests are shown. Not a node just harvested or
 -- found empty, nor one parked as always empty (the run's own rest times).
 ---------------------------------------------------------------------------
-local RADIUS = 75 -- yards
+-- Options > Map & minimap: 50, 75 (default) or 100 yards
+local RADII = { 50, 75, 100 }
+ns.QUEST_RADII = RADII
+local RADIUS = 75
 local TICK = 0.5
 
-local function Radius() return RADIUS end
+local function Radius()
+    local r = ns.db and ns.db.questRadius
+    for _, v in ipairs(RADII) do if v == r then return r end end
+    return RADIUS
+end
 ns.QuestRadius = Radius
 
 local function CanGather(n)
@@ -88,18 +95,34 @@ local function Pick()
     local mapID, px, py = ns.GetPlayerPos()
     if not (mapID and px and py) then return end
     local want, r = {}, Radius()
+    local nearest, nearestD
     for _, n in ipairs(ns.db.nodes[mapID] or {}) do
-        -- in whole yards, as the game shows them (75.0000001 is 75)
-        if CanGather(n) and math.floor(ns.Distance(mapID, px, py, n.x, n.y) + 0.5) <= r then want[n] = true end
+        if CanGather(n) then
+            -- in whole yards, as the game shows them (75.0000001 is 75)
+            local d = math.floor(ns.Distance(mapID, px, py, n.x, n.y) + 0.5)
+            if d <= r then
+                want[n] = true
+                if not nearestD or d < nearestD then nearest, nearestD = n, d end
+            end
+        end
     end
-    return mapID, want
+    return mapID, want, nearest
+end
+
+-- Options: an arrow to the nearest ring (UI.lua draws it). Only which way
+-- and how far: no route, no line. Off by default.
+local arrowNode, arrowMap
+ns.QuestArrowNode = function()
+    if On() and ns.db.questArrow and arrowNode then return arrowNode, arrowMap end
 end
 
 local ticker
 local function Update()
     if not (On() and ns.SetQuestRings) then return end
-    local mapID, want = Pick()
+    local mapID, want, nearest = Pick()
+    arrowNode, arrowMap = nearest, mapID
     ns.SetQuestRings(mapID, want)
+    if ns.UpdateArrow then ns.UpdateArrow() end
 end
 ns.UpdateQuestRings = Update
 
@@ -109,8 +132,10 @@ table.insert(listeners, function(on)
     if on then
         ticker = C_Timer.NewTicker(TICK, Update)
         Update()
-    elseif ns.SetQuestRings then
-        ns.SetQuestRings(nil, nil)
+    else
+        arrowNode, arrowMap = nil, nil
+        if ns.SetQuestRings then ns.SetQuestRings(nil, nil) end
+        if ns.UpdateArrow then ns.UpdateArrow() end
     end
 end)
 

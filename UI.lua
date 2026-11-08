@@ -379,9 +379,25 @@ arrowDist:SetPoint("TOP", arrow, "BOTTOM", 0, -2)
 local arrowName = arrowFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
 arrowName:SetPoint("TOP", arrowDist, "BOTTOM", 0, -1)
 
+-- Questing mode (Quest.lua), when its arrow is switched on: the nearest ring
+local function QuestArrowTarget()
+    if not (HBD and ns.QuestArrowNode) then return end
+    local n, mapID = ns.QuestArrowNode() -- (not "x and f()": that keeps one value)
+    if not (n and mapID) then return end
+    local wx, wy, instance = HBD:GetWorldCoordinatesFromZone(n.x, n.y, mapID)
+    local px, py, here = HBD:GetPlayerWorldPosition()
+    if not (wx and px) or instance ~= here then return end
+    local facing = ns.Readable(GetPlayerFacing and GetPlayerFacing(), "position")
+    if not facing then return end
+    local angle, dist = HBD:GetWorldVector(instance, px, py, wx, wy)
+    if not angle then return end
+    return angle - facing, dist, n
+end
+
 local function ArrowTarget()
     local run = ns.run
-    if not (HBD and run and run.targetPoint and run.target) or ns.db.arrowHidden then return end
+    if not run then return QuestArrowTarget() end
+    if not (HBD and run.targetPoint and run.target) or ns.db.arrowHidden then return end
     local px, py, instance = HBD:GetPlayerWorldPosition()
     if not px or instance ~= run.instance then return end
     local facing = ns.Readable(GetPlayerFacing and GetPlayerFacing(), "position")

@@ -542,4 +542,7 @@ ns.Locales.zhCN = {
     ["  /gcr quest        - questing mode on/off (gold rings on nearby nodes)"] = "  /gcr quest        - 任务模式 开/关（附近采集点显示金色圆环）",
     ["on"] = "开",
     ["off"] = "关",
+    ["Questing radius"] = "任务模式范围",
+    ["How far around you the questing mode lights nodes you can gather."] = "任务模式在你周围多远的范围内标记你能采集的采集点。",
+    ["Arrow to the nearest gold ring"] = "指向最近金色圆环的箭头",
 }

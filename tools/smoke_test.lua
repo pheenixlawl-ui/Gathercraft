@@ -5646,6 +5646,126 @@ step("Questing mode: gold rings on nearby nodes you can gather, minimap only (v0
     ns.NotifyNodesChanged() advance(1)
     if not ok then error(err, 0) end
 end)
+step("Questing mode: radius 50 / 75 / 100 yd and the arrow to the nearest ring (v0.1.19 Q3)", function()
+    local L = ns.L
+    local Z = 1460
+    local keep = { nodes = ns.db.nodes[Z], radius = ns.db.questRadius, arrow = ns.db.questArrow,
+        map = player.map, x = player.x, y = player.y }
+    local win = _G.GathercraftOptions
+    local wasOpen, wasSection = win:IsShown(), ns.db.optionsSection
+    local px, py = 0.5, 0.5
+    -- dir: east, west or north of you (the map is 5000 x 3333 yd)
+    local function Node(yd, dir)
+        local x, y = px, py
+        if dir == "east" then x = px + yd / 5000 elseif dir == "west" then x = px - yd / 5000 else y = py - yd / 3333 end
+        local n = { id = "o1618", name = "Peacebloom", type = "herb", x = x, y = y, count = 1, last = 1, hits = 1 }
+        table.insert(ns.db.nodes[Z], n)
+        return n
+    end
+    local function PageOf(o)
+        local p = o.__parent
+        while p and not p.key do p = p.__parent end
+        return p and p.key
+    end
+    local ok, err = pcall(function()
+        assert(ns.QUEST_RADII and #ns.QUEST_RADII == 3 and ns.QUEST_RADII[1] == 50 and ns.QUEST_RADII[2] == 75 and ns.QUEST_RADII[3] == 100, "not 50 / 75 / 100")
+        ns.db.questRadius, ns.db.questArrow = nil, nil
+        assert(ns.QuestRadius() == 75, "the default is not 75: " .. tostring(ns.QuestRadius()))
+        ns.db.nodes[Z] = {}
+        player.map, player.x, player.y = Z, px, py
+        fire("ZONE_CHANGED_NEW_AREA") advance(1)
+        -- three nodes at each limit, each radius in its own direction
+        local rows = {}
+        for r, dir in pairs({ [50] = "east", [75] = "west", [100] = "north" }) do
+            rows[r] = { Node(r - 1, dir), Node(r, dir), Node(r + 1, dir) }
+        end
+        ns.NotifyNodesChanged() advance(1)
+        ns.SetQuestMode(true) advance(1)
+        local function Check(r)
+            local lit = ns.QuestRings()
+            for limit, row in pairs(rows) do
+                for k, n in ipairs(row) do
+                    local d = limit - 2 + k -- limit-1, limit, limit+1
+                    local want = d <= r
+                    assert((lit[n] ~= nil) == want, ("radius %d: a node at %d yd %s"):format(r, d, want and "not lit" or "lit"))
+                end
+            end
+        end
+        Check(75)
+        -- the < > control in Options > Map & minimap (open, so it shows its value)
+        if not win:IsShown() then ns.ToggleOptions() end
+        ns.ShowOptionsSection("map")
+        win:Refresh()
+        local valueText, plus, minus
+        for _, o in ipairs(allFrames) do
+            if o.__kind == "FontString" and o:GetText() == (L["%d yd"]):format(75) and PageOf(o) == "map" and o.__pts and o.__pts.LEFT then
+                minus = o.__pts.LEFT[1]
+                valueText = o
+            end
+        end
+        assert(valueText and minus and minus.__kind == "Button", "no radius control under Map & minimap")
+        for _, o in ipairs(allFrames) do
+            if o.__kind == "Button" and o.__pts and o.__pts.LEFT and o.__pts.LEFT[1] == valueText then plus = o end
+        end
+        assert(plus, "test setup: the > button")
+        plus.__scripts.OnClick(plus) advance(1)
+        assert(ns.QuestRadius() == 100 and ns.db.questRadius == 100 and valueText:GetText() == (L["%d yd"]):format(100), "> did not go to 100 yd")
+        Check(100)
+        plus.__scripts.OnClick(plus) advance(1)
+        assert(ns.QuestRadius() == 100, "> went past 100 yd")
+        minus.__scripts.OnClick(minus) minus.__scripts.OnClick(minus) advance(1)
+        assert(ns.QuestRadius() == 50 and ns.db.questRadius == 50, "< did not go to 50 yd")
+        Check(50)
+        minus.__scripts.OnClick(minus) advance(1)
+        assert(ns.QuestRadius() == 50, "< went below 50 yd")
+        plus.__scripts.OnClick(plus) advance(1)
+        assert(ns.QuestRadius() == 75 and ns.db.questRadius == nil, "back at 75: not saved as the default")
+        -- an odd saved value: the default
+        ns.db.questRadius = 60
+        assert(ns.QuestRadius() == 75, "a saved 60 yd is used")
+        ns.db.questRadius = nil
+        -- the arrow: off by default
+        advance(1)
+        local arrow = _G.GathercraftArrow
+        assert(arrow and not arrow:IsShown() and not ns.QuestArrowNode(), "the arrow shows although it is off")
+        local box
+        for _, o in ipairs(allFrames) do
+            if o.__kind == "FontString" and o:GetText() == L["Arrow to the nearest gold ring"] and o.__pts and o.__pts.LEFT then
+                box = o.__pts.LEFT[1]
+                assert(PageOf(o) == "map", "the arrow switch is not under Map & minimap")
+            end
+        end
+        assert(box and box.get and box.get() ~= true, "no arrow switch, or it is on")
+        box:SetChecked(true) box.__scripts.OnClick(box) advance(1)
+        assert(ns.db.questArrow, "the switch did not turn the arrow on")
+        local n = ns.QuestArrowNode()
+        assert(n == rows[50][1], "the arrow does not point at the nearest ring: " .. tostring(n and n.x))
+        assert(arrow:IsShown(), ("the arrow does not show: run %s, shown %s, hidden %s"):format(tostring(ns.run), tostring(arrow.__shown), tostring(ns.db.arrowHidden)))
+        -- only which way and how far: no route, no line
+        assert(not ns.run, "a run started")
+        -- walking: it follows the nearest one
+        player.x = px - 75 / 5000 -- 75 yd west: right at the middle node of that row
+        advance(1)
+        assert(ns.QuestArrowNode() == rows[75][2], "the arrow did not move on to the nearest ring")
+        player.x = px
+        advance(1)
+        -- off again: gone
+        box:SetChecked(false) box.__scripts.OnClick(box) advance(1)
+        assert(not ns.QuestArrowNode() and not arrow:IsShown(), "the arrow stays when switched off")
+        -- with the mode off: no arrow either
+        ns.db.questArrow = true
+        ns.SetQuestMode(false) advance(1)
+        assert(not ns.QuestArrowNode() and not arrow:IsShown(), "the arrow stays with the questing mode off")
+    end)
+    ns.SetQuestMode(false)
+    ns.db.nodes[Z], ns.db.questRadius, ns.db.questArrow = keep.nodes, keep.radius, keep.arrow
+    player.map, player.x, player.y = keep.map, keep.x, keep.y
+    ns.ShowOptionsSection(wasSection or "map")
+    if win:IsShown() ~= wasOpen then ns.ToggleOptions() end
+    fire("ZONE_CHANGED_NEW_AREA") advance(1)
+    ns.NotifyNodesChanged() advance(1)
+    if not ok then error(err, 0) end
+end)
 step("Options: the herbs/minerals switch is under General, every page fits (v0.1.19)", function()
     -- Sven (08.11.): Map & minimap makes room for the questing mode
     local function PageOf(text)

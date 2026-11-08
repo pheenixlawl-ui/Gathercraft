@@ -542,4 +542,7 @@ ns.Locales.koKR = {
     ["  /gcr quest        - questing mode on/off (gold rings on nearby nodes)"] = "  /gcr quest        - 퀘스트 모드 켜기/끄기 (가까운 채집물에 금색 고리)",
     ["on"] = "켜짐",
     ["off"] = "꺼짐",
+    ["Questing radius"] = "퀘스트 모드 반경",
+    ["How far around you the questing mode lights nodes you can gather."] = "퀘스트 모드가 채집할 수 있는 채집물을 표시하는 주변 거리입니다.",
+    ["Arrow to the nearest gold ring"] = "가장 가까운 금색 고리로 화살표",
 }

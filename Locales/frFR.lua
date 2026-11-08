@@ -542,4 +542,7 @@ ns.Locales.frFR = {
     ["  /gcr quest        - questing mode on/off (gold rings on nearby nodes)"] = "  /gcr quest        - mode quêtes oui/non (anneaux dorés sur les nœuds proches)",
     ["on"] = "activé",
     ["off"] = "désactivé",
+    ["Questing radius"] = "Rayon du mode quêtes",
+    ["How far around you the questing mode lights nodes you can gather."] = "Jusqu'à quelle distance autour de vous le mode quêtes signale les nœuds que vous pouvez récolter.",
+    ["Arrow to the nearest gold ring"] = "Flèche vers l'anneau doré le plus proche",
 }

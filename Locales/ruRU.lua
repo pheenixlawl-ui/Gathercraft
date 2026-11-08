@@ -542,4 +542,7 @@ ns.Locales.ruRU = {
     ["  /gcr quest        - questing mode on/off (gold rings on nearby nodes)"] = "  /gcr quest        - режим заданий вкл./выкл. (золотые кольца на ближних точках)",
     ["on"] = "вкл.",
     ["off"] = "выкл.",
+    ["Questing radius"] = "Радиус режима заданий",
+    ["How far around you the questing mode lights nodes you can gather."] = "Насколько далеко вокруг вас режим заданий отмечает точки, которые вы можете собрать.",
+    ["Arrow to the nearest gold ring"] = "Стрелка к ближайшему золотому кольцу",
 }

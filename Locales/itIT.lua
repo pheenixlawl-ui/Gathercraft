@@ -542,4 +542,7 @@ ns.Locales.itIT = {
     ["  /gcr quest        - questing mode on/off (gold rings on nearby nodes)"] = "  /gcr quest        - modalità missioni sì/no (anelli d'oro sui nodi vicini)",
     ["on"] = "attiva",
     ["off"] = "disattiva",
+    ["Questing radius"] = "Raggio modalità missioni",
+    ["How far around you the questing mode lights nodes you can gather."] = "Fino a che distanza attorno a te la modalità missioni segna i nodi che puoi raccogliere.",
+    ["Arrow to the nearest gold ring"] = "Freccia verso l'anello d'oro più vicino",
 }

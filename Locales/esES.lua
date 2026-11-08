@@ -542,4 +542,7 @@ ns.Locales.esES = {
     ["  /gcr quest        - questing mode on/off (gold rings on nearby nodes)"] = "  /gcr quest        - modo misiones sí/no (anillos dorados en nodos cercanos)",
     ["on"] = "activado",
     ["off"] = "desactivado",
+    ["Questing radius"] = "Radio del modo misiones",
+    ["How far around you the questing mode lights nodes you can gather."] = "Hasta qué distancia a tu alrededor el modo misiones marca los nodos que puedes recoger.",
+    ["Arrow to the nearest gold ring"] = "Flecha al anillo dorado más cercano",
 }

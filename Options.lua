@@ -585,6 +585,51 @@ local function AddWorldStyle()
     nextY = nextY - 30
 end
 
+-- Questing mode radius: < 75 yd >  (50, 75, 100)
+local questRadiusText
+local function AddQuestRadius()
+    local label = page:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    label:SetPoint("TOPLEFT", colX + 6, nextY - 4)
+    ns.LText(label, "Questing radius")
+    fitLabels[#fitLabels + 1] = label
+
+    local minus = CreateFrame("Button", nil, page, "UIPanelButtonTemplate")
+    minus:SetSize(24, 20)
+    minus:SetPoint("TOPLEFT", colX + CONTROL_X, nextY)
+    minus:SetText("<")
+
+    questRadiusText = page:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    questRadiusText:SetPoint("LEFT", minus, "RIGHT", 6, 0)
+    questRadiusText:SetWidth(VALUE_W)
+
+    local plus = CreateFrame("Button", nil, page, "UIPanelButtonTemplate")
+    plus:SetSize(24, 20)
+    plus:SetPoint("LEFT", questRadiusText, "RIGHT", 6, 0)
+    plus:SetText(">")
+
+    local function Tip(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:AddLine(L["Questing radius"], 1, 0.82, 0)
+        GameTooltip:AddLine(L["How far around you the questing mode lights nodes you can gather."], 1, 1, 1, true)
+        GameTooltip:Show()
+    end
+    local function Change(delta)
+        local list, i = ns.QUEST_RADII or { 50, 75, 100 }, 2
+        for k, r in ipairs(list) do if r == (ns.QuestRadius and ns.QuestRadius() or 75) then i = k end end
+        i = math.max(1, math.min(#list, i + delta))
+        ns.db.questRadius = list[i] ~= 75 and list[i] or nil -- 75 is the default
+        if ns.UpdateQuestRings then ns.UpdateQuestRings() end
+        options:Refresh()
+    end
+    minus:SetScript("OnClick", function() Change(-1) end)
+    plus:SetScript("OnClick", function() Change(1) end)
+    for _, b in ipairs({ minus, plus }) do
+        b:SetScript("OnEnter", Tip)
+        b:SetScript("OnLeave", GameTooltip_Hide)
+    end
+    nextY = nextY - 30
+end
+
 -- Minimap opacity: - 60% +  (steps of 10%, 20% .. 100%)
 local miniAlphaText
 local function AddMiniAlpha()
@@ -781,6 +826,9 @@ function options:Refresh()
     if worldStyleText then
         worldStyleText:SetText(L[ns.RingedWorldMap() and "Ring" or "Normal"])
     end
+    if questRadiusText then
+        questRadiusText:SetText((L["%d yd"]):format(ns.QuestRadius and ns.QuestRadius() or 75))
+    end
     if miniAlphaText then
         miniAlphaText:SetText(("%d%%"):format(math.floor((ns.db.miniPinAlpha or 1) * 100 + 0.5)))
     end
@@ -867,6 +915,13 @@ local function Build()
     AddCheck("Questing mode",
         function() return ns.QuestModeOn and ns.QuestModeOn() end,
         function(on) if ns.SetQuestMode then ns.SetQuestMode(on) end end)
+    AddQuestRadius()
+    AddCheck("Arrow to the nearest gold ring",
+        function() return ns.db.questArrow end,
+        function(on)
+            ns.db.questArrow = on or nil
+            if ns.UpdateArrow then ns.UpdateArrow() end
+        end)
 
     Section(2) -- Farm runs
     AddRouteMode()
