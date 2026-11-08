@@ -5761,6 +5761,65 @@ step("Crafting: events the client doesn't know are named, not swallowed (R4-H2)"
     for i = mark + 1, #log do if log[i]:find("Crafting events the client doesn't know: none", 1, true) then said = true end end
     assert(said, "/gcr crafttest does not name the events the client doesn't know")
 end)
+-- Crafting.lua loaded again with this RegisterEvent and these globals,
+-- into its own namespace (reads fall back to the real one); returns that
+-- namespace and its event frame. The frames of the load are dropped again.
+local function ReloadCrafting(register, globals)
+    local keep, before = {}, #allFrames
+    for k, v in pairs(globals or {}) do keep[k] = _G[k] _G[k] = v end
+    local reg = methods.RegisterEvent
+    methods.RegisterEvent = function(self, e)
+        if not register(e) then error("Attempt to register unknown event \"" .. e .. "\"") end
+        return reg(self, e)
+    end
+    local ns2 = setmetatable({}, { __index = ns })
+    local chunk = assert(loadfile(ROOT .. "/Crafting.lua"))
+    local ok, err = pcall(chunk, "Gathercraft", ns2)
+    methods.RegisterEvent = reg
+    for k in pairs(globals or {}) do _G[k] = keep[k] end
+    local frame
+    for i = before + 1, #allFrames do
+        local f = allFrames[i]
+        if eventFrames.PLAYER_LOGIN and eventFrames.PLAYER_LOGIN[f] then frame = f end
+    end
+    local registered = {}
+    for e, list in pairs(eventFrames) do
+        if frame and list[frame] then registered[e] = true end
+        for i = before + 1, #allFrames do list[allFrames[i]] = nil end
+    end
+    assert(ok, "reload of Crafting.lua: " .. tostring(err))
+    assert(frame, "test setup: the event frame of the reload")
+    return ns2, frame, registered
+end
+local function CraftTestLine(ns2)
+    local mark = #log
+    ns2.CraftTest()
+    for i = mark + 1, #log do
+        local list = log[i]:match("Crafting events the client doesn't know: (.*)$")
+        if list then return list end
+    end
+end
+step("Crafting: an event the client refuses is named by /gcr crafttest and at login (v0.1.18 H2)", function()
+    -- the client refuses TRAINER_UPDATE: /gcr crafttest names it, and so does
+    -- the debug line at login; everything else is still asked for
+    local ns2, frame, registered = ReloadCrafting(function(e) return e ~= "TRAINER_UPDATE" end)
+    local list = CraftTestLine(ns2)
+    assert(list and list:find("TRAINER_UPDATE", 1, true), "/gcr crafttest: " .. tostring(list))
+    assert(not registered.TRAINER_UPDATE and registered.TRAINER_SHOW and registered.MERCHANT_SHOW, "test setup: registrations")
+    local wasDebug = ns.db.debug
+    ns.db.debug = true
+    local mark = #log
+    frame.__scripts.OnEvent(frame, "PLAYER_LOGIN")
+    ns.db.debug = wasDebug
+    local said
+    for i = mark + 1, #log do
+        if log[i]:find("CRAFT events the client doesn't know: ", 1, true) and log[i]:find("TRAINER_UPDATE", 1, true) then said = true end
+    end
+    assert(said, "no debug line at login names TRAINER_UPDATE")
+    -- a client that takes every event: "none"
+    ns2 = ReloadCrafting(function() return true end)
+    assert(CraftTestLine(ns2) == "none", "every event taken: " .. tostring(CraftTestLine(ns2)))
+end)
 step("Fishing: Stop with the line still out gives the settings back at once (v0.1.17, Codex M2)", function()
     local saved = { get = GetCVar, set = SetCVar }
     local store
