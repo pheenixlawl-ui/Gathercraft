@@ -4108,11 +4108,42 @@ step("README says what the addon does, no more (v0.1.18 S8)", function()
     -- prices: your own scan first, the others only when fresher (Prices.lua, v0.1.16)
     assert(not text:find("only used if you have no scan yet", 1, true) and not text:find("are used until your first own scan", 1, true),
         "README: Auctionator or TSM only until the first scan")
-    assert(text:find("your own scan comes first; Auctionator or TSM only fill in when they have a fresher price", 1, true), "README: the price order")
+    -- the price order: its own step since F3 (Codex M3)
     assert(text:find("An optional louder splash helps in busy spots.", 1, true), "README: the louder splash")
     local nextUp = text:match("Next up.-\n\n(.-)\n\n")
     assert(nextUp and nextUp:find("Skill plan rebuilt", 1, true) and nextUp:find("Smoother Loop routes", 1, true)
         and nextUp:find("Disenchant values", 1, true) and nextUp:find("new Forever zones", 1, true), "README: Next up")
+end)
+step("README: the price text says what Prices.lua does (v0.1.18 F3)", function()
+    -- Codex M3 (08.11.): "Auctionator or TSM only fill in when they have a
+    -- fresher price" - TSM never wins on freshness. The rule, from the code:
+    local f = assert(io.open(ROOT .. "/Prices.lua"))
+    local code = f:read("*a") f:close()
+    local fresh = tonumber(code:match("local FRESH_PRICE = (%d+) %* 3600"))
+    local maxAge = tonumber(code:match("local MAX_PRICE_AGE = (%d+) %* 86400"))
+    assert(fresh and maxAge, "test setup: the price ages in Prices.lua")
+    -- only Auctionator is compared by age; TSM is a fallback only
+    assert(code:find('local other = age >= FRESH_PRICE and AuctionatorPrice(itemID)', 1, true), "test setup: the Auctionator age check")
+    f = assert(io.open(ROOT .. "/README.md"))
+    local text = f:read("*a") f:close()
+    local first, fallback = 0, 0
+    -- every sentence about the price sources
+    for sentence in (text:gsub("\n", " ")):gmatch("[^%.%?!]+") do
+        local s = sentence:lower()
+        if s:find("tsm", 1, true) then
+            assert(not s:find("fresh", 1, true) and not s:find("newer", 1, true) and not s:find("recent", 1, true),
+                "README: TSM described as fresher: " .. sentence)
+            if s:find(("%d days"):format(maxAge), 1, true) then fallback = fallback + 1 end
+        end
+        if s:find("scan comes first", 1, true) then
+            first = first + 1
+            assert(s:find(("%d hours"):format(fresh), 1, true) and s:find("fresher auctionator", 1, true),
+                ("README: not that a fresher Auctionator price may take over after %d hours: %s"):format(fresh, sentence))
+        end
+    end
+    -- in both places (features and FAQ)
+    assert(first == 2, "README: your own scan first, then a fresher Auctionator: " .. first .. " times")
+    assert(fallback == 2, ("README: Auctionator or TSM fill in without an own scan of the last %d days: %d times"):format(maxAge, fallback))
 end)
 step("Skill plan: hints, fees and totals fit, also long translations and big amounts (v0.1.14)", function()
     -- no real font metrics: the estimate of TextHeight (6 px a letter, 11 px

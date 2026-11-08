@@ -58,7 +58,7 @@ Every zone of your continent – or any other, one click away – ranked by **go
 
 **🏷️ Your own auction house scan**
 
-One click on the Gathercraft tab at the auction house reads every auction and keeps a fair market price per item. Prices show in item tooltips with how many are listed and how old the price is. Every search you do at the auction house teaches it too. **Price alerts** tell you when something you gather sells well above normal. Works on its own – your own scan comes first; Auctionator or TSM only fill in when they have a fresher price.
+One click on the Gathercraft tab at the auction house reads every auction and keeps a fair market price per item. Prices show in item tooltips with how many are listed and how old the price is. Every search you do at the auction house teaches it too. **Price alerts** tell you when something you gather sells well above normal. Works on its own. Your own scan comes first; once it is more than 6 hours old, a fresher Auctionator price can take over. With no scan of your own from the last 7 days, Auctionator or TSM fill in.
 
 **➤ The Gathercraft Arrow & Farm Panel**
 
@@ -120,7 +120,7 @@ Known spawn points are *possible* spawns – not every one is up at the same tim
 
 **"Do I need Auctionator?"**
 
-No. Gathercraft scans the auction house itself. Your own scan comes first – Auctionator or TSM only fill in when they have a fresher price.
+No. Gathercraft scans the auction house itself. Your own scan comes first; once it is more than 6 hours old, a fresher Auctionator price can take over. With no scan of your own from the last 7 days, Auctionator or TSM fill in.
 
 **"Are the crafting numbers exact?"**
 
