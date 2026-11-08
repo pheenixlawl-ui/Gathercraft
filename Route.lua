@@ -1995,6 +1995,7 @@ local function StartRun(filter, zone, quick)
     filter = (filter and filter ~= "") and filter:lower() or nil
 
     ns.run = {
+        startedAt = GetTime(), -- the run's numbers count from here (UI.lua RunStats)
         filter = filter,
         zone = zone,       -- only this zone (from "Best place to farm", or where you are)
         quick = quick or nil, -- started where you are: the Zones tab selection doesn't count

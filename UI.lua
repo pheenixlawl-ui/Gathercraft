@@ -73,7 +73,7 @@ local function RunStats()
         return
     end
     if not stats or stats.run ~= run then
-        stats = { run = run, start = GetTime(), nodes = 0, value = 0, skillStart = TotalSkill() }
+        stats = { run = run, start = run.startedAt or GetTime(), nodes = 0, value = 0, skillStart = TotalSkill() }
     end
     -- a run resumed right after login: professions are known a moment later
     if stats.skillStart == 0 then stats.skillStart = TotalSkill() end
@@ -308,6 +308,9 @@ local function UpdatePanel()
         return
     end
     panel.fishing = nil
+    -- the numbers count from the start of the run, shown or not (Codex M1:
+    -- hidden from the start, they began with the first gather)
+    local s = RunStats()
     -- "Hide the run window" (Options): arrow, target ring and minimap guide on
     if ns.db.runPanelHidden then
         if panel:IsShown() then panel:Hide() end
@@ -315,7 +318,6 @@ local function UpdatePanel()
     end
     skipButton:Show()
     cellLabels[1]:SetText(L["gathered"])
-    local s = RunStats()
     local elapsed = GetTime() - s.start
     local hours = math.max(elapsed / 3600, 1 / 60)
 

@@ -5116,6 +5116,37 @@ step("Run window: a long title is cut before the time, the time before the butto
     assert(shown, "a cut title has no tooltip with the whole text")
     assert(hit.__scripts.OnDragStart, "the window can't be dragged by its title any more")
 end)
+step("Run window hidden from the start: the numbers still count from the start (v0.1.17, Codex M1)", function()
+    -- Codex's probe: hidden before the run, first gather after 60 s, then
+    -- shown and stopped; everything as with the window shown all along
+    local panel = _G.GathercraftPanel
+    local function Gather() for _, f in ipairs(ns.gatherListeners) do f({ type = "herb", name = "Peacebloom" }, { value = 1234 }) end end
+    local function Run(hidden)
+        player.map, player.x, player.y = 1412, 0.45, 0.72
+        ns.db.runPanelHidden = hidden or nil
+        ns.StartRun("herb") advance(60)
+        local before = ns.RunSnapshot()
+        Gather()
+        local after = ns.RunSnapshot()
+        ns.db.runPanelHidden = nil
+        advance(1)
+        local shown = ns.RunSnapshot()
+        assert(panel:IsShown(), "test setup: the window did not come back")
+        advance(70)
+        local card = _G.GathercraftRunSummary
+        if card then card:Hide() end
+        ns.StopRun()
+        return before, after, shown, card and card:IsShown()
+    end
+    local vb, va, vs, vcard = Run(false)
+    local hb, ha, hs, hcard = Run(true)
+    assert(vb and va and vs, "test setup: the shown run has no numbers")
+    assert(hb, "hidden from the start: no numbers before the first gather")
+    assert(ha and math.abs(ha.elapsed - va.elapsed) < 1.5, ("after the first gather: %s s hidden, %s s shown"):format(tostring(ha and ha.elapsed), tostring(va.elapsed)))
+    assert(ha.nodes == va.nodes and ha.value == va.value and ha.skill == va.skill, "hidden: other numbers than shown")
+    assert(math.abs(hs.elapsed - vs.elapsed) < 1.5, ("shown again: %s s, want %s s"):format(tostring(hs.elapsed), tostring(vs.elapsed)))
+    assert(vcard and hcard, ("summary after the run: shown %s, hidden %s"):format(tostring(vcard), tostring(hcard)))
+end)
 step("Minimap style ring only: the run target is a broad gold ring without an icon (v0.1.17)", function()
     -- Sven's find (08.11.): the target kept its icon and hid the yellow dot
     local list = ns.db.nodes[1412]
