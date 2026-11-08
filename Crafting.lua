@@ -990,14 +990,55 @@ end)
 ---------------------------------------------------------------------------
 -- The numbers
 ---------------------------------------------------------------------------
-local function Have(itemID)
+local function Count(itemID, bank)
     if C_Item and C_Item.GetItemCount then
-        local ok, n = pcall(C_Item.GetItemCount, itemID, true)
+        local ok, n = pcall(C_Item.GetItemCount, itemID, bank)
         if ok and n then return n end
     end
     ---@diagnostic disable-next-line: deprecated -- fallback for clients without the C_ version
-    return GetItemCount and GetItemCount(itemID, true) or 0
+    return GetItemCount and GetItemCount(itemID, bank) or 0
 end
+
+-- Bags and the reagent bag, slot by slot: built when first needed, again
+-- after the bags changed
+local bagCounts
+local function BagCounts()
+    if bagCounts then return bagCounts end
+    local c = C_Container
+    if not (c and c.GetContainerNumSlots and c.GetContainerItemInfo) then return nil end
+    local reagentBag = Enum and Enum.BagIndex and Enum.BagIndex.ReagentBag
+    local counts = { bags = {}, reagent = {} }
+    local list = { 0, 1, 2, 3, 4 }
+    if reagentBag and reagentBag > 4 then list[#list + 1] = reagentBag end
+    for _, bag in ipairs(list) do
+        local into = bag == reagentBag and counts.reagent or counts.bags
+        for slot = 1, c.GetContainerNumSlots(bag) or 0 do
+            local info = c.GetContainerItemInfo(bag, slot)
+            local id = info and info.itemID
+            if id then into[id] = (into[id] or 0) + (info.stackCount or 1) end
+        end
+    end
+    bagCounts = counts
+    return counts
+end
+local bagWatch = CreateFrame("Frame")
+pcall(bagWatch.RegisterEvent, bagWatch, "BAG_UPDATE_DELAYED")
+bagWatch:SetScript("OnEvent", function() bagCounts = nil end)
+
+-- What you have, in bags, reagent bag and bank: the client's count with the
+-- bank. If the bag slots hold more than the client's count without the bank,
+-- the client left the reagent bag out: the difference is added. Also gives
+-- the parts (bags, reagent bag, bank; nil where unknown) for /gcr debug.
+local function HaveParts(itemID)
+    local withBank, carried = Count(itemID, true), Count(itemID, false)
+    local b = BagCounts()
+    local bags = b and (b.bags[itemID] or 0)
+    local reagent = b and (b.reagent[itemID] or 0)
+    local total = withBank
+    if b then total = total + math.max(0, bags + reagent - carried) end
+    return total, bags, reagent, math.max(0, withBank - carried)
+end
+local function Have(itemID) return (HaveParts(itemID)) end
 
 -- What one reagent costs to get: copper, source, guessed?
 local function ReagentCost(itemID)
@@ -1727,7 +1768,7 @@ end
 
 -- For the skill planner (Planner.lua)
 ns.CraftData = {
-    AllRecipes = AllRecipes, Unpack = Unpack, ReagentCost = ReagentCost, Have = Have,
+    AllRecipes = AllRecipes, Unpack = Unpack, ReagentCost = ReagentCost, Have = Have, HaveParts = HaveParts,
     ProfLabel = ProfLabel, DisplayName = DisplayName, Professions = PROFESSIONS, MyProfessions = Professions,
     Known = function(prof)
         local mine = CharRecipes()[prof]

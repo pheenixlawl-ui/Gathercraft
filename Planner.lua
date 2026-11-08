@@ -326,6 +326,7 @@ local function Row(i)
     return row
 end
 
+local haveSaid = {} -- item -> the last debug line about its count
 local function Refresh()
     if not (win and win:IsShown() and Data()) then return end
     local d = Data()
@@ -430,6 +431,16 @@ local function Refresh()
     Line(L["Materials"] .. "  |cff999999" .. L["(need / have)"] .. "|r", L["missing"], { 1, 0.82, 0.3 })
     for _, m in ipairs(mats) do
         local name = ItemName(m.id)
+        -- /gcr debug: where the count comes from (once, and again when it changes)
+        if ns.db.debug and d.HaveParts then
+            local total, bags, reagent, bank = d.HaveParts(m.id)
+            local text = ("PLAN have %s: bags %s, reagent bag %s, bank %s, total %d"):format(name,
+                tostring(bags or "?"), tostring(reagent or "?"), tostring(bank or "?"), total)
+            if haveSaid[m.id] ~= text then
+                haveSaid[m.id] = text
+                ns.Debug(text)
+            end
+        end
         local left = ("%s  |cff999999%d / %d|r"):format(name, m.need, m.have)
         local right
         if m.madeFrom then

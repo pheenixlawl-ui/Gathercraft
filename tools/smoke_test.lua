@@ -3531,6 +3531,68 @@ step("Skill plan: counts again when the bags change (v0.1.18 S2)", function()
     assert(calls == 0, "the closed plan counted again")
     d.Have, ns.ProfessionRank = saved.have, saved.rank
 end)
+step("Skill plan: the reagent bag counts, /gcr debug shows the parts (v0.1.18 S2)", function()
+    -- C_Item.GetItemCount(item, includeBank, includeUses, includeReagentBank, ...):
+    -- the reagent BANK is not the reagent BAG, so no parameter is guessed.
+    -- The bag slots are counted too: holding more than the client's count
+    -- without the bank, the client left the reagent bag out
+    local saved = { count = C_Item.GetItemCount, info = C_Container.GetContainerItemInfo, slots = C_Container.GetContainerNumSlots,
+        enum = Enum.BagIndex, debug = ns.db.debug }
+    local slots = { [0] = { { itemID = 2318, stackCount = 20 }, { itemID = 2318, stackCount = 14 } }, [5] = { { itemID = 2318, stackCount = 1 } } }
+    Enum.BagIndex = { ReagentBag = 5 }
+    C_Container.GetContainerNumSlots = function(b) return slots[b] and #slots[b] or 0 end
+    C_Container.GetContainerItemInfo = function(b, s) return slots[b] and slots[b][s] end
+    local d = ns.CraftData
+    local function Parts(what, total, bags, reagent, bank)
+        fire("BAG_UPDATE_DELAYED")
+        assert(d.Have(2318) == total, ("%s: you have %d, want %d"):format(what, d.Have(2318), total))
+        local t, b, r, k = d.HaveParts(2318)
+        assert(t == total and b == bags and r == reagent and k == bank,
+            ("%s: total %s, bags %s, reagent bag %s, bank %s"):format(what, tostring(t), tostring(b), tostring(r), tostring(k)))
+    end
+    -- a client that leaves the reagent bag out: 34 in the bags, 3 in the bank
+    C_Item.GetItemCount = function(id, bank) if id ~= 2318 then return 0 end return bank and 37 or 34 end
+    Parts("reagent bag left out", 38, 34, 1, 3)
+    -- a client that counts it: nothing is added twice
+    C_Item.GetItemCount = function(id, bank) if id ~= 2318 then return 0 end return bank and 38 or 35 end
+    Parts("reagent bag counted", 38, 34, 1, 3)
+    -- the bags changed: counted again after the update
+    slots[5][1].stackCount = 4
+    Parts("after a bag update", 41, 34, 4, 3)
+    -- no slot functions: the client's count alone
+    C_Container.GetContainerItemInfo = nil
+    fire("BAG_UPDATE_DELAYED")
+    assert(d.Have(2318) == 38 and select(2, d.HaveParts(2318)) == nil, "without slot functions")
+    C_Container.GetContainerItemInfo = function(b, s) return slots[b] and slots[b][s] end
+    -- /gcr debug: one line per material, again only when its count changes
+    ns.db.debug = true
+    local saveRank = ns.ProfessionRank
+    ns.ProfessionRank = function(p) if p == "Leatherworking" then return 30, 75 end end
+    C_Item.GetItemCount = function(id, bank) if id ~= 2318 then return 0 end return bank and 37 or 34 end
+    fire("BAG_UPDATE_DELAYED")
+    local name = ns.ItemName and ns.ItemName(2318) or "2318"
+    local line = ("PLAN have %s: bags 34, reagent bag 4, bank 3, total 41"):format(name)
+    local function Said(from)
+        local n = 0
+        for i = from + 1, #log do if log[i]:find(line, 1, true) then n = n + 1 end end
+        return n
+    end
+    local mark = #log
+    ns.ShowSkillPlan("Leatherworking") advance(1)
+    ns.ShowSkillPlan("Leatherworking") advance(1)
+    assert(Said(mark) == 1, ("the debug line came %d times: %s"):format(Said(mark), line))
+    ns.db.debug = false
+    mark = #log
+    slots[0][1].stackCount = 21
+    fire("BAG_UPDATE_DELAYED")
+    ns.ShowSkillPlan("Leatherworking") advance(1)
+    for i = mark + 1, #log do assert(not log[i]:find("PLAN have", 1, true), "a debug line without /gcr debug") end
+    _G.GathercraftSkillPlan:Hide()
+    ns.ProfessionRank = saveRank
+    C_Item.GetItemCount, C_Container.GetContainerItemInfo, C_Container.GetContainerNumSlots = saved.count, saved.info, saved.slots
+    Enum.BagIndex, ns.db.debug = saved.enum, saved.debug
+    fire("BAG_UPDATE_DELAYED")
+end)
 step("Skill plan: hints, fees and totals fit, also long translations and big amounts (v0.1.14)", function()
     -- no real font metrics: the estimate of TextHeight (6 px a letter, 11 px
     -- a CJK sign) shows whether the window makes room, not how the game draws it
