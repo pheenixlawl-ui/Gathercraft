@@ -417,6 +417,11 @@ end
 ns.StopFishing = function(summary)
     local f = ns.FishingSession()
     fishing.active = false
+    -- Stop also gives back what we set for the cast (bobber mark, sounds),
+    -- at once, even with the line still out (Sven, 08.11., Codex M2). The
+    -- end of the cast then finds nothing of ours; a value you changed
+    -- yourself meanwhile stays. The line itself is left alone.
+    if ns.db and ns.db.fishingCVars then RestoreInteract("stop") end
     if not (summary and f and ns.ShowRunSummary) then return end
     local now = ns.GetSkill and ns.GetSkill("fish") or 0
     local mapID = ns.PlayerMap and ns.PlayerMap()

@@ -5449,6 +5449,43 @@ step("Crafting: events the client doesn't know are named, not swallowed (R4-H2)"
     for i = mark + 1, #log do if log[i]:find("Crafting events the client doesn't know: none", 1, true) then said = true end end
     assert(said, "/gcr crafttest does not name the events the client doesn't know")
 end)
+step("Fishing: Stop with the line still out gives the settings back at once (v0.1.17, Codex M2)", function()
+    local saved = { get = GetCVar, set = SetCVar }
+    local store
+    GetCVar = function(k) return store[k] end
+    SetCVar = function(k, v) if store[k] == nil then error("unknown CVar " .. k) end store[k] = tostring(v) return true end
+    local function Reset()
+        store = { SoftTargetInteract = "3", SoftTargetInteractRange = "30", SoftTargetInteractArc = "2",
+            SoftTargetIconGameObject = "0", SoftTargetIconInteract = "1",
+            Sound_SFXVolume = "0.4", Sound_MusicVolume = "0.35", Sound_AmbienceVolume = "0.6", Sound_MasterVolume = "0.8" }
+    end
+    local function Cast() fire("UNIT_SPELLCAST_CHANNEL_START", "player", "fs", 7620) end
+    local function LineIn() fire("UNIT_SPELLCAST_CHANNEL_STOP", "player", "fs", 7620) advance(1) end
+    ns.db.fishingCVars, ns.db.fishMarkBobber, ns.db.fishLoudSplash = nil, nil, true
+    -- Codex's probe: mark 0, effects 0.4; cast, then Stop with the line out
+    Reset() Cast()
+    assert(store.SoftTargetIconGameObject == "1" and store.Sound_SFXVolume == "1", "test setup: nothing set for the cast")
+    ns.StopFishing(true)
+    assert(store.SoftTargetIconGameObject == "0" and store.Sound_SFXVolume == "0.4" and store.Sound_MusicVolume == "0.35"
+        and store.Sound_AmbienceVolume == "0.6", ("Stop with the line out: mark %s, effects %s, music %s"):format(
+        store.SoftTargetIconGameObject, store.Sound_SFXVolume, store.Sound_MusicVolume))
+    assert(ns.db.fishingCVars == nil, "Stop left saved values behind")
+    assert(not ns.FishingSession(), "Stop did not end the session")
+    -- the end of the cast afterwards: nothing set again, nothing put back twice
+    store.Sound_SFXVolume = "0.5" -- you turn it up after Stop
+    LineIn()
+    assert(store.SoftTargetIconGameObject == "0" and store.Sound_SFXVolume == "0.5", "the end of the cast changed values after Stop")
+    -- you change one while the line is out: yours stays, the others come back
+    Reset() Cast()
+    store.Sound_SFXVolume = "0.7"
+    ns.StopFishing(true)
+    assert(store.Sound_SFXVolume == "0.7", "your own change was undone by Stop")
+    assert(store.SoftTargetIconGameObject == "0" and store.Sound_MusicVolume == "0.35", "the other values did not come back")
+    LineIn()
+    assert(store.Sound_SFXVolume == "0.7" and ns.db.fishingCVars == nil, "the end of the cast undid your change")
+    GetCVar, SetCVar = saved.get, saved.set
+    ns.db.fishingCVars, ns.db.fishLoudSplash = nil, nil
+end)
 step("Pin tooltip", function()
     for _, f in ipairs(allFrames) do
         if f.node and f.__scripts.OnEnter then f.__scripts.OnEnter(f) f.__scripts.OnLeave(f) break end
