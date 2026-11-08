@@ -5510,6 +5510,142 @@ step("Questing mode: on and off by command, Ctrl + right-click, key and option; 
     if ns.SetQuestMode then ns.SetQuestMode(false) end
     if not ok then error(err, 0) end
 end)
+step("Questing mode: gold rings on nearby nodes you can gather, minimap only (v0.1.19 Q2)", function()
+    -- map 5000 x 3333 yd in the mock: 0.001 in x is 5 yd
+    local Z, Z2 = 1460, 1461
+    local keep = { nodes = ns.db.nodes[Z], nodes2 = ns.db.nodes[Z2], style = ns.db.miniPinStyle, chests = ns.db.chestsHidden, grey = ns.db.hideGreyNodes,
+        gp = ns.GatherProfessions, skill = ns.GetSkill, pos = ns.GetPlayerPos, secret = issecretvalue,
+        map = player.map, x = player.x, y = player.y }
+    local px, py = 0.5, 0.5
+    local function At(yd, name, kind, extra)
+        local n = { id = "o9" .. math.random(100000, 999999), name = name, type = kind, x = px + yd / 5000, y = py, count = 1, last = 1, hits = 1 }
+        for k, v in pairs(extra or {}) do n[k] = v end
+        table.insert(ns.db.nodes[Z], n)
+        return n
+    end
+    local ok, err = pcall(function()
+        ns.SetQuestMode(false)
+        ns.db.nodes[Z] = {}
+        local near = At(20, "Peacebloom", "herb")
+        local edge = At(75, "Mageroyal", "herb")          -- skill 50, yours 52
+        local out = At(76, "Peacebloom", "herb")
+        local ore = At(40, "Copper Vein", "ore")
+        local herbHigh = At(10, "Briarthorn", "herb")    -- needs 70
+        local oreHigh = At(12, "Tin Vein", "ore")        -- needs 65, yours 30
+        local chest = At(30, "Battered Chest", "chest")
+        local resting = At(15, "Silverleaf", "herb", { emptyUntil = time() + 300 }) -- just harvested / found empty
+        ns.db.nodes[Z2] = {}
+        local other = { id = "o1617", name = "Silverleaf", type = "herb", x = px + 0.001, y = py, count = 1, last = 1, hits = 1 }
+        table.insert(ns.db.nodes[Z2], other)
+        player.map, player.x, player.y = Z, px, py
+        fire("ZONE_CHANGED_NEW_AREA") advance(1) -- the minimap pins move to this zone
+        ns.db.miniPinStyle, ns.db.chestsHidden = nil, nil -- ring only, chests shown
+        ns.NotifyNodesChanged() advance(1)
+        -- off: nothing lit
+        assert(not next(ns.QuestRings()), "rings while the mode is off")
+        local REF = "GathercraftQuest"
+        HBD_ADDS[REF] = { world = 0, mini = 0 }
+        ns.SetQuestMode(true) advance(1)
+        local lit = ns.QuestRings()
+        local function Lit(n) return lit[n] ~= nil end
+        assert(Lit(near) and Lit(edge) and Lit(ore) and Lit(chest), ("a node you can gather in reach is not lit: near %s edge %s ore %s chest %s"):format(tostring(Lit(near)), tostring(Lit(edge)), tostring(Lit(ore)), tostring(Lit(chest))))
+        assert(not Lit(out), "lit outside the radius (76 yd)")
+        assert(not Lit(herbHigh) and not Lit(oreHigh), "lit although your skill is too low")
+        assert(not Lit(resting), "lit although just harvested or found empty")
+        assert(not Lit(other), "a node of another zone lit")
+        -- the minimap only
+        assert(HBD_ADDS[REF].mini >= 4 and HBD_ADDS[REF].world == 0, ("rings: %d minimap, %d world map"):format(HBD_ADDS[REF].mini, HBD_ADDS[REF].world))
+        -- the look of the run target: ring only = broad gold ring, no icon
+        local function Tex(pin) return tostring(pin.ring and pin.ring.__tex or "") end
+        local function TargetLook(style)
+            ns.db.miniPinStyle = style
+            ns.SetRouteTarget(Z, near)
+            local _, mini = ns.RouteTargetPins()
+            local w, shown, tex = mini.__w, mini.icon.__shown ~= false, Tex(mini)
+            ns.ClearRouteTarget()
+            return w, shown, tex
+        end
+        for _, style in ipairs({ "ring", "subtle", "normal" }) do
+            local tw, tshown, ttex = TargetLook(style ~= "ring" and style or nil)
+            ns.NotifyNodesChanged() advance(1) -- the options rebuild the pins
+            local pin = ns.QuestRings()[near]
+            assert(pin, style .. ": the ring went with the rebuild")
+            assert(Tex(pin) == ttex and pin.__w == tw and (pin.icon.__shown ~= false) == tshown,
+                ("%s: ring %s %spx icon %s, the run target %s %spx icon %s"):format(style, Tex(pin), tostring(pin.__w),
+                    tostring(pin.icon.__shown ~= false), ttex, tostring(tw), tostring(tshown)))
+            if style == "ring" then assert(ttex:find("RingGoldBold$") and not tshown, "test setup: ring only target") end
+        end
+        ns.db.miniPinStyle = nil
+        ns.NotifyNodesChanged() advance(1)
+        -- the node's own minimap pin steps aside under its ring, comes back after
+        local mine
+        for _, pin in ipairs(MINI_ICONS) do if pin.node == near and pin.isMini and not pin.isQuest then mine = pin end end
+        assert(mine and mine.__alpha == 0, "the normal minimap pin still shows under the ring")
+        -- chests only while shown
+        ns.db.chestsHidden = true
+        advance(1)
+        assert(not ns.QuestRings()[chest] and ns.QuestRings()[near], "a chest lit while chests are hidden")
+        ns.db.chestsHidden = nil
+        advance(1)
+        assert(ns.QuestRings()[chest], "the chest not lit again")
+        -- a profession you don't have: none of its nodes
+        ns.GatherProfessions = function() return false, true, true end
+        advance(1)
+        assert(not ns.QuestRings()[near] and not ns.QuestRings()[edge] and ns.QuestRings()[ore], "herbs lit without Herbalism")
+        ns.GatherProfessions = keep.gp
+        ns.GetSkill = function(t) if t == "herb" then return keep.skill(t) end end -- Mining not learned
+        advance(1)
+        assert(ns.QuestRings()[near] and not ns.QuestRings()[ore], "ore lit without Mining")
+        -- "Hide grey nodes" (Options > Leveling): a node that gives no more
+        -- skill-ups gets no ring while the option is on (Sven, 09.11.)
+        ns.GetSkill = function(t) if t == "herb" then return 160, 225, 160 end return keep.skill(t) end -- Peacebloom (1) is grey from 100
+        ns.db.hideGreyNodes = true
+        ns.NotifyNodesChanged() advance(3) -- the questing mode looks again at least every 2 s (Q4)
+        assert(not ns.QuestRings()[near] and ns.QuestRings()[ore], "a grey herb lit although grey nodes are hidden")
+        ns.db.hideGreyNodes = nil
+        ns.NotifyNodesChanged() advance(3) -- the questing mode looks again at least every 2 s (Q4)
+        assert(ns.QuestRings()[near], "a grey herb not lit although grey nodes are shown")
+        ns.GetSkill = keep.skill
+        advance(3) -- the questing mode looks again at least every 2 s (Q4)
+        -- a hidden skill: nothing of it, no error
+        local SECRET = newproxy(true)
+        issecretvalue = function(v) return rawequal(v, SECRET) end
+        ns.GetSkill = function(t) if t == "herb" then return SECRET, 75, SECRET end return keep.skill(t) end
+        advance(1)
+        assert(not ns.QuestRings()[near] and ns.QuestRings()[ore], "a hidden Herbalism skill: herbs lit")
+        ns.GetSkill, issecretvalue = keep.skill, keep.secret
+        -- the position can't be read (hidden): no rings, no error
+        ns.GetPlayerPos = function() end
+        advance(1)
+        assert(not next(ns.QuestRings()), "rings without a position")
+        ns.GetPlayerPos = keep.pos
+        advance(1)
+        assert(ns.QuestRings()[near], "the rings did not come back")
+        -- another zone: its nodes, not the old ones
+        player.map, player.x, player.y = Z2, px, py
+        fire("ZONE_CHANGED_NEW_AREA") advance(1)
+        assert(ns.QuestRings()[other] and not ns.QuestRings()[near], "after a zone change: the old zone's rings")
+        player.map = Z
+        fire("ZONE_CHANGED_NEW_AREA") advance(1)
+        -- walking away: the rings go
+        player.x = px + 0.05
+        advance(1)
+        assert(not next(ns.QuestRings()), "rings 250 yd away")
+        player.x = px
+        advance(1)
+        -- off: all rings go, the normal pin is back
+        ns.SetQuestMode(false) advance(1)
+        assert(not next(ns.QuestRings()), "rings after turning it off")
+        assert(mine.__alpha and mine.__alpha > 0, "the normal minimap pin did not come back")
+    end)
+    ns.SetQuestMode(false)
+    ns.GatherProfessions, ns.GetSkill, ns.GetPlayerPos, issecretvalue = keep.gp, keep.skill, keep.pos, keep.secret
+    ns.db.nodes[Z], ns.db.nodes[Z2], ns.db.miniPinStyle, ns.db.chestsHidden, ns.db.hideGreyNodes = keep.nodes, keep.nodes2, keep.style, keep.chests, keep.grey
+    player.map, player.x, player.y = keep.map, keep.x, keep.y
+    fire("ZONE_CHANGED_NEW_AREA") advance(1)
+    ns.NotifyNodesChanged() advance(1)
+    if not ok then error(err, 0) end
+end)
 step("Options: the herbs/minerals switch is under General, every page fits (v0.1.19)", function()
     -- Sven (08.11.): Map & minimap makes room for the questing mode
     local function PageOf(text)

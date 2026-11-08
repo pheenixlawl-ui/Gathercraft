@@ -356,6 +356,8 @@ end
 
 -- the next node of a farm run (see below): its normal pins step aside
 local target = { world = nil, mini = nil, mapID = nil, node = nil }
+-- questing mode (Quest.lua): node -> its gold ring on the minimap
+local questLit = {}
 
 local PENDING_ALPHA = 0.5 -- unconfirmed reports from other players
 local PARKED_ALPHA = 0.25 -- parked by self-healing (Sync.lua): always empty so far
@@ -366,7 +368,7 @@ end
 local function SetAlpha(pin)
     local n = pin.node
     if not n then return end
-    if n == target.node then
+    if n == target.node or (pin.isMini and questLit[n]) then
         pin:SetAlpha(0) -- the bigger gold-ringed target pin stands here
         return
     end
@@ -677,15 +679,22 @@ local function RemoveTargetPins()
     end
 end
 
+-- The size of a gold ring on the minimap and whether it is bare (ring only:
+-- no icon, the game's yellow tracking dot shows in its middle)
+local function MiniTargetLook()
+    local _, miniSize = Sizes()
+    local ringOnly = MiniStyle() == "ring"
+    return ringOnly and math.max(22, math.floor(miniSize * 2.2 + 0.5)) or math.max(16, math.floor(miniSize * 1.6 + 0.5)), ringOnly
+end
+
 local function PlaceTarget()
     RemoveTargetPins()
     local n, mapID = target.node, target.mapID
     if not (n and mapID and n.x and n.y) then return end
-    local worldSize, miniSize = Sizes()
+    local worldSize = Sizes()
     target.world = target.world or TargetPin()
     target.mini = target.mini or TargetPin()
-    local ringOnly = MiniStyle() == "ring"
-    local miniTarget = ringOnly and math.max(22, math.floor(miniSize * 2.2 + 0.5)) or math.max(16, math.floor(miniSize * 1.6 + 0.5))
+    local miniTarget, ringOnly = MiniTargetLook()
     for _, pair in ipairs({ { target.world, math.floor(worldSize * 1.7 + 0.5), false }, { target.mini, miniTarget, ringOnly } }) do
         local pin, size, bare = pair[1], pair[2], pair[3]
         pin.node, pin.mapID, pin.others = n, mapID, nil
@@ -707,6 +716,83 @@ local function PlaceTarget()
     end
 end
 
+---------------------------------------------------------------------------
+-- Questing mode (Quest.lua): the nodes near you that you can gather get the
+-- run target's gold ring, on the minimap only. Quest.lua picks them; here
+-- they are drawn. No pulse: several rings may be lit at once.
+---------------------------------------------------------------------------
+local QUEST_REF = ADDON_NAME .. "Quest"
+local questFree = {}
+local questMap
+
+local function QuestPin()
+    local pin = table.remove(questFree)
+    if pin then return pin end
+    pin = CreatePin()
+    pin.isTarget, pin.isQuest = true, true
+    pin:HookScript("OnShow", Raise)
+    return pin
+end
+
+local function LookQuest(pin, n)
+    local size, bare = MiniTargetLook()
+    pin.node, pin.mapID, pin.others = n, questMap, nil
+    pin:SetSize(size, size)
+    Decorate(pin, bare and RING_GOLD_BOLD or RING_GOLD)
+    pin.icon:SetTexture(NodeIcon(n))
+    pin.icon:SetDesaturated(false)
+    pin.icon:SetAlpha(1)
+    pin.icon:SetShown(not bare)
+    pin:SetAlpha(1)
+    pin:EnableMouse(false) -- like all minimap pins
+end
+
+local function DropQuest(n)
+    local pin = questLit[n]
+    if not pin then return end
+    HBDPins:RemoveMinimapIcon(QUEST_REF, pin)
+    pin:Hide()
+    pin.node = nil
+    questFree[#questFree + 1] = pin
+    questLit[n] = nil
+    RefreshNodeAlpha(n)
+end
+
+-- mapID and the set of nodes to light (node -> true); nil, nil: none
+local function SetQuestRings(mapID, want)
+    want = want or {}
+    if mapID ~= questMap then
+        for n in pairs(questLit) do DropQuest(n) end
+        questMap = mapID
+    end
+    for n in pairs(questLit) do
+        if not want[n] then DropQuest(n) end
+    end
+    if not (HBDPins and mapID) then return end
+    for n in pairs(want) do
+        if not questLit[n] and n.x and n.y then
+            local pin = QuestPin()
+            questLit[n] = pin
+            LookQuest(pin, n)
+            HBDPins:AddMinimapIconMap(QUEST_REF, pin, mapID, n.x, n.y, false, false)
+            Raise(pin)
+            RefreshNodeAlpha(n)
+        end
+    end
+end
+ns.SetQuestRings = SetQuestRings
+ns.QuestRings = function() return questLit end
+
+-- the style or pin size changed: every lit ring takes the new look
+local function RestyleQuest()
+    for n, pin in pairs(questLit) do
+        HBDPins:RemoveMinimapIcon(QUEST_REF, pin)
+        LookQuest(pin, n)
+        HBDPins:AddMinimapIconMap(QUEST_REF, pin, questMap, n.x, n.y, false, false)
+        Raise(pin)
+    end
+end
+
 -- The minimap pin under the cursor (they let the mouse through, so the game
 -- doesn't tell us): the run target first, else the one nearest the cursor
 function ns.MinimapPinUnderCursor()
@@ -714,6 +800,9 @@ function ns.MinimapPinUnderCursor()
         return pin and pin:IsShown() and pin.IsMouseOver and pin:IsMouseOver() and (pin:GetAlpha() or 1) > 0
     end
     if over(target.mini) then return target.mini end
+    for _, pin in pairs(questLit) do -- its normal pin is hidden below it
+        if over(pin) then return pin end
+    end
     local cx, cy = GetCursorPosition()
     local best, bestD
     for pin in pairs(miniOn) do
@@ -754,6 +843,7 @@ local function Rebuild()
     wipe(grid)
     wipe(proxies) -- old reports (imported, expired) are let go here
     if target.node then PlaceTarget() end -- the pin size may have changed
+    RestyleQuest()
     if not (WorldPinsShown() or MiniPinsShown()) then return end
     CheckSkills()
     for mapID, list in pairs(ns.db.nodes) do

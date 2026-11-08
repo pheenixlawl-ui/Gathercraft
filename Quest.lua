@@ -49,6 +49,71 @@ ns.QuestModeOff = function(why)
     if On() then SetQuestMode(false, why) end
 end
 
+---------------------------------------------------------------------------
+-- Which nodes get a ring (Q2): in the zone you are in, within the radius,
+-- and only what this character can gather - the profession (what the map
+-- filter knows) and enough skill (the trainer colour is not red; a bonus
+-- counts). Chests only while chests are shown. Not a node just harvested or
+-- found empty, nor one parked as always empty (the run's own rest times).
+---------------------------------------------------------------------------
+local RADIUS = 75 -- yards
+local TICK = 0.5
+
+local function Radius() return RADIUS end
+ns.QuestRadius = Radius
+
+local function CanGather(n)
+    if not (n and n.x and n.y) or n.pendingReport then return false end
+    if ns.IsOnCooldown and ns.IsOnCooldown(n) then return false end
+    if ns.IsParked and ns.IsParked(n) then return false end
+    if n.type == "chest" then return not ns.db.chestsHidden end
+    if n.type ~= "herb" and n.type ~= "ore" then return false end
+    if ns.GatherProfessions then
+        local herb, ore, known = ns.GatherProfessions()
+        if known and not ((n.type == "herb" and herb) or (n.type == "ore" and ore)) then return false end
+    end
+    local rank, _, effective
+    if ns.GetSkill then rank, _, effective = ns.GetSkill(n.type) end
+    if not rank or ns.AnySecret("questing mode", rank, effective) then return false end
+    local level = ns.SkillLevel(n.name, n.id, rank, effective)
+    if level == "red" then return false end
+    -- Options > Leveling, "Hide grey nodes": no more skill-ups, no ring either
+    if level == "grey" and ns.db.hideGreyNodes then return false end
+    return true
+end
+ns.QuestCanGather = CanGather
+
+-- the nodes to light now: mapID, set (node -> true), or nil
+local function Pick()
+    local mapID, px, py = ns.GetPlayerPos()
+    if not (mapID and px and py) then return end
+    local want, r = {}, Radius()
+    for _, n in ipairs(ns.db.nodes[mapID] or {}) do
+        -- in whole yards, as the game shows them (75.0000001 is 75)
+        if CanGather(n) and math.floor(ns.Distance(mapID, px, py, n.x, n.y) + 0.5) <= r then want[n] = true end
+    end
+    return mapID, want
+end
+
+local ticker
+local function Update()
+    if not (On() and ns.SetQuestRings) then return end
+    local mapID, want = Pick()
+    ns.SetQuestRings(mapID, want)
+end
+ns.UpdateQuestRings = Update
+
+-- the rings follow the state: a ticker only while it is on
+table.insert(listeners, function(on)
+    if ticker then ticker:Cancel() ticker = nil end
+    if on then
+        ticker = C_Timer.NewTicker(TICK, Update)
+        Update()
+    elseif ns.SetQuestRings then
+        ns.SetQuestRings(nil, nil)
+    end
+end)
+
 -- Key binding (Bindings.xml)
 function Gathercraft_QuestMode() ns.ToggleQuestMode() end
 
