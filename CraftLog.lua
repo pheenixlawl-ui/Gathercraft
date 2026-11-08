@@ -253,6 +253,8 @@ ns.CraftLogCommand = function(rest)
         -- crafts still being read are dropped too (Codex N2)
         generation = generation + 1
         wipe(reading)
+        -- and casts still running: their success or failure is done already (Codex B2)
+        for guid in pairs(casts) do Done(guid) end
         wipe(casts)
         ns.Print(L["Craft log cleared."])
         return

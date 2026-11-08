@@ -4055,6 +4055,38 @@ step("Craft log: a craft with a hidden cast ID marks the one still being read as
     ns.db.craftLog, ns.db.craftLogOff, issecretvalue = saved.log, saved.off, saved.secret
     if not ok then error(err, 0) end
 end)
+step("Craft log: clear while a craft is still being cast drops it too (v0.1.18 B2)", function()
+    -- Codex round 2 (08.11.): START, /gcr craftlog clear, SUCCEEDED - the
+    -- success made a new entry in the log just emptied
+    local data = GathercraftRecipeData
+    local spell = data.spells.Leatherworking["Light Leather"]
+    local saved = { rank = ns.ProfessionRank, have = ns.CraftData.Have, log = ns.db.craftLog, off = ns.db.craftLogOff }
+    ns.ProfessionRank = function(p) if p == "Leatherworking" then return 10, 75 end end
+    ns.CraftData.Have = function() return 0 end
+    ns.db.craftLog, ns.db.craftLogOff = {}, nil
+    local ok, err = pcall(function()
+        advance(3)
+        fire("UNIT_SPELLCAST_START", "player", "Cast-b2-A", spell)
+        slash("craftlog clear")
+        fire("UNIT_SPELLCAST_SUCCEEDED", "player", "Cast-b2-A", spell)
+        advance(2)
+        assert(#ns.db.craftLog == 0, "a craft cast through the clear came back: " .. #ns.db.craftLog)
+        -- a failure of it after the clear: nothing either
+        fire("UNIT_SPELLCAST_START", "player", "Cast-b2-B", spell)
+        slash("craftlog clear")
+        fire("UNIT_SPELLCAST_FAILED", "player", "Cast-b2-B", spell)
+        advance(2)
+        assert(#ns.db.craftLog == 0, "a failed cast through the clear came back")
+        -- a craft started after the clear is logged as usual
+        fire("UNIT_SPELLCAST_START", "player", "Cast-b2-C", spell)
+        fire("UNIT_SPELLCAST_SUCCEEDED", "player", "Cast-b2-C", spell)
+        advance(2)
+        assert(#ns.db.craftLog == 1 and ns.db.craftLog[1].recipe == "Light Leather", "a craft after the clear is not logged")
+    end)
+    ns.ProfessionRank, ns.CraftData.Have = saved.rank, saved.have
+    ns.db.craftLog, ns.db.craftLogOff = saved.log, saved.off
+    if not ok then error(err, 0) end
+end)
 step("Sharing counts what other players sent, over all sessions (v0.1.18 S7)", function()
     local db = ns.db.sync
     local saved = { counts = db.counts, enabled = db.enabled, public = db.public, friend = C_FriendList.GetFriendInfo }
