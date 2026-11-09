@@ -561,4 +561,5 @@ ns.Locales.frFR = {
     ["Questing mode: no route, no window – nearby nodes you can gather get a gold ring (Ctrl + right-click on the minimap button, or /gcr quest). The herbs/minerals switch is now under Options, General."] = "Mode quêtes : ni tournée ni fenêtre – les nœuds proches que vous pouvez récolter ont un anneau doré (Ctrl + clic droit sur le bouton de la minicarte, ou /gcr quest). Le bouton herbes/minerais est maintenant dans Options, Général.",
     ["  %d unclear: no beast could be told at the cast (not counted)"] = "  %d incertains : aucune bête identifiable au moment du sort (non comptés)",
     ["yellow/green"] = "jaune/vert",
+    ["  from series (Create All): %d series, %d crafts, %d skill-ups - counted above"] = "  des séries (Tout créer) : %d séries, %d fabrications, %d gains de compétence – comptés ci-dessus",
 }

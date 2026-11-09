@@ -590,4 +590,5 @@ ns.Locales.deDE = {
     ["Questing mode: no route, no window – nearby nodes you can gather get a gold ring (Ctrl + right-click on the minimap button, or /gcr quest). The herbs/minerals switch is now under Options, General."] = "Questmodus: keine Route, kein Fenster – Nodes in der Nähe, die du sammeln kannst, bekommen einen goldenen Ring (Strg + Rechtsklick auf den Minikarten-Knopf oder /gcr quest). Der Schalter Kräuter/Mineralien steht jetzt unter Options, Allgemein.",
     ["  %d unclear: no beast could be told at the cast (not counted)"] = "  %d unklar: beim Zauber war kein Tier eindeutig (nicht gezählt)",
     ["yellow/green"] = "gelb/grün",
+    ["  from series (Create All): %d series, %d crafts, %d skill-ups - counted above"] = "  aus Serien (Alle herstellen): %d Serien, %d Herstellungen, %d Skill-ups – oben mitgezählt",
 }

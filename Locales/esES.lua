@@ -561,4 +561,5 @@ ns.Locales.esES = {
     ["Questing mode: no route, no window – nearby nodes you can gather get a gold ring (Ctrl + right-click on the minimap button, or /gcr quest). The herbs/minerals switch is now under Options, General."] = "Modo misiones: sin ruta ni ventana; los nodos cercanos que puedes recoger llevan un anillo dorado (Ctrl + clic derecho en el botón del minimapa o /gcr quest). El interruptor de hierbas/minerales está ahora en Options, General.",
     ["  %d unclear: no beast could be told at the cast (not counted)"] = "  %d sin aclarar: al lanzar no se pudo determinar la bestia (no se cuentan)",
     ["yellow/green"] = "amarillo/verde",
+    ["  from series (Create All): %d series, %d crafts, %d skill-ups - counted above"] = "  de series (Crear todo): %d series, %d creaciones, %d subidas de habilidad – contadas arriba",
 }

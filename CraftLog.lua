@@ -93,11 +93,86 @@ end
 local casts = {}   -- castGUID -> the cast while it runs
 local reading = {} -- entries waiting for their second reading (SETTLE)
 local generation = 0 -- /gcr craftlog clear: readings started before it are dropped
--- a reading is going on: what starts or ends now shares it
+---------------------------------------------------------------------------
+-- Series (v0.1.20 K2, Sven 09.11.): "Create All" casts the same recipe
+-- again the moment the last one succeeded, so every craft but the last is
+-- still being read when the next starts. Alone they say nothing; together
+-- they do: n casts, the skill before the first and after the last. Such a
+-- block counts (n tries, k skill-ups) only when it is clear - one recipe
+-- throughout, no failure, abort or hidden value in it, not at the rank's
+-- maximum, k <= n, and the colour and the distance group to grey the same
+-- for every skill the series passes. Otherwise all of it stays
+-- "overlapping" as before: nothing is estimated or split.
+---------------------------------------------------------------------------
+local series            -- the open series: its last craft is still being read
+local inSeries = setmetatable({}, { __mode = "k" }) -- entry -> its series
+
+-- a reading is going on: what starts or ends now shares it (and breaks an
+-- open series: the shared reading is no longer one recipe's)
 local function Overlap(c)
     if not next(reading) then return end
     if c then c.overlap = true end
     for e in pairs(reading) do e.overlap = true end
+    if series then series.broken = true end
+end
+
+-- a cast of the series still running (started, not yet succeeded or failed)
+local function Pending(s)
+    for _, c in pairs(casts) do
+        if c.series == s then return true end
+    end
+    return false
+end
+
+-- a cast starting while the one before is still read: the same recipe
+-- continues (or opens) a series; anything else is an overlap
+local function Chain(c)
+    if not next(reading) then
+        if series and not Pending(series) then series = nil end
+        return false
+    end
+    if not series then
+        local e = next(reading)
+        if next(reading, e) ~= nil or e.overlap or inSeries[e] or e.spell ~= c.spell then return false end
+        series = { spell = c.spell, entries = { e }, n = 1 }
+        inSeries[e] = series
+    elseif series.broken or series.spell ~= c.spell then
+        series.broken = true
+        return false
+    end
+    series.n = series.n + 1
+    c.series = series
+    return true
+end
+
+local function Bucket(gap) return math.min(4, math.floor(math.max(0, gap) / 5)) end -- 0-4, 5-9, 10-14, 15-19, 20+
+
+-- the series is over (its last reading is done): one block when it is clear
+local function Finish(s)
+    for _, e in ipairs(s.entries) do e.overlap = true end -- each alone says nothing
+    if s.broken or #s.entries < 2 or #s.entries ~= s.n then return end
+    for _, e in ipairs(s.entries) do
+        if e.result ~= "ok" or e.secret or e.spell ~= s.spell then return end
+    end
+    local first, last = s.entries[1], s.entries[#s.entries]
+    local before, after = first.before, last.after
+    if not (before and after) then return end
+    local gain = after - before
+    if gain < 0 or gain > s.n then return end
+    if first.max and after >= first.max then return end
+    local colour, yellow, grey = Colour(s.spell, before)
+    if colour == "unknown" then return end
+    for skill = before, after do
+        local c = Colour(s.spell, skill)
+        if c ~= colour then return end
+        if colour ~= "orange" and Bucket(grey - skill) ~= Bucket(grey - before) then return end
+    end
+    for _, e in ipairs(s.entries) do e.inSeries = true end -- counted by the block, not as overlapping
+    if On() then
+        Add({ kind = "series", t = first.t, build = first.build, prof = first.prof, spell = s.spell, recipe = first.recipe,
+            n = s.n, before = before, after = after, gain = gain, max = first.max, colour = colour, yellow = yellow, grey = grey,
+            result = "ok" })
+    end
 end
 local done = {}    -- castGUID -> true: logged, later events of it change nothing
 local doneOrder = {}
@@ -116,7 +191,7 @@ local function Start(guid, spell)
     local had, hidden = Count(product)
     local c = { spell = spell, prof = r.prof, key = r.key, before = before, max = maxRank, secret = secret or hidden,
         product = product, had = had, t = time() }
-    Overlap(c)
+    if not Chain(c) then Overlap(c) end
     casts[guid] = c
     return c
 end
@@ -136,7 +211,12 @@ local function Succeeded(guid, spell)
     casts[guid] = nil
     Done(guid)
     local e = Entry(c, "ok")
-    Overlap(e)
+    if c.series then
+        inSeries[e] = c.series
+        table.insert(c.series.entries, e)
+    else
+        Overlap(e)
+    end
     reading[e] = true
     local gen = generation
     C_Timer.After(SETTLE, function()
@@ -156,6 +236,13 @@ local function Succeeded(guid, spell)
             if now and now >= c.had then e.made = now - c.had end
         end
         if On() then Add(e) end
+        local s = inSeries[e]
+        if s and not next(reading) and not Pending(s) then
+            -- the last reading of the series, no cast of it running: the
+            -- block is judged now
+            if series == s then series = nil end
+            Finish(s)
+        end
     end)
 end
 
@@ -165,6 +252,14 @@ local function Failed(guid, spell, result)
     casts[guid] = nil
     Done(guid)
     if On() then Add(Entry(c, result)) end
+    local s = c.series
+    if s then
+        s.broken = true -- a failure inside: no block
+        if not next(reading) and not Pending(s) then
+            if series == s then series = nil end
+            Finish(s) -- nothing left to read: its entries are marked now
+        end
+    end
 end
 
 local HIDDEN_REPEAT = 0.5 -- seconds; no craft is that fast
@@ -220,10 +315,28 @@ local function ColourKey(colour) return colour == "green" and "yellow" or colour
 -- before and after, not at the rank's maximum
 local function Summary(log)
     local byColour, byGap = {}, {}
-    local other = { failed = 0, secret = 0, cap = 0, multi = 0, overlap = 0 }
+    local other = { failed = 0, secret = 0, cap = 0, multi = 0, overlap = 0, series = 0, seriesTries = 0, seriesUps = 0 }
+    local function Tally(colour, grey, before, tries, ups)
+        local key = ColourKey(colour)
+        local c = byColour[key] or { tries = 0, ups = 0 }
+        byColour[key] = c
+        c.tries, c.ups = c.tries + tries, c.ups + ups
+        if grey and before and colour ~= "orange" then
+            local bucket = Bucket(grey - before)
+            local g = byGap[bucket] or { tries = 0, ups = 0 }
+            byGap[bucket] = g
+            g.tries, g.ups = g.tries + tries, g.ups + ups
+        end
+    end
     for _, e in ipairs(log) do
-        if e.result ~= "ok" then
+        if e.kind == "series" then
+            -- a clear block (K2): n tries, k skill-ups, one colour and distance group
+            other.series, other.seriesTries, other.seriesUps = other.series + 1, other.seriesTries + e.n, other.seriesUps + e.gain
+            Tally(e.colour, e.grey, e.before, e.n, e.gain)
+        elseif e.result ~= "ok" then
             other.failed = other.failed + 1
+        elseif e.inSeries then
+            -- counted by its block
         elseif e.overlap then
             other.overlap = other.overlap + 1
         elseif e.secret or not e.gain then
@@ -232,18 +345,7 @@ local function Summary(log)
             other.cap = other.cap + 1
         else
             if e.multi then other.multi = other.multi + 1 end
-            local up = e.gain > 0 and 1 or 0
-            local key = ColourKey(e.colour)
-            local c = byColour[key] or { tries = 0, ups = 0 }
-            byColour[key] = c
-            c.tries, c.ups = c.tries + 1, c.ups + up
-            if e.grey and e.before and e.colour ~= "orange" then
-                local gap = math.max(0, e.grey - e.before)
-                local bucket = math.min(4, math.floor(gap / 5)) -- 0-4, 5-9, 10-14, 15-19, 20+
-                local g = byGap[bucket] or { tries = 0, ups = 0 }
-                byGap[bucket] = g
-                g.tries, g.ups = g.tries + 1, g.ups + up
-            end
+            Tally(e.colour, e.grey, e.before, 1, e.gain > 0 and 1 or 0)
         end
     end
     return byColour, byGap, other
@@ -256,9 +358,11 @@ ns.CraftLogCommand = function(rest)
     rest = (rest or ""):lower()
     if rest == "clear" then
         ns.db.craftLog = {}
-        -- crafts still being read are dropped too (Codex N2)
+        -- crafts still being read are dropped too (Codex N2), and a series
+        -- in the middle: no block from it
         generation = generation + 1
         wipe(reading)
+        series = nil
         -- and casts still running: their success or failure is done already (Codex B2)
         for guid in pairs(casts) do Done(guid) end
         wipe(casts)
@@ -283,6 +387,9 @@ ns.CraftLogCommand = function(rest)
         if g then
             print((L["  %s points below grey: %d crafts, %d skill-ups (%d%%)"]):format(GAPS[bucket + 1], g.tries, g.ups, Rate(g)))
         end
+    end
+    if other.series > 0 then
+        print((L["  from series (Create All): %d series, %d crafts, %d skill-ups - counted above"]):format(other.series, other.seriesTries, other.seriesUps))
     end
     print((L["  Not counted: %d failed or interrupted, %d unreadable, %d overlapping, %d at the rank's maximum; %d gave more than one point."]):format(
         other.failed, other.secret, other.overlap, other.cap, other.multi))

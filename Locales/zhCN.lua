@@ -561,4 +561,5 @@ ns.Locales.zhCN = {
     ["Questing mode: no route, no window – nearby nodes you can gather get a gold ring (Ctrl + right-click on the minimap button, or /gcr quest). The herbs/minerals switch is now under Options, General."] = "任务模式：没有路线，没有窗口——附近你能采集的采集点会显示金色圆环（在小地图按钮上 Ctrl + 右键，或 /gcr quest）。草药/矿物切换按钮现在位于 Options 的“常规”中。",
     ["  %d unclear: no beast could be told at the cast (not counted)"] = "  %d 条不明确：施法时无法确定野兽（不计入）",
     ["yellow/green"] = "黄色/绿色",
+    ["  from series (Create All): %d series, %d crafts, %d skill-ups - counted above"] = "  来自连续制作（全部制造）：%d 组，%d 次制作，%d 次技能提升 – 已计入上方",
 }

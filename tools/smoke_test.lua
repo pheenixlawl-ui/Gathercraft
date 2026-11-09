@@ -3915,6 +3915,7 @@ step("Craft log: only clear observations count; no other spells, hidden amounts,
     local ok, err = pcall(function()
         -- M1: two crafts, the second ends before the first is read again.
         -- Really: one skill-up, two items. Neither may count as a clear 1/1.
+        -- Since K2 (0.1.20) the two are one block: 2 tries, 1 skill-up.
         local g1, g2 = Guid(), Guid()
         fire("UNIT_SPELLCAST_START", "player", g1, spell)
         fire("UNIT_SPELLCAST_SUCCEEDED", "player", g1, spell)
@@ -3925,15 +3926,17 @@ step("Craft log: only clear observations count; no other spells, hidden amounts,
         fire("UNIT_SPELLCAST_SUCCEEDED", "player", g2, spell)
         bag = bag + 1
         advance(2)
-        assert(#ns.db.craftLog == 2, "overlapping crafts: " .. #ns.db.craftLog .. " entries")
-        for _, e in ipairs(ns.db.craftLog) do assert(e.overlap, "an overlapping craft not marked") end
+        assert(#ns.db.craftLog == 3, "two chained crafts: " .. #ns.db.craftLog .. " entries (want 2 and their block)")
+        for i = 1, 2 do assert(ns.db.craftLog[i].overlap and ns.db.craftLog[i].inSeries, "a chained craft not marked") end
+        local block = ns.db.craftLog[3]
+        assert(block.kind == "series" and block.n == 2 and block.before == 10 and block.after == 11 and block.gain == 1, "the block of the two")
         local byColour, _, other = ns.CraftLogSummary()
-        assert(not byColour.orange, ("overlapping crafts in the rate: %s/%s"):format(
+        assert(byColour.orange and byColour.orange.tries == 2 and byColour.orange.ups == 1, ("the block in the rate: %s/%s"):format(
             tostring(byColour.orange and byColour.orange.ups), tostring(byColour.orange and byColour.orange.tries)))
-        assert(other.overlap == 2, "not counted as overlapping: " .. tostring(other.overlap))
+        assert(other.overlap == 0 and other.series == 1, "counted as overlapping although a clear block: " .. tostring(other.overlap))
         local text = Line()
-        assert(text:find((ns.L["  Not counted: %d failed or interrupted, %d unreadable, %d overlapping, %d at the rank's maximum; %d gave more than one point."]):format(0, 0, 2, 0, 0), 1, true),
-            "/gcr craftlog: overlapping not named apart: " .. text)
+        assert(text:find((ns.L["  Not counted: %d failed or interrupted, %d unreadable, %d overlapping, %d at the rank's maximum; %d gave more than one point."]):format(0, 0, 0, 0, 0), 1, true),
+            "/gcr craftlog: the block's crafts named as overlapping: " .. text)
         -- started while the one before was still being read: overlapping too
         local g3, g4 = Guid(), Guid()
         fire("UNIT_SPELLCAST_START", "player", g3, spell)
@@ -3943,7 +3946,8 @@ step("Craft log: only clear observations count; no other spells, hidden amounts,
         advance(1.5)
         fire("UNIT_SPELLCAST_SUCCEEDED", "player", g4, spell)
         advance(2)
-        assert(ns.db.craftLog[3].overlap and ns.db.craftLog[4].overlap, "a craft started inside the last one's reading: not marked")
+        assert(ns.db.craftLog[4].overlap and ns.db.craftLog[5].overlap, "a craft started inside the last one's reading: not marked")
+        assert(ns.db.craftLog[6] and ns.db.craftLog[6].kind == "series" and ns.db.craftLog[6].n == 2 and ns.db.craftLog[6].gain == 0, "a chained pair without a skill-up: no block of 2 tries, 0 ups")
         -- single crafts with time between them: as before
         ns.db.craftLog = {}
         rank = 10
@@ -4086,6 +4090,186 @@ step("Craft log: clear while a craft is still being cast drops it too (v0.1.18 B
     end)
     ns.ProfessionRank, ns.CraftData.Have = saved.rank, saved.have
     ns.db.craftLog, ns.db.craftLogOff = saved.log, saved.off
+    if not ok then error(err, 0) end
+end)
+step("Craft log: a Create All series counts as one block, only when it is clear (v0.1.20 K2)", function()
+    -- Sven (09.11.): 10 cooks, 3 alone (orange, 3/3), 7 by Create All -
+    -- every one gave a point, all 7 landed under "overlapping"
+    local data = GathercraftRecipeData
+    local spell, other = data.spells.Leatherworking["Light Leather"], data.spells.Leatherworking["Light Armor Kit"]
+    local saved = { rank = ns.ProfessionRank, have = ns.CraftData.Have, colors = data.colors[spell], colors2 = data.colors[other],
+        log = ns.db.craftLog, off = ns.db.craftLogOff, secret = issecretvalue }
+    local SECRET = newproxy(true)
+    local rank, maxRank = 10, 75
+    ns.ProfessionRank = function(p) if p == "Leatherworking" then return rank, maxRank end end
+    ns.CraftData.Have = function() return 0 end
+    data.colors[spell], data.colors[other] = "25:45", "25:45" -- orange below 25, yellow below 45, grey from 45
+    ns.db.craftLog, ns.db.craftLogOff = {}, nil
+    local n = 0
+    local function Guid() n = n + 1 return "Cast-k2-" .. n end
+    -- one craft: START, the cast time, SUCCEEDED (or what `events` says); the skill rises by `gain`
+    local function Cast(gain, castTime, events, sp)
+        sp = sp or spell
+        local guid = Guid()
+        events = events or { "UNIT_SPELLCAST_START", "UNIT_SPELLCAST_SUCCEEDED" }
+        for i, e in ipairs(events) do
+            if i > 1 and castTime and castTime > 0 then advance(castTime) end
+            if e == "UNIT_SPELLCAST_SUCCEEDED" and gain and gain ~= 0 then rank = rank + gain end
+            fire(e, "player", guid, sp)
+        end
+        return guid
+    end
+    -- a Create All series: the next cast starts right after the last success
+    local function Series(gains, castTime, sp)
+        for _, g in ipairs(gains) do Cast(g, castTime, nil, sp) advance(0.3) end
+        advance(2)
+    end
+    local function Blocks()
+        local list = {}
+        for _, e in ipairs(ns.db.craftLog) do if e.kind == "series" then list[#list + 1] = e end end
+        return list
+    end
+    local function Reset(skill) ns.db.craftLog = {} rank = skill advance(3) end
+    local function Text()
+        local mark = #log
+        slash("craftlog")
+        return table.concat(log, "\n", mark + 1)
+    end
+    local ok, err = pcall(function()
+        -- (1) Sven's case: 3 alone, then 7 by Create All, every one a point (13 -> 20, all orange)
+        advance(3)
+        for _ = 1, 3 do Cast(1) advance(2) end
+        Series({ 1, 1, 1, 1, 1, 1, 1 })
+        local blocks = Blocks()
+        assert(#blocks == 1, "blocks: " .. #blocks)
+        local b = blocks[1]
+        assert(b.n == 7 and b.before == 13 and b.after == 20 and b.gain == 7 and b.colour == "orange" and b.recipe == "Light Leather" and b.prof == "Leatherworking", ("the block: n %s, %s -> %s, gain %s, %s"):format(tostring(b.n), tostring(b.before), tostring(b.after), tostring(b.gain), tostring(b.colour)))
+        assert(b.yellow == 25 and b.grey == 45 and b.max == 75 and b.t and b.build == 70450 and b.result == "ok", "the block's thresholds, max, time or build")
+        assert(#ns.db.craftLog == 3 + 7 + 1, "entries: " .. #ns.db.craftLog)
+        local inSeries = 0
+        for _, e in ipairs(ns.db.craftLog) do if e.inSeries then assert(e.overlap, "a series craft not marked overlapping") inSeries = inSeries + 1 end end
+        assert(inSeries == 7, "crafts counted by the block: " .. inSeries)
+        local byColour, byGap, others = ns.CraftLogSummary()
+        assert(byColour.orange and byColour.orange.tries == 10 and byColour.orange.ups == 10, ("orange %s/%s, want 10/10"):format(tostring(byColour.orange and byColour.orange.ups), tostring(byColour.orange and byColour.orange.tries)))
+        assert(others.overlap == 0 and others.series == 1 and others.seriesTries == 7 and others.seriesUps == 7, "the series counts")
+        local text = Text()
+        assert(text:find((ns.L["  %s: %d crafts, %d skill-ups (%d%%)"]):format("|cffff8040" .. ns.L["orange"] .. "|r", 10, 10, 100), 1, true), "orange line: " .. text)
+        assert(text:find((ns.L["  from series (Create All): %d series, %d crafts, %d skill-ups - counted above"]):format(1, 7, 7), 1, true), "no series line: " .. text)
+        assert(text:find((ns.L["  Not counted: %d failed or interrupted, %d unreadable, %d overlapping, %d at the rank's maximum; %d gave more than one point."]):format(0, 0, 0, 0, 0), 1, true), "not counted: " .. text)
+        -- (2) realistic cast times (3 s): the series is one block too
+        Reset(10)
+        Series({ 1, 0, 1 }, 3)
+        blocks = Blocks()
+        assert(#blocks == 1 and blocks[1].n == 3 and blocks[1].gain == 2, "a series with 3 s casts: no block")
+        -- a single craft after a pause counts alone
+        Cast(1) advance(2)
+        byColour = ns.CraftLogSummary()
+        assert(byColour.orange.tries == 4 and byColour.orange.ups == 3, "the single after the series")
+        -- (3) over a colour change (23 -> 27, yellow from 25): stays overlapping
+        Reset(23)
+        Series({ 1, 1, 1, 1 })
+        assert(#Blocks() == 0, "a block over a colour change")
+        byColour, byGap, others = ns.CraftLogSummary()
+        assert(not byColour.orange and not byColour.yellow and others.overlap == 4, "a series over a colour change counted")
+        assert(#ns.db.craftLog == 4, "entries: " .. #ns.db.craftLog)
+        -- (4) over a distance group (33 -> 37: 12 and 8 below grey): stays overlapping
+        Reset(33)
+        Series({ 1, 1, 1, 1 })
+        assert(#Blocks() == 0 and select(3, ns.CraftLogSummary()).overlap == 4, "a block over a distance group")
+        -- yellow and the same group throughout (31 -> 33: 14 to 12 below grey): a block, in the 10-14 group
+        Reset(31)
+        Series({ 1, 0, 1 })
+        assert(#Blocks() == 1 and Blocks()[1].colour == "yellow", "a yellow series in one group: no block")
+        byColour, byGap = ns.CraftLogSummary()
+        assert(byColour.yellow.tries == 3 and byColour.yellow.ups == 2 and byGap[2] and byGap[2].tries == 3 and byGap[2].ups == 2, "the yellow block in colour and distance")
+        -- (5) a failed cast inside: no block, the rest overlapping
+        Reset(10)
+        Cast(1) advance(0.3)
+        Cast(0, nil, { "UNIT_SPELLCAST_START", "UNIT_SPELLCAST_FAILED" }) advance(0.3)
+        Cast(1) advance(2)
+        assert(#Blocks() == 0, "a block with a failure inside")
+        byColour, byGap, others = ns.CraftLogSummary()
+        assert(others.failed == 1 and others.overlap == 2 and not byColour.orange, "a series with a failure counted")
+        -- a failure as the last cast, nothing left to read: the first is marked all the same
+        Reset(10)
+        Cast(1) advance(1.6)
+        assert(not ns.db.craftLog[1].overlap, "test setup: the first alone")
+        -- (the first's reading is over; a cast started inside it fails now)
+        Reset(10)
+        Cast(1) advance(0.3)
+        Cast(0, 2, { "UNIT_SPELLCAST_START", "UNIT_SPELLCAST_FAILED" }) advance(2)
+        assert(#Blocks() == 0 and ns.db.craftLog[1].overlap and select(3, ns.CraftLogSummary()).overlap == 1, "a failure after the reading left the first as a clear craft")
+        -- (6) a hidden cast ID inside: no block
+        Reset(10)
+        issecretvalue = function(v) return rawequal(v, SECRET) end
+        Cast(1) advance(0.3)
+        rank = rank + 1
+        fire("UNIT_SPELLCAST_SUCCEEDED", "player", SECRET, spell) advance(0.3)
+        Cast(1) advance(2)
+        issecretvalue = saved.secret
+        assert(#Blocks() == 0 and not ns.CraftLogSummary().orange, "a block around a hidden cast ID")
+        -- a hidden skill inside: no block
+        Reset(10)
+        Cast(1) advance(0.3)
+        issecretvalue = function(v) return rawequal(v, SECRET) end
+        local keep = rank
+        rank = SECRET
+        Cast(0) advance(0.3)
+        rank = keep + 1
+        issecretvalue = saved.secret
+        Cast(1) advance(2)
+        assert(#Blocks() == 0, "a block with a hidden skill inside")
+        -- (7) at the rank's maximum (73 -> 75 of 75): no block
+        Reset(73)
+        Series({ 1, 1, 0 })
+        assert(#Blocks() == 0 and select(3, ns.CraftLogSummary()).overlap == 3, "a block at the maximum")
+        -- (8) more points than casts (k > n): no block
+        Reset(10)
+        Series({ 2, 2 })
+        assert(#Blocks() == 0, "a block with more points than casts")
+        -- (9) mixed recipes: no block, all overlapping
+        Reset(10)
+        Cast(1) advance(0.3)
+        Cast(1, nil, nil, other) advance(0.3)
+        Cast(1) advance(2)
+        assert(#Blocks() == 0 and select(3, ns.CraftLogSummary()).overlap == 3, "a block of mixed recipes")
+        -- two chained, then another recipe inside the last reading: the series is broken, no block of the two
+        Reset(10)
+        Cast(1) advance(0.3) Cast(1) advance(0.3)
+        Cast(1, nil, nil, other) advance(2)
+        assert(#Blocks() == 0 and select(3, ns.CraftLogSummary()).overlap == 3, "a block of two with another recipe chained after them")
+        -- two chained, then a hidden cast ID inside the last reading (no point
+        -- from it, so only the shared reading tells): the same
+        Reset(10)
+        Cast(1) advance(0.3) Cast(1) advance(0.3)
+        issecretvalue = function(v) return rawequal(v, SECRET) end
+        fire("UNIT_SPELLCAST_SUCCEEDED", "player", SECRET, spell) advance(2)
+        issecretvalue = saved.secret
+        assert(#Blocks() == 0 and not ns.CraftLogSummary().orange, "a block of two with a hidden cast ID after them")
+        -- (10) clear in the middle of a series: no block; what comes after counts anew
+        Reset(10)
+        Cast(1) advance(0.3)
+        Cast(1) advance(0.3)
+        slash("craftlog clear")
+        Cast(1) advance(2)
+        assert(#ns.db.craftLog == 1 and not ns.db.craftLog[1].kind and not ns.db.craftLog[1].overlap and ns.db.craftLog[1].gain == 1, "after a clear in a series: " .. #ns.db.craftLog .. " entries")
+        Cast(1) advance(0.3) Cast(1) advance(2)
+        assert(#Blocks() == 1 and Blocks()[1].n == 2, "a series after the clear: no block")
+        -- (11) recording off: no block either; turned off in the middle of a series: no block
+        Reset(10)
+        ns.db.craftLogOff = true
+        Series({ 1, 1 })
+        assert(#ns.db.craftLog == 0, "recorded although turned off")
+        ns.db.craftLogOff = nil
+        Cast(1) advance(0.3) Cast(1) advance(0.3)
+        ns.db.craftLogOff = true
+        advance(2)
+        assert(#Blocks() == 0, "a block written although recording was turned off during the series")
+        ns.db.craftLogOff = nil
+    end)
+    ns.ProfessionRank, ns.CraftData.Have, data.colors[spell], data.colors[other] = saved.rank, saved.have, saved.colors, saved.colors2
+    ns.db.craftLog, ns.db.craftLogOff, issecretvalue = saved.log, saved.off, saved.secret
+    advance(3)
     if not ok then error(err, 0) end
 end)
 step("Craft log: no green threshold is made up; yellow/green is one honest line (v0.1.20 K3)", function()
