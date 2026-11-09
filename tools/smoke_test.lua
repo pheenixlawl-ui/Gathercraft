@@ -5501,6 +5501,20 @@ step("Questing mode: on and off by command, Ctrl + right-click, key and option; 
         assert(not ns.QuestModeOn(), "still on while fishing")
         assert(Said(L["Questing mode off: you started fishing."], mark), "no word why it went off (fishing)")
         fire("UNIT_SPELLCAST_CHANNEL_STOP", "player", "q1fish", 7620) advance(1)
+        assert(not ns.QuestModeOn(), "back on after fishing")
+        -- the second cast of the same fishing session turns it off too, and
+        -- the session goes on (Codex 09.11., B1)
+        local session = ns.FishingSession()
+        assert(session and session.start, "test setup: no fishing session after the first cast")
+        local started = session.start
+        advance(30)
+        ns.SetQuestMode(true)
+        mark = #log
+        fire("UNIT_SPELLCAST_CHANNEL_START", "player", "q1fish2", 7620) advance(1)
+        assert(not ns.QuestModeOn(), "still on at the second cast of the session")
+        assert(Said(L["Questing mode off: you started fishing."], mark), "no word why it went off (second cast)")
+        assert(ns.FishingSession() and ns.FishingSession().start == started, "the second cast started the fishing session anew")
+        fire("UNIT_SPELLCAST_CHANNEL_STOP", "player", "q1fish2", 7620) advance(1)
         ns.StopFishing()
         assert(not ns.QuestModeOn(), "back on after fishing")
     end)

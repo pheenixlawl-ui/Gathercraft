@@ -355,7 +355,6 @@ local fishing = { active = false }
 local lootGuard = {}
 
 local function StartFishingSession()
-    if ns.QuestModeOff then ns.QuestModeOff("fishing") end
     fishing.active = true
     fishing.start = GetTime()
     fishing.catches, fishing.items, fishing.value = 0, 0, 0
@@ -375,6 +374,9 @@ events:SetScript("OnEvent", function(_, event, _, _, spellID)
     if event == "UNIT_SPELLCAST_CHANNEL_START" then
         if IsFishingCast(spellID) then
             if not fishing.active or GetTime() - (fishing.last or 0) > SESSION_IDLE then StartFishingSession() end
+            -- every cast, not only the first of the session: the questing
+            -- mode goes off (Codex 09.11., B1); the session goes on
+            if ns.QuestModeOff then ns.QuestModeOff("fishing") end
             fishing.last = GetTime()
             lootGuard.counted = false
             lineOut = true
