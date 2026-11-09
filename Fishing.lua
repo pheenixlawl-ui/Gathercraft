@@ -302,7 +302,7 @@ end
 ---------------------------------------------------------------------------
 local gathering = false -- our settings are claimed for gathering
 local gatherOwner = CreateFrame("Frame") -- holds the gathering key
-local gatherKey = false -- the Fish key gathers now
+local gatherKeys = {} -- key -> true: the Fish keys that gather now
 
 local function GatherTime()
     return ns.run ~= nil or (ns.QuestModeOn and ns.QuestModeOn()) or false
@@ -310,15 +310,31 @@ end
 local function MarkWanted() return ns.db and (ns.db.gatherMark or ns.db.gatherKey) and GatherTime() end
 local function KeyWanted() return ns.db and ns.db.gatherKey and GatherTime() and true or false end
 
+-- the keys bound to Fish right now (none when you removed the binding)
+local function FishKeys()
+    local keys = {}
+    for _, key in ipairs({ GetBindingKey(BINDING) }) do keys[key] = true end
+    return keys
+end
+
+local function SameKeys(a, b)
+    for k in pairs(a) do if not b[k] then return false end end
+    for k in pairs(b) do if not a[k] then return false end end
+    return true
+end
+
+-- on: the keys bound to Fish now gather. Compared by key, not by on/off, so
+-- a key you rebind meanwhile (UPDATE_BINDINGS) is followed: the old one is
+-- yours again, the new one gathers; none bound, none overridden (Codex
+-- 09.11., B2). In combat nothing changes; the end of the fight catches up.
 local function SetGatherKey(on)
-    if on == gatherKey or InCombatLockdown() then return end -- in combat: at its end
+    local want = on and FishKeys() or {}
+    if SameKeys(want, gatherKeys) or InCombatLockdown() then return end
     ClearOverrideBindings(gatherOwner)
-    if on then
-        for _, key in ipairs({ GetBindingKey(BINDING) }) do
-            SetOverrideBinding(gatherOwner, true, key, "INTERACTTARGET")
-        end
+    for key in pairs(want) do
+        SetOverrideBinding(gatherOwner, true, key, "INTERACTTARGET")
     end
-    gatherKey = on
+    gatherKeys = want
 end
 
 local function UpdateGatherHelp(event)
@@ -366,6 +382,7 @@ local events = CreateFrame("Frame")
 events:RegisterEvent("PLAYER_LOGIN")
 events:RegisterEvent("PLAYER_LOGOUT")
 events:RegisterEvent("PLAYER_REGEN_ENABLED")
+events:RegisterEvent("UPDATE_BINDINGS")
 events:RegisterEvent("BAG_UPDATE_DELAYED")
 events:RegisterUnitEvent("UNIT_INVENTORY_CHANGED", "player")
 events:RegisterUnitEvent("UNIT_SPELLCAST_CHANNEL_START", "player")
@@ -404,6 +421,9 @@ events:SetScript("OnEvent", function(_, event, _, _, spellID)
         SetReelBinding(lineOut)
         UpdateGatherHelp(event) -- a run or the questing mode began or ended in the fight
         Prepare()
+    elseif event == "UPDATE_BINDINGS" then
+        -- you changed a key (Options > Keybindings): the gathering key follows
+        SetGatherKey(KeyWanted())
     elseif event == "PLAYER_LOGIN" then
         -- left over from a /reload or logout with the line out (or during a
         -- run with the gathering help): put it back

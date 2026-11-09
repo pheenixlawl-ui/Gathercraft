@@ -5984,11 +5984,12 @@ step("Gathering help: mark the node you walk towards, put back like fishing (v0.
 end)
 step("Gathering help: the Fish key gathers during a run or the questing mode, never in combat (v0.1.19 Q6 B)", function()
     local saved = { get = GetCVar, set = SetCVar, set2 = SetOverrideBinding, clear = ClearOverrideBindings, combat = InCombatLockdown,
-        mark = ns.db.gatherMark, key = ns.db.gatherKey, cvars = ns.db.fishingCVars, bobber = ns.db.fishMarkBobber,
+        bind = GetBindingKey, mark = ns.db.gatherMark, key = ns.db.gatherKey, cvars = ns.db.fishingCVars, bobber = ns.db.fishMarkBobber,
         map = player.map, x = player.x, y = player.y }
     local store = {}
     local binds = {} -- owner -> key -> command
     local fighting = false
+    local bound = "F" -- the key bound to Fish (nil: none)
     local function Gathers()
         for _, keys in pairs(binds) do if keys.F == "INTERACTTARGET" then return true end end
         return false
@@ -6007,6 +6008,7 @@ step("Gathering help: the Fish key gathers during a run or the questing mode, ne
         SetOverrideBinding = function(owner, _, key, cmd) binds[owner] = binds[owner] or {} binds[owner][key] = cmd end
         ClearOverrideBindings = function(owner) binds[owner] = nil end
         InCombatLockdown = function() return fighting end
+        GetBindingKey = function(cmd) if cmd == ns.FishBinding then return bound end return saved.bind(cmd) end
         ns.db.fishingCVars, ns.db.fishMarkBobber = nil, false
         player.map, player.x, player.y = 1412, 0.45, 0.72
         ns.SetQuestMode(false)
@@ -6076,7 +6078,42 @@ step("Gathering help: the Fish key gathers during a run or the questing mode, ne
         slash("stop") advance(1)
         assert(not Gathers() and ns.db.fishingCVars == nil, "the key without a saved mark: left after the run")
         ns.db.gatherKey = nil
+        -- (9) you rebind the Fish key while it gathers (Codex 09.11., B2): the
+        -- old key is yours again, the new one gathers; none bound, none
+        -- overridden; in combat it waits for the end of the fight
+        local function KeyGathers(key)
+            for _, keys in pairs(binds) do if keys[key] == "INTERACTTARGET" then return true end end
+            return false
+        end
+        ns.db.gatherKey, ns.db.gatherMark = true, true
+        slash("run herb") advance(2)
+        assert(KeyGathers("F"), "test setup: F does not gather")
+        bound = "G"
+        fire("UPDATE_BINDINGS")
+        assert(not KeyGathers("F"), "F rebound to another action: still overridden")
+        assert(KeyGathers("G"), "the new Fish key G does not gather")
+        bound = nil
+        fire("UPDATE_BINDINGS")
+        assert(not KeyGathers("F") and not KeyGathers("G") and Owners() == 0, "no Fish key bound: an override is left")
+        bound = "F"
+        fighting = true
+        fire("UPDATE_BINDINGS")
+        assert(Owners() == 0, "a key changed in combat (rebind)")
+        fighting = false
+        fire("PLAYER_REGEN_ENABLED") advance(1)
+        assert(KeyGathers("F"), "after the fight the rebound key does not gather")
+        fighting = true
+        bound = "G"
+        fire("UPDATE_BINDINGS")
+        assert(KeyGathers("F") and not KeyGathers("G"), "a key changed in combat (F to G)")
+        fighting = false
+        fire("PLAYER_REGEN_ENABLED") advance(1)
+        assert(KeyGathers("G") and not KeyGathers("F"), "after the fight: G should gather, F be free")
+        slash("stop") advance(1)
+        assert(Owners() == 0, "after the run an override of a rebound key is left")
+        bound = "F"
     end)
+    GetBindingKey = saved.bind
     GetCVar, SetCVar, SetOverrideBinding, ClearOverrideBindings, InCombatLockdown = saved.get, saved.set, saved.set2, saved.clear, saved.combat
     if ns.run then ns.StopRun(true) end
     ns.SetQuestMode(false)
