@@ -4481,6 +4481,60 @@ step("Craft log: a series' points are its successes only while no craft ever gav
     advance(3)
     if not ok then error(err, 0) end
 end)
+step("Craft log: the header counts crafts, a block and its casts once (v0.1.20 F3)", function()
+    -- Codex 09.11., B3: 3 single crafts and 7 by Create All said "11 crafts"
+    local data = GathercraftRecipeData
+    local spell = data.spells.Leatherworking["Light Leather"]
+    local saved = { rank = ns.ProfessionRank, have = ns.CraftData.Have, colors = data.colors[spell], log = ns.db.craftLog, off = ns.db.craftLogOff, multi = ns.db.craftMulti }
+    local rank = 10
+    ns.ProfessionRank = function(p) if p == "Leatherworking" then return rank, 75 end end
+    ns.CraftData.Have = function() return 0 end
+    data.colors[spell] = "25:45"
+    ns.db.craftLog, ns.db.craftLogOff, ns.db.craftMulti = {}, nil, nil
+    local n = 0
+    local function Cast(gain)
+        n = n + 1
+        fire("UNIT_SPELLCAST_START", "player", "Cast-f3-" .. n, spell)
+        rank = rank + gain
+        fire("UNIT_SPELLCAST_SUCCEEDED", "player", "Cast-f3-" .. n, spell)
+    end
+    local function Header()
+        local mark = #log
+        slash("craftlog")
+        return table.concat(log, "\n", mark + 1)
+    end
+    local function Says(count) return (ns.L["Craft log: %d crafts (kept on this computer, never shared)."]):format(count) end
+    local ok, err = pcall(function()
+        advance(3)
+        for _ = 1, 3 do Cast(1) advance(2) end
+        for _ = 1, 7 do Cast(1) advance(0.3) end
+        advance(2)
+        assert(#ns.db.craftLog == 11, "test setup: 3 singles, 7 series casts and their block: " .. #ns.db.craftLog)
+        local text = Header()
+        assert(text:find(Says(10), 1, true), "the header does not say 10 crafts: " .. text:sub(1, 120))
+        assert(not text:find(Says(11), 1, true), "the header counts the block as a craft")
+        -- a broken series (no block): its casts are crafts all the same
+        fire("UNIT_SPELLCAST_START", "player", "Cast-f3-x", spell)
+        fire("UNIT_SPELLCAST_FAILED", "player", "Cast-f3-x", spell)
+        assert(Header():find(Says(11), 1, true), "a failed cast is not counted as a craft")
+        -- a full log that has lost the oldest casts of a block: the block still stands for all of them
+        ns.db.craftLog = {
+            { t = 3, result = "ok", prof = "Leatherworking", spell = spell, colour = "orange", before = 12, after = 13, gain = 1, overlap = true, inSeries = true },
+            { kind = "series", t = 1, result = "ok", prof = "Leatherworking", spell = spell, colour = "orange", n = 7, before = 6, after = 13, gain = 7, yellow = 25, grey = 45, max = 75 },
+            { t = 9, result = "ok", prof = "Leatherworking", spell = spell, colour = "orange", before = 13, after = 14, gain = 1, yellow = 25, grey = 45, max = 75 },
+        }
+        assert(Header():find(Says(8), 1, true), "a block whose oldest casts left the log: not 7 + 1 crafts")
+        local byColour = ns.CraftLogSummary()
+        assert(byColour.orange.tries == 8, "header and colour line disagree")
+        -- an empty log says 0
+        ns.db.craftLog = {}
+        assert(Header():find(Says(0), 1, true), "an empty log")
+    end)
+    ns.ProfessionRank, ns.CraftData.Have, data.colors[spell] = saved.rank, saved.have, saved.colors
+    ns.db.craftLog, ns.db.craftLogOff, ns.db.craftMulti = saved.log, saved.off, saved.multi
+    advance(3)
+    if not ok then error(err, 0) end
+end)
 step("Craft log: no green threshold is made up; yellow/green is one honest line (v0.1.20 K3)", function()
     -- skill plan 2.0 concept 4.1: the shipped colours are yellow and grey
     -- only. The distance to grey stays the real statistic.

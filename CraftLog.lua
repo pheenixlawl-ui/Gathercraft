@@ -435,6 +435,22 @@ local function Summary(log)
 end
 ns.CraftLogSummary = function() return Summary(DB()) end
 
+-- how many crafts the log knows of (Codex B3): a block stands for its n
+-- casts, and those casts (inSeries) are not counted a second time - also
+-- right when the oldest of them have left a full log
+local function Crafts(log)
+    local n = 0
+    for _, e in ipairs(log) do
+        if e.kind == "series" then
+            n = n + e.n
+        elseif not e.inSeries then
+            n = n + 1
+        end
+    end
+    return n
+end
+ns.CraftLogCrafts = function() return Crafts(DB()) end
+
 local function Rate(x) return x.tries > 0 and math.floor(100 * x.ups / x.tries + 0.5) or 0 end
 
 ns.CraftLogCommand = function(rest)
@@ -450,7 +466,7 @@ ns.CraftLogCommand = function(rest)
         return
     end
     local log = DB()
-    ns.Print((L["Craft log: %d crafts (kept on this computer, never shared)."]):format(#log))
+    ns.Print((L["Craft log: %d crafts (kept on this computer, never shared)."]):format(Crafts(log)))
     if ns.db.craftLogOff then print(L["  Recording is off (Options > General)."]) end
     if #log == 0 then return end
     local byColour, byGap, other = Summary(log)
