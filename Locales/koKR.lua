@@ -547,7 +547,6 @@ ns.Locales.koKR = {
     ["Arrow to the nearest gold ring"] = "가장 가까운 금색 고리로 화살표",
     ["What's new in %s"] = "%s 새 소식",
     ["Coming next"] = "다음 예정",
-    ["Skill plan 2.0 · Shopping list on the map · Smoother Loop routes"] = "숙련도 계획 2.0 · 지도 위 구매 목록 · 더 매끄러운 순환 경로",
     ["Ideas or bugs? Tell us on CurseForge or Discord."] = "아이디어나 버그가 있나요? CurseForge나 Discord에서 알려 주세요.",
     ["Mark the node you walk towards (one at a time)"] = "향해 걸어가는 채집물 표시 (한 번에 하나)",
     ["Fish key gathers the marked node"] = "낚시 키로 표시된 채집물 채집",
@@ -563,4 +562,6 @@ ns.Locales.koKR = {
     ["yellow/green"] = "노랑/초록",
     ["  from series (Create All): %d series, %d crafts, %d skill-ups - counted above"] = "  연속 제작(모두 제작): 연속 %d회, 제작 %d회, 숙련도 상승 %d회 – 위에 포함됨",
     ["  Series of %s are not counted: a craft there gave more than one point."] = "  %s의 연속 제작은 집계하지 않습니다: 한 번의 제작이 1점 넘게 올렸습니다.",
+    ["The herbs/minerals button now sits on the edge of a square minimap too. Craft log: a Create All series counts as one block when it is clear; no green threshold is made up any more."] = "약초/광물 버튼이 이제 사각형 미니맵에서도 가장자리에 놓입니다. 제작 기록: 명확한 ‘모두 제작’ 연속은 하나의 묶음으로 집계되며, 초록 기준치를 더 이상 임의로 만들지 않습니다.",
+    ["Skill plan 2.0 · Item tooltips · Shopping list on the map"] = "숙련도 계획 2.0 · 아이템 툴팁 · 지도 위 구매 목록",
 }

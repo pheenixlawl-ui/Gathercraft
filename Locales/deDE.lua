@@ -576,7 +576,6 @@ ns.Locales.deDE = {
     ["Arrow to the nearest gold ring"] = "Pfeil zum nächsten goldenen Ring",
     ["What's new in %s"] = "Neu in %s",
     ["Coming next"] = "Demnächst",
-    ["Skill plan 2.0 · Shopping list on the map · Smoother Loop routes"] = "Skill-Plan 2.0 · Einkaufsliste auf der Karte · Ruhigere Rundkurse",
     ["Ideas or bugs? Tell us on CurseForge or Discord."] = "Ideen oder Fehler? Schreib uns auf CurseForge oder Discord.",
     ["Mark the node you walk towards (one at a time)"] = "Den Node markieren, auf den du zuläufst (immer nur einen)",
     ["Fish key gathers the marked node"] = "Angeltaste sammelt den markierten Node",
@@ -592,4 +591,6 @@ ns.Locales.deDE = {
     ["yellow/green"] = "gelb/grün",
     ["  from series (Create All): %d series, %d crafts, %d skill-ups - counted above"] = "  aus Serien (Alle herstellen): %d Serien, %d Herstellungen, %d Skill-ups – oben mitgezählt",
     ["  Series of %s are not counted: a craft there gave more than one point."] = "  Serien von %s werden nicht gezählt: dort gab eine Herstellung mehr als einen Punkt.",
+    ["The herbs/minerals button now sits on the edge of a square minimap too. Craft log: a Create All series counts as one block when it is clear; no green threshold is made up any more."] = "Der Kräuter/Mineralien-Knopf sitzt jetzt auch bei einer eckigen Minikarte am Rand. Craft-Protokoll: eine „Alle herstellen“-Serie zählt als ein Block, wenn sie eindeutig ist; eine Grün-Schwelle wird nicht mehr erfunden.",
+    ["Skill plan 2.0 · Item tooltips · Shopping list on the map"] = "Skill-Plan 2.0 · Gegenstands-Tooltips · Einkaufsliste auf der Karte",
 }

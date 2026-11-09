@@ -25,11 +25,12 @@ local WHATS_NEW = {
     ["0.1.17"] = "Run and fishing windows fold into one line or hide. Minimap pins are a plain ring by default, with the route line below them. Fishing marks your bobber and ends with a summary. Crafting sorts by any column.",
     ["0.1.18"] = "Skill plan: correct material amounts – crafted intermediates and all bags now counted. Sharing shows how many spots other players sent you.",
     ["0.1.19"] = "Questing mode: no route, no window – nearby nodes you can gather get a gold ring (Ctrl + right-click on the minimap button, or /gcr quest). The herbs/minerals switch is now under Options, General.",
+    ["0.1.20"] = "The herbs/minerals button now sits on the edge of a square minimap too. Craft log: a Create All series counts as one block when it is clear; no green threshold is made up any more.",
 }
 
 -- What comes next (Sven, 08.11.2026): only what is really planned, no dates;
 -- one key in Locales, changed with each release
-local COMING_NEXT = "Skill plan 2.0 · Shopping list on the map · Smoother Loop routes"
+local COMING_NEXT = "Skill plan 2.0 · Item tooltips · Shopping list on the map"
 local FEEDBACK = "Ideas or bugs? Tell us on CurseForge or Discord."
 
 local function Version()

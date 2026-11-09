@@ -547,7 +547,6 @@ ns.Locales.frFR = {
     ["Arrow to the nearest gold ring"] = "Flèche vers l'anneau doré le plus proche",
     ["What's new in %s"] = "Nouveautés de %s",
     ["Coming next"] = "Bientôt",
-    ["Skill plan 2.0 · Shopping list on the map · Smoother Loop routes"] = "Plan de compétence 2.0 · Liste de courses sur la carte · Boucles plus fluides",
     ["Ideas or bugs? Tell us on CurseForge or Discord."] = "Des idées ou des bugs ? Dites-le-nous sur CurseForge ou Discord.",
     ["Mark the node you walk towards (one at a time)"] = "Marquer le nœud vers lequel vous marchez (un seul à la fois)",
     ["Fish key gathers the marked node"] = "La touche de pêche récolte le nœud marqué",
@@ -563,4 +562,6 @@ ns.Locales.frFR = {
     ["yellow/green"] = "jaune/vert",
     ["  from series (Create All): %d series, %d crafts, %d skill-ups - counted above"] = "  des séries (Tout créer) : %d séries, %d fabrications, %d gains de compétence – comptés ci-dessus",
     ["  Series of %s are not counted: a craft there gave more than one point."] = "  Les séries de %s ne sont pas comptées : une fabrication y a donné plus d'un point.",
+    ["The herbs/minerals button now sits on the edge of a square minimap too. Craft log: a Create All series counts as one block when it is clear; no green threshold is made up any more."] = "Le bouton herbes/minerais se place désormais aussi au bord d'une minicarte carrée. Journal de fabrication : une série « Tout créer » compte comme un bloc quand elle est nette ; plus aucun seuil vert inventé.",
+    ["Skill plan 2.0 · Item tooltips · Shopping list on the map"] = "Plan de compétence 2.0 · Infobulles d'objets · Liste de courses sur la carte",
 }

@@ -547,7 +547,6 @@ ns.Locales.ruRU = {
     ["Arrow to the nearest gold ring"] = "Стрелка к ближайшему золотому кольцу",
     ["What's new in %s"] = "Что нового в %s",
     ["Coming next"] = "Скоро",
-    ["Skill plan 2.0 · Shopping list on the map · Smoother Loop routes"] = "План навыка 2.0 · Список покупок на карте · Более плавные круговые маршруты",
     ["Ideas or bugs? Tell us on CurseForge or Discord."] = "Идеи или ошибки? Напишите нам на CurseForge или в Discord.",
     ["Mark the node you walk towards (one at a time)"] = "Отмечать точку, к которой вы идёте (по одной)",
     ["Fish key gathers the marked node"] = "Клавиша рыбалки собирает отмеченную точку",
@@ -563,4 +562,6 @@ ns.Locales.ruRU = {
     ["yellow/green"] = "жёлтый/зелёный",
     ["  from series (Create All): %d series, %d crafts, %d skill-ups - counted above"] = "  из серий (Создать все): %d серий, %d созданий, %d повышений навыка – учтены выше",
     ["  Series of %s are not counted: a craft there gave more than one point."] = "  Серии для %s не учитываются: одно создание дало там больше одного очка.",
+    ["The herbs/minerals button now sits on the edge of a square minimap too. Craft log: a Create All series counts as one block when it is clear; no green threshold is made up any more."] = "Кнопка травы/минералы теперь располагается у края и квадратной миникарты. Журнал создания: серия «Создать все» считается одним блоком, если она однозначна; зелёный порог больше не выдумывается.",
+    ["Skill plan 2.0 · Item tooltips · Shopping list on the map"] = "План навыка 2.0 · Подсказки предметов · Список покупок на карте",
 }

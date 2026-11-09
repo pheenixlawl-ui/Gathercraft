@@ -547,7 +547,6 @@ ns.Locales.ptBR = {
     ["Arrow to the nearest gold ring"] = "Seta para o anel dourado mais próximo",
     ["What's new in %s"] = "Novidades da %s",
     ["Coming next"] = "Em breve",
-    ["Skill plan 2.0 · Shopping list on the map · Smoother Loop routes"] = "Plano de perícia 2.0 · Lista de compras no mapa · Rotas em circuito mais suaves",
     ["Ideas or bugs? Tell us on CurseForge or Discord."] = "Ideias ou bugs? Conte para nós no CurseForge ou no Discord.",
     ["Mark the node you walk towards (one at a time)"] = "Marcar o nó para o qual você caminha (um por vez)",
     ["Fish key gathers the marked node"] = "A tecla de pesca coleta o nó marcado",
@@ -563,4 +562,6 @@ ns.Locales.ptBR = {
     ["yellow/green"] = "amarelo/verde",
     ["  from series (Create All): %d series, %d crafts, %d skill-ups - counted above"] = "  de séries (Criar tudo): %d séries, %d criações, %d aumentos de habilidade – contados acima",
     ["  Series of %s are not counted: a craft there gave more than one point."] = "  As séries de %s não são contadas: lá uma criação deu mais de um ponto.",
+    ["The herbs/minerals button now sits on the edge of a square minimap too. Craft log: a Create All series counts as one block when it is clear; no green threshold is made up any more."] = "O botão de ervas/minerais agora fica na borda também de um minimapa quadrado. Registro de criação: uma série de “Criar tudo” conta como um bloco quando é clara; nenhum limite verde é mais inventado.",
+    ["Skill plan 2.0 · Item tooltips · Shopping list on the map"] = "Plano de perícia 2.0 · Dicas de itens · Lista de compras no mapa",
 }

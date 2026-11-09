@@ -547,7 +547,6 @@ ns.Locales.zhTW = {
     ["Arrow to the nearest gold ring"] = "指向最近金色圓環的箭頭",
     ["What's new in %s"] = "%s 更新內容",
     ["Coming next"] = "即將推出",
-    ["Skill plan 2.0 · Shopping list on the map · Smoother Loop routes"] = "技能計畫 2.0 · 地圖上的購物清單 · 更順暢的環形路線",
     ["Ideas or bugs? Tell us on CurseForge or Discord."] = "有想法或發現錯誤？請在 CurseForge 或 Discord 告訴我們。",
     ["Mark the node you walk towards (one at a time)"] = "標記你正走向的採集點（一次一個）",
     ["Fish key gathers the marked node"] = "釣魚鍵採集已標記的採集點",
@@ -563,4 +562,6 @@ ns.Locales.zhTW = {
     ["yellow/green"] = "黃色/綠色",
     ["  from series (Create All): %d series, %d crafts, %d skill-ups - counted above"] = "  來自連續製作（全部製造）：%d 組，%d 次製作，%d 次技能提升 – 已計入上方",
     ["  Series of %s are not counted: a craft there gave more than one point."] = "  %s 的連續製作不計入：其中一次製作提升了超過一點。",
+    ["The herbs/minerals button now sits on the edge of a square minimap too. Craft log: a Create All series counts as one block when it is clear; no green threshold is made up any more."] = "草藥/礦物按鈕現在在方形小地圖上也位於邊緣。製造記錄：清晰的「全部製造」連續製作計為一組；不再虛構綠色閾值。",
+    ["Skill plan 2.0 · Item tooltips · Shopping list on the map"] = "技能計畫 2.0 · 物品提示 · 地圖上的購物清單",
 }
