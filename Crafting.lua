@@ -1296,6 +1296,8 @@ ns.BuildCraftPage = function(page, style)
     sub:SetJustifyH("LEFT")
 
     local filter = "mine" -- "mine" = my professions, or a profession name
+    -- what the tab shows, for the skill plan: it plans exactly this profession
+    ns.CraftFilter = function() return filter end
     local mineOnly = false
     local tabs = {}
     local Refresh

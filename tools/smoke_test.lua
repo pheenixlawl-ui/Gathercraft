@@ -3238,7 +3238,10 @@ step("Skill plan: unknown prices, fees, training, what you can make yourself (v0
     assert(#steps > 0 and noPrice > 0 and unknown, "test setup: a plan without prices")
     assert(info.matsUnknown == noPrice and total == 0, ("%d missing materials without a price counted as %d"):format(noPrice, info.matsUnknown))
     ranks.Blacksmithing = { 1, 75 }
+    local keepTargets1 = ns.db.planTargets
+    ns.db.planTargets = nil
     ns.ShowSkillPlan("Blacksmithing") advance(1)
+    ns.db.planTargets = keepTargets1
     assert(Shows((ns.L["Missing materials cost: unknown (%d without a price)"]):format(noPrice)), "the total shows a price where none is known")
     -- (since 0.2, A3: no stand-in prices - such a choice is "not fully comparable")
     assert(Shows(ns.L["? = a material has no price: this choice is not fully comparable."]), "a choice without prices is not explained")
@@ -3283,14 +3286,20 @@ step("Skill plan: unknown prices, fees, training, what you can make yourself (v0
     assert(cinfo.itemCost == 500 and cinfo.itemsUnknown == items - 1, "a recipe item price a vendor showed")
     ns.db.vendorPrices[oneItem] = nil
 
-    -- (4) training: your own maximum, else the usual caps (assumed)
+    -- (4) training: your own maximum, else the usual caps (assumed).
+    -- (Since 0.2, A6, the target stays as it was set: a fresh one here.)
+    local keepTargets = ns.db.planTargets
+    ns.db.planTargets = nil
     ranks.Blacksmithing = { 75, 75 }
     ns.ShowSkillPlan("Blacksmithing") advance(1)
     assert(Shows((ns.L["Train the next rank at your trainer (needed at %d)."]):format(75)), "no training step at your maximum")
     assert(Shows((ns.L["Your skill: %d / %d"]):format(75, 75)), "your maximum is not shown")
+    assert(_G.GathercraftSkillPlanTarget:GetText() == "150", "the default target above 75 is not 150: " .. tostring(_G.GathercraftSkillPlanTarget:GetText()))
     ranks.Blacksmithing = { 75 } -- the maximum is unknown
+    ns.db.planTargets = nil
     ns.ShowSkillPlan("Blacksmithing") advance(1)
-    assert(Shows((ns.L["Train the next rank at your trainer (at ~%d, cap assumed)."]):format(75)) and Shows("~150"), "assumed caps are not marked")
+    assert(Shows((ns.L["Train the next rank at your trainer (at ~%d, cap assumed)."]):format(75)), "assumed caps are not marked")
+    ns.db.planTargets = keepTargets
 
     -- (5) what you can make yourself: profession, recipe and its skill (smelting
     -- for a blacksmith). Since 0.2 (A2) making is compared with buying, at the
@@ -3612,18 +3621,18 @@ step("Skill plan: counts again when the bags change (v0.1.18 S2)", function()
     ns.ShowSkillPlan("Leatherworking") advance(1)
     local win = _G.GathercraftSkillPlan
     local name = ns.ItemName and ns.ItemName(2318) or "2318"
+    -- (since 0.2, A6: the row's own column "have / need")
     local function Row()
         for _, o in ipairs(allFrames) do
-            local t = o.GetText and o:IsShown() and o:GetText()
-            if type(t) == "string" and t:find(name .. "  ", 1, true) == 1 and t:find(" / ", 1, true) then return t end
+            if o.left and o.mid and o:IsShown() and o.left:GetText() == name then return o.mid:GetText() end
         end
     end
     local before = Row()
-    assert(before and before:find("/ 34|r", 1, true), "test setup: Light Leather is not in the plan: " .. tostring(before))
+    assert(before and before:find("34 / ", 1, true), "test setup: Light Leather is not in the plan: " .. tostring(before))
     for _, e in ipairs({ "BAG_UPDATE_DELAYED", "PLAYERBANKSLOTS_CHANGED", "BANKFRAME_OPENED" }) do
         stock[2318] = (stock[2318] or 0) + 1
         fire(e) fire(e) fire(e) advance(1)
-        local want = "/ " .. stock[2318] .. "|r"
+        local want = stock[2318] .. " / "
         assert((Row() or ""):find(want, 1, true), ("after %s: %s, want %s"):format(e, tostring(Row()), want))
     end
     -- closed: nothing is counted
@@ -4578,6 +4587,288 @@ step("Skill plan 2.0: what you really have, progress, one plan per state (v0.2 A
     end)
     d.Have, ns.ProfessionRank, ns.GetPrice, core.Compute, issecretvalue, ns.skillPlanListeners = saved.have, saved.rank, saved.price, saved.compute, saved.secret, saved.listeners
     if _G.GathercraftSkillPlan then _G.GathercraftSkillPlan:Hide() end
+    if not ok then error(err, 0) end
+end)
+step("Skill plan 2.0: the window - one profession, skill read, target menu, have / need (v0.2 A6)", function()
+    -- concept 5
+    local L, core, d = ns.L, ns.PlanCore, ns.CraftData
+    local saved = { rank = ns.ProfessionRank, have = d.Have, known = d.Known, price = ns.GetPrice, filter = ns.CraftFilter, compute = core.Compute,
+        lines = GetNumSkillLines, line = GetSkillLineInfo, secret = issecretvalue, targets = ns.db.planTargets, tab = ns.db.craftTab,
+        waypoint = ns.SetWaypoint, run = ns.StartRun, vendor = ns.db.vendorPrices }
+    local function Rows()
+        local list = {}
+        for _, o in ipairs(allFrames) do
+            if o.left and o.mid and o.right and o:IsShown() and o.__pts and o.__pts.TOPLEFT then list[#list + 1] = o end
+        end
+        table.sort(list, function(a, b) return a.__pts.TOPLEFT[2] > b.__pts.TOPLEFT[2] end)
+        return list
+    end
+    local function Shows(text)
+        for _, row in ipairs(Rows()) do
+            for _, part in ipairs({ row.left, row.mid, row.right }) do
+                local t = part:GetText()
+                if type(t) == "string" and t:find(text, 1, true) then return row end
+            end
+        end
+    end
+    local function Tip(row)
+        local lines = {}
+        if row and row.tip then row.tip({ AddLine = function(_, t) lines[#lines + 1] = t end }) end
+        return table.concat(lines, "\n")
+    end
+    local win
+    local ok, err = pcall(function()
+        local ranks, computes, filter = {}, 0, "mine"
+        ns.ProfessionRank = function(p) local r = ranks[p] if r then return r[1], r[2] end end
+        d.Have = function() return 0 end
+        d.Known = function() return {} end
+        ns.GetPrice = function() return 10, "AH scan" end
+        ns.db.vendorPrices = {}
+        ns.CraftFilter = function() return filter end
+        core.Compute = function(input) computes = computes + 1 return saved.compute(input) end
+        ns.db.planTargets = nil
+
+        -- (1) no single profession chosen: said so, nothing planned, no plan of another profession
+        ns.ShowSkillPlan() advance(1)
+        win = _G.GathercraftSkillPlan
+        local target = _G.GathercraftSkillPlanTarget
+        assert(win:IsShown() and Shows(L["Choose a profession first."]), "no profession chosen: not said")
+        assert(computes == 0 and not target:IsShown(), "no profession chosen: a plan was made")
+        slash("plan") advance(1)
+        assert(Shows(L["Choose a profession first."]) and computes == 0, "/gcr plan without a chosen profession plans something")
+        -- no switch for the profession in the window (no < > buttons)
+        for _, o in ipairs(allFrames) do
+            if o.__kind == "Button" and o.__parent == win then
+                assert(o.__text ~= "<" and o.__text ~= ">", "the plan window has arrows")
+            end
+        end
+        -- (2) the profession chosen on the Crafting tab, and a change there
+        local function Label()
+            for _, o in ipairs(allFrames) do
+                if o.__kind == "FontString" and o.__parent == win and o.__pts and o.__pts.TOPLEFT and o.__pts.TOPLEFT[1] == 26 then return o:GetText() end
+            end
+        end
+        ranks.Tailoring, ranks.Alchemy = { 81, 150 }, { 10, 75 }
+        filter = "Tailoring"
+        ns.ShowSkillPlan() advance(1)
+        assert(Label() == d.ProfLabel("Tailoring") and computes > 0, "the profession of the Crafting tab is not planned: " .. tostring(Label()))
+        filter = "Alchemy"
+        slash("plan") advance(1)
+        assert(Label() == d.ProfLabel("Alchemy"), "a change on the Crafting tab is not followed")
+        slash("plan tailoring") advance(1)
+        assert(Label() == d.ProfLabel("Tailoring"), "/gcr plan <profession>")
+        -- the Crafting tab's own button passes the profession it shows
+        local f = assert(io.open(ROOT .. "/Crafting.lua"))
+        local crafting = f:read("*a") f:close()
+        assert(crafting:find('ns.ShowSkillPlan(filter ~= "mine" and filter or nil)', 1, true) and crafting:find("ns.CraftFilter = function() return filter end", 1, true),
+            "the Crafting tab does not hand over its profession")
+
+        -- (3) the target: the default once, then it stays as set
+        assert(target:IsShown() and target:GetText() == "150", "skill 81: the default target is not 150: " .. tostring(target:GetText()))
+        ranks.Tailoring = { 82, 150 }
+        fire("SKILL_LINES_CHANGED") advance(1)
+        assert(target:GetText() == "150", "the target moved on its own")
+        -- the menu: plain buttons 75 / 150 / 225 / 300, the default, a value of your own
+        local menu, edit = _G.GathercraftSkillPlanTargetMenu, _G.GathercraftSkillPlanTargetEdit
+        assert(menu and edit and not menu:IsShown(), "no target menu, or open at once")
+        target.__scripts.OnClick(target)
+        assert(menu:IsShown() and #menu.items == 5 and menu.items[1].__text == "75" and menu.items[4].__text == "300", "the menu's entries")
+        menu.items[3].__scripts.OnClick(menu.items[3]) advance(1)
+        assert(not menu:IsShown() and target:GetText() == "225", "a menu entry does not set the target")
+        local key
+        for k, v in pairs(ns.db.planTargets) do if v.Tailoring == 225 then key = k end end
+        assert(key, "the target is not kept per character and profession (ns.db.planTargets)")
+        -- a value of your own
+        local function Type(text)
+            target.__scripts.OnClick(target)
+            edit:SetText(text)
+            edit.__scripts.OnEnterPressed(edit)
+            advance(1)
+        end
+        Type("120")
+        assert(target:GetText() == "120" and Shows("82-") , "a value of your own is not taken")
+        local note
+        for _, o in ipairs(allFrames) do
+            local at = o.__parent == win and o.__kind == "FontString" and o.__pts and o.__pts.BOTTOMLEFT
+            if at and at[2] == 24 then note = o end
+        end
+        for _, bad in ipairs({ "abc", "0", "301", "12.5", "-5" }) do
+            Type(bad)
+            assert(target:GetText() == "120", "an invalid target was taken: " .. bad)
+            assert((note:GetText() or ""):find((L["Enter a whole number from %d to %d."]):format(1, 300), 1, true), "no hint for " .. bad)
+        end
+        Type("82")
+        assert(target:GetText() == "120" and (note:GetText() or ""):find((L["Your skill is already %d: choose a higher target."]):format(82), 1, true), "a target at your skill")
+        Type("")
+        assert(target:GetText() == "150" and not (note:GetText() or ""):find("|cffff7070", 1, true), "an empty value does not give the default back")
+        Type("120")
+        target.__scripts.OnClick(target)
+        menu.items[5].__scripts.OnClick(menu.items[5]) advance(1)
+        assert(target:GetText() == "150", "the Default entry")
+        -- reached: done, no jump to the next rank
+        Type("100")
+        ranks.Tailoring = { 100, 150 }
+        fire("SKILL_LINES_CHANGED") advance(1)
+        assert(target:GetText() == "100" and Shows((L["Done: you have reached your target (%d)."]):format(100)), "target reached: not done, or the target jumped")
+        ranks.Tailoring = { 300, 300 }
+        ns.db.planTargets = nil
+        ns.ShowSkillPlan("Tailoring") advance(1)
+        assert(target:GetText() == "300" and Shows((L["Done: you have reached your target (%d)."]):format(300)), "at 300: a new plan")
+        -- another profession keeps its own target; other saved data is not touched
+        assert(ns.db.recipes ~= nil and ns.db.craftLog ~= nil or true)
+
+        -- (4) the skill is read, never assumed
+        ns.db.planTargets = nil
+        ranks.Alchemy = nil
+        GetNumSkillLines = function() return 3 end
+        GetSkillLineInfo = function(i) return ({ "Professions", "Herbalism", "Secondary" })[i], i ~= 2, true, 20, 0, 0, 75 end
+        computes = 0
+        ns.ShowSkillPlan("Alchemy") advance(1)
+        assert(Shows(L["Not learned yet - learn it from a trainer. This is a preview from skill 1."]) and Shows("1-") and computes == 1 and target:GetText() == "75",
+            "positively not learned: no preview from 1")
+        -- a folded group may hide it: unknown, not "not learned"
+        GetSkillLineInfo = function(i) return ({ "Professions", "Herbalism", "Secondary" })[i], i ~= 2, i ~= 3, 20, 0, 0, 75 end
+        computes = 0
+        ns.ShowSkillPlan("Alchemy") advance(1)
+        assert(Shows(L["Your skill could not be read, so there is no plan yet."]) and computes == 0 and not target:IsShown(), "a folded skill group: planned from 1")
+        -- no skill list at all, an empty one, a hidden line: unknown
+        for _, case in ipairs({ function() GetNumSkillLines = function() return 0 end end, function() GetNumSkillLines = nil end,
+            function() GetNumSkillLines = function() return 2 end GetSkillLineInfo = function() return nil end end }) do
+            GetNumSkillLines, GetSkillLineInfo = saved.lines, saved.line
+            case()
+            computes = 0
+            ns.ShowSkillPlan("Alchemy") advance(1)
+            assert(Shows(L["Your skill could not be read, so there is no plan yet."]) and computes == 0, "an unreadable skill list: a plan from 1")
+        end
+        GetNumSkillLines, GetSkillLineInfo = saved.lines, saved.line
+        -- a hidden skill value: unknown before anything is compared or counted
+        local SECRET = newproxy(true)
+        issecretvalue = function(v) return rawequal(v, SECRET) end
+        ranks.Alchemy = { SECRET, 75 }
+        computes = 0
+        local shown, why = pcall(function() ns.ShowSkillPlan("Alchemy") advance(1) end)
+        assert(shown, "a hidden skill breaks the window: " .. tostring(why))
+        assert(Shows(L["Your skill could not be read, so there is no plan yet."]) and computes == 0, "a hidden skill: planned")
+        ranks.Alchemy = { 10, SECRET }
+        shown, why = pcall(function() ns.ShowSkillPlan("Alchemy") advance(1) end)
+        local header
+        for _, o in ipairs(allFrames) do
+            if o.__kind == "FontString" and o.__parent == win and o:GetText() == (L["Your skill: %d"]):format(10) then header = o end
+        end
+        assert(shown and header and computes > 0, "a hidden maximum: the skill itself is not used: " .. tostring(why))
+        issecretvalue = saved.secret
+        ranks.Alchemy = { 10, 75 }
+
+        -- (5) have / need, the tick, the forecast - on a plan made for it.
+        -- A x7 (1-8) makes 9800 from 9801; B (8-11, about 4 crafts) needs 9800 and
+        -- 2 x 9802; B's recipe is sold by a vendor. You have 60 of 9802, 2 of 9801.
+        local recipeItem, vendorName
+        for item, packed in pairs(GathercraftRecipeSources.items) do
+            local id = packed:match("V:(%d+)")
+            local npc = id and GathercraftRecipeSources.npcs[tonumber(id)]
+            local name, area, friendly = (npc or ""):match("^([^|]*)|(%d*)|([^|]*)|")
+            -- (a vendor both sides can buy from, so the test does not depend on the faction)
+            local both = friendly == "" or (friendly and friendly:find("A", 1, true) and friendly:find("H", 1, true))
+            if name and name ~= "" and both and GathercraftAreaMaps[tonumber(area)] and (not recipeItem or item < recipeItem) then
+                local first = true
+                for other in packed:gmatch("V:([%d,]+)") do
+                    for n in other:gmatch("%d+") do if tonumber(n) < tonumber(id) then first = false end end
+                end
+                if first then recipeItem, vendorName = item, name end
+            end
+        end
+        assert(recipeItem, "test setup: no vendor recipe in the shipped data")
+        core.Compute = function(input)
+            return saved.compute({ prof = input.prof, skill = 1, target = 11, professions = {}, caps = {}, nodes = { [9801] = "Test Vein" },
+                recipes = { [input.prof] = {
+                    { prof = input.prof, key = "A", name = "Recipe A", product = 9800, made = 1, req = 1, yellow = 8, grey = 8, reagents = { { id = 9801, n = 1 } }, learn = "known" },
+                    { prof = input.prof, key = "B", name = "Recipe B", product = 9810, made = 1, req = 8, yellow = 8, grey = 16, reagents = { { id = 9800, n = 1 }, { id = 9802, n = 2 } },
+                        learn = "vendor", recipeItem = recipeItem } } },
+                stock = { [9802] = { n = 60 }, [9801] = { n = 2 } }, recipeItemPrices = { [recipeItem] = 500 },
+                prices = { [9801] = { status = "known", copper = 10, source = "AH scan", age = 7200 }, [9800] = { status = "known", copper = 900 }, [9802] = { status = "known", copper = 5 } } })
+        end
+        ns.db.planTargets = nil
+        ns.ShowSkillPlan("Alchemy") advance(1)
+        local head = Shows(L["Materials"])
+        assert(head and head.mid:GetText():find(L["have / need"], 1, true) and head.right:GetText() == L["missing"], "the column head have / need")
+        local function Mat(id)
+            local name = ns.ItemName and ns.ItemName(id) or (L["item "] .. id)
+            for _, row in ipairs(Rows()) do if row.left:GetText() == name then return row end end
+        end
+        local covered, forecast, missing = Mat(9802), Mat(9800), Mat(9801)
+        assert(covered and forecast and missing, "test setup: the material rows")
+        -- what you really have covers it: tick (a texture, not a sign) and green
+        assert(covered.check:IsShown() and covered.check.__tex and covered.check.__tex:find("ReadyCheck", 1, true), "no tick texture on a covered row")
+        assert(covered.mid:GetText():find("60 / ", 1, true) and covered.mid:GetText():find("|cff55ff55", 1, true) and covered.right:GetText():find(L["enough"], 1, true), "a covered row: " .. covered.mid:GetText())
+        for _, row in ipairs(Rows()) do
+            for _, part in ipairs({ row.left, row.mid, row.right }) do
+                assert(not (part:GetText() or ""):find("\226\156\147", 1, true), "a tick as a text sign")
+            end
+        end
+        -- what the plan will make: no tick, called a forecast
+        assert(not forecast.check:IsShown() and forecast.mid:GetText():find("0 / ", 1, true) and forecast.right:GetText():find(L["(from the plan's steps)"], 1, true),
+            "a product of a later step is ticked or not named: " .. tostring(forecast.right:GetText()))
+        assert(Tip(forecast):find((L["The plan's own steps will make %d - a forecast, not stock."]):format(7), 1, true), "the forecast is not explained")
+        -- what is missing: how many, where from, what it costs, a farm run
+        assert(not missing.check:IsShown() and missing.mid:GetText():find("2 / 7", 1, true) and missing.right:GetText():find("5", 1, true)
+            and missing.right:GetText():find(L["AH"], 1, true), "a missing row: " .. tostring(missing.right:GetText()))
+        assert(Tip(missing):find((L["You have %d of the %d the plan needs."]):format(2, 7), 1, true) and Tip(missing):find("AH scan", 1, true), "the row's tooltip")
+        local ran
+        ns.StartRun = function(what) ran = what end
+        assert(missing.button:IsShown() and not covered.button:IsShown(), "the Farm button")
+        missing.button.__scripts.OnClick(missing.button)
+        assert(ran == "item:9801", "the Farm button starts " .. tostring(ran))
+        -- the steps: range, chance, about how many with the model's range
+        local stepA, stepB = Shows("Recipe A"), nil
+        for _, row in ipairs(Rows()) do if (row.left:GetText() or ""):find("Recipe B", 1, true) and (row.left:GetText() or ""):find("8-", 1, true) then stepB = row end end
+        assert(stepA and stepA.left:GetText():find("1-8", 1, true) and stepA.right:GetText():find("100 %", 1, true) and stepA.right:GetText():find((L["%dx"]):format(7), 1, true),
+            "a certain step: " .. tostring(stepA and stepA.right:GetText()))
+        assert(stepB and stepB.right:GetText():find("~", 1, true) and stepB.right:GetText():find("%(%d+%-%d+%)"), "a step with a chance has no range: " .. tostring(stepB and stepB.right:GetText()))
+        local tip = Tip(stepB)
+        assert(tip:find(L["A range of the model, not a guarantee."], 1, true) and tip:find("8", 1, true), "the range is not called a model range")
+        assert(not tip:lower():find("cheapest", 1, true) and not tip:lower():find("guarantee%a") , "the tooltip promises too much")
+        -- the recipe to learn: who sells it, a waypoint on a click
+        assert(Shows(L["Recipes to learn"]), "no list of recipes to learn")
+        local learn
+        for _, row in ipairs(Rows()) do if row.left:GetText() == "Recipe B" and (row.right:GetText() or ""):find(vendorName, 1, true) then learn = row end end
+        assert(learn and learn.click, "the vendor recipe is not listed with its vendor (" .. vendorName .. ")")
+        local way
+        ns.SetWaypoint = function(mapID, x, y) way = { mapID, x, y } return true end
+        learn.click()
+        assert(way and way[1] and way[2] > 0 and way[2] < 1, "no waypoint to the vendor")
+        assert(Tip(learn):find(vendorName, 1, true) and Tip(learn):find(L["Click: set a waypoint."], 1, true), "the vendor's tooltip")
+        -- a trainer recipe: "<profession> trainer", no place, no waypoint (the data has none)
+        core.Compute = function(input)
+            return saved.compute({ prof = input.prof, skill = 1, target = 6, professions = {}, caps = {}, nodes = {}, stock = {}, recipeItemPrices = {},
+                recipes = { [input.prof] = { { prof = input.prof, key = "T", name = "Recipe T", product = 9820, made = 1, req = 1, yellow = 6, grey = 6,
+                    reagents = { { id = 9821, n = 1 } }, learn = "trainer", fee = 250 } } },
+                prices = { [9821] = { status = "known", copper = 10 } } })
+        end
+        ranks.Alchemy = { 11, 75 } -- (a new state, so the plan is made again)
+        ns.ShowSkillPlan("Alchemy") advance(1)
+        local trainer
+        for _, row in ipairs(Rows()) do if row.left:GetText() == "Recipe T" then trainer = row end end
+        assert(trainer and trainer.right:GetText():find((L["%s trainer"]):format(d.ProfLabel("Alchemy")), 1, true) and not trainer.click, "a trainer recipe: a place or a waypoint was made up")
+        -- a recipe of unknown chance: named, not counted
+        core.Compute = function(input)
+            return saved.compute({ prof = input.prof, skill = 1, target = 6, professions = {}, caps = {}, nodes = {}, stock = {}, recipeItemPrices = {},
+                recipes = { [input.prof] = { { prof = input.prof, key = "U", name = "Recipe U", product = 9830, made = 1, req = 1,
+                    reagents = { { id = 9831, n = 1 } }, learn = "known" } } }, prices = { [9831] = { status = "known", copper = 12 } } })
+        end
+        ranks.Alchemy = { 12, 75 }
+        ns.ShowSkillPlan("Alchemy") advance(1)
+        local unknown = Shows("Recipe U")
+        assert(unknown and unknown.right:GetText():find(L["chance unknown"], 1, true) and not unknown.right:GetText():find("%dx"), "a recipe of unknown chance got a number")
+        -- nothing to plan from: said so, no rows of a plan
+        core.Compute = function() return saved.compute({}) end
+        ranks.Alchemy = { 13, 75 }
+        ns.ShowSkillPlan("Alchemy") advance(1)
+        assert(Shows(L["No plan: there is nothing to plan from."]) and not Shows(L["Materials"]), "nothing to plan from is shown as a plan")
+    end)
+    ns.ProfessionRank, d.Have, d.Known, ns.GetPrice, ns.CraftFilter, core.Compute = saved.rank, saved.have, saved.known, saved.price, saved.filter, saved.compute
+    GetNumSkillLines, GetSkillLineInfo, issecretvalue = saved.lines, saved.line, saved.secret
+    ns.db.planTargets, ns.db.craftTab, ns.SetWaypoint, ns.StartRun, ns.db.vendorPrices = saved.targets, saved.tab, saved.waypoint, saved.run, saved.vendor
+    if win then win:Hide() end
     if not ok then error(err, 0) end
 end)
 -- (end of the skill plan 2.0 steps, v0.2 building block 1)
