@@ -5955,18 +5955,30 @@ step("Gathering help: mark the node you walk towards, put back like fishing (v0.
         fishFrame.__scripts.OnEvent(fishFrame, "PLAYER_LOGIN")
         advance(2)
         Is(MARKED, "login, the run going on")
-        -- (8) a crash during the run: no stop, no logout - the list stays in
-        -- the saved variables, the settings stay ours. The next login (no run
-        -- going on now) puts them back.
+        -- (8) the run ended without its stop (a crash, a disconnect), but the
+        -- list was saved before it (a /reload or logout during the run): the
+        -- settings are still ours, the next login (no run going on now) puts
+        -- them back from the saved list
         assert(ns.db.fishingCVars and ns.db.fishingCVars.SoftTargetInteractRange, "test setup: the list during the run")
         local crashed = ns.run
         ns.run = nil -- gone with the crash, without its stop
         fishFrame.__scripts.OnEvent(fishFrame, "PLAYER_LOGIN")
         advance(2)
-        Untouched("login after a crash")
+        Untouched("login after a crash, the list saved before it")
         ns.run = crashed
         ns.StopRun(true)
         Untouched("the old run's stop after the crash login")
+        -- the limit (Codex 09.11., B4): a crash before the game ever saved
+        -- the list - the settings are still ours, nothing says what they
+        -- were. The login leaves them as they are: nothing is guessed, no
+        -- default is forced, no list is invented
+        for k, v in pairs(MARKED) do store[k] = v end
+        ns.db.fishingCVars = nil
+        fishFrame.__scripts.OnEvent(fishFrame, "PLAYER_LOGIN")
+        advance(2)
+        Is(MARKED, "login after a crash without a saved list: a value was guessed")
+        assert(ns.db.fishingCVars == nil, "login after a crash without a saved list: a list was invented")
+        Reset()
         -- (9) the option text says honestly what it does
         local found
         for _, o in ipairs(allFrames) do
