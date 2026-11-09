@@ -3286,13 +3286,16 @@ step("Skill plan: unknown prices, fees, training, what you can make yourself (v0
     ns.ShowSkillPlan("Blacksmithing") advance(1)
     assert(Shows((ns.L["Train the next rank at your trainer (at ~%d, cap assumed)."]):format(75)) and Shows("~150"), "assumed caps are not marked")
 
-    -- (5) what you can make yourself: profession, known recipe and its skill
-    -- (smelting for a blacksmith)
-    local cheap = { [2842] = 1, [3470] = 1, [2840] = 1, [2841] = 1, [2775] = 1, [2770] = 1, [2771] = 1 }
+    -- (5) what you can make yourself: profession, recipe and its skill (smelting
+    -- for a blacksmith). Since 0.2 (A2) making is compared with buying, at the
+    -- moment the plan needs the item: bars and grinding stones are dear at
+    -- the auction house here (bars 100c; a grinding stone 1c, its two rough
+    -- stones 0.8c), ore cheap (1c)
+    local cheap = { [2842] = 100, [3470] = 1, [2840] = 100, [2841] = 100, [3576] = 100, [2775] = 1, [2770] = 1, [2771] = 1, [2835] = 0.4 }
     ns.GetPrice = function(id) return cheap[id] or 1000, "AH scan" end
     local function Bars(from, to)
-        local _, m = ns.SkillPlan("Blacksmithing", from, to)
-        return Mat(m, 2840), Mat(m, 2841), Mat(m, 3470), m
+        local s, m, _, _, _, i = ns.SkillPlan("Blacksmithing", from, to)
+        return Mat(m, 2840), Mat(m, 2841), Mat(m, 3470), m, s, i
     end
     local copper, bronze, _, m = Bars(75, 150)
     assert(bronze and not bronze.madeFrom and bronze.missing > 0, "no Mining: bronze bars are not bought")
@@ -3305,18 +3308,40 @@ step("Skill plan: unknown prices, fees, training, what you can make yourself (v0
     copper, bronze = Bars(75, 150)
     assert(bronze and bronze.madeFrom and bronze.madeFrom.prof == "Mining", "Mining 150: bronze bars are not made")
     assert(copper and copper.madeFrom, "Mining 150: the copper bars inside the bronze are not made")
+    -- cheaper to buy than to make: bought, also with Mining 150
+    cheap[2841] = 1
+    copper, bronze = Bars(75, 150)
+    assert(bronze and not bronze.madeFrom and bronze.missing > 0, "bronze bars cheaper at the auction house are made all the same")
+    cheap[2841] = 100
     ranks.Mining = nil -- learned recipes, but the profession is gone
     _, bronze = Bars(75, 150)
     assert(bronze and not bronze.madeFrom, "without the profession: bars are made")
     knownBy.Mining = nil
-    -- the same profession: Rough Grinding Stone (25) for Silver Skeleton Keys
-    local _, _, stone = Bars(75, 90)
-    assert(stone and not stone.madeFrom and stone.missing > 0, "an unknown recipe of your own profession is made")
+    -- the same profession: Rough Grinding Stone (25, at the trainer for 90c).
+    -- Not known yet: since 0.2 it is made all the same, learned in the plan
+    -- (its fee is counted); a quest or drop recipe would not be
+    -- (made: as extra crafts, or - while the recipe still gives skill points -
+    -- as a step of its own "for materials")
+    local function Made(row) return row ~= nil and row.missing == 0 and (row.madeFrom ~= nil or row.planned >= row.need - row.have) end
+    local _, _, stone, _, _, info5 = Bars(75, 90)
+    assert(Made(stone), "a recipe your trainer teaches is not made in the plan: "
+        .. (stone and ("grinding stones need " .. stone.need .. ", bought " .. stone.missing) or "no grinding stones in the plan"))
+    local feesWith = info5.fees
     knownBy.Blacksmithing = { ["Rough Grinding Stone"] = recipes.Blacksmithing["Rough Grinding Stone"] }
-    _, _, stone = Bars(75, 90)
-    assert(stone and stone.madeFrom and stone.madeFrom.prof == "Blacksmithing", "a known recipe of your profession is not made")
-    _, _, stone = Bars(20, 90)
-    assert(stone and not stone.madeFrom, "made below its required skill (25)")
+    _, _, stone, _, _, info5 = Bars(75, 90)
+    assert(Made(stone), "a known recipe of your profession is not made")
+    assert(info5.fees == feesWith - 90, ("the fee of the recipe learned for an extra craft: %d with, %d known"):format(feesWith, info5.fees))
+    -- from 20: made only where the plan needs it at 25 or later (0.1.18
+    -- looked at the skill at the start of the plan only)
+    local _, _, stone20, _, steps20 = Bars(20, 90)
+    local firstUse
+    for _, s in ipairs(steps20) do
+        for _, r in ipairs(s.recipe.reagents) do
+            if r.id == 3470 and not firstUse then firstUse = s.from end
+        end
+    end
+    assert(stone20 and firstUse, "test setup: no grinding stones from 20 to 90")
+    assert(Made(stone20) == (firstUse >= 25), ("grinding stones first needed at %d: %s"):format(firstUse, Made(stone20) and "made" or "bought"))
     knownBy.Blacksmithing = nil
 
     -- (6) a recipe you learned from a quest stays usable; not learned, it is left
@@ -3362,8 +3387,16 @@ step("Skill plan: what the plan makes itself is counted once, every profession (
     ns.ProfessionRank = function(p) local r = ranks[p] if r then return r, r end end
     d.Known = function(p) return known[p] or {} end
     -- prices: everything 10c at the auction house; vendor items cost what a vendor showed
-    ns.GetPrice = function() return 10, "AH scan" end
     ns.db.vendorPrices = {}
+    -- since 0.2 (A2) buying an intermediate is compared with making it. These
+    -- cases check the material sums of MAKING it, so the intermediates are
+    -- dear at the auction house (1000c): leather, bolts, grinding stones,
+    -- copper bars, blasting powder, blackmouth oil
+    local DEAR = { [2318] = true, [2996] = true, [3470] = true, [2840] = true, [4357] = true, [6370] = true }
+    local function AH(price)
+        ns.GetPrice = function(id) if DEAR[id] then return 1000, "AH scan" end return price(id) end
+    end
+    AH(function() return 10, "AH scan" end)
     -- plan(prof, from, to, { { key, req, upto[, start] }, ... }): only these recipes, all known
     local function Plan(prof, from, to, list)
         local all, spells, colors = {}, {}, {}
@@ -3410,7 +3443,7 @@ step("Skill plan: what the plan makes itself is counted once, every profession (
     -- Light Leather: need 49 x 1 + 23 x 3 = 118; you have 35, the steps make 24
     -- -> 118 - 35 - 24 = 59 more; made in all 24 + 59 = 83 -> scraps 83 x 3 = 249
     -- Coarse Thread 23 x 2 = 46 (vendor 10c, at the AH 50c: the vendor counts)
-    ns.GetPrice = function(id) return id == 2320 and 50 or 10, "AH scan" end
+    AH(function(id) return id == 2320 and 50 or 10, "AH scan" end)
     ns.db.vendorPrices[2320] = 10
     stock = { [2318] = 35 }
     local m, total = Plan("Leatherworking", 1, 97, LW)
@@ -3427,7 +3460,7 @@ step("Skill plan: what the plan makes itself is counted once, every profession (
     stock = { [2318] = 200, [2934] = 10 }
     m = Plan("Leatherworking", 1, 97, LW)
     Is("Leatherworking", m, 2934, 72, 62)
-    ns.GetPrice = function() return 10, "AH scan" end
+    AH(function() return 10, "AH scan" end)
 
     -- Tailoring: 1-11 Bolt of Linen Cloth x10, 11-31 Brown Linen Robe x20
     assert(Uses("Tailoring", "Bolt of Linen Cloth", 2589) == 2 and Uses("Tailoring", "Brown Linen Robe", 2996) == 3
@@ -3468,7 +3501,7 @@ step("Skill plan: what the plan makes itself is counted once, every profession (
     -- powder: need 20 x 2 = 40, the steps make 10 -> 30 more -> rough stone 40;
     -- bolts: need 20, the steps make 20 -> none more; copper bars 20 (bolts)
     -- + 20 (bombs) = 40, you have 5 -> 35 smelted -> copper ore 35; linen 20
-    ns.GetPrice = function(id) return id == 2840 and 50 or 10, "AH scan" end -- bars dear: powder first
+    AH(function(id) return id == 2840 and 50 or 10, "AH scan" end) -- bars dear: powder first
     stock = { [2840] = 5 }
     m = Plan("Engineering", 1, 51, { { "Rough Blasting Powder", 1, 11 }, { "Handful of Copper Bolts", 11, 31 }, { "Rough Copper Bomb", 31, 51 } })
     Is("Engineering", m, 4357, 40, 0, true)
@@ -3477,7 +3510,7 @@ step("Skill plan: what the plan makes itself is counted once, every profession (
     Is("Engineering", m, 2840, 40, 0, true)
     Is("Engineering", m, 2770, 35, 35)
     Is("Engineering", m, 2589, 20, 20)
-    ns.GetPrice = function() return 10, "AH scan" end
+    AH(function() return 10, "AH scan" end)
     ranks.Mining, known.Mining = nil, nil
 
     -- Enchanting: 1-2 Runed Copper Rod x1, 2-22 Enchant Bracer - Minor Stamina
@@ -3490,7 +3523,7 @@ step("Skill plan: what the plan makes itself is counted once, every profession (
         assert(Uses("Enchanting", key, 6218) == 0, "test setup: " .. key .. " uses up a Runed Copper Rod")
     end
     ns.db.vendorPrices[6217] = 124
-    ns.GetPrice = function(id) if id ~= 6217 then return 10, "AH scan" end end -- the rod: vendor only
+    AH(function(id) if id ~= 6217 then return 10, "AH scan" end end) -- the rod: vendor only
     stock = {}
     m, total = Plan("Enchanting", 1, 22, { { "Runed Copper Rod", 1, 2 }, { "Enchant Bracer - Minor Stamina", 2, 22 } })
     Is("Enchanting", m, 6217, 1, 1)
@@ -3499,7 +3532,7 @@ step("Skill plan: what the plan makes itself is counted once, every profession (
     local other = Uses("Enchanting", "Runed Copper Rod", 247786)
     Is("Enchanting", m, 247786, other, other)
     assert(total == 124 + 40 * 10 + other * 10, ("Enchanting: total %d"):format(total))
-    ns.GetPrice = function() return 10, "AH scan" end
+    AH(function() return 10, "AH scan" end)
 
     -- Mining: 1-66 Smelt Copper x65, 66-76 Smelt Bronze x10 (1 copper + 1 tin
     -- -> 2 bronze). Copper bars: need 10, the steps make 65 -> none more ->
@@ -3530,14 +3563,14 @@ step("Skill plan: what the plan makes itself is counted once, every profession (
     -- 1-11 Charred Wolf Meat x10, 11-31 Spiced Wolf Meat x20: meat 30, spices
     -- 20 at the vendor (10c) -> 30 x 10c + 20 x 10c
     assert(Uses("Cooking", "Charred Wolf Meat", 2672) == 1 and Uses("Cooking", "Spiced Wolf Meat", 2678) == 1, "test setup: cooking amounts changed")
-    ns.GetPrice = function(id) return id == 2678 and 99 or 10, "AH scan" end
+    AH(function(id) return id == 2678 and 99 or 10, "AH scan" end)
     ns.db.vendorPrices[2678] = 10
     stock = {}
     m, total = Plan("Cooking", 1, 31, { { "Charred Wolf Meat", 1, 11 }, { "Spiced Wolf Meat", 11, 31 } })
     Is("Cooking", m, 2672, 30, 30)
     Is("Cooking", m, 2678, 20, 20)
     assert(total == 30 * 10 + 20 * 10, ("Cooking: total %d"):format(total))
-    ns.GetPrice = function() return 10, "AH scan" end
+    AH(function() return 10, "AH scan" end)
     -- 1-41 Linen Bandage x40, 41-61 Heavy Linen Bandage x20: linen 40 + 40 = 80,
     -- you have 15 -> 65 missing
     assert(Uses("First Aid", "Linen Bandage", 2589) == 1 and Uses("First Aid", "Heavy Linen Bandage", 2589) == 2, "test setup: first aid amounts changed")
@@ -3896,6 +3929,231 @@ step("Skill plan 2.0: the calculation is its own module and runs on plain tables
     assert(planner:find("ns.PlanCore.Compute", 1, true), "Planner.lua does not call the core")
     assert(not planner:find("local function MakePlan", 1, true) and not planner:find("local function Materials", 1, true), "Planner.lua still calculates itself")
     assert(not planner:lower():find("cheapest", 1, true), "Planner.lua calls the plan the cheapest")
+end)
+step("Skill plan 2.0: one stock per item, in the order the plan is carried out (v0.2 A2)", function()
+    -- concept 4.3 and 4.7, on plain tables. A recipe here gives one point per
+    -- craft from its required skill up to `upto` and nothing after (yellow =
+    -- grey = upto), unless colours are given.
+    local core = ns.PlanCore
+    local function R(prof, key, product, made, req, upto, reagents, learn, yellow, grey)
+        local list = {}
+        for _, r in ipairs(reagents) do list[#list + 1] = { id = r[1], n = r[2] } end
+        return { prof = prof, key = key, name = key, product = product, made = made, req = req, yellow = yellow or upto, grey = grey or upto,
+            reagents = list, learn = learn == nil and "known" or learn or nil }
+    end
+    local function Input(prof, from, to, recipes, stock, prices, professions)
+        local p = {}
+        for id, copper in pairs(prices or {}) do p[id] = { copper = copper } end
+        local byProf = {}
+        for _, r in ipairs(recipes) do
+            byProf[r.prof] = byProf[r.prof] or {}
+            table.insert(byProf[r.prof], r)
+        end
+        local profs = professions or {}
+        profs[prof] = profs[prof] or { rank = from }
+        return { prof = prof, skill = from, target = to, recipes = byProf, professions = profs, stock = stock or {}, prices = p,
+            recipeItemPrices = {}, nodes = {} }
+    end
+    local function Reversed(input)
+        for _, list in pairs(input.recipes) do
+            for i = 1, math.floor(#list / 2) do list[i], list[#list + 1 - i] = list[#list + 1 - i], list[i] end
+            for _, r in ipairs(list) do
+                for i = 1, math.floor(#r.reagents / 2) do r.reagents[i], r.reagents[#r.reagents + 1 - i] = r.reagents[#r.reagents + 1 - i], r.reagents[i] end
+            end
+        end
+        return input
+    end
+    local function Plan(input)
+        local plan = core.Compute(input)
+        local ok, why = core.CheckBalance(plan)
+        assert(ok, "the books do not balance: " .. tostring(why))
+        local m = {}
+        for _, row in ipairs(plan.materials) do
+            assert(not m[row.id], "item " .. row.id .. " listed twice")
+            m[row.id] = row
+        end
+        return plan, m
+    end
+    local function Extra(plan, key)
+        for _, e in ipairs(plan.extras) do if e.recipe.key == key then return e.times end end
+        return 0
+    end
+    local function Has(plan, code)
+        for _, d in ipairs(plan.diagnostics) do if d.code == code then return d end end
+    end
+
+    -- (1) the leather golden: steps 24 / 49 / 23, 35 leather, 9 thread -> 249
+    -- scraps, 37 thread missing; 34 leather -> 252 scraps
+    local function Leather(leather)
+        return Input("Leatherworking", 1, 97, {
+            R("Leatherworking", "Light Leather", 2318, 1, 1, 25, { { 2934, 3 } }),
+            R("Leatherworking", "Light Armor Kit", 2304, 1, 25, 74, { { 2318, 1 } }),
+            R("Leatherworking", "Embossed Leather Gloves", 4239, 1, 74, 97, { { 2318, 3 }, { 2320, 2 } }),
+        }, { [2318] = leather, [2320] = 9 }, { [2318] = 1000, [2934] = 10, [2320] = 10 })
+    end
+    local plan, m = Plan(Leather(35))
+    assert(#plan.steps == 3 and plan.steps[1].crafts == 24 and plan.steps[2].crafts == 49 and plan.steps[3].crafts == 23, "golden: the steps are not 24 / 49 / 23")
+    assert(m[2318].need == 118 and m[2318].have == 35 and m[2318].missing == 0 and m[2318].planned == 24, "golden: leather 118 needed, 35 there, 24 from the steps")
+    assert(m[2934].need == 249 and m[2934].missing == 249, ("golden: %d scraps, want 249"):format(m[2934].need))
+    assert(m[2320].need == 46 and m[2320].have == 9 and m[2320].missing == 37, ("golden: thread missing %d, want 37"):format(m[2320].missing))
+    assert(Extra(plan, "Light Leather") == 59, "golden: extra leather crafts " .. Extra(plan, "Light Leather") .. ", want 59")
+    assert(plan.total == 249 * 10 + 37 * 10 and plan.status == "ok" and plan.valid and plan.complete, "golden: cost or status")
+    local b = plan.ledger[2318]
+    assert(b.start == 35 and b.madePlan == 24 and b.madeExtra == 59 and b.bought == 0 and b.used == 118 and b.rest == 0, "golden: the books of the leather")
+    plan, m = Plan(Leather(34))
+    assert(m[2934].need == 252, ("golden with 34 leather: %d scraps, want 252"):format(m[2934].need))
+    plan, m = Plan(Reversed(Leather(35)))
+    assert(m[2934].need == 249 and m[2320].missing == 37, "golden: another input order, other amounts")
+
+    -- (2) shared needs in several depths, stock of raw material and of the
+    -- intermediates, batches of 3 with a rest. A x10 needs 20 X and 10 Y.
+    --   X (have 4): 16 more = 6 batches of 3 = 18 (2 left) <- 12 Z (have 5, buy 7)
+    --   Y (have 2): 8 more, each 1 X + 1 W: X 8 = 2 left + 6 more = 2 batches <- 4 Z (buy 4); W 8 (buy 8)
+    local function Shared()
+        return Input("Testing", 1, 11, {
+            R("Testing", "A", 9200, 1, 1, 11, { { 9201, 2 }, { 9202, 1 } }),
+            R("Testing", "Make X", 9201, 3, 1, 1, { { 9203, 2 } }),
+            R("Testing", "Make Y", 9202, 1, 1, 1, { { 9201, 1 }, { 9204, 1 } }),
+        }, { [9201] = 4, [9202] = 2, [9203] = 5 }, { [9201] = 1000, [9202] = 5000, [9203] = 1, [9204] = 1 })
+    end
+    for _, input in ipairs({ Shared(), Reversed(Shared()) }) do
+        plan, m = Plan(input)
+        assert(#plan.steps == 1 and plan.steps[1].crafts == 10, "shared: the step")
+        assert(m[9201].need == 28 and m[9201].missing == 0 and m[9201].madeFrom and m[9201].madeFrom.key == "Make X", "shared: X need " .. m[9201].need)
+        assert(m[9202].need == 10 and m[9202].missing == 0 and m[9202].madeFrom.key == "Make Y", "shared: Y")
+        assert(m[9203].need == 16 and m[9203].have == 5 and m[9203].missing == 11, ("shared: Z need %d missing %d, want 16 / 11"):format(m[9203].need, m[9203].missing))
+        assert(m[9204].need == 8 and m[9204].missing == 8, "shared: W")
+        assert(Extra(plan, "Make X") == 8 and Extra(plan, "Make Y") == 8, "shared: extra crafts")
+        assert(plan.ledger[9201].madeExtra == 24 and plan.ledger[9201].rest == 0, "shared: what the batches made")
+        assert(plan.total == 11 + 8, "shared: only what is bought costs: " .. plan.total)
+    end
+    -- a batch makes more than is needed: the rest stays in the books, nothing is bought for it
+    plan, m = Plan(Input("Testing", 1, 3, {
+        R("Testing", "A", 9200, 1, 1, 3, { { 9201, 2 } }),
+        R("Testing", "Make X", 9201, 5, 1, 1, { { 9203, 1 } }),
+    }, {}, { [9201] = 1000, [9203] = 1 }))
+    assert(m[9201].need == 4 and Extra(plan, "Make X") == 1 and plan.ledger[9201].rest == 1 and m[9203].need == 1, "a batch of 5 for a need of 4")
+
+    -- (3) what can really be carried out
+    -- a chain that leads back to itself: reported, nothing made from itself, no endless loop
+    plan, m = Plan(Input("Testing", 1, 3, {
+        R("Testing", "A", 9200, 1, 1, 3, { { 9211, 1 } }),
+        R("Testing", "One from two", 9211, 1, 1, 1, { { 9212, 1 } }),
+        R("Testing", "Two from one", 9212, 1, 1, 1, { { 9211, 1 } }),
+    }, {}, {}))
+    assert(Has(plan, "cycle"), "a chain back to itself is not reported")
+    assert(plan.status == "incomplete" and not plan.complete and plan.valid, "a plan with such a chain called complete")
+    assert(m[9211].need == 2, "the chain: what the step needs")
+    -- no producer and no price: missing, its cost unknown (never 0)
+    plan, m = Plan(Input("Testing", 1, 3, { R("Testing", "A", 9200, 1, 1, 3, { { 9213, 2 } }) }, {}, {}))
+    assert(m[9213].missing == 4 and m[9213].cost == nil and not m[9213].madeFrom and plan.learn.matsUnknown == 1 and plan.total == 0, "no producer, no price")
+    -- two producers: the less costly one, whatever order they come in
+    local function Two()
+        return Input("Testing", 1, 3, {
+            R("Testing", "A", 9200, 1, 1, 3, { { 9214, 1 } }),
+            R("Testing", "Dear way", 9214, 1, 1, 1, { { 9215, 1 } }),
+            R("Testing", "Cheap way", 9214, 1, 1, 1, { { 9216, 1 } }),
+        }, {}, { [9214] = 1000, [9215] = 50, [9216] = 5 })
+    end
+    for _, input in ipairs({ Two(), Reversed(Two()) }) do
+        plan, m = Plan(input)
+        assert(m[9214].madeFrom.key == "Cheap way" and m[9216] and not m[9215], "two producers: not the less costly one")
+    end
+    -- buying is compared with making: cheaper to buy -> bought
+    plan, m = Plan(Input("Testing", 1, 3, {
+        R("Testing", "A", 9200, 1, 1, 3, { { 9214, 1 } }),
+        R("Testing", "Dear way", 9214, 1, 1, 1, { { 9215, 1 } }),
+    }, {}, { [9214] = 20, [9215] = 50 }))
+    assert(not m[9214].madeFrom and m[9214].missing == 2 and not m[9215], "an item cheaper to buy is made")
+    -- a recipe to learn in the plan (trainer) is used and its fee counted;
+    -- one nobody can count on (quest, drop: learn = nil) is not
+    local function Learn(how)
+        local make = R("Testing", "Make X", 9201, 1, 1, 1, { { 9203, 1 } }, how)
+        make.fee = 75
+        return Plan(Input("Testing", 1, 3, { R("Testing", "A", 9200, 1, 1, 3, { { 9201, 1 } }), make }, {}, { [9201] = 1000, [9203] = 1 }))
+    end
+    plan, m = Learn("trainer")
+    assert(m[9201].madeFrom and plan.learn.trainer == 1 and plan.learn.fees == 75, "a recipe your trainer teaches: not made, or its fee not counted")
+    plan, m = Learn(false)
+    assert(not m[9201].madeFrom and m[9201].missing == 2 and plan.learn.trainer == 0, "a recipe nobody can count on is made")
+    -- the skill at the moment of need counts, not the skill at the start:
+    -- Make X needs 5. Step one (1-5) buys its X, step two (5-9) makes it
+    plan, m = Plan(Input("Testing", 1, 9, {
+        R("Testing", "Early", 9200, 1, 1, 5, { { 9201, 1 } }),
+        R("Testing", "Late", 9205, 1, 5, 9, { { 9201, 1 }, { 9206, 1 } }),
+        R("Testing", "Make X", 9201, 1, 5, 5, { { 9203, 1 } }),
+    }, {}, { [9201] = 1000, [9203] = 1, [9206] = 1 }))
+    assert(m[9201].need == 8 and m[9201].missing == 4 and Extra(plan, "Make X") == 4 and m[9203].need == 4, "made before its required skill, or not made after it")
+    -- another profession: only one you have, with its skill and the recipe known - any profession, not only smelting
+    local function Second(professions, known)
+        return Plan(Input("Testing", 1, 3, {
+            R("Testing", "A", 9200, 1, 1, 3, { { 9201, 1 } }),
+            R("Weaving", "Weave X", 9201, 1, 50, 50, { { 9203, 1 } }, known),
+        }, {}, { [9201] = 1000, [9203] = 1 }, professions))
+    end
+    plan, m = Second({})
+    assert(not m[9201].madeFrom and m[9201].missing == 2, "a profession you don't have makes things")
+    plan, m = Second({ Weaving = { rank = 60 } })
+    assert(m[9201].madeFrom and m[9201].madeFrom.prof == "Weaving", "your second profession (not smelting) is not used")
+    plan, m = Second({ Weaving = { rank = 40 } })
+    assert(not m[9201].madeFrom, "your second profession below the recipe's skill is used")
+    plan, m = Second({ Weaving = { rank = 60 } }, "trainer")
+    assert(not m[9201].madeFrom, "a recipe of another profession you don't know yet is used")
+    -- an extra craft of the planned profession can give a point itself: Make X
+    -- gives 4 % at 97 (25 crafts for a point). A x10 would need 30 X: 25 of
+    -- them come as a step for materials (97-98), A starts at 98 and needs 9
+    -- crafts = 27 X, so 2 more X without a point: 27 Make X in all, not 30
+    plan, m = Plan(Input("Testing", 97, 107, {
+        R("Testing", "A", 9200, 1, 97, 107, { { 9201, 3 } }),
+        R("Testing", "Make X", 9201, 1, 1, 0, { { 9203, 1 } }, nil, 1, 101),
+    }, {}, { [9201] = 1000, [9203] = 1 }))
+    assert(#plan.steps == 2 and plan.steps[1].forMaterials and plan.steps[1].recipe.key == "Make X" and plan.steps[1].crafts == 25
+        and plan.steps[1].from == 97 and plan.steps[1].to == 98, "extra crafts that give a point are not a step of their own")
+    assert(plan.steps[2].recipe.key == "A" and plan.steps[2].from == 98 and plan.steps[2].crafts == 9, "the step after them does not start later")
+    assert(m[9201].need == 27 and m[9203].need == 27 and Extra(plan, "Make X") == 2, ("extra crafts with a skill gain: %d X"):format(m[9203].need))
+    -- when they are grey they give nothing: all 30, A x10
+    plan, m = Plan(Input("Testing", 97, 107, {
+        R("Testing", "A", 9200, 1, 97, 107, { { 9201, 3 } }),
+        R("Testing", "Make X", 9201, 1, 1, 50, { { 9203, 1 } }),
+    }, {}, { [9201] = 1000, [9203] = 1 }))
+    assert(#plan.steps == 1 and plan.steps[1].crafts == 10 and m[9203].need == 30, "grey extra crafts counted towards the skill")
+    -- a tool is made once and is no material of anything (no recipe uses it up)
+    plan, m = Plan(Input("Testing", 1, 6, {
+        R("Testing", "Make the tool", 9220, 1, 1, 2, { { 9221, 1 } }),
+        R("Testing", "Use the tool", 9222, 1, 2, 6, { { 9223, 2 } }),
+    }, {}, { [9221] = 1, [9223] = 1 }))
+    assert(not m[9220] and m[9221].need == 1 and m[9223].need == 8, "a tool is listed as a material")
+    -- an enchantment makes no item (product 0): a step all the same, nothing goes into the stock
+    plan, m = Plan(Input("Testing", 1, 4, { R("Testing", "Enchant", 0, 1, 1, 4, { { 9230, 2 } }) }, {}, { [9230] = 3 }))
+    assert(#plan.steps == 1 and plan.steps[1].crafts == 3 and m[9230].need == 6 and plan.total == 18 and plan.ledger[0] == nil, "an enchantment without an item")
+
+    -- (4) nothing to plan from is never a plan
+    for _, bad in ipairs({ false, {}, { prof = "Testing" }, { prof = "Testing", skill = 1, target = 5, recipes = { Testing = {} }, stock = {}, prices = {} },
+        { prof = "Testing", skill = 1, target = 5, recipes = { Testing = { R("Testing", "A", 1, 1, 1, 5, { { 2, 1 } }) } } } }) do
+        local p = core.Compute(bad or nil)
+        assert(p.status == "invalid" and p.valid == false and p.complete == false and #p.steps == 0, "a plan from nothing")
+    end
+    -- you are there already: done, nothing to do
+    plan = core.Compute(Input("Testing", 5, 5, { R("Testing", "A", 9200, 1, 1, 9, { { 9201, 1 } }) }, {}, {}))
+    assert(plan.status == "done" and #plan.steps == 0 and #plan.materials == 0, "at the target: not done")
+    -- no recipe for a skill: stuck, said so
+    plan = core.Compute(Input("Testing", 1, 9, { R("Testing", "A", 9200, 1, 1, 4, { { 9201, 1 } }) }, {}, {}))
+    assert(plan.stuck == 4 and plan.status == "incomplete" and Has(plan, "stuck"), "a gap is not reported")
+
+    -- (5) the nine crafting categories through this one core, with the game's
+    -- own recipe data: every plan balances and says where it ends
+    assert(ns.SkillPlanSnapshot, "no snapshot for the calculation")
+    for _, prof in ipairs({ "Alchemy", "Blacksmithing", "Enchanting", "Engineering", "Leatherworking", "Tailoring", "Cooking", "First Aid", "Mining" }) do
+        local p = core.Compute(ns.SkillPlanSnapshot(prof, 1, 300))
+        local ok, why = core.CheckBalance(p)
+        assert(ok, prof .. ": " .. tostring(why))
+        assert(p.valid and #p.steps > 0 and #p.materials > 0, prof .. ": no plan")
+        if prof == "Mining" then
+            assert(p.stuck and p.status == "incomplete", "Mining: the gap after the last smelting recipe is not shown")
+        else
+            assert(not p.stuck and p.steps[#p.steps].to == 300, prof .. ": the plan ends at " .. tostring(p.steps[#p.steps].to))
+        end
+    end
 end)
 -- (end of the skill plan 2.0 steps, v0.2 building block 1)
 step("Craft log: one entry per finished craft, failures and odd cases marked apart (v0.1.18 S5)", function()
@@ -12894,6 +13152,9 @@ step("Skill plan: steps and material list (v0.1.13)", function()
     local smelts = GathercraftRecipeData.professions.Mining
     ns.CraftData.Known = function(p) if p == "Mining" then return smelts end return Known(p) end
     ns.ProfessionRank = function(p) if p == "Mining" then return 150, 150 end return Rank(p) end
+    -- (since 0.2 making is compared with buying: bars dear, ore cheap here)
+    local Price = ns.GetPrice
+    ns.GetPrice = function(id) if id == 2770 or id == 2771 then return 5, "AH scan" end return 1000, "AH scan" end
     local _, mats = ns.SkillPlan("Blacksmithing", 1, 150)
     local ore
     for _, m in ipairs(mats) do if m.id == 2770 then ore = m end end
@@ -12914,7 +13175,7 @@ step("Skill plan: steps and material list (v0.1.13)", function()
     bars = bars + math.ceil(bronze / 2) -- one smelt: 1 copper + 1 tin bar -> 2 bronze bars
     for _, m in ipairs(mats150) do if m.id == 2770 then ore2 = m.need end end
     assert(ore2 >= bars, ("copper ore %d for at least %d copper bars"):format(ore2, bars))
-    ns.CraftData.Known, ns.ProfessionRank = Known, Rank
+    ns.CraftData.Known, ns.ProfessionRank, ns.GetPrice = Known, Rank, Price
     -- a recipe read from a profession window has no required skill: the shipped one counts
     ns.db.recipeDB = ns.db.recipeDB or {}
     ns.db.recipeDB.Tailoring = ns.db.recipeDB.Tailoring or {}

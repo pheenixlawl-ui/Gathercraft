@@ -152,6 +152,8 @@ local function Snapshot(prof, from, to)
     return input
 end
 
+ns.SkillPlanSnapshot = Snapshot
+
 -- steps, materials, cost of the missing materials, where the plan got stuck,
 -- whether stand-in prices were used, and info = { learn costs, missing
 -- materials without a price }. The calculation itself is ns.PlanCore.Compute
@@ -315,8 +317,7 @@ local function Refresh()
         local left = ("%s  |cff999999%d / %d|r"):format(name, m.need, m.have)
         local right
         if m.madeFrom then
-            left = left .. "  |cff999999" .. (L["(make it: %s)"]):format(d.ProfLabel(m.madeFrom.prof)) .. "|r"
-            right = ""
+            right = "|cff999999" .. (L["(make it: %s)"]):format(d.ProfLabel(m.madeFrom.prof)) .. "|r"
         elseif m.missing == 0 then
             right = "|cff55ff55" .. L["enough"] .. "|r"
         else
