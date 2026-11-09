@@ -3838,7 +3838,7 @@ step("Craft log: one entry per finished craft, failures and odd cases marked apa
         -- more than one point
         rank = 35
         Craft(2)
-        assert(Last().multi and Last().gain == 2 and Last().colour == "green", "a gain of two points")
+        assert(Last().multi and Last().gain == 2 and Last().colour == "yellow", "a gain of two points (35 of 20:40 is yellow since K3, no green threshold)")
         -- at the rank's maximum
         rank, maxRank = 75, 75
         Craft(0)
@@ -4085,6 +4085,51 @@ step("Craft log: clear while a craft is still being cast drops it too (v0.1.18 B
         assert(#ns.db.craftLog == 1 and ns.db.craftLog[1].recipe == "Light Leather", "a craft after the clear is not logged")
     end)
     ns.ProfessionRank, ns.CraftData.Have = saved.rank, saved.have
+    ns.db.craftLog, ns.db.craftLogOff = saved.log, saved.off
+    if not ok then error(err, 0) end
+end)
+step("Craft log: no green threshold is made up; yellow/green is one honest line (v0.1.20 K3)", function()
+    -- skill plan 2.0 concept 4.1: the shipped colours are yellow and grey
+    -- only. The distance to grey stays the real statistic.
+    local data = GathercraftRecipeData
+    local spell = data.spells.Leatherworking["Light Leather"]
+    local saved = { rank = ns.ProfessionRank, have = ns.CraftData.Have, colors = data.colors[spell], log = ns.db.craftLog, off = ns.db.craftLogOff }
+    local rank = 35
+    ns.ProfessionRank = function(p) if p == "Leatherworking" then return rank, 75 end end
+    ns.CraftData.Have = function() return 0 end
+    data.colors[spell] = "20:40"
+    ns.db.craftLog, ns.db.craftLogOff = {}, nil
+    local ok, err = pcall(function()
+        advance(3)
+        -- 35 of 20:40 was "green" before: now yellow, the thresholds kept as they are
+        fire("UNIT_SPELLCAST_START", "player", "Cast-k3-A", spell)
+        rank = 36
+        fire("UNIT_SPELLCAST_SUCCEEDED", "player", "Cast-k3-A", spell)
+        advance(2)
+        local e = ns.db.craftLog[1]
+        assert(e and e.colour == "yellow" and e.yellow == 20 and e.grey == 40 and e.before == 35, ("colour %s, %s:%s"):format(tostring(e and e.colour), tostring(e and e.yellow), tostring(e and e.grey)))
+        -- 20 (the threshold itself) is yellow, 39 is yellow, 40 is grey
+        rank = 20
+        fire("UNIT_SPELLCAST_START", "player", "Cast-k3-B", spell) fire("UNIT_SPELLCAST_SUCCEEDED", "player", "Cast-k3-B", spell) advance(2)
+        rank = 39
+        fire("UNIT_SPELLCAST_START", "player", "Cast-k3-C", spell) fire("UNIT_SPELLCAST_SUCCEEDED", "player", "Cast-k3-C", spell) advance(2)
+        rank = 40
+        fire("UNIT_SPELLCAST_START", "player", "Cast-k3-D", spell) fire("UNIT_SPELLCAST_SUCCEEDED", "player", "Cast-k3-D", spell) advance(2)
+        assert(ns.db.craftLog[2].colour == "yellow" and ns.db.craftLog[3].colour == "yellow" and ns.db.craftLog[4].colour == "grey", "the thresholds")
+        -- an entry of 0.1.18 still saying "green": counted with yellow, never on a line of its own
+        table.insert(ns.db.craftLog, { t = 1, result = "ok", colour = "green", before = 34, after = 35, gain = 1, yellow = 20, grey = 40, max = 75 })
+        local byColour = ns.CraftLogSummary()
+        assert(byColour.yellow and byColour.yellow.tries == 4 and byColour.yellow.ups == 2, ("yellow: %s/%s"):format(tostring(byColour.yellow and byColour.yellow.ups), tostring(byColour.yellow and byColour.yellow.tries)))
+        assert(not byColour.green, "a green line of its own")
+        local mark = #log
+        slash("craftlog")
+        local text = table.concat(log, "\n", mark + 1)
+        assert(text:find((ns.L["  %s: %d crafts, %d skill-ups (%d%%)"]):format("|cffffff00" .. ns.L["yellow/green"] .. "|r", 4, 2, 50), 1, true), "no yellow/green line: " .. text)
+        assert(not text:find("|cff40c040", 1, true), "a green line in /gcr craftlog: " .. text)
+        -- the distance to grey is still counted (5 below grey: 35 and 34 -> 5-9; 39 -> 0-4)
+        assert(text:find((ns.L["  %s points below grey: %d crafts, %d skill-ups (%d%%)"]):format("5-9", 2, 2, 100), 1, true), "distance line: " .. text)
+    end)
+    ns.ProfessionRank, ns.CraftData.Have, data.colors[spell] = saved.rank, saved.have, saved.colors
     ns.db.craftLog, ns.db.craftLogOff = saved.log, saved.off
     if not ok then error(err, 0) end
 end)

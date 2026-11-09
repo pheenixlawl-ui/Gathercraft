@@ -560,4 +560,5 @@ ns.Locales.ruRU = {
     ["Record skinning (helps build skinning areas)"] = "Записывать снятие шкур (поможет найти места для него)",
     ["Questing mode: no route, no window – nearby nodes you can gather get a gold ring (Ctrl + right-click on the minimap button, or /gcr quest). The herbs/minerals switch is now under Options, General."] = "Режим заданий: без маршрута и без окна – ближние точки, которые вы можете собрать, получают золотое кольцо (Ctrl + ПКМ по кнопке у миникарты или /gcr quest). Переключатель трав/руды теперь в Options, Общие.",
     ["  %d unclear: no beast could be told at the cast (not counted)"] = "  %d неясных: при чтении заклинания зверя определить не удалось (не учтены)",
+    ["yellow/green"] = "жёлтый/зелёный",
 }

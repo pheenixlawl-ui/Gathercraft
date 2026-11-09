@@ -560,4 +560,5 @@ ns.Locales.esES = {
     ["Record skinning (helps build skinning areas)"] = "Registrar el desuello (ayuda a crear zonas de desuello)",
     ["Questing mode: no route, no window – nearby nodes you can gather get a gold ring (Ctrl + right-click on the minimap button, or /gcr quest). The herbs/minerals switch is now under Options, General."] = "Modo misiones: sin ruta ni ventana; los nodos cercanos que puedes recoger llevan un anillo dorado (Ctrl + clic derecho en el botón del minimapa o /gcr quest). El interruptor de hierbas/minerales está ahora en Options, General.",
     ["  %d unclear: no beast could be told at the cast (not counted)"] = "  %d sin aclarar: al lanzar no se pudo determinar la bestia (no se cuentan)",
+    ["yellow/green"] = "amarillo/verde",
 }

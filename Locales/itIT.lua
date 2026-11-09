@@ -560,4 +560,5 @@ ns.Locales.itIT = {
     ["Record skinning (helps build skinning areas)"] = "Registra la scuoiatura (aiuta a creare zone di scuoiatura)",
     ["Questing mode: no route, no window – nearby nodes you can gather get a gold ring (Ctrl + right-click on the minimap button, or /gcr quest). The herbs/minerals switch is now under Options, General."] = "Modalità missioni: niente giro, niente finestra – i nodi vicini che puoi raccogliere hanno un anello d'oro (Ctrl + clic destro sul pulsante della minimappa, o /gcr quest). L'interruttore erbe/minerali ora è in Options, Generale.",
     ["  %d unclear: no beast could be told at the cast (not counted)"] = "  %d incerti: nessuna bestia identificabile al momento dell'incantesimo (non contati)",
+    ["yellow/green"] = "giallo/verde",
 }

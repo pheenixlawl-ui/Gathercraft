@@ -560,4 +560,5 @@ ns.Locales.zhTW = {
     ["Record skinning (helps build skinning areas)"] = "記錄剝皮（幫助建立剝皮區域）",
     ["Questing mode: no route, no window – nearby nodes you can gather get a gold ring (Ctrl + right-click on the minimap button, or /gcr quest). The herbs/minerals switch is now under Options, General."] = "任務模式：沒有路線，沒有視窗——附近你能採集的採集點會顯示金色圓環（在小地圖按鈕上 Ctrl + 右鍵，或 /gcr quest）。草藥/礦物切換按鈕現在位於 Options 的「一般」中。",
     ["  %d unclear: no beast could be told at the cast (not counted)"] = "  %d 條不明確：施法時無法確定野獸（不計入）",
+    ["yellow/green"] = "黃色/綠色",
 }

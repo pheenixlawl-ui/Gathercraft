@@ -7,8 +7,8 @@ local L = ns.L or setmetatable({}, { __index = function(_, k) return k end })
 --   * one entry per craft, kept on this computer only, never shared:
 --     time, game build, profession, recipe spell and name, skill before and
 --     after, the rank's maximum, the colour from the recipe's thresholds
---     (orange / yellow / green / grey, "unknown" without them) and how many
---     items it made
+--     (orange / yellow / grey, "unknown" without them; no green threshold
+--     is made up) and how many items it made
 --   * marked apart: failed or interrupted casts, values the client hid
 --     (secret), a gain of more than one point, a craft at the rank's maximum
 --   * one entry per cast: a repeated or late event of the same cast is not
@@ -44,8 +44,10 @@ local function Recipe(spell)
     return bySpell[spell]
 end
 
--- the colour of a recipe at a skill: orange up to yellow, green from halfway
--- between yellow and grey (the shipped colours keep only yellow and grey)
+-- the colour of a recipe at a skill: orange below the yellow threshold,
+-- grey from the grey one, "yellow" in between. The shipped colours keep
+-- only yellow and grey; no green threshold is made up (v0.1.20 K3, skill
+-- plan 2.0 concept 4.1) - the real statistic is the distance to grey below
 local function Colour(spell, skill)
     local c = GathercraftRecipeData and GathercraftRecipeData.colors and GathercraftRecipeData.colors[spell]
     local yellow, grey
@@ -53,8 +55,7 @@ local function Colour(spell, skill)
     yellow, grey = tonumber(yellow), tonumber(grey)
     if not (yellow and grey and skill) then return "unknown", yellow, grey end
     if skill < yellow then return "orange", yellow, grey end
-    if skill < (yellow + grey) / 2 then return "yellow", yellow, grey end
-    if skill < grey then return "green", yellow, grey end
+    if skill < grey then return "yellow", yellow, grey end
     return "grey", yellow, grey
 end
 
@@ -207,9 +208,13 @@ end)
 ---------------------------------------------------------------------------
 -- /gcr craftlog
 ---------------------------------------------------------------------------
-local COLOURS = { "orange", "yellow", "green", "grey", "unknown" }
-local COLOUR_CODE = { orange = "|cffff8040", yellow = "|cffffff00", green = "|cff40c040", grey = "|cff808080", unknown = "|cffffffff" }
-local COLOUR_NAME = { orange = L["orange"], yellow = L["yellow"], green = L["green"], grey = L["grey"], unknown = L["unknown"] }
+-- "yellow" stands for everything between the yellow and the grey threshold
+-- and says so ("yellow/green"); entries of 0.1.18/0.1.19 that still carry
+-- "green" are counted there
+local COLOURS = { "orange", "yellow", "grey", "unknown" }
+local COLOUR_CODE = { orange = "|cffff8040", yellow = "|cffffff00", grey = "|cff808080", unknown = "|cffffffff" }
+local COLOUR_LABEL = { orange = "orange", yellow = "yellow/green", grey = "grey", unknown = "unknown" }
+local function ColourKey(colour) return colour == "green" and "yellow" or colour end
 
 -- attempts and skill-ups of the finished crafts that count: read skill
 -- before and after, not at the rank's maximum
@@ -228,8 +233,9 @@ local function Summary(log)
         else
             if e.multi then other.multi = other.multi + 1 end
             local up = e.gain > 0 and 1 or 0
-            local c = byColour[e.colour] or { tries = 0, ups = 0 }
-            byColour[e.colour] = c
+            local key = ColourKey(e.colour)
+            local c = byColour[key] or { tries = 0, ups = 0 }
+            byColour[key] = c
             c.tries, c.ups = c.tries + 1, c.ups + up
             if e.grey and e.before and e.colour ~= "orange" then
                 local gap = math.max(0, e.grey - e.before)
@@ -267,7 +273,7 @@ ns.CraftLogCommand = function(rest)
     for _, colour in ipairs(COLOURS) do
         local c = byColour[colour]
         if c then
-            local label = COLOUR_CODE[colour] .. (ns.L and ns.L[colour] or COLOUR_NAME[colour]) .. "|r"
+            local label = COLOUR_CODE[colour] .. L[COLOUR_LABEL[colour]] .. "|r"
             print((L["  %s: %d crafts, %d skill-ups (%d%%)"]):format(label, c.tries, c.ups, Rate(c)))
         end
     end

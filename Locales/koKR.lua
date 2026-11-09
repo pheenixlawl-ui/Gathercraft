@@ -560,4 +560,5 @@ ns.Locales.koKR = {
     ["Record skinning (helps build skinning areas)"] = "무두질 기록 (무두질 지역 만들기에 도움)",
     ["Questing mode: no route, no window – nearby nodes you can gather get a gold ring (Ctrl + right-click on the minimap button, or /gcr quest). The herbs/minerals switch is now under Options, General."] = "퀘스트 모드: 경로도 창도 없이 – 채집할 수 있는 가까운 채집물에 금색 고리가 표시됩니다 (미니맵 버튼에서 Ctrl + 오른쪽 클릭 또는 /gcr quest). 약초/광물 전환 버튼은 이제 Options, 일반에 있습니다.",
     ["  %d unclear: no beast could be told at the cast (not counted)"] = "  불확실 %d건: 시전 시 야수를 특정할 수 없었음 (집계 제외)",
+    ["yellow/green"] = "노랑/초록",
 }
