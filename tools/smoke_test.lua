@@ -4535,6 +4535,61 @@ step("Craft log: the header counts crafts, a block and its casts once (v0.1.20 F
     advance(3)
     if not ok then error(err, 0) end
 end)
+step("Craft log: an orange block needs no distance group and never goes into a distance line (v0.1.20 F4)", function()
+    -- Codex 09.11., B4: thresholds 55:60, skill 50 -> 53: orange throughout,
+    -- 10 to 7 below grey (two groups). Accepted on purpose - orange always
+    -- gives its point and is not in the distance statistic.
+    local data = GathercraftRecipeData
+    local spell = data.spells.Leatherworking["Light Leather"]
+    local saved = { rank = ns.ProfessionRank, have = ns.CraftData.Have, colors = data.colors[spell], log = ns.db.craftLog, off = ns.db.craftLogOff, multi = ns.db.craftMulti }
+    local rank = 50
+    ns.ProfessionRank = function(p) if p == "Leatherworking" then return rank, 75 end end
+    ns.CraftData.Have = function() return 0 end
+    data.colors[spell] = "55:60"
+    ns.db.craftLog, ns.db.craftLogOff, ns.db.craftMulti = {}, nil, nil
+    local n = 0
+    local function Series(gains)
+        for _, gain in ipairs(gains) do
+            n = n + 1
+            fire("UNIT_SPELLCAST_START", "player", "Cast-f4-" .. n, spell)
+            rank = rank + gain
+            fire("UNIT_SPELLCAST_SUCCEEDED", "player", "Cast-f4-" .. n, spell)
+            advance(0.3)
+        end
+        advance(2)
+    end
+    local ok, err = pcall(function()
+        advance(3)
+        Series({ 1, 1, 1 })
+        local byColour, byGap, others = ns.CraftLogSummary()
+        assert(others.series == 1 and byColour.orange and byColour.orange.tries == 3 and byColour.orange.ups == 3, "the orange block over two distance groups is not counted")
+        assert(next(byGap) == nil, "an orange block went into a distance line")
+        local mark = #log
+        slash("craftlog")
+        local text = table.concat(log, "\n", mark + 1)
+        for _, group in ipairs({ "0-4", "5-9", "10-14", "15-19", "20+" }) do
+            assert(not text:find((ns.L["  %s points below grey: %d crafts, %d skill-ups (%d%%)"]):format(group, 3, 3, 100), 1, true), "a distance line from the orange block: " .. group)
+        end
+        -- yellow/green keeps the rule: 55 -> 57 is 5 to 3 below grey, two groups: no block
+        ns.db.craftLog = {}
+        rank = 55
+        advance(3)
+        Series({ 1, 1 })
+        byColour, byGap, others = ns.CraftLogSummary()
+        assert(others.series == 0 and others.overlap == 2 and next(byGap) == nil, "a yellow block over two distance groups")
+        -- and inside one group (56 -> 57: 4 and 3 below grey) it counts, in its line
+        ns.db.craftLog = {}
+        rank = 56
+        advance(3)
+        Series({ 1, 0 })
+        byColour, byGap, others = ns.CraftLogSummary()
+        assert(others.series == 1 and byGap[0] and byGap[0].tries == 2 and byGap[0].ups == 1, "a yellow block inside one distance group")
+    end)
+    ns.ProfessionRank, ns.CraftData.Have, data.colors[spell] = saved.rank, saved.have, saved.colors
+    ns.db.craftLog, ns.db.craftLogOff, ns.db.craftMulti = saved.log, saved.off, saved.multi
+    advance(3)
+    if not ok then error(err, 0) end
+end)
 step("Craft log: no green threshold is made up; yellow/green is one honest line (v0.1.20 K3)", function()
     -- skill plan 2.0 concept 4.1: the shipped colours are yellow and grey
     -- only. The distance to grey stays the real statistic.

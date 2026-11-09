@@ -100,8 +100,9 @@ local generation = 0 -- /gcr craftlog clear: readings started before it are drop
 -- they do: n casts, the skill before the first and after the last. Such a
 -- block counts (n tries, k skill-ups) only when it is clear - one recipe
 -- throughout, no failure, abort or hidden value in it, not at the rank's
--- maximum, k <= n, and the colour and the distance group to grey the same
--- for every skill the series passes. Otherwise all of it stays
+-- maximum, k <= n, the same colour for every skill the series passes and,
+-- for yellow/green, the same distance group to grey (orange has none: it
+-- is never in the distance lines). Otherwise all of it stays
 -- "overlapping" as before: nothing is estimated or split.
 --
 -- k points = k crafts that gave a point (Sven 09.11., Codex B2): in WoW:
@@ -195,6 +196,11 @@ local function Finish(s)
     if first.max and after >= first.max then return end
     local colour, yellow, grey = Colour(s.spell, before)
     if colour == "unknown" then return end
+    -- the same colour for every skill the series passes; the same distance
+    -- group to grey only for yellow/green. Orange is left out on purpose
+    -- (Sven 09.11., Codex B4): an orange craft always gives its point, and
+    -- orange never goes into the distance lines (Tally below), so its
+    -- distance to grey says nothing about the block.
     for skill = before, after do
         local c = Colour(s.spell, skill)
         if c ~= colour then return end
