@@ -3839,6 +3839,65 @@ step("Minimap guesses: merging at login keeps what protects them from the 30 day
     ns.db.nodes[Z] = keep
     ns.NotifyNodesChanged() ns.ForgetSeenKinds()
 end)
+step("Skill plan 2.0: the calculation is its own module and runs on plain tables (v0.2 A1)", function()
+    -- concept 3.1: one core, apart from the window; everything comes in as input
+    local core = ns.PlanCore
+    assert(core and core.Compute and core.Chance, "no ns.PlanCore")
+    -- loaded before the window that shows it
+    local a, b = toc:find("PlanCore.lua", 1, true), toc:find("Planner.lua", 1, true)
+    assert(a and b and a < b, "PlanCore.lua is not loaded before Planner.lua")
+    -- the core reads nothing from the game: its source knows the addon table
+    -- only to hang itself on, no saved variables, no game functions, no texts
+    local f = assert(io.open(ROOT .. "/PlanCore.lua"))
+    local src = f:read("*a") f:close()
+    local code = src:gsub("%-%-[^\n]*", "") -- comments may name things
+    for use in code:gmatch("ns%.([%w_]+)") do assert(use == "PlanCore", "PlanCore.lua reads ns." .. use) end
+    for _, word in ipairs({ "_G", "CreateFrame", "C_Item", "C_Timer", "GetItemCount", "GetTime", "Gathercraft[%u]", "L%[", "print%(", "RegisterEvent" }) do
+        assert(not code:find(word), "PlanCore.lua uses " .. word)
+    end
+    -- a plan from plain tables, with every door to the game shut
+    local function Recipe(key, product, made, req, yellow, grey, reagents, learn)
+        return { prof = "Testing", key = key, name = key, product = product, made = made, req = req, yellow = yellow, grey = grey,
+            reagents = reagents, learn = learn or "known" }
+    end
+    local function Input(order)
+        local list = {
+            Recipe("Alpha", 9001, 1, 1, 6, 6, { { id = 9101, n = 2 } }),
+            Recipe("Beta", 9002, 1, 6, 11, 11, { { id = 9001, n = 1 }, { id = 9102, n = 3 } }),
+        }
+        if order == "reverse" then list[1], list[2] = list[2], list[1] end
+        return { prof = "Testing", skill = 1, target = 11, recipes = { Testing = list }, professions = { Testing = { rank = 1 } },
+            stock = { [9102] = 4 }, prices = { [9101] = { copper = 10 }, [9102] = { copper = 7 }, [9001] = { copper = 500 } },
+            recipeItemPrices = {}, nodes = {} }
+    end
+    local d = ns.CraftData
+    local saved = { have = d.Have, cost = d.ReagentCost, known = d.Known, all = d.AllRecipes, rank = ns.ProfessionRank, price = ns.GetPrice }
+    local function Shut() error("the calculation reached into the game", 0) end
+    d.Have, d.ReagentCost, d.Known, d.AllRecipes, ns.ProfessionRank, ns.GetPrice = Shut, Shut, Shut, Shut, Shut, Shut
+    local ok, plan = pcall(core.Compute, Input())
+    local ok2, plan2 = pcall(core.Compute, Input("reverse"))
+    d.Have, d.ReagentCost, d.Known, d.AllRecipes, ns.ProfessionRank, ns.GetPrice = saved.have, saved.cost, saved.known, saved.all, saved.rank, saved.price
+    assert(ok, "the calculation with plain tables: " .. tostring(plan))
+    assert(ok2, "the calculation with plain tables (other order): " .. tostring(plan2))
+    -- 1-6 Alpha x5 (makes 5 of 9001), 6-11 Beta x5 (uses 5 of 9001: all made by the steps)
+    assert(#plan.steps == 2 and plan.steps[1].recipe.key == "Alpha" and plan.steps[1].crafts == 5
+        and plan.steps[2].recipe.key == "Beta" and plan.steps[2].crafts == 5 and not plan.stuck, "the steps")
+    local byId = {}
+    for _, m in ipairs(plan.materials) do byId[m.id] = m end
+    assert(byId[9101] and byId[9101].need == 10 and byId[9101].missing == 10, "material 9101")
+    assert(byId[9102] and byId[9102].need == 15 and byId[9102].have == 4 and byId[9102].missing == 11, "material 9102")
+    assert(byId[9001] and byId[9001].need == 5 and byId[9001].missing == 0, "the intermediate made by the steps")
+    assert(plan.total == 10 * 10 + 11 * 7, "the cost of what is missing: " .. tostring(plan.total))
+    -- the order the recipes come in changes nothing
+    assert(#plan2.steps == 2 and plan2.steps[1].recipe.key == "Alpha" and plan2.steps[2].crafts == 5 and plan2.total == plan.total, "another input order, another plan")
+    -- the window's entry point is a thin wrapper around it
+    f = assert(io.open(ROOT .. "/Planner.lua"))
+    local planner = f:read("*a") f:close()
+    assert(planner:find("ns.PlanCore.Compute", 1, true), "Planner.lua does not call the core")
+    assert(not planner:find("local function MakePlan", 1, true) and not planner:find("local function Materials", 1, true), "Planner.lua still calculates itself")
+    assert(not planner:lower():find("cheapest", 1, true), "Planner.lua calls the plan the cheapest")
+end)
+-- (end of the skill plan 2.0 steps, v0.2 building block 1)
 step("Craft log: one entry per finished craft, failures and odd cases marked apart (v0.1.18 S5)", function()
     local data = GathercraftRecipeData
     local spell = data.spells.Leatherworking["Light Leather"]

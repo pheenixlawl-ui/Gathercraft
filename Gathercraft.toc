@@ -44,6 +44,7 @@ Advisor.lua
 Crafting.lua
 Main.lua
 Welcome.lua
+PlanCore.lua
 Planner.lua
 CraftLog.lua
 SkinLog.lua

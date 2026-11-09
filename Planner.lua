@@ -2,7 +2,8 @@ local ADDON_NAME, ns = ...
 local L = ns.L or setmetatable({}, { __index = function(_, k) return k end })
 
 ---------------------------------------------------------------------------
--- Skill planner: the cheapest way from your skill to a target skill
+-- Skill planner: a way from your skill to a target skill, chosen by cost
+--   (a heuristic: a good plan, not proven to be the best one)
 --   * every recipe you know, a trainer teaches or a vendor sells (drops and
 --     quests are left out: you can't count on them)
 --   * skill-up chance from the recipe's colours (Data/RecipeData.lua colors):
@@ -21,20 +22,11 @@ local L = ns.L or setmetatable({}, { __index = function(_, k) return k end })
 --     never as 0
 ---------------------------------------------------------------------------
 local CAPS = { 75, 150, 225, 300 }
-local SWITCH_PENALTY = 1.08   -- a new recipe has to be this much cheaper per point
 local UNKNOWN_PRICE = 2000     -- copper per item when no price is known (keeps such recipes possible but not first)
 local ROW_H = 18
 local WIDE_W = 492  -- a line without a right column (hints, notes): the whole row, wrapped
 
 local function Data() return ns.CraftData end
-
--- Skill-up chance of a recipe at a skill: 1 orange, falling off to 0 at grey
-local function Chance(skill, req, yellow, grey)
-    if skill < req then return 0 end
-    if skill < yellow then return 1 end
-    if skill >= grey then return 0 end
-    return (grey - skill) / (grey - yellow)
-end
 
 -- Can this character learn the recipe somewhere reliable?
 local function HowToLearn(prof, key, spell, known, req, grey)
@@ -58,7 +50,7 @@ local function HowToLearn(prof, key, spell, known, req, grey)
     end
     -- no trainer fee and no recipe item, and only for the first steps: taught
     -- with the profession itself (anything else comes from quests or drops)
-    if (req or 0) <= 1 and not item and grey <= 75 then return "start" end
+    if (req or 0) <= 1 and not item and grey and grey <= 75 then return "start" end
 end
 
 -- A recipe read from a profession window has no required skill: take the shipped one
@@ -71,105 +63,6 @@ local function RequiredOf(prof, key, req)
         end
     end
     return req
-end
-
--- The recipes the plan can use, with colours and the cost of one craft
-local function Candidates(prof)
-    local d = Data()
-    local spells = GathercraftRecipeData and GathercraftRecipeData.spells and GathercraftRecipeData.spells[prof] or {}
-    local colors = GathercraftRecipeData and GathercraftRecipeData.colors or {}
-    local known = d.Known(prof)
-    local list, unknownPrices = {}, false
-    for key, packed in pairs(d.AllRecipes(prof)) do
-        local spell = spells[key]
-        local c = spell and colors[spell]
-        local yellow, grey
-        if c then yellow, grey = c:match("^(%d+):(%d+)$") end
-        yellow, grey = tonumber(yellow), tonumber(grey)
-        local product, made, req, reagents = d.Unpack(packed)
-        req = RequiredOf(prof, key, req)
-        if yellow and grey and reagents and #reagents > 0 then
-            local how, fee, recipeItem = HowToLearn(prof, key, spell, known, req, grey)
-            if how then
-                local cost, guessed = 0, false
-                for _, r in ipairs(reagents) do
-                    local price = d.ReagentCost(r.id)
-                    if not price then
-                        -- no auction price yet: a few times what a vendor pays for it
-                        local sell, source
-                        if ns.GetPrice then sell, source = ns.GetPrice(r.id) end
-                        price = (source == "vendor" and sell and sell > 0) and sell * 4 or UNKNOWN_PRICE
-                        guessed = true
-                    end
-                    cost = cost + price * r.n
-                end
-                unknownPrices = unknownPrices or guessed
-                list[#list + 1] = {
-                    key = key, name = d.DisplayName(prof, key), product = product, made = made,
-                    req = math.max(1, req or 1), yellow = yellow, grey = grey, reagents = reagents,
-                    cost = cost, how = how, fee = fee, recipeItem = recipeItem, guessed = guessed,
-                }
-            end
-        end
-    end
-    return list, unknownPrices
-end
-
--- The plan: steps { recipe, from, to, crafts } and where it got stuck (if)
-local function MakePlan(prof, from, to)
-    local cands, unknownPrices = Candidates(prof)
-    local steps, current, stuck = {}, nil, nil
-    for skill = from, to - 1 do
-        local best, bestScore
-        -- below 5 % only when nothing else is left (a gap before the next recipe)
-        for _, minChance in ipairs({ 0.05, 0 }) do
-            for _, c in ipairs(cands) do
-                local chance = Chance(skill, c.req, c.yellow, c.grey)
-                if chance > minChance then
-                    local score = (c.cost + 1) / chance
-                    if c ~= current then score = score * SWITCH_PENALTY end
-                    if not bestScore or score < bestScore then best, bestScore = c, score end
-                end
-            end
-            if best then break end
-        end
-        if not best then
-            stuck = skill
-            break
-        end
-        local chance = Chance(skill, best.req, best.yellow, best.grey)
-        local last = steps[#steps]
-        if last and last.recipe == best then
-            last.to, last.expected = skill + 1, last.expected + 1 / chance
-        else
-            steps[#steps + 1] = { recipe = best, from = skill, to = skill + 1, expected = 1 / chance }
-        end
-        current = best
-    end
-    for _, s in ipairs(steps) do s.crafts = math.ceil(s.expected - 0.001) end
-    return steps, stuck, unknownPrices
-end
-
--- What makes an item that you can make yourself: a recipe of this profession
--- or smelting (bars) - only with the profession learned, the recipe known
--- and the skill it needs (from = your skill in the planned profession).
--- Everything else is bought.
-local function Producers(prof, from)
-    local d = Data()
-    local out = {}
-    for _, p in ipairs({ prof, "Mining" }) do
-        local rank = p == prof and from or (ns.ProfessionRank and ns.ProfessionRank(p))
-        if rank then
-            for key, packed in pairs(d.Known(p)) do
-                local product, made, req, reagents = d.Unpack(packed)
-                req = RequiredOf(p, key, req)
-                if product and product > 0 and reagents and #reagents > 0 and (req or 0) <= rank and not out[product] then
-                    out[product] = { prof = p, key = key, made = math.max(1, made or 1), reagents = reagents }
-                end
-            end
-        end
-    end
-    return out
 end
 
 -- Herbs and ore: which node gives the item (for a farm run)
@@ -190,104 +83,82 @@ local function NodeFor(itemID)
     return nodeOfItem[itemID]
 end
 
--- Materials of the plan: { id, need, have, missing, cost, node, made = from },
--- the cost of what is missing, and how many missing items have no price.
--- One stock per item for the whole plan: what you have plus what the plan's
--- own steps make (Light Leather of a Light Leather step, bars of a smelting
--- step). An intermediate is made again only for the need that stays after
--- that stock: extra crafts = max(0, need - have - made by the steps).
-local function Materials(prof, steps, from)
+---------------------------------------------------------------------------
+-- The snapshot for the calculation (PlanCore.lua): everything the plan
+-- reads from the game goes through here, once per item (so one plan sees
+-- one state), and only what the calculation asks for.
+---------------------------------------------------------------------------
+-- the recipes of a profession as the calculation wants them; onlyKnown: the
+-- ones this character knows (the professions next to the planned one)
+local function RecipeList(prof, onlyKnown)
     local d = Data()
-    local need, planned = {}, {}
-    for _, s in ipairs(steps) do
-        for _, r in ipairs(s.recipe.reagents) do
-            need[r.id] = (need[r.id] or 0) + r.n * s.crafts
+    local spells = GathercraftRecipeData and GathercraftRecipeData.spells and GathercraftRecipeData.spells[prof] or {}
+    local colors = GathercraftRecipeData and GathercraftRecipeData.colors or {}
+    local known = d.Known(prof)
+    local source = {}
+    if not onlyKnown then
+        for key, packed in pairs(d.AllRecipes(prof)) do source[key] = packed end
+    end
+    for key, packed in pairs(known) do source[key] = packed end
+    local list = {}
+    for key, packed in pairs(source) do
+        local product, made, req, reagents = d.Unpack(packed)
+        if reagents then
+            local spell = spells[key]
+            local c = spell and colors[spell]
+            local yellow, grey
+            if c then yellow, grey = c:match("^(%d+):(%d+)$") end
+            yellow, grey = tonumber(yellow), tonumber(grey)
+            req = RequiredOf(prof, key, req)
+            local learn, fee, recipeItem
+            if known[key] then learn = "known" elseif not onlyKnown then learn, fee, recipeItem = HowToLearn(prof, key, spell, known, req, grey) end
+            list[#list + 1] = { prof = prof, key = key, name = d.DisplayName(prof, key), spell = spell, product = product, made = made,
+                req = req, yellow = yellow, grey = grey, reagents = reagents, learn = learn, fee = fee, recipeItem = recipeItem }
         end
-        local product = s.recipe.product
-        if product and product > 0 then
-            planned[product] = (planned[product] or 0) + math.floor((s.recipe.made or 1) * s.crafts)
-        end
     end
-    local have = {}
-    local function Have(id)
-        if have[id] == nil then have[id] = d.Have(id) or 0 end
-        return have[id]
-    end
-    local function Stock(id) return Have(id) + (planned[id] or 0) end
-    -- bars, bolts...: what the stock doesn't cover is made from its own materials
-    -- (again and again: bronze bars need copper bars, which need ore)
-    local producers = Producers(prof, from)
-    local madeTimes, madeFrom = {}, {}
-    for _ = 1, 100 do
-        local changed = false
-        for id, n in pairs(need) do
-            local p = producers[id]
-            if p then
-                local times = math.ceil(math.max(0, n - Stock(id)) / p.made)
-                local extra = times - (madeTimes[id] or 0)
-                if extra > 0 then
-                    madeTimes[id], madeFrom[id] = times, p
-                    for _, r in ipairs(p.reagents) do
-                        need[r.id] = (need[r.id] or 0) + r.n * extra
-                    end
-                    changed = true
-                    break -- the table changed: start over
-                end
-            end
-        end
-        if not changed then break end
-    end
-    local list, total, unknown = {}, 0, 0
-    for id, n in pairs(need) do
-        local missing = math.max(0, n - Stock(id))
-        if madeFrom[id] then missing = 0 end -- listed by its materials
-        local price = d.ReagentCost(id)
-        local cost = price and price * missing or nil
-        total = total + (cost or 0)
-        if missing > 0 and not price then unknown = unknown + 1 end -- not 0: unknown
-        list[#list + 1] = { id = id, need = n, have = Have(id), missing = missing, cost = cost,
-            node = NodeFor(id), madeFrom = madeFrom[id] }
-    end
-    table.sort(list, function(a, b)
-        if (a.madeFrom ~= nil) ~= (b.madeFrom ~= nil) then return b.madeFrom ~= nil end
-        if a.missing ~= b.missing then return a.missing > b.missing end
-        return a.id < b.id
-    end)
-    return list, total, unknown
+    return list
 end
 
--- What the recipes of the plan cost to learn, once each: trainer fees of the
--- ones you don't know yet, and recipe items to buy (their price only when a
--- vendor showed it to you). Not part of the recipe choice.
-local function LearnCosts(steps)
-    local seen = {}
-    local c = { fees = 0, feesUnknown = 0, trainer = 0, items = 0, itemCost = 0, itemsUnknown = 0 }
-    for _, s in ipairs(steps) do
-        local r = s.recipe
-        if not seen[r] then
-            seen[r] = true
-            if r.how == "trainer" then
-                c.trainer = c.trainer + 1
-                if type(r.fee) == "number" then c.fees = c.fees + r.fee else c.feesUnknown = c.feesUnknown + 1 end
-            elseif r.how == "vendor" then
-                c.items = c.items + 1
-                local price = r.recipeItem and ns.db.vendorPrices and ns.db.vendorPrices[r.recipeItem]
-                if price then c.itemCost = c.itemCost + price else c.itemsUnknown = c.itemsUnknown + 1 end
-            end
+local function Snapshot(prof, from, to)
+    local d = Data()
+    local input = { prof = prof, skill = from, target = to, recipes = {}, professions = {} }
+    input.recipes[prof] = RecipeList(prof)
+    for _, p in ipairs(d.Professions) do
+        local rank = ns.ProfessionRank and ns.ProfessionRank(p.name)
+        if rank then
+            input.professions[p.name] = { rank = rank }
+            if p.name ~= prof then input.recipes[p.name] = RecipeList(p.name, true) end
         end
     end
-    return c
+    input.stock = setmetatable({}, { __index = function(t, id)
+        local n = d.Have(id) or 0
+        rawset(t, id, n)
+        return n
+    end })
+    input.prices = setmetatable({}, { __index = function(t, id)
+        local price = d.ReagentCost(id)
+        local entry = { copper = price }
+        if not price then
+            -- no auction price yet: a few times what a vendor pays for it
+            local sell, source
+            if ns.GetPrice then sell, source = ns.GetPrice(id) end
+            entry.standin = (source == "vendor" and sell and sell > 0) and sell * 4 or UNKNOWN_PRICE
+        end
+        rawset(t, id, entry)
+        return entry
+    end })
+    input.recipeItemPrices = ns.db.vendorPrices or {}
+    input.nodes = setmetatable({}, { __index = function(_, id) return NodeFor(id) end })
+    return input
 end
 
 -- steps, materials, cost of the missing materials, where the plan got stuck,
 -- whether stand-in prices were used, and info = { learn costs, missing
--- materials without a price }
+-- materials without a price }. The calculation itself is ns.PlanCore.Compute
+-- (PlanCore.lua); this takes the snapshot for it.
 ns.SkillPlan = function(prof, from, to)
-    local steps, stuck, unknown = MakePlan(prof, from, to)
-    local mats, total, matsUnknown = Materials(prof, steps, from)
-    local info = LearnCosts(steps)
-    info.matsUnknown = matsUnknown
-    return steps, mats, total, stuck, unknown, info
+    local plan = ns.PlanCore.Compute(Snapshot(prof, from, to))
+    return plan.steps, plan.materials, plan.total, plan.stuck, plan.unknownPrices, plan.learn
 end
 
 ---------------------------------------------------------------------------
