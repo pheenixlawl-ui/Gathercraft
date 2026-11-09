@@ -4871,6 +4871,83 @@ step("Skill plan 2.0: the window - one profession, skill read, target menu, have
     if win then win:Hide() end
     if not ok then error(err, 0) end
 end)
+step("Skill plan 2.0: texts in every language, an internal build mark, nothing published yet (v0.2 A7)", function()
+    -- 0.2 is built block by block and published as one release: this build is
+    -- marked internal, and what players read about releases is not touched
+    local version = toc:match("## Version: ([%w%.%-]+)")
+    assert(version == "0.2.0-b1", "TOC version: " .. tostring(version))
+    assert(toc:match("## Interface: (%d+)") == "16001", "TOC interface changed")
+    local function Read(name)
+        local f = assert(io.open(ROOT .. "/" .. name))
+        local text = f:read("*a") f:close()
+        return text
+    end
+    local welcome, changelog = Read("Welcome.lua"), Read("CHANGELOG.md")
+    assert(not welcome:find('%["0%.2'), "What's new already has an entry for 0.2")
+    assert(welcome:find('local COMING_NEXT = "Skill plan 2.0 · Item tooltips · Shopping list on the map"', 1, true), "Coming next was changed")
+    assert(changelog:find("^## v0%.1%.23") and not changelog:find("0.2.0", 1, true), "CHANGELOG.md was changed for the internal build")
+    -- the internal build shows no "what's new" on login (there is none to show yet)
+    local keep = { meta = C_AddOns.GetAddOnMetadata, last = ns.db.lastVersion, fresh = ns.freshInstall }
+    C_AddOns.GetAddOnMetadata = function() return version end
+    ns.freshInstall = false
+    ns.db.lastVersion = "0.1.23"
+    local win = _G.GathercraftWhatsNew
+    if win then win:Hide() end
+    local ok, err = pcall(ns.WelcomeOnLogin)
+    win = _G.GathercraftWhatsNew
+    local shown = win and win:IsShown()
+    C_AddOns.GetAddOnMetadata, ns.db.lastVersion, ns.freshInstall = keep.meta, keep.last, keep.fresh
+    assert(ok, "the login of the internal build: " .. tostring(err))
+    assert(not shown, "the internal build shows a what's new window")
+
+    -- every text of the plan window: English key, nine translations, the same placeholders
+    local planner = Read("Planner.lua")
+    local keys, count = {}, 0
+    for key in planner:gmatch('L%["(.-)"%]') do keys[key] = true end
+    for key in planner:gmatch('ns%.LText%([%w%.]+, "(.-)"') do keys[key] = true end
+    local function Codes(s)
+        local list = {}
+        for code in s:gmatch("%%[%d%$]*[sd]") do list[#list + 1] = code end
+        return table.concat(list, " ")
+    end
+    for key in pairs(keys) do
+        count = count + 1
+        for _, code in ipairs({ "deDE", "esES", "frFR", "itIT", "koKR", "ptBR", "ruRU", "zhCN", "zhTW" }) do
+            local tr = ns.Locales[code] and ns.Locales[code][key]
+            assert(type(tr) == "string" and tr ~= "", ("no %s translation of %q"):format(code, key))
+            assert(Codes(tr) == Codes(key), ("%s: other placeholders in %q: %s"):format(code, key, tr))
+        end
+    end
+    assert(count >= 70, "test setup: the texts of Planner.lua: " .. count)
+    -- no promise the plan cannot keep, in any language of the new texts
+    for key in pairs(keys) do
+        local low = key:lower()
+        assert(not low:find("cheapest", 1, true) and not low:find("fastest", 1, true) and not low:find("guaranteed", 1, true) and not low:find("error-free", 1, true),
+            "a text promises too much: " .. key)
+    end
+    -- the short labels fit their fixed places in this language (an estimate:
+    -- 6 px a letter, 11 px a CJK sign - no real font metrics here)
+    local function Px(t)
+        local px = 0
+        for ch in (t or ""):gmatch("[%z\1-\127\194-\244][\128-\191]*") do px = px + (#ch >= 3 and 11 or 6) end
+        return px
+    end
+    local L = ns.L
+    -- (the head "have / need" has 140 px - it grows to the left of its column, next to "Materials" in 130)
+    assert(planner:find('head.mid:SetPoint("RIGHT", head, "LEFT", 280, 0)', 1, true) and planner:find("head.mid:SetWidth(140)", 1, true)
+        and planner:find("head.left:SetWidth(130)", 1, true), "the column head has only the width of its numbers")
+    for _, fit in ipairs({ { "Target", 90 }, { "have / need", 140 }, { "Materials", 130 }, { "Custom value", 134 }, { "Default", 138 }, { "missing", 150 }, { "enough", 150 },
+        { "(from the plan's steps)", 150 }, { "chance unknown", 150 }, { "Not learned yet", 200 } }) do
+        assert(Px(L[fit[1]]) <= fit[2], ("%s: %q needs %d px of %d"):format(LOCALE, L[fit[1]], Px(L[fit[1]]), fit[2]))
+    end
+    assert(Px((L["Your skill: %d / %d"]):format(300, 300)) <= 200, LOCALE .. ": the skill line is too long")
+    assert(Px((L["%s trainer"]):format(ns.CraftData.ProfLabel("Leatherworking")) .. "  99g 99s") <= 150 + 60, LOCALE .. ": a trainer line is far too long")
+    -- long recipe names and big numbers: the step and material rows do not wrap (one line each, cut by the game)
+    assert(planner:find("row.left:SetWordWrap(wide)", 1, true) and planner:find("row.right:SetWordWrap(false)", 1, true) and planner:find("row.mid:SetWordWrap(false)", 1, true),
+        "a row with two columns can wrap into the next one")
+    -- no change to the route, the recorder or the sync for this block: Planner.lua calls them as before
+    assert(planner:find('ns.StartRun("item:" .. m.id)', 1, true), "the Farm button no longer starts the item's run")
+end)
 -- (end of the skill plan 2.0 steps, v0.2 building block 1)
 step("Craft log: one entry per finished craft, failures and odd cases marked apart (v0.1.18 S5)", function()
     local data = GathercraftRecipeData
@@ -13642,8 +13719,9 @@ step("Welcome, what's new and the run summary (v0.1.13)", function()
     SendChatMessage = nil
 end)
 step("What's new: 0.1.23 after an update, in this language and all translations", function()
-    local version = toc:match("## Version: ([%d%.]+)")
-    assert(version == "0.1.23", "TOC version: " .. tostring(version))
+    -- (0.2 is built internally, block by block: the TOC says 0.2.0-b1, what
+    -- players read about releases stays that of 0.1.23 until 0.2 is published)
+    local version = "0.1.23"
     assert(toc:match("## Interface: (%d+)") == "16001", "TOC interface changed")
     local f = assert(io.open(ROOT .. "/Welcome.lua"))
     local src = f:read("*a") f:close()
@@ -13766,7 +13844,7 @@ end)
 step("What's new: a window with a box \"Coming next\", once per update, /gcr news (v0.1.19 Q5)", function()
     local L = ns.L
     local keep = { meta = C_AddOns.GetAddOnMetadata, last = ns.db.lastVersion, fresh = ns.freshInstall, height = methods.GetStringHeight }
-    local version = toc:match("## Version: ([%d%.]+)")
+    local version = "0.1.23" -- the last public version (the TOC marks the internal 0.2 build)
     local ok, err = pcall(function()
         C_AddOns.GetAddOnMetadata = function() return version end
         ns.freshInstall = false
