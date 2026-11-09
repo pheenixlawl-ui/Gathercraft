@@ -587,4 +587,6 @@ ns.Locales.deDE = {
     ["(needs %d)"] = "(braucht %d)",
     ["  /gcr skinlog      - what you skinned (skinlog clear: empty it)"] = "  /gcr skinlog      - was du gehäutet hast (skinlog clear: leeren)",
     ["Record skinning (helps build skinning areas)"] = "Kürschnern mitschreiben (hilft bei Kürschner-Gebieten)",
+    ["Questing mode: no route, no window – nearby nodes you can gather get a gold ring (Ctrl + right-click on the minimap button, or /gcr quest). The herbs/minerals switch is now under Options, General."] = "Questmodus: keine Route, kein Fenster – Nodes in der Nähe, die du sammeln kannst, bekommen einen goldenen Ring (Strg + Rechtsklick auf den Minikarten-Knopf oder /gcr quest). Der Schalter Kräuter/Mineralien steht jetzt unter Options, Allgemein.",
+    ["  %d unclear: no beast could be told at the cast (not counted)"] = "  %d unklar: beim Zauber war kein Tier eindeutig (nicht gezählt)",
 }

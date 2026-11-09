@@ -558,4 +558,6 @@ ns.Locales.ptBR = {
     ["(needs %d)"] = "(requer %d)",
     ["  /gcr skinlog      - what you skinned (skinlog clear: empty it)"] = "  /gcr skinlog      - o que você esfolou (skinlog clear: limpar)",
     ["Record skinning (helps build skinning areas)"] = "Registrar esfolamento (ajuda a criar áreas de esfolamento)",
+    ["Questing mode: no route, no window – nearby nodes you can gather get a gold ring (Ctrl + right-click on the minimap button, or /gcr quest). The herbs/minerals switch is now under Options, General."] = "Modo de missões: sem rota, sem janela – nós próximos que você pode coletar ganham um anel dourado (Ctrl + clique direito no botão do minimapa, ou /gcr quest). O botão ervas/minérios agora fica em Options, Geral.",
+    ["  %d unclear: no beast could be told at the cast (not counted)"] = "  %d incertos: nenhuma fera identificável no momento do feitiço (não contados)",
 }

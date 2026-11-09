@@ -15,10 +15,16 @@ local L = ns.L or setmetatable({}, { __index = function(_, k) return k end })
 --     player names. Values the client hides are not compared or kept.
 --   * a loot window seen twice (READY, OPENED, READY, CLOSED, CLOSED) is
 --     one skinning: one entry per corpse
+--   * proof of origin (Codex 09.11., B3): an entry only when the beast you
+--     had as target or under the mouse at the cast is the loot's source.
+--     No beast at the cast (none, or two): the loot is kept apart as
+--     "unclear", never counted as a find, never dropped in silence; its own
+--     count in /gcr skinlog. Time alone proves nothing.
 --   /gcr skinlog         what the log says
 --   /gcr skinlog clear   empties it
 ---------------------------------------------------------------------------
 local MAX_ENTRIES = 5000
+local MAX_UNCLEAR = 500
 local SKINNING_SPELLS = { [8613] = true, [8617] = true, [8618] = true, [10768] = true } -- Apprentice .. Artisan
 local CAST_WINDOW = 5 -- seconds from the skinning cast to its loot
 
@@ -29,6 +35,10 @@ end
 local function Needs()
     ns.db.skinNeeds = ns.db.skinNeeds or {}
     return ns.db.skinNeeds
+end
+local function UnclearDB()
+    ns.db.skinUnclear = ns.db.skinUnclear or {}
+    return ns.db.skinUnclear
 end
 local function On() return ns.db and not ns.db.skinLogOff end
 
@@ -55,11 +65,10 @@ local function NpcID(guid)
     if kind == "Creature" then return tonumber(id) end
 end
 
-local function Add(e)
-    local log = DB()
+local function Add(log, e, max)
     log[#log + 1] = e
-    if #log > MAX_ENTRIES then
-        local drop = #log - MAX_ENTRIES
+    if #log > max then
+        local drop = #log - max
         for i = 1, #log - drop do log[i] = log[i + drop] end
         for i = #log, #log - drop + 1, -1 do log[i] = nil end
     end
@@ -132,14 +141,21 @@ local function ReadLoot()
         end
     end
     if not (corpse and any) or done[corpse] then return end
-    -- the corpse you cast on (when it could be told)
-    if lastCast.beast and lastCast.beast.guid ~= corpse then return end
+    -- the corpse you cast on is another one: this loot is not the skinning
+    -- (the cast stays open for its own corpse)
+    local beast = lastCast.beast
+    if beast and beast.guid ~= corpse then return end
     Done(corpse)
-    local beast = lastCast.beast or Beast()
     lastCast = nil
     local mapID, x, y = Position()
-    Add({ t = time(), build = Build(), npc = NpcID(corpse), name = beast and beast.guid == corpse and beast.name or nil,
-        map = mapID, x = x, y = y, skill = Skill(), items = items })
+    local e = { t = time(), build = Build(), npc = NpcID(corpse), map = mapID, x = x, y = y, skill = Skill(), items = items }
+    if beast then
+        e.name = beast.name
+        Add(DB(), e, MAX_ENTRIES)
+    else
+        -- no beast could be told at the cast: not a find, kept apart
+        Add(UnclearDB(), e, MAX_UNCLEAR)
+    end
 end
 
 -- "Requires Skinning 100": the pattern of the client's own message
@@ -228,7 +244,7 @@ ns.SkinLogSummary = function() return Summary(DB()) end
 ns.SkinLogCommand = function(rest)
     rest = (rest or ""):lower()
     if rest == "clear" then
-        ns.db.skinLog, ns.db.skinNeeds = {}, {}
+        ns.db.skinLog, ns.db.skinNeeds, ns.db.skinUnclear = {}, {}, {}
         lastCast = nil
         ns.Print(L["Skinning log cleared."])
         return
@@ -237,6 +253,8 @@ ns.SkinLogCommand = function(rest)
     local beasts, kinds, items, low, high = Summary(log)
     ns.Print((L["Skinning log: %d skinned, %d kinds of beasts (kept on this computer, never shared)."]):format(#log, kinds))
     if ns.db.skinLogOff then print(L["  Recording is off (Options > General)."]) end
+    local unclear = ns.db.skinUnclear and #ns.db.skinUnclear or 0
+    if unclear > 0 then print((L["  %d unclear: no beast could be told at the cast (not counted)"]):format(unclear)) end
     if #log == 0 then return end
     if low then print((L["  Your skill while skinning: %d-%d"]):format(low, high)) end
     local list = {}

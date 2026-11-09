@@ -6127,13 +6127,14 @@ step("Skinning log: one entry per skinned beast, needed skill from the client's 
     local L = ns.L
     local saved = { guid = UnitGUID, name = UnitName, isPlayer = UnitIsPlayer, skill = ns.GetSkill, secret = issecretvalue,
         log = ns.db.skinLog, needs = ns.db.skinNeeds, off = ns.db.skinLogOff, err = _G.ERR_USE_LOCKED_WITH_SPELL_KNOWN_SI,
-        map = player.map, x = player.x, y = player.y }
+        unclear = ns.db.skinUnclear, map = player.map, x = player.x, y = player.y }
     local units = {}
     local SECRET = newproxy(true)
     local CORPSE = "Creature-0-1-1-1-3035-0000AA0001"
+    -- opts.target == false: no target and nothing under the mouse at the cast
     local function Skin(guid, items, opts)
         opts = opts or {}
-        units.target = guid
+        units.target = opts.target ~= false and guid or nil
         if not opts.noCast then fire("UNIT_SPELLCAST_SUCCEEDED", "player", "Cast-skin-" .. tostring(guid), opts.spell or 8613) end
         if opts.wait then advance(opts.wait) end
         loot = {}
@@ -6147,7 +6148,7 @@ step("Skinning log: one entry per skinned beast, needed skill from the client's 
         UnitName = function(u) if u == "player" then return "Test Player" end return units[u] and "Plainstrider" or nil end
         UnitIsPlayer = function() return false end
         ns.GetSkill = function(t) if t == "skin" then return 50, 75, 50 end return saved.skill(t) end
-        ns.db.skinLog, ns.db.skinNeeds, ns.db.skinLogOff = {}, {}, nil
+        ns.db.skinLog, ns.db.skinNeeds, ns.db.skinLogOff, ns.db.skinUnclear = {}, {}, nil, nil
         player.map, player.x, player.y = 1412, 0.4567, 0.7123
         local nodesBefore = #(ns.db.nodes[1412] or {})
         -- a normal skinning; the loot window seen twice is one entry
@@ -6178,6 +6179,27 @@ step("Skinning log: one entry per skinned beast, needed skill from the client's 
         Skin("Creature-0-1-1-1-3035-0000AA0005", { { 2447, 1 } }, { source = "GameObject-0-1-1-1-1617-0000BB0001" })
         Skin("Creature-0-1-1-1-3035-0000AA0006", { { 858, 1 } }, { source = "GameObject-0-1-1-1-106318-0000BB0002" })
         assert(#ns.db.skinLog == 1, "a chest or herb loot counted as skinning")
+        -- Codex' probe (09.11., B3): no target and nothing under the mouse at
+        -- the cast, then the loot of another beast within 5 s: no find for
+        -- it; kept apart as unclear, not dropped in silence
+        local OTHER = "Creature-0-1-1-1-9999-0000DD0001"
+        Skin(OTHER, { { 4865, 1 } }, { target = false })
+        assert(#ns.db.skinLog == 1, "a beast's loot without a beast at the cast counted as a find")
+        assert(ns.db.skinUnclear and #ns.db.skinUnclear == 1, "the unclear loot was dropped in silence")
+        assert(ns.db.skinUnclear[1].npc == 9999 and ns.db.skinUnclear[1].items[4865] == 1 and ns.db.skinUnclear[1].name == nil, "the unclear entry")
+        -- the same corpse again: still one unclear
+        Skin(OTHER, { { 4865, 1 } }, { target = false, noCast = true })
+        assert(#ns.db.skinUnclear == 1, "the same unclear corpse kept twice")
+        -- Codex' control: your own corpse is clear, another beast's loot comes
+        -- first - it is not the skinning (no find, not unclear), your leather
+        -- after it is one entry
+        local MINE = "Creature-0-1-1-1-3035-0000AA0020"
+        Skin(MINE, { { 4865, 1 } }, { source = "Creature-0-1-1-1-9999-0000DD0002" })
+        assert(#ns.db.skinLog == 1 and #ns.db.skinUnclear == 1, "another beast's loot with your own corpse clear")
+        Skin(MINE, { { 2318, 1 } }, { noCast = true })
+        Skin(MINE, { { 2318, 1 } }, { noCast = true })
+        assert(#ns.db.skinLog == 2 and ns.db.skinLog[2].npc == 3035 and ns.db.skinLog[2].items[2318] == 1, "your own leather after another beast's loot")
+        table.remove(ns.db.skinLog, 2)
         -- a loot long after the cast: nothing
         Skin("Creature-0-1-1-1-3035-0000AA0007", { { 2318, 1 } }, { wait = 6 })
         assert(#ns.db.skinLog == 1, "a loot 6 s after the cast counted")
@@ -6240,6 +6262,8 @@ step("Skinning log: one entry per skinned beast, needed skill from the client's 
         local text = table.concat(log, "\n", mark + 1)
         assert(text:find((L["Skinning log: %d skinned, %d kinds of beasts (kept on this computer, never shared)."]):format(2, 1), 1, true), "/gcr skinlog: " .. text)
         assert(text:find("Plainstrider", 1, true) and text:find((L["  Your skill while skinning: %d-%d"]):format(50, 50), 1, true), "/gcr skinlog: beasts or skill")
+        assert(text:find((L["  %d unclear: no beast could be told at the cast (not counted)"]):format(1), 1, true), "/gcr skinlog: the unclear count")
+        assert(not text:find("9999", 1, true), "/gcr skinlog: the unclear beast listed as a find")
         -- off: nothing
         ns.db.skinLogOff = true
         Skin("Creature-0-1-1-1-3035-0000AA0011", { { 2318, 1 } })
@@ -6253,9 +6277,10 @@ step("Skinning log: one entry per skinned beast, needed skill from the client's 
         assert(#ns.db.skinLog == 5000 and ns.db.skinLog[1].t == 2 and ns.db.skinLog[5000].npc == 3035, "not kept at 5000")
         -- clear
         slash("skinlog clear")
-        assert(#ns.db.skinLog == 0 and not next(ns.db.skinNeeds), "/gcr skinlog clear")
+        assert(#ns.db.skinLog == 0 and not next(ns.db.skinNeeds) and #ns.db.skinUnclear == 0, "/gcr skinlog clear")
         -- never in what is shared: no sync message carries it
         for _, m in ipairs(sentMessages) do assert(not m:find("3035", 1, true) or m:find("^N:"), "a skinning in a sync message: " .. m) end
+        for _, m in ipairs(sentMessages) do assert(not m:find("9999", 1, true) or m:find("^N:"), "an unclear skinning in a sync message: " .. m) end
         -- the option under General
         local found
         for _, o in ipairs(allFrames) do
@@ -6269,6 +6294,7 @@ step("Skinning log: one entry per skinned beast, needed skill from the client's 
     end)
     UnitGUID, UnitName, UnitIsPlayer, ns.GetSkill, issecretvalue = saved.guid, saved.name, saved.isPlayer, saved.skill, saved.secret
     ns.db.skinLog, ns.db.skinNeeds, ns.db.skinLogOff, _G.ERR_USE_LOCKED_WITH_SPELL_KNOWN_SI = saved.log, saved.needs, saved.off, saved.err
+    ns.db.skinUnclear = saved.unclear
     player.map, player.x, player.y = saved.map, saved.x, saved.y
     loot = {}
     if not ok then error(err, 0) end
