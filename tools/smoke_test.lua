@@ -4272,6 +4272,96 @@ step("Craft log: a Create All series counts as one block, only when it is clear 
     advance(3)
     if not ok then error(err, 0) end
 end)
+step("Craft log: switching the recording off or on is a hard break (v0.1.20 F1)", function()
+    -- Codex 09.11., B1: a cast left open over the switch held the series
+    -- for ever (later crafts each read the same end skill: orange 4/4), and
+    -- another recipe's craft while off was counted into the first one's series
+    local data = GathercraftRecipeData
+    local spell, other = data.spells.Leatherworking["Light Leather"], data.spells.Leatherworking["Light Armor Kit"]
+    local saved = { rank = ns.ProfessionRank, have = ns.CraftData.Have, colors = data.colors[spell], colors2 = data.colors[other],
+        log = ns.db.craftLog, off = ns.db.craftLogOff, multi = ns.db.craftMulti }
+    local rank = 10
+    ns.ProfessionRank = function(p) if p == "Leatherworking" then return rank, 75 end end
+    ns.CraftData.Have = function() return 0 end
+    data.colors[spell], data.colors[other] = "25:45", "25:45"
+    ns.db.craftLog, ns.db.craftLogOff, ns.db.craftMulti = {}, nil, nil
+    local n = 0
+    local function Guid() n = n + 1 return "Cast-f1-" .. n end
+    local function Start(sp) local g = Guid() fire("UNIT_SPELLCAST_START", "player", g, sp or spell) return g end
+    local function Done(g, gain, sp) rank = rank + (gain or 0) fire("UNIT_SPELLCAST_SUCCEEDED", "player", g, sp or spell) end
+    local function Blocks()
+        local list = {}
+        for _, e in ipairs(ns.db.craftLog) do if e.kind == "series" then list[#list + 1] = e end end
+        return list
+    end
+    local ok, err = pcall(function()
+        advance(3)
+        -- Probe A: A +1; 0.3 s later B starts (the series is open); A is read;
+        -- recording off; B succeeds (ignored); on again; three quick crafts 0, 0, +1
+        Done(Start(), 1) advance(0.3)
+        local b = Start()
+        advance(2)
+        ns.db.craftLogOff = true
+        Done(b, 0)
+        ns.db.craftLogOff = nil
+        for _, gain in ipairs({ 0, 0, 1 }) do Done(Start(), gain) advance(0.3) end
+        advance(2)
+        local byColour, _, others = ns.CraftLogSummary()
+        local o = byColour.orange
+        assert(not (o and o.tries == 4 and o.ups == 4), "Probe A: orange 4/4 - the three crafts after the switch each counted the one point")
+        local blocks = Blocks()
+        assert(#blocks == 1 and blocks[1].n == 3 and blocks[1].gain == 1, ("Probe A: the three crafts after the switch are not one block of 3 tries, 1 point (%d blocks)"):format(#blocks))
+        assert(o and o.tries == 3 and o.ups == 1, ("Probe A: orange %s/%s, want 1/3"):format(tostring(o and o.ups), tostring(o and o.tries)))
+        assert(ns.db.craftLog[1].overlap and not ns.db.craftLog[1].inSeries and others.overlap == 1, "Probe A: A, whose series the switch broke, is not left as overlapping")
+        -- B (cast through the switch) is in no entry: 1 (A) + 3 + their block
+        assert(#ns.db.craftLog == 5, "Probe A: entries " .. #ns.db.craftLog)
+        -- Probe B: two quick crafts without a point; while they are read: off,
+        -- another recipe +1, on again before the last reading
+        ns.db.craftLog = {}
+        advance(3)
+        Done(Start(), 0) advance(0.3)
+        Done(Start(), 0) advance(0.3)
+        ns.db.craftLogOff = true
+        Done(Start(other), 1, other)
+        ns.db.craftLogOff = nil
+        advance(3)
+        assert(#Blocks() == 0, "Probe B: a series for the first recipe (n " .. tostring(Blocks()[1] and Blocks()[1].n) .. ", gain " .. tostring(Blocks()[1] and Blocks()[1].gain) .. ")")
+        byColour = ns.CraftLogSummary()
+        assert(not byColour.orange, "Probe B: the first recipe's crafts counted with the other one's point")
+        for _, e in ipairs(ns.db.craftLog) do assert(e.spell ~= other, "Probe B: the craft made while off is in the log") end
+        -- a cast started while off and finished after switching on: no craft
+        ns.db.craftLog = {}
+        advance(3)
+        ns.db.craftLogOff = true
+        local c = Start()
+        ns.db.craftLogOff = nil
+        Done(c, 1) advance(2)
+        assert(#ns.db.craftLog == 0, "a cast started while off was logged after switching on")
+        -- the option's switch itself, no event between off and on: the open cast and reading are gone
+        local box
+        for _, f in ipairs(allFrames) do
+            if f.__kind == "FontString" and f:GetText() == ns.L["Record crafting skill-ups (helps improve the skill plan)"] and f.__pts and f.__pts.LEFT then
+                box = f.__pts.LEFT[1]
+            end
+        end
+        assert(box and box.get and box.__scripts.OnClick, "test setup: the option's switch")
+        Done(Start(), 1) advance(0.3)
+        local d = Start()
+        box:SetChecked(false) box.__scripts.OnClick(box)
+        assert(ns.db.craftLogOff, "test setup: the switch did not turn it off")
+        box:SetChecked(true) box.__scripts.OnClick(box)
+        assert(not ns.db.craftLogOff, "test setup: the switch did not turn it on")
+        Done(d, 1) advance(3)
+        assert(#ns.db.craftLog == 0, "off and on by the option: " .. #ns.db.craftLog .. " entries of crafts open over the switch")
+        -- after all that a single craft counts as ever
+        Done(Start(), 1) advance(2)
+        assert(#ns.db.craftLog == 1 and not ns.db.craftLog[1].overlap and ns.db.craftLog[1].gain == 1, "a single craft after the switches")
+    end)
+    ns.ProfessionRank, ns.CraftData.Have, data.colors[spell], data.colors[other] = saved.rank, saved.have, saved.colors, saved.colors2
+    ns.db.craftLog, ns.db.craftLogOff, ns.db.craftMulti = saved.log, saved.off, saved.multi
+    advance(3)
+    if not ok then error(err, 0) end
+end)
 step("Craft log: no green threshold is made up; yellow/green is one honest line (v0.1.20 K3)", function()
     -- skill plan 2.0 concept 4.1: the shipped colours are yellow and grey
     -- only. The distance to grey stays the real statistic.

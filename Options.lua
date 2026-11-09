@@ -1088,7 +1088,10 @@ local function Build()
         function(on) ns.db.fishLoudSplash = on or nil end)
     AddCheck("Record crafting skill-ups (helps improve the skill plan)",
         function() return not ns.db.craftLogOff end,
-        function(on) ns.db.craftLogOff = not on or nil end)
+        function(on)
+            ns.db.craftLogOff = not on or nil
+            if ns.CraftLogBreak then ns.CraftLogBreak() end -- nothing open lives on past the switch
+        end)
     AddCheck("Record skinning (helps build skinning areas)",
         function() return not ns.db.skinLogOff end,
         function(on) ns.db.skinLogOff = not on or nil end)

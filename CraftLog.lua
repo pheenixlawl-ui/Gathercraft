@@ -183,6 +183,38 @@ local function Done(guid)
     if #doneOrder > 200 then done[table.remove(doneOrder, 1)] = nil end
 end
 
+---------------------------------------------------------------------------
+-- A hard break (Codex 09.11., B1): recording switched off or on, or the log
+-- cleared. Nothing open lives on past it: casts still running are over for
+-- the log (their later events change nothing), crafts still being read are
+-- dropped (their second reading would fall into the other state), an open
+-- series ends broken - what it already logged stays "overlapping".
+---------------------------------------------------------------------------
+local function Break()
+    generation = generation + 1
+    wipe(reading)
+    for guid in pairs(casts) do Done(guid) end
+    wipe(casts)
+    local s = series
+    series = nil
+    if s then
+        s.broken = true
+        for _, e in ipairs(s.entries) do e.overlap = true end
+    end
+end
+ns.CraftLogBreak = Break -- the option's switch (Options.lua)
+
+-- on or off now; a change since the last look is a hard break. The option
+-- calls Break itself; this also catches a change made any other way, at the
+-- next event or reading.
+local wasOn
+local function State()
+    local on = On() and true or false
+    if wasOn ~= nil and on ~= wasOn then Break() end
+    wasOn = on
+    return on
+end
+
 local function Start(guid, spell)
     local r = Recipe(spell)
     if not r then return end
@@ -220,8 +252,9 @@ local function Succeeded(guid, spell)
     reading[e] = true
     local gen = generation
     C_Timer.After(SETTLE, function()
+        State() -- switched off meanwhile: a hard break, this reading is dropped
         reading[e] = nil
-        if gen ~= generation then return end -- cleared meanwhile (Codex N2)
+        if gen ~= generation then return end -- cleared or switched meanwhile (Codex N2, B1)
         local after, _, secret = Rank(c.prof)
         e.after = after
         if secret then e.secret = true end
@@ -270,7 +303,15 @@ for _, e in ipairs({ "UNIT_SPELLCAST_START", "UNIT_SPELLCAST_SUCCEEDED", "UNIT_S
     if watch.RegisterUnitEvent then pcall(watch.RegisterUnitEvent, watch, e, "player") else pcall(watch.RegisterEvent, watch, e) end
 end
 watch:SetScript("OnEvent", function(_, event, unit, guid, spell)
-    if not On() or unit ~= "player" then return end
+    if unit ~= "player" then return end
+    if not State() then
+        -- off: nothing is recorded. A cast seen now is over for the log, so
+        -- its success after switching on again is not taken for a new craft
+        -- (and any craft now, of whatever recipe, has ended an open series:
+        -- the switch was a hard break)
+        if guid ~= nil and not ns.AnySecret("craft log off", guid) then Done(guid) end
+        return
+    end
     if ns.AnySecret("craft log " .. event, guid) then
         -- the client hid which cast it was. A craft only when its spell can
         -- be read and is a recipe (a hidden spell is no craft at all; Codex
@@ -357,15 +398,11 @@ local function Rate(x) return x.tries > 0 and math.floor(100 * x.ups / x.tries +
 ns.CraftLogCommand = function(rest)
     rest = (rest or ""):lower()
     if rest == "clear" then
+        -- a hard break: crafts still being read are dropped too (Codex N2),
+        -- a series in the middle gives no block, casts still running are
+        -- done already (Codex B2)
+        Break()
         ns.db.craftLog = {}
-        -- crafts still being read are dropped too (Codex N2), and a series
-        -- in the middle: no block from it
-        generation = generation + 1
-        wipe(reading)
-        series = nil
-        -- and casts still running: their success or failure is done already (Codex B2)
-        for guid in pairs(casts) do Done(guid) end
-        wipe(casts)
         ns.Print(L["Craft log cleared."])
         return
     end
