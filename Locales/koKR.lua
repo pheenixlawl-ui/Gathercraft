@@ -562,4 +562,5 @@ ns.Locales.koKR = {
     ["  %d unclear: no beast could be told at the cast (not counted)"] = "  불확실 %d건: 시전 시 야수를 특정할 수 없었음 (집계 제외)",
     ["yellow/green"] = "노랑/초록",
     ["  from series (Create All): %d series, %d crafts, %d skill-ups - counted above"] = "  연속 제작(모두 제작): 연속 %d회, 제작 %d회, 숙련도 상승 %d회 – 위에 포함됨",
+    ["  Series of %s are not counted: a craft there gave more than one point."] = "  %s의 연속 제작은 집계하지 않습니다: 한 번의 제작이 1점 넘게 올렸습니다.",
 }

@@ -562,4 +562,5 @@ ns.Locales.frFR = {
     ["  %d unclear: no beast could be told at the cast (not counted)"] = "  %d incertains : aucune bête identifiable au moment du sort (non comptés)",
     ["yellow/green"] = "jaune/vert",
     ["  from series (Create All): %d series, %d crafts, %d skill-ups - counted above"] = "  des séries (Tout créer) : %d séries, %d fabrications, %d gains de compétence – comptés ci-dessus",
+    ["  Series of %s are not counted: a craft there gave more than one point."] = "  Les séries de %s ne sont pas comptées : une fabrication y a donné plus d'un point.",
 }

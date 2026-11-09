@@ -562,4 +562,5 @@ ns.Locales.itIT = {
     ["  %d unclear: no beast could be told at the cast (not counted)"] = "  %d incerti: nessuna bestia identificabile al momento dell'incantesimo (non contati)",
     ["yellow/green"] = "giallo/verde",
     ["  from series (Create All): %d series, %d crafts, %d skill-ups - counted above"] = "  da serie (Crea tutto): %d serie, %d creazioni, %d aumenti di abilità – contati sopra",
+    ["  Series of %s are not counted: a craft there gave more than one point."] = "  Le serie di %s non vengono contate: lì una creazione ha dato più di un punto.",
 }

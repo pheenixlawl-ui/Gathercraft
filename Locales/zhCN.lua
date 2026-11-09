@@ -562,4 +562,5 @@ ns.Locales.zhCN = {
     ["  %d unclear: no beast could be told at the cast (not counted)"] = "  %d 条不明确：施法时无法确定野兽（不计入）",
     ["yellow/green"] = "黄色/绿色",
     ["  from series (Create All): %d series, %d crafts, %d skill-ups - counted above"] = "  来自连续制作（全部制造）：%d 组，%d 次制作，%d 次技能提升 – 已计入上方",
+    ["  Series of %s are not counted: a craft there gave more than one point."] = "  %s 的连续制作不计入：其中一次制作提升了超过一点。",
 }

@@ -562,4 +562,5 @@ ns.Locales.esES = {
     ["  %d unclear: no beast could be told at the cast (not counted)"] = "  %d sin aclarar: al lanzar no se pudo determinar la bestia (no se cuentan)",
     ["yellow/green"] = "amarillo/verde",
     ["  from series (Create All): %d series, %d crafts, %d skill-ups - counted above"] = "  de series (Crear todo): %d series, %d creaciones, %d subidas de habilidad – contadas arriba",
+    ["  Series of %s are not counted: a craft there gave more than one point."] = "  Las series de %s no se cuentan: allí una creación dio más de un punto.",
 }

@@ -3801,6 +3801,7 @@ step("Craft log: one entry per finished craft, failures and odd cases marked apa
     ns.CraftData.Have = function(id) return id == 2318 and bag or 0 end
     data.colors[spell] = "20:40" -- orange below 20, yellow below 30, green below 40, grey from 40
     ns.db.craftLog, ns.db.craftLogOff = {}, nil
+    local keepMulti = ns.db.craftMulti ns.db.craftMulti = nil -- (F2: the note of a multi-point craft)
     local n = 0
     local function Craft(gain, events, made)
         n = n + 1
@@ -3891,6 +3892,7 @@ step("Craft log: one entry per finished craft, failures and odd cases marked apa
     end)
     ns.ProfessionRank, ns.CraftData.Have, data.colors[spell] = saved.rank, saved.have, saved.colors
     ns.db.craftLog, ns.db.craftLogOff, issecretvalue = saved.log, saved.off, saved.secret
+    ns.db.craftMulti = keepMulti
     if not ok then error(err, 0) end
 end)
 step("Craft log: only clear observations count; no other spells, hidden amounts, clear (v0.1.18 F2)", function()
@@ -3905,6 +3907,7 @@ step("Craft log: only clear observations count; no other spells, hidden amounts,
     ns.CraftData.Have = function(id) if id == 2318 then return bag end return 0 end
     data.colors[spell] = "20:40"
     ns.db.craftLog, ns.db.craftLogOff = {}, nil
+    local keepMulti = ns.db.craftMulti ns.db.craftMulti = nil -- (F2: the note of a multi-point craft)
     local n = 0
     local function Guid() n = n + 1 return "Cast-3-1-1-1-" .. spell .. "-f2-" .. n end
     local function Line()
@@ -4016,6 +4019,7 @@ step("Craft log: only clear observations count; no other spells, hidden amounts,
     end)
     ns.ProfessionRank, ns.CraftData.Have, data.colors[spell] = saved.rank, saved.have, saved.colors
     ns.db.craftLog, ns.db.craftLogOff, issecretvalue = saved.log, saved.off, saved.secret
+    ns.db.craftMulti = keepMulti
     if not ok then error(err, 0) end
 end)
 step("Craft log: a craft with a hidden cast ID marks the one still being read as overlapping (v0.1.18 B1)", function()
@@ -4031,6 +4035,7 @@ step("Craft log: a craft with a hidden cast ID marks the one still being read as
     ns.CraftData.Have = function(id) if id == 2318 then return bag end return 0 end
     data.colors[spell] = "20:40"
     ns.db.craftLog, ns.db.craftLogOff = {}, nil
+    local keepMulti = ns.db.craftMulti ns.db.craftMulti = nil -- (F2: the note of a multi-point craft)
     local ok, err = pcall(function()
         issecretvalue = function(v) return rawequal(v, SECRET) end
         fire("UNIT_SPELLCAST_START", "player", "Cast-b1-A", spell)
@@ -4058,6 +4063,7 @@ step("Craft log: a craft with a hidden cast ID marks the one still being read as
     end)
     ns.ProfessionRank, ns.CraftData.Have, data.colors[spell] = saved.rank, saved.have, saved.colors
     ns.db.craftLog, ns.db.craftLogOff, issecretvalue = saved.log, saved.off, saved.secret
+    ns.db.craftMulti = keepMulti
     if not ok then error(err, 0) end
 end)
 step("Craft log: clear while a craft is still being cast drops it too (v0.1.18 B2)", function()
@@ -4069,6 +4075,7 @@ step("Craft log: clear while a craft is still being cast drops it too (v0.1.18 B
     ns.ProfessionRank = function(p) if p == "Leatherworking" then return 10, 75 end end
     ns.CraftData.Have = function() return 0 end
     ns.db.craftLog, ns.db.craftLogOff = {}, nil
+    local keepMulti = ns.db.craftMulti ns.db.craftMulti = nil -- (F2: the note of a multi-point craft)
     local ok, err = pcall(function()
         advance(3)
         fire("UNIT_SPELLCAST_START", "player", "Cast-b2-A", spell)
@@ -4090,6 +4097,7 @@ step("Craft log: clear while a craft is still being cast drops it too (v0.1.18 B
     end)
     ns.ProfessionRank, ns.CraftData.Have = saved.rank, saved.have
     ns.db.craftLog, ns.db.craftLogOff = saved.log, saved.off
+    ns.db.craftMulti = keepMulti
     if not ok then error(err, 0) end
 end)
 step("Craft log: a Create All series counts as one block, only when it is clear (v0.1.20 K2)", function()
@@ -4105,6 +4113,7 @@ step("Craft log: a Create All series counts as one block, only when it is clear 
     ns.CraftData.Have = function() return 0 end
     data.colors[spell], data.colors[other] = "25:45", "25:45" -- orange below 25, yellow below 45, grey from 45
     ns.db.craftLog, ns.db.craftLogOff = {}, nil
+    local keepMulti = ns.db.craftMulti ns.db.craftMulti = nil -- (F2: the note of a multi-point craft)
     local n = 0
     local function Guid() n = n + 1 return "Cast-k2-" .. n end
     -- one craft: START, the cast time, SUCCEEDED (or what `events` says); the skill rises by `gain`
@@ -4269,6 +4278,7 @@ step("Craft log: a Create All series counts as one block, only when it is clear 
     end)
     ns.ProfessionRank, ns.CraftData.Have, data.colors[spell], data.colors[other] = saved.rank, saved.have, saved.colors, saved.colors2
     ns.db.craftLog, ns.db.craftLogOff, issecretvalue = saved.log, saved.off, saved.secret
+    ns.db.craftMulti = keepMulti
     advance(3)
     if not ok then error(err, 0) end
 end)
@@ -4362,6 +4372,115 @@ step("Craft log: switching the recording off or on is a hard break (v0.1.20 F1)"
     advance(3)
     if not ok then error(err, 0) end
 end)
+step("Craft log: a series' points are its successes only while no craft ever gave more than one (v0.1.20 F2)", function()
+    -- Codex 09.11., B2: +2 and +0 counted as a series 2/2, alone 1/2. Sven:
+    -- in WoW: Forever a craft gives at most one point - so k points are k
+    -- successes, as long as that is never seen to be wrong.
+    local data = GathercraftRecipeData
+    local spell = data.spells.Leatherworking["Light Leather"]
+    local cookKey, cook = next(data.spells.Cooking)
+    local saved = { rank = ns.ProfessionRank, have = ns.CraftData.Have, colors = data.colors[spell], colors2 = data.colors[cook],
+        log = ns.db.craftLog, off = ns.db.craftLogOff, multi = ns.db.craftMulti }
+    local rank, cooking = 10, 10
+    ns.ProfessionRank = function(p)
+        if p == "Leatherworking" then return rank, 75 end
+        if p == "Cooking" then return cooking, 75 end
+    end
+    ns.CraftData.Have = function() return 0 end
+    data.colors[spell], data.colors[cook] = "25:45", "25:45"
+    ns.db.craftLog, ns.db.craftLogOff, ns.db.craftMulti = {}, nil, nil
+    local n = 0
+    local function Cast(gain, castTime, sp)
+        n = n + 1
+        local guid = "Cast-f2k-" .. n
+        fire("UNIT_SPELLCAST_START", "player", guid, sp or spell)
+        if castTime then advance(castTime) end
+        if sp == cook then cooking = cooking + gain else rank = rank + gain end
+        fire("UNIT_SPELLCAST_SUCCEEDED", "player", guid, sp or spell)
+    end
+    local function Series(gains, castTime, sp)
+        for _, g in ipairs(gains) do Cast(g, castTime, sp) advance(0.3) end
+        advance(2)
+    end
+    local function Blocks()
+        local list = {}
+        for _, e in ipairs(ns.db.craftLog) do if e.kind == "series" then list[#list + 1] = e end end
+        return list
+    end
+    local function Fresh(skill) ns.db.craftLog = {} rank = skill or 10 advance(3) end
+    local function Text()
+        local mark = #log
+        slash("craftlog")
+        return table.concat(log, "\n", mark + 1)
+    end
+    local HINT = (ns.L["  Series of %s are not counted: a craft there gave more than one point."]):format(ns.L["Leatherworking"])
+    local ok, err = pcall(function()
+        assert(cook and cookKey, "test setup: no Cooking recipe")
+        advance(3)
+        -- +1 / +1: 2 of 2 (the first one's reading holds both points - no proof of a double)
+        Series({ 1, 1 })
+        local byColour = ns.CraftLogSummary()
+        assert(#Blocks() == 1 and byColour.orange and byColour.orange.tries == 2 and byColour.orange.ups == 2, "+1/+1 is not 2/2")
+        assert(not ns.db.craftMulti, "+1/+1 read together was taken for a multi-point craft")
+        -- +1 / +0 / +1, never a multi-point craft seen: 2 of 3
+        Fresh()
+        Series({ 1, 0, 1 }, 3)
+        byColour = ns.CraftLogSummary()
+        assert(#Blocks() == 1 and Blocks()[1].n == 3 and Blocks()[1].gain == 2, "+1/+0/+1: no block of 3 tries, 2 points")
+        assert(byColour.orange.tries == 3 and byColour.orange.ups == 2, ("+1/+0/+1: orange %d/%d, want 2/3"):format(byColour.orange.ups, byColour.orange.tries))
+        assert(not Text():find(HINT, 1, true), "the hint without a multi-point craft")
+        -- Codex' probe: +2 then +0; the second starts inside the first one's
+        -- reading and takes 3 s, so the first is read alone: its +2 is its own
+        Fresh()
+        Cast(2) advance(0.3)
+        Cast(0, 3) advance(2)
+        assert(#Blocks() == 0, "+2/+0 counted as a series " .. tostring(Blocks()[1] and Blocks()[1].gain) .. "/" .. tostring(Blocks()[1] and Blocks()[1].n))
+        local _, _, others
+        byColour, _, others = ns.CraftLogSummary()
+        assert(not byColour.orange and others.overlap == 2, "+2/+0: not left as overlapping")
+        assert(ns.db.craftMulti and ns.db.craftMulti.Leatherworking, "the multi-point craft is not noted for the profession")
+        assert(Text():find(HINT, 1, true), "/gcr craftlog does not say that series are no longer counted")
+        -- from then on: series of the profession stay overlapping
+        Fresh()
+        Series({ 1, 1 })
+        byColour, _, others = ns.CraftLogSummary()
+        assert(#Blocks() == 0 and not byColour.orange and others.overlap == 2, "a series after the multi-point craft was counted")
+        -- another profession is not touched by it
+        Series({ 1, 1 }, nil, cook)
+        local blocks = Blocks()
+        assert(#blocks == 1 and blocks[1].prof == "Cooking" and blocks[1].gain == 2, "a Cooking series stopped by Leatherworking's note")
+        -- clear forgets the note with everything else
+        slash("craftlog clear")
+        assert(ns.db.craftMulti == nil, "clear kept the note")
+        advance(3)
+        Series({ 1, 1 })
+        assert(#Blocks() == 1, "after the clear a clean series is not counted")
+        -- a single multi-point craft: later blocks overlapping
+        Fresh()
+        Cast(2) advance(2)
+        assert(ns.db.craftLog[1].multi and ns.db.craftMulti and ns.db.craftMulti.Leatherworking, "a single +2 is not noted")
+        Series({ 1, 0, 1 })
+        byColour, _, others = ns.CraftLogSummary()
+        assert(#Blocks() == 0 and others.overlap == 3, "a block after a single multi-point craft")
+        assert(byColour.orange and byColour.orange.tries == 1 and byColour.orange.ups == 1 and others.multi == 1, "the single +2 itself: one try, one success, named apart")
+        -- a log of 0.1.18 / 0.1.19 with such a craft, no note yet: found in the log
+        Fresh()
+        ns.db.craftMulti = nil
+        ns.db.craftLog = { { t = 1, result = "ok", prof = "Leatherworking", spell = spell, colour = "orange", before = 5, after = 7, gain = 2, multi = true, yellow = 25, grey = 45, max = 75 } }
+        Series({ 1, 1 })
+        assert(#Blocks() == 0 and ns.db.craftMulti and ns.db.craftMulti.Leatherworking, "an old multi-point entry in the log does not stop the series")
+        -- an overlapping old entry with two points proves nothing
+        Fresh()
+        ns.db.craftMulti = nil
+        ns.db.craftLog = { { t = 1, result = "ok", prof = "Leatherworking", spell = spell, colour = "orange", before = 5, after = 7, gain = 2, multi = true, overlap = true, yellow = 25, grey = 45, max = 75 } }
+        Series({ 1, 1 })
+        assert(#Blocks() == 1 and not ns.db.craftMulti, "an overlapping two-point reading was taken for proof")
+    end)
+    ns.ProfessionRank, ns.CraftData.Have, data.colors[spell], data.colors[cook] = saved.rank, saved.have, saved.colors, saved.colors2
+    ns.db.craftLog, ns.db.craftLogOff, ns.db.craftMulti = saved.log, saved.off, saved.multi
+    advance(3)
+    if not ok then error(err, 0) end
+end)
 step("Craft log: no green threshold is made up; yellow/green is one honest line (v0.1.20 K3)", function()
     -- skill plan 2.0 concept 4.1: the shipped colours are yellow and grey
     -- only. The distance to grey stays the real statistic.
@@ -4373,6 +4492,7 @@ step("Craft log: no green threshold is made up; yellow/green is one honest line 
     ns.CraftData.Have = function() return 0 end
     data.colors[spell] = "20:40"
     ns.db.craftLog, ns.db.craftLogOff = {}, nil
+    local keepMulti = ns.db.craftMulti ns.db.craftMulti = nil -- (F2: the note of a multi-point craft)
     local ok, err = pcall(function()
         advance(3)
         -- 35 of 20:40 was "green" before: now yellow, the thresholds kept as they are
@@ -4405,6 +4525,7 @@ step("Craft log: no green threshold is made up; yellow/green is one honest line 
     end)
     ns.ProfessionRank, ns.CraftData.Have, data.colors[spell] = saved.rank, saved.have, saved.colors
     ns.db.craftLog, ns.db.craftLogOff = saved.log, saved.off
+    ns.db.craftMulti = keepMulti
     if not ok then error(err, 0) end
 end)
 step("Sharing counts what other players sent, over all sessions (v0.1.18 S7)", function()

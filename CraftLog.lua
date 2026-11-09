@@ -103,6 +103,16 @@ local generation = 0 -- /gcr craftlog clear: readings started before it are drop
 -- maximum, k <= n, and the colour and the distance group to grey the same
 -- for every skill the series passes. Otherwise all of it stays
 -- "overlapping" as before: nothing is estimated or split.
+--
+-- k points = k crafts that gave a point (Sven 09.11., Codex B2): in WoW:
+-- Forever a craft gives at most ONE skill point (Classic rules), so k
+-- points in n crafts are k successes, also for 0 < k < n. This is an
+-- assumption, and it is watched: the moment one craft alone is measured
+-- with more than one point (a single craft, or the first of a series read
+-- before the next one succeeded), the profession is noted in
+-- ns.db.craftMulti and its series are no longer counted - they stay
+-- "overlapping", and /gcr craftlog says so. Nothing is guessed or split.
+-- /gcr craftlog clear forgets the note with everything else.
 ---------------------------------------------------------------------------
 local series            -- the open series: its last craft is still being read
 local inSeries = setmetatable({}, { __mode = "k" }) -- entry -> its series
@@ -147,6 +157,26 @@ end
 
 local function Bucket(gap) return math.min(4, math.floor(math.max(0, gap) / 5)) end -- 0-4, 5-9, 10-14, 15-19, 20+
 
+-- one craft alone gave more than one point in this profession (see above)
+local function SawMulti(prof)
+    if not prof then return end
+    ns.db.craftMulti = ns.db.craftMulti or {}
+    ns.db.craftMulti[prof] = true
+end
+-- ever seen: the note, or a clear single craft in the log that says so
+-- (logs of 0.1.18 / 0.1.19 have no note yet)
+local function MultiSeen(prof)
+    local m = ns.db.craftMulti
+    if m and m[prof] then return true end
+    for _, e in ipairs(DB()) do
+        if e.multi and e.prof == prof and not e.kind and not e.overlap and not e.secret then
+            SawMulti(prof)
+            return true
+        end
+    end
+    return false
+end
+
 -- the series is over (its last reading is done): one block when it is clear
 local function Finish(s)
     for _, e in ipairs(s.entries) do e.overlap = true end -- each alone says nothing
@@ -159,6 +189,9 @@ local function Finish(s)
     if not (before and after) then return end
     local gain = after - before
     if gain < 0 or gain > s.n then return end
+    -- k points are k successes only while no craft of this profession was
+    -- ever seen to give more than one (Codex B2)
+    if MultiSeen(first.prof) then return end
     if first.max and after >= first.max then return end
     local colour, yellow, grey = Colour(s.spell, before)
     if colour == "unknown" then return end
@@ -261,7 +294,16 @@ local function Succeeded(guid, spell)
         if e.before and after then
             local gain = after - e.before
             e.gain = gain
-            if gain > 1 then e.multi = true end
+            if gain > 1 then
+                e.multi = true
+                -- this craft alone gave them: a single one, or the first of
+                -- a series while no later one has succeeded yet. (Later ones
+                -- may hold the point of the craft before: not proof.)
+                local s = inSeries[e]
+                if not e.overlap and not e.secret and (not s or (s.entries[1] == e and #s.entries == 1)) then
+                    SawMulti(c.prof)
+                end
+            end
         end
         if c.product and c.had then
             local now, hidden = Count(c.product)
@@ -403,6 +445,7 @@ ns.CraftLogCommand = function(rest)
         -- done already (Codex B2)
         Break()
         ns.db.craftLog = {}
+        ns.db.craftMulti = nil -- what was measured is gone, the note with it
         ns.Print(L["Craft log cleared."])
         return
     end
@@ -427,6 +470,13 @@ ns.CraftLogCommand = function(rest)
     end
     if other.series > 0 then
         print((L["  from series (Create All): %d series, %d crafts, %d skill-ups - counted above"]):format(other.series, other.seriesTries, other.seriesUps))
+    end
+    -- professions whose series are no longer counted (a craft gave more than one point)
+    local noSeries = {}
+    for prof in pairs(ns.db.craftMulti or {}) do noSeries[#noSeries + 1] = prof end
+    table.sort(noSeries)
+    for _, prof in ipairs(noSeries) do
+        print((L["  Series of %s are not counted: a craft there gave more than one point."]):format(L[prof]))
     end
     print((L["  Not counted: %d failed or interrupted, %d unreadable, %d overlapping, %d at the rank's maximum; %d gave more than one point."]):format(
         other.failed, other.secret, other.overlap, other.cap, other.multi))

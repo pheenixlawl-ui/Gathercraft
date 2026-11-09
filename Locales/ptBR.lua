@@ -562,4 +562,5 @@ ns.Locales.ptBR = {
     ["  %d unclear: no beast could be told at the cast (not counted)"] = "  %d incertos: nenhuma fera identificável no momento do feitiço (não contados)",
     ["yellow/green"] = "amarelo/verde",
     ["  from series (Create All): %d series, %d crafts, %d skill-ups - counted above"] = "  de séries (Criar tudo): %d séries, %d criações, %d aumentos de habilidade – contados acima",
+    ["  Series of %s are not counted: a craft there gave more than one point."] = "  As séries de %s não são contadas: lá uma criação deu mais de um ponto.",
 }

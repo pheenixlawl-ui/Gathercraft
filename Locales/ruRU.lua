@@ -562,4 +562,5 @@ ns.Locales.ruRU = {
     ["  %d unclear: no beast could be told at the cast (not counted)"] = "  %d неясных: при чтении заклинания зверя определить не удалось (не учтены)",
     ["yellow/green"] = "жёлтый/зелёный",
     ["  from series (Create All): %d series, %d crafts, %d skill-ups - counted above"] = "  из серий (Создать все): %d серий, %d созданий, %d повышений навыка – учтены выше",
+    ["  Series of %s are not counted: a craft there gave more than one point."] = "  Серии для %s не учитываются: одно создание дало там больше одного очка.",
 }
