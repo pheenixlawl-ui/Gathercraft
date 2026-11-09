@@ -3240,7 +3240,9 @@ step("Skill plan: unknown prices, fees, training, what you can make yourself (v0
     ranks.Blacksmithing = { 1, 75 }
     ns.ShowSkillPlan("Blacksmithing") advance(1)
     assert(Shows((ns.L["Missing materials cost: unknown (%d without a price)"]):format(noPrice)), "the total shows a price where none is known")
-    assert(Shows(ns.L["~ = planned with an estimated price."]), "estimated prices are not explained")
+    -- (since 0.2, A3: no stand-in prices - such a choice is "not fully comparable")
+    assert(Shows(ns.L["? = a material has no price: this choice is not fully comparable."]), "a choice without prices is not explained")
+    assert(not Shows(ns.L["~ = planned with an estimated price."]), "a missing price is called an estimate")
 
     -- (2) every price known: the total is the sum by hand
     ns.GetPrice = function() return 100, "AH scan" end
@@ -4154,6 +4156,105 @@ step("Skill plan 2.0: one stock per item, in the order the plan is carried out (
             assert(not p.stuck and p.steps[#p.steps].to == 300, prof .. ": the plan ends at " .. tostring(p.steps[#p.steps].to))
         end
     end
+end)
+step("Skill plan 2.0: every price is known, estimated or unknown - into the choice and the sum (v0.2 A3)", function()
+    -- concept 4.5. Plain tables; a recipe gives one point per craft from its
+    -- required skill up to `upto`.
+    local core = ns.PlanCore
+    local function R(key, product, req, upto, reagents)
+        local list = {}
+        for _, r in ipairs(reagents) do list[#list + 1] = { id = r[1], n = r[2] } end
+        return { prof = "Testing", key = key, name = key, product = product, made = 1, req = req, yellow = upto, grey = upto, reagents = list, learn = "known" }
+    end
+    local function Plan(recipes, prices, stock, to)
+        local plan = core.Compute({ prof = "Testing", skill = 1, target = to or 6, recipes = { Testing = recipes }, professions = { Testing = { rank = 1 } },
+            stock = stock or {}, prices = prices, recipeItemPrices = {}, nodes = {} })
+        local m = {}
+        for _, row in ipairs(plan.materials) do m[row.id] = row end
+        return plan, m
+    end
+    local known, est, none = function(c) return { status = "known", copper = c, source = "AH scan", age = 60 } end,
+        function(c) return { status = "estimated", copper = c, source = "vendor (est.)" } end, { status = "unknown" }
+    local A, B = function() return R("A", 9300, 1, 6, { { 9301, 2 } }) end, function() return R("B", 9310, 1, 6, { { 9311, 1 } }) end
+
+    -- everything known: the sum by hand, no gaps
+    local plan, m = Plan({ A() }, { [9301] = known(7) })
+    assert(plan.cost.known == 5 * 2 * 7 and plan.cost.estimated == 0 and #plan.cost.unknownItems == 0 and plan.total == 70, "all known: the sum")
+    assert(m[9301].costStatus == "known" and m[9301].cost == 70 and m[9301].price.source == "AH scan" and m[9301].price.age == 60, "all known: the row")
+    assert(not plan.notComparable and plan.steps[1].recipe.comparable, "all known: called not comparable")
+    -- a real price of 0 is a price: known, 0, comparable
+    plan, m = Plan({ A() }, { [9301] = known(0) })
+    assert(m[9301].costStatus == "known" and m[9301].cost == 0 and #plan.cost.unknownItems == 0 and not plan.notComparable, "a real price of 0")
+    -- an estimated price: in the sum, but apart and named
+    plan, m = Plan({ A() }, { [9301] = est(4) })
+    assert(plan.cost.known == 0 and plan.cost.estimated == 40 and plan.cost.estimatedItems[1] == 9301 and plan.total == 40, "estimated: the sum")
+    assert(m[9301].costStatus == "estimated" and plan.steps[1].recipe.estimated and plan.steps[1].recipe.comparable, "estimated: the row or the step")
+    -- no price: unknown - not 0, not in any sum, the item named
+    for _, prices in ipairs({ {}, { [9301] = none }, { [9301] = { status = "known" } }, { [9301] = { copper = "12" } } }) do
+        plan, m = Plan({ A() }, prices)
+        assert(m[9301].missing == 10 and m[9301].cost == nil and m[9301].costStatus == "unknown", "unknown: a cost for a missing material without a price")
+        assert(plan.cost.known == 0 and plan.cost.estimated == 0 and plan.total == 0 and plan.cost.unknownItems[1] == 9301 and plan.learn.matsUnknown == 1, "unknown: the sum")
+        assert(plan.notComparable and plan.steps[1].recipe.comparable == false, "unknown: the choice is called comparable")
+    end
+    -- partly unknown: the known part is a sum, the rest is listed - never one "cost" for both
+    plan, m = Plan({ R("A", 9300, 1, 6, { { 9301, 2 }, { 9302, 1 } }) }, { [9301] = known(7) })
+    assert(plan.cost.known == 70 and #plan.cost.unknownItems == 1 and plan.cost.unknownItems[1] == 9302 and m[9302].cost == nil, "partly unknown")
+    -- nothing is missing: nothing to pay, whatever the price is
+    plan, m = Plan({ A() }, {}, { [9301] = 10 })
+    assert(m[9301].missing == 0 and m[9301].cost == 0 and m[9301].costStatus == "none" and #plan.cost.unknownItems == 0, "nothing missing, but a cost or a gap")
+
+    -- the choice: a recipe with a gap never wins because its part sum is small.
+    -- A: 2 x 9301 at 500c = 1000c a craft, all known. B: 1 x 9311, no price.
+    plan = Plan({ A(), B() }, { [9301] = known(500) })
+    assert(#plan.steps == 1 and plan.steps[1].recipe.key == "A" and not plan.notComparable, "a recipe without a price beat one with a known cost")
+    -- B with a second material at 1c: its part sum (1c) is far below A's 1000c - still A
+    plan = Plan({ A(), R("B", 9310, 1, 6, { { 9311, 1 }, { 9312, 1 } }) }, { [9301] = known(500), [9312] = known(1) })
+    assert(plan.steps[1].recipe.key == "A", "a part sum won the comparison")
+    -- both whole: the lower cost wins, an estimate counts with its number
+    plan = Plan({ A(), B() }, { [9301] = known(500), [9311] = est(300) })
+    assert(plan.steps[1].recipe.key == "B" and plan.steps[1].recipe.estimated, "an estimated price is not compared")
+    -- only recipes with gaps: the one with fewer pieces without a price, and the plan says it is not comparable
+    plan = Plan({ A(), B() }, {})
+    assert(plan.steps[1].recipe.key == "B" and plan.notComparable, "only gaps: not the smaller gap, or not said")
+    -- where the comparable recipe ends (grey at 4) the other one takes over, marked
+    plan = Plan({ R("A", 9300, 1, 4, { { 9301, 1 } }), B() }, { [9301] = known(5) })
+    assert(#plan.steps == 2 and plan.steps[1].recipe.key == "A" and plan.steps[2].recipe.key == "B" and plan.steps[2].recipe.comparable == false and plan.notComparable,
+        "the recipe with a gap does not take over where nothing else is left")
+
+    -- buying against making: an estimated price takes part with its number;
+    -- an unknown buying price does not make the item free, it is made
+    plan, m = Plan({ R("A", 9300, 1, 6, { { 9320, 1 } }), R("Make it", 9320, 1, 1, { { 9321, 1 } }) }, { [9320] = est(3), [9321] = known(10) })
+    assert(not m[9320].madeFrom and m[9320].costStatus == "estimated" and m[9320].cost == 15, "an estimated buying price is not compared with making")
+    plan, m = Plan({ R("A", 9300, 1, 6, { { 9320, 1 } }), R("Make it", 9320, 1, 1, { { 9321, 1 } }) }, { [9321] = known(10) })
+    assert(m[9320].madeFrom and m[9321].cost == 50 and #plan.cost.unknownItems == 0, "no buying price: not made from what has a price")
+
+    -- the snapshot (Planner.lua): what a vendor PAYS is no buying price, the
+    -- old stand-ins are gone, the Crafting tab's own estimate is "estimated"
+    local d = ns.CraftData
+    local saved = { price = ns.GetPrice, vendor = ns.db.vendorPrices, cost = d.ReagentCost }
+    local ok, err = pcall(function()
+        ns.db.vendorPrices = { [9401] = 30 }
+        ns.GetPrice = function(id)
+            if id == 9402 then return 55, "AH scan" end
+            if id == 9403 then return 9, "vendor" end -- what a vendor pays for it
+        end
+        local prices = ns.SkillPlanSnapshot("Alchemy", 1, 5).prices
+        assert(prices[9401].status == "known" and prices[9401].copper == 30 and prices[9401].source == "vendor", "a vendor's buying price")
+        assert(prices[9402].status == "known" and prices[9402].copper == 55 and prices[9402].source == "AH scan", "an auction price")
+        assert(prices[9403].status == "unknown" and prices[9403].copper == nil, "a vendor's SELL price was taken for a buying price (or four times it)")
+        assert(prices[9404].status == "unknown" and prices[9404].copper == nil, "no price at all became a number")
+        d.ReagentCost = function(id) if id == 9405 then return 12, "vendor (est.)", true end return saved.cost(id) end
+        prices = ns.SkillPlanSnapshot("Alchemy", 1, 5).prices
+        assert(prices[9405].status == "estimated" and prices[9405].copper == 12, "the Crafting tab's estimate is not marked estimated")
+    end)
+    ns.GetPrice, ns.db.vendorPrices, d.ReagentCost = saved.price, saved.vendor, saved.cost
+    if not ok then error(err, 0) end
+    local f = assert(io.open(ROOT .. "/Planner.lua"))
+    local src = f:read("*a") f:close()
+    assert(not src:find("UNKNOWN_PRICE", 1, true) and not src:find("sell * 4", 1, true), "Planner.lua still has a stand-in price")
+    f = assert(io.open(ROOT .. "/PlanCore.lua"))
+    src = f:read("*a") f:close()
+    assert(not src:find("standin", 1, true), "PlanCore.lua still uses a stand-in price")
 end)
 -- (end of the skill plan 2.0 steps, v0.2 building block 1)
 step("Craft log: one entry per finished craft, failures and odd cases marked apart (v0.1.18 S5)", function()

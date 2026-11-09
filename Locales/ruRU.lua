@@ -588,4 +588,6 @@ ns.Locales.ruRU = {
     ["Ping when I reach a route point"] = "Сигнал при достижении точки маршрута",
     ["Scan the auction house automatically when I open it"] = "Сканировать аукцион автоматически при открытии",
     ["Only nodes near you get a minimap pin now - less work for the game while you move. The auction house scan starts when you open the window (Options, Rares & prices). The skill plan reads your profession skill from the game itself; where that fails, opening the profession window once still does it. New: Options, Fishing - and a switch for the ping at route points (Options, General)."] = "Метку на миникарте теперь получают только точки рядом с вами – меньше работы для игры, пока вы движетесь. Сканирование аукциона начинается, когда вы открываете окно (Настройки, Редкие и цены). План навыка читает ваш навык профессии прямо из игры; где это не получается, по-прежнему достаточно один раз открыть окно профессии. Новое: Настройки, Рыбная ловля – и переключатель сигнала в точках маршрута (Настройки, Общие).",
+    ["? = a material has no price: this choice is not fully comparable."] = "? = у материала нет цены: этот выбор нельзя сравнить полностью.",
+    ["(%s of it estimated)"] = "(из них %s по оценке)",
 }

@@ -22,7 +22,6 @@ local L = ns.L or setmetatable({}, { __index = function(_, k) return k end })
 --     never as 0
 ---------------------------------------------------------------------------
 local CAPS = { 75, 150, 225, 300 }
-local UNKNOWN_PRICE = 2000     -- copper per item when no price is known (keeps such recipes possible but not first)
 local ROW_H = 18
 local WIDE_W = 492  -- a line without a right column (hints, notes): the whole row, wrapped
 
@@ -135,14 +134,20 @@ local function Snapshot(prof, from, to)
         rawset(t, id, n)
         return n
     end })
+    -- what one costs to buy: the price the Crafting tab uses (a vendor who
+    -- showed it, else the auction price by the 0.1.16 rule; what a vendor
+    -- PAYS for an item is no buying price). Its own estimate for a few
+    -- vendor goods is marked estimated; no price at all is unknown - nothing
+    -- is made up for it (the old stand-ins, 2000c and four times the vendor's
+    -- price, are gone).
     input.prices = setmetatable({}, { __index = function(t, id)
-        local price = d.ReagentCost(id)
-        local entry = { copper = price }
-        if not price then
-            -- no auction price yet: a few times what a vendor pays for it
-            local sell, source
-            if ns.GetPrice then sell, source = ns.GetPrice(id) end
-            entry.standin = (source == "vendor" and sell and sell > 0) and sell * 4 or UNKNOWN_PRICE
+        local price, source, guessed = d.ReagentCost(id)
+        local entry
+        if type(price) == "number" then
+            entry = { status = guessed and "estimated" or "known", copper = price, source = source,
+                age = ns.PriceAgeOf and ns.PriceAgeOf(id) or nil }
+        else
+            entry = { status = "unknown" }
         end
         rawset(t, id, entry)
         return entry
@@ -160,7 +165,7 @@ ns.SkillPlanSnapshot = Snapshot
 -- (PlanCore.lua); this takes the snapshot for it.
 ns.SkillPlan = function(prof, from, to)
     local plan = ns.PlanCore.Compute(Snapshot(prof, from, to))
-    return plan.steps, plan.materials, plan.total, plan.stuck, plan.unknownPrices, plan.learn
+    return plan.steps, plan.materials, plan.total, plan.stuck, plan.notComparable, plan.learn, plan
 end
 
 ---------------------------------------------------------------------------
@@ -222,7 +227,7 @@ local function Refresh()
     -- the targets are the usual Classic caps; without your own maximum they are assumed
     targetText:SetText(maxRank and tostring(target) or ("~" .. target))
 
-    local steps, mats, total, stuck, unknown, info = ns.SkillPlan(prof, from, target)
+    local steps, mats, total, stuck, unknown, info, plan = ns.SkillPlan(prof, from, target)
     -- where you have to train the next rank: your own maximum, after that the
     -- usual caps (assumed)
     local trainAt = {}
@@ -270,13 +275,19 @@ local function Refresh()
         local learn = ""
         if r.how == "trainer" then learn = "  |cff999999" .. L["(trainer)"] .. "|r"
         elseif r.how == "vendor" then learn = "  |cff999999" .. L["(buy the recipe)"] .. "|r" end
-        -- ~: some of its materials had no price, the choice used a stand-in
-        Line(("%d-%d  %s%s"):format(s.from, s.to, r.name, learn), (L["%dx"]):format(s.crafts) .. (r.guessed and " ~" or ""))
+        -- ~: one of its materials has an estimated price; ?: one has no price
+        -- at all, so the choice of this recipe is not fully comparable
+        Line(("%d-%d  %s%s"):format(s.from, s.to, r.name, learn), (L["%dx"]):format(s.crafts)
+            .. (r.comparable == false and " ?" or r.estimated and " ~" or ""))
     end
     if steps[#steps] then Train(steps[#steps].to) end
-    local estimated = false
-    for _, s in ipairs(steps) do estimated = estimated or s.recipe.guessed end
+    local estimated, gaps = false, false
+    for _, s in ipairs(steps) do
+        estimated = estimated or (s.recipe.estimated and s.recipe.comparable ~= false)
+        gaps = gaps or s.recipe.comparable == false
+    end
     if estimated then Line(L["~ = planned with an estimated price."], nil, { 0.6, 0.6, 0.6 }) end
+    if gaps then Line(L["? = a material has no price: this choice is not fully comparable."], nil, { 0.6, 0.6, 0.6 }) end
     -- learning the plan's recipes: shown apart, not part of the choice
     if info.trainer > 0 then
         Line((L["Trainer fees for new recipes: %s"]):format(ns.Money(info.fees))
@@ -321,7 +332,8 @@ local function Refresh()
         elseif m.missing == 0 then
             right = "|cff55ff55" .. L["enough"] .. "|r"
         else
-            right = ("|cffff7070%d|r  %s"):format(m.missing, m.cost and ns.Money(m.cost) or L["|cffff7070no price|r"])
+            right = ("|cffff7070%d|r  %s%s"):format(m.missing, m.costStatus == "estimated" and "~" or "",
+                m.cost and ns.Money(m.cost) or L["|cffff7070no price|r"])
         end
         local row = Line(left, right)
         if m.node and m.missing > 0 then
@@ -340,14 +352,16 @@ local function Refresh()
     end
     for i = n + 1, #rows do rows[i]:Hide() end
     content:SetHeight(math.max(1, y))
-    -- materials nobody knows a price for count as unknown, never as 0
+    -- the sum: what is known, what of it is only estimated, and how many
+    -- materials have no price at all - those count as unknown, never as 0
+    local estimated = plan.cost.estimated > 0 and ("  |cff999999" .. (L["(%s of it estimated)"]):format(ns.Money(plan.cost.estimated)) .. "|r") or ""
     if info.matsUnknown > 0 and total == 0 then
         totalText:SetText((L["Missing materials cost: unknown (%d without a price)"]):format(info.matsUnknown))
     elseif info.matsUnknown > 0 then
-        totalText:SetText((L["Missing materials cost about %s"]):format(ns.Money(total)) .. "  |cffff7070"
+        totalText:SetText((L["Missing materials cost about %s"]):format(ns.Money(total)) .. estimated .. "  |cffff7070"
             .. (L["(+%d without a price)"]):format(info.matsUnknown) .. "|r")
     else
-        totalText:SetText((L["Missing materials cost about %s"]):format(ns.Money(total)))
+        totalText:SetText((L["Missing materials cost about %s"]):format(ns.Money(total)) .. estimated)
     end
     noteText:SetText(unknown and L["Some prices are unknown: scan the auction house for a better plan."] or "")
 end

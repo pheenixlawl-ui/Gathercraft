@@ -19,8 +19,10 @@ local ADDON_NAME, ns = ...
 --                fee, recipeItem }
 --   professions  [profession] = { rank = skill } for every one you have
 --   stock    [item] = how many you have
---   prices   [item] = { copper = what one costs (nil: not known),
---                       standin = a stand-in for the recipe choice }
+--   prices   [item] = { status = "known" | "estimated" | "unknown",
+--                       copper (nil when unknown), source, age (seconds) }
+--            A price is never made up here: unknown stays unknown, in the
+--            recipe choice, in every sum and in the plan (concept 4.5).
 --   recipeItemPrices  [recipe item] = copper (a vendor showed it)
 --   nodes    [item] = the node that gives it (for a farm run)
 -- }
@@ -48,47 +50,75 @@ local function Sorted(list)
     return out
 end
 
--- The recipes the plan can use, with the cost of one craft
+-- A price as the calculation reads it: { status, copper, source, age }.
+-- No entry, or one without a number, is unknown - never 0.
+local UNKNOWN = { status = "unknown" }
+local function PriceOf(input, id)
+    local p = input.prices[id]
+    if type(p) ~= "table" or type(p.copper) ~= "number" or p.status == "unknown" then return UNKNOWN end
+    if p.status ~= "estimated" and p.status ~= "known" then
+        return { status = "known", copper = p.copper, source = p.source, age = p.age }
+    end
+    return p
+end
+Core.PriceOf = PriceOf
+
+-- The recipes the plan can use, with what one craft costs to buy:
+--   cost      the sum of the prices that are known or estimated
+--   estimated one of them is an estimate
+--   unknown   how many of its materials (pieces) have no price at all - such
+--             a recipe is "not fully comparable": its cost is a part sum and
+--             never wins a comparison because of it
 local function Candidates(input)
-    local list, unknownPrices = {}, false
+    local list = {}
     for _, r in ipairs(Sorted(input.recipes[input.prof])) do
         if r.yellow and r.grey and r.reagents and #r.reagents > 0 and r.learn then
-            local cost, guessed = 0, false
+            local cost, estimated, unknown = 0, false, 0
             for _, reagent in ipairs(r.reagents) do
-                local p = input.prices[reagent.id] or {}
-                local price = p.copper
-                if not price then
-                    price = p.standin or 0
-                    guessed = true
+                local p = PriceOf(input, reagent.id)
+                if p.status == "unknown" then
+                    unknown = unknown + reagent.n
+                else
+                    cost = cost + p.copper * reagent.n
+                    estimated = estimated or p.status == "estimated"
                 end
-                cost = cost + price * reagent.n
             end
-            unknownPrices = unknownPrices or guessed
             list[#list + 1] = {
                 key = r.key, name = r.name, product = r.product, made = r.made,
                 req = math.max(1, r.req or 1), yellow = r.yellow, grey = r.grey, reagents = r.reagents,
-                cost = cost, how = r.learn, fee = r.fee, recipeItem = r.recipeItem, guessed = guessed,
+                cost = cost, estimated = estimated, unknown = unknown, comparable = unknown == 0,
+                how = r.learn, fee = r.fee, recipeItem = r.recipeItem,
             }
         end
     end
-    return list, unknownPrices
+    return list
 end
 
 -- Per skill point the recipe to use: points[skill] = candidate, and where
--- the plan got stuck (if)
+-- the plan got stuck (if). Recipes whose whole cost is known (or estimated)
+-- are compared by cost per expected point. One with a material nobody has a
+-- price for is not fully comparable: it is taken only where no comparable
+-- recipe gives a point - then the one with the fewest pieces without a
+-- price - and the plan says so (notComparable).
 local function ChoosePoints(input, cands)
-    local points, current, stuck = {}, nil, nil
+    local points, current, stuck, notComparable = {}, nil, nil, false
     for skill = input.skill, input.target - 1 do
-        local best, bestScore
+        local best, bestScore, bestGap
         -- below 5 % only when nothing else is left (a gap before the next recipe)
         for _, minChance in ipairs({ 0.05, 0 }) do
-            for _, c in ipairs(cands) do
-                local chance = Chance(skill, c.req, c.yellow, c.grey)
-                if chance > minChance then
-                    local score = (c.cost + 1) / chance
-                    if c ~= current then score = score * SWITCH_PENALTY end
-                    if not bestScore or score < bestScore then best, bestScore = c, score end
+            for _, comparable in ipairs({ true, false }) do
+                for _, c in ipairs(cands) do
+                    local chance = Chance(skill, c.req, c.yellow, c.grey)
+                    if chance > minChance and c.comparable == comparable then
+                        local score = (c.cost + 1) / chance
+                        local gap = c.unknown / chance
+                        if c ~= current then score, gap = score * SWITCH_PENALTY, gap * SWITCH_PENALTY end
+                        if not best or gap < bestGap or (gap == bestGap and score < bestScore) then
+                            best, bestScore, bestGap = c, score, gap
+                        end
+                    end
                 end
+                if best then break end
             end
             if best then break end
         end
@@ -96,10 +126,11 @@ local function ChoosePoints(input, cands)
             stuck = skill
             break
         end
+        if not best.comparable then notComparable = true end
         points[skill] = best
         current = best
     end
-    return points, stuck
+    return points, stuck, notComparable
 end
 
 ---------------------------------------------------------------------------
@@ -121,10 +152,7 @@ end
 -- The books per item: start + bought + made by the steps + made extra
 --                     = used + rest (Core.CheckBalance).
 ---------------------------------------------------------------------------
-local function Price(ctx, id)
-    local p = ctx.input.prices[id]
-    return p and p.copper or nil
-end
+local function Price(ctx, id) return PriceOf(ctx.input, id) end
 
 local function CanMake(ctx, r, skillNow)
     if not (r.product and r.product > 0 and r.reagents and #r.reagents > 0) then return false end
@@ -146,32 +174,42 @@ local function Note(ctx, code, key, extra)
     ctx.diagnostics[#ctx.diagnostics + 1] = d
 end
 
--- What one unit costs to get at this point of the plan: { copper (nil: not
--- known), via = "buy" | "make" | nil, recipe }. Buying wins a tie.
+-- What one unit costs to get at this point of the plan:
+--   { copper (nil: not known), estimated, via = "buy" | "make" | nil, recipe }
+-- A way with a whole cost (known or estimated) is compared by that cost,
+-- buying wins a tie. A way with a gap is taken only when no way has a whole
+-- cost: then making it (from things you may be able to get) before buying
+-- at a price nobody knows.
 local function UnitCost(ctx, id, skillNow, stack)
     local memoKey = id .. ":" .. skillNow
     if ctx.unit[memoKey] then return ctx.unit[memoKey] end
     local buy = Price(ctx, id)
-    local best = { copper = buy, via = buy and "buy" or nil }
+    local best = { copper = buy.copper, estimated = buy.status == "estimated", via = buy.copper and "buy" or nil }
     if stack[id] then
         -- the chain came back to this item: not made from itself
         Note(ctx, "cycle", id, { item = id })
-        return { copper = buy, via = buy and "buy" or nil, cyclic = true }
+        best.cyclic = true
+        return best
     end
     stack[id] = true
     for _, r in ipairs(ctx.producers[id] or {}) do
         if CanMake(ctx, r, skillNow) then
-            local sum, known, cyclic = 0, true, false
+            local sum, known, cyclic, estimated = 0, true, false, false
             for _, reagent in ipairs(r.reagents) do
                 local u = UnitCost(ctx, reagent.id, skillNow, stack)
                 if u.cyclic then cyclic = true end -- this recipe needs the item it is meant to make
-                if u.copper then sum = sum + u.copper * reagent.n else known = false end
+                if u.copper then
+                    sum = sum + u.copper * reagent.n
+                    estimated = estimated or u.estimated
+                else
+                    known = false
+                end
             end
             if cyclic then
                 -- left out: a chain back to itself is never carried out
             elseif known then
                 local c = sum / math.max(1, r.made or 1)
-                if not best.copper or c < best.copper then best = { copper = c, via = "make", recipe = r } end
+                if not best.copper or c < best.copper then best = { copper = c, estimated = estimated, via = "make", recipe = r } end
             elseif not best.copper and not best.recipe then
                 best = { via = "make", recipe = r } -- no price either way: something you can make beats nothing
             end
@@ -314,19 +352,36 @@ local function Walk(ctx, points, stuck)
     return steps, L
 end
 
--- the material rows and the books behind them
+-- the material rows, the books behind them, and what the missing ones cost:
+--   cost = { known = sum of known prices, estimated = sum of estimated ones,
+--            estimatedItems = { id, ... }, unknownItems = { id, ... } }
+-- A missing material without a price is in unknownItems, in no sum.
 local function Rows(ctx, L)
     local input = ctx.input
-    local list, ledger, total, unknown = {}, {}, 0, 0
-    for id, used in pairs(L.used) do
+    local list, ledger = {}, {}
+    local cost = { known = 0, estimated = 0, estimatedItems = {}, unknownItems = {} }
+    local ids = {}
+    for id in pairs(L.used) do ids[#ids + 1] = id end
+    table.sort(ids)
+    for _, id in ipairs(ids) do
         local missing = L.bought[id] or 0
         local price = Price(ctx, id)
-        local cost = missing == 0 and 0 or (price and price * missing or nil)
-        total = total + (cost or 0)
-        if missing > 0 and not price then unknown = unknown + 1 end -- not 0: unknown
+        local copper, status = 0, "none" -- nothing to buy: no cost
+        if missing > 0 then
+            status = price.status
+            copper = price.copper and price.copper * missing or nil
+            if status == "known" then
+                cost.known = cost.known + copper
+            elseif status == "estimated" then
+                cost.estimated = cost.estimated + copper
+                cost.estimatedItems[#cost.estimatedItems + 1] = id
+            else
+                cost.unknownItems[#cost.unknownItems + 1] = id -- not 0: unknown
+            end
+        end
         local by = (L.madeExtra[id] or 0) > 0 and L.madeBy[id] or nil
-        list[#list + 1] = { id = id, need = used, have = L.start[id] or 0, missing = missing, cost = cost,
-            node = input.nodes and input.nodes[id], planned = L.madePlan[id] or 0,
+        list[#list + 1] = { id = id, need = L.used[id], have = L.start[id] or 0, missing = missing, cost = copper, costStatus = status,
+            price = price, node = input.nodes and input.nodes[id], planned = L.madePlan[id] or 0,
             madeFrom = by and { prof = by.prof, key = by.key, made = math.max(1, by.made or 1), reagents = by.reagents, recipe = by } or nil }
     end
     for id in pairs(L.have) do
@@ -338,7 +393,7 @@ local function Rows(ctx, L)
         if a.missing ~= b.missing then return a.missing > b.missing end
         return a.id < b.id
     end)
-    return list, ledger, total, unknown
+    return list, ledger, cost
 end
 
 -- The books of a plan, checked: for every item start + bought + made =
@@ -402,13 +457,16 @@ end
 --   materials    { id, need, have, missing, cost, node, planned, madeFrom }
 --   ledger       [item] = { start, bought, madePlan, madeExtra, used, rest }
 --   extras       { recipe, times } - the extra crafts, in the order first needed
---   total        cost of the missing materials that have a price
---   stuck, unknownPrices, learn, diagnostics
+--   cost         { known, estimated, estimatedItems, unknownItems } of what
+--                is missing; total = known + estimated (never a made-up price)
+--   notComparable  a recipe was chosen although a material of it has no price
+--   stuck, learn, diagnostics
 function Core.Compute(input)
     local why = Invalid(input)
     if why then
         return { status = "invalid", valid = false, complete = false, reason = why, steps = {}, materials = {}, ledger = {}, extras = {},
-            total = 0, learn = { fees = 0, feesUnknown = 0, trainer = 0, items = 0, itemCost = 0, itemsUnknown = 0, matsUnknown = 0 },
+            total = 0, cost = { known = 0, estimated = 0, estimatedItems = {}, unknownItems = {} },
+            learn = { fees = 0, feesUnknown = 0, trainer = 0, items = 0, itemCost = 0, itemsUnknown = 0, matsUnknown = 0 },
             diagnostics = { { code = "invalid", reason = why } } }
     end
     local ctx = { input = input, unit = {}, noted = {}, diagnostics = {}, producers = {} }
@@ -426,14 +484,14 @@ function Core.Compute(input)
             end
         end
     end
-    local cands, unknownPrices = Candidates(input)
+    local cands = Candidates(input)
     ctx.candOf = {}
     for _, c in ipairs(cands) do ctx.candOf[c.key] = c end
-    local points, stuck = ChoosePoints(input, cands)
+    local points, stuck, notComparable = ChoosePoints(input, cands)
     local steps, L = Walk(ctx, points, stuck)
-    local materials, ledger, total, matsUnknown = Rows(ctx, L)
+    local materials, ledger, cost = Rows(ctx, L)
     local learn = LearnCosts(input, steps, L)
-    learn.matsUnknown = matsUnknown
+    learn.matsUnknown = #cost.unknownItems
     local extras = {}
     for _, r in ipairs(L.extraList) do extras[#extras + 1] = { recipe = r, times = L.extra[r] } end
     if stuck then Note(ctx, "stuck", stuck, { skill = stuck }) end
@@ -441,6 +499,7 @@ function Core.Compute(input)
     local complete = not stuck and #ctx.diagnostics == 0
     return { prof = input.prof, from = input.skill, target = input.target,
         status = done and "done" or complete and "ok" or "incomplete", valid = true, complete = complete,
-        steps = steps, materials = materials, ledger = ledger, extras = extras, total = total, stuck = stuck,
-        unknownPrices = unknownPrices, learn = learn, diagnostics = ctx.diagnostics }
+        steps = steps, materials = materials, ledger = ledger, extras = extras, stuck = stuck,
+        cost = cost, total = cost.known + cost.estimated, notComparable = notComparable,
+        learn = learn, diagnostics = ctx.diagnostics }
 end

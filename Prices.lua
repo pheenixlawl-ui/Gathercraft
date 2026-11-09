@@ -1070,6 +1070,14 @@ local function PriceTest()
 end
 
 ns.GetPrice = GetPrice
+-- how old the price GetPrice gives is, in seconds (nil: not known). Read
+-- only, for the skill plan's price status; the choice of the price is
+-- GetPrice's alone.
+ns.PriceAgeOf = function(itemID)
+    local _, source = GetPrice(itemID)
+    if source == "AH scan" then return PriceAge(PriceDB(), itemID) end
+    if source == "Auctionator" then return AuctionatorAge(itemID) end
+end
 ns.BetterPriceSource = BetterSource
 ns.Money = Money
 ns.PriceTest = PriceTest

@@ -617,4 +617,6 @@ ns.Locales.deDE = {
     ["Ping when I reach a route point"] = "Ping, wenn ich einen Routenpunkt erreiche",
     ["Scan the auction house automatically when I open it"] = "Auktionshaus automatisch scannen, wenn ich es öffne",
     ["Only nodes near you get a minimap pin now - less work for the game while you move. The auction house scan starts when you open the window (Options, Rares & prices). The skill plan reads your profession skill from the game itself; where that fails, opening the profession window once still does it. New: Options, Fishing - and a switch for the ping at route points (Options, General)."] = "Nur Vorkommen in deiner Nähe bekommen jetzt einen Minikarten-Pin – weniger Arbeit für das Spiel, während du dich bewegst. Der Auktionshaus-Scan startet, wenn du das Fenster öffnest (Optionen, Rares & Preise). Der Skill-Plan liest deinen Berufsskill direkt aus dem Spiel; wo das nicht klappt, hilft weiter, das Berufsfenster einmal zu öffnen. Neu: Optionen, Angeln – und ein Schalter für den Ping an Routenpunkten (Optionen, Allgemein).",
+    ["? = a material has no price: this choice is not fully comparable."] = "? = ein Material hat keinen Preis: diese Wahl ist nicht voll vergleichbar.",
+    ["(%s of it estimated)"] = "(davon %s geschätzt)",
 }

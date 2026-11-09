@@ -588,4 +588,6 @@ ns.Locales.itIT = {
     ["Ping when I reach a route point"] = "Ping quando raggiungo un punto del percorso",
     ["Scan the auction house automatically when I open it"] = "Scansiona automaticamente la casa d'aste quando la apro",
     ["Only nodes near you get a minimap pin now - less work for the game while you move. The auction house scan starts when you open the window (Options, Rares & prices). The skill plan reads your profession skill from the game itself; where that fails, opening the profession window once still does it. New: Options, Fishing - and a switch for the ping at route points (Options, General)."] = "Ora solo i nodi vicini a te hanno un segnalino sulla minimappa: meno lavoro per il gioco mentre ti muovi. La scansione della casa d'aste parte quando apri la finestra (Opzioni, Rari e prezzi). Il piano abilità legge la tua abilità di professione direttamente dal gioco; dove non riesce, basta ancora aprire una volta la finestra della professione. Novità: Opzioni, Pesca – e un interruttore per il ping ai punti del percorso (Opzioni, Generale).",
+    ["? = a material has no price: this choice is not fully comparable."] = "? = un materiale non ha prezzo: questa scelta non è del tutto confrontabile.",
+    ["(%s of it estimated)"] = "(di cui %s stimati)",
 }

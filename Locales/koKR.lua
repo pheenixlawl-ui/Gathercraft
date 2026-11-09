@@ -588,4 +588,6 @@ ns.Locales.koKR = {
     ["Ping when I reach a route point"] = "경로 지점에 도착하면 핑 소리",
     ["Scan the auction house automatically when I open it"] = "경매장을 열면 자동으로 스캔",
     ["Only nodes near you get a minimap pin now - less work for the game while you move. The auction house scan starts when you open the window (Options, Rares & prices). The skill plan reads your profession skill from the game itself; where that fails, opening the profession window once still does it. New: Options, Fishing - and a switch for the ping at route points (Options, General)."] = "이제 가까운 채집물만 미니맵 핀이 표시됩니다 - 이동 중 게임이 할 일이 줄어듭니다. 경매장 창을 열면 스캔이 시작됩니다 (옵션, 희귀 및 가격). 숙련도 계획이 전문 기술 숙련도를 게임에서 직접 읽습니다. 읽지 못하면 전처럼 전문 기술 창을 한 번 열면 됩니다. 새 기능: 옵션, 낚시 - 그리고 경로 지점 핑 소리 스위치 (옵션, 일반).",
+    ["? = a material has no price: this choice is not fully comparable."] = "? = 가격을 모르는 재료가 있어 이 선택은 완전히 비교할 수 없습니다.",
+    ["(%s of it estimated)"] = "(그중 %s 추정)",
 }
