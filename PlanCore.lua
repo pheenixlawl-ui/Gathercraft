@@ -20,7 +20,13 @@ local ADDON_NAME, ns = ...
 --                learn = "known" | "trainer" | "vendor" | "start" | nil,
 --                fee, recipeItem }
 --   professions  [profession] = { rank = skill } for every one you have
---   stock    [item] = how many you have
+--   stock    [item] = how many you have: a number, or { n = number,
+--            bags, reagent, bank, ... } with the parts for the window, or
+--            { unknown = true } when it could not be read. "Could not be
+--            read" is not 0 (concept 4.4): the books then go on with 0 so
+--            the plan stays carried out, but the row says the count is not
+--            known, gets no tick, and the plan is not called complete.
+--            An item the snapshot does not list counts as none.
 --   prices   [item] = { status = "known" | "estimated" | "unknown",
 --                       copper (nil when unknown), source, age (seconds) }
 --            A price is never made up here: unknown stays unknown, in the
@@ -124,11 +130,16 @@ local function PriceOf(input, id)
 end
 Core.PriceOf = PriceOf
 
--- how many of an item you have, as a number for the books
+-- how many of an item you have: the number for the books, and whether it
+-- is known at all
 local function StockNumber(input, id)
     local s = input.stock[id]
-    if type(s) == "number" then return s end
-    return 0
+    if type(s) == "number" then return s, true end
+    if type(s) == "table" then
+        if s.unknown or type(s.n) ~= "number" then return 0, false end
+        return s.n, true
+    end
+    return 0, true -- not listed: none
 end
 
 local function Note(ctx, code, key, extra)
@@ -256,7 +267,7 @@ end
 local function Free(ctx, id)
     local a = ctx.avail[id]
     if a == nil then
-        a = StockNumber(ctx.input, id)
+        a = (StockNumber(ctx.input, id))
         ctx.avail[id] = a
     end
     return a
@@ -406,13 +417,17 @@ local function CopyLedger(L)
         c[k] = {}
         for a, b in pairs(v) do c[k][a] = b end
     end
-    return c
+    return c -- (also the list of items whose count is not known)
 end
 
 local function Stock(ctx, L, id)
     if L.have[id] == nil then
-        local n = StockNumber(ctx.input, id)
+        local n, known = StockNumber(ctx.input, id)
         L.have[id], L.start[id] = n, n
+        if not known then
+            L.unknown = L.unknown or {}
+            L.unknown[id] = true
+        end
     end
     return L.have[id]
 end
@@ -574,7 +589,14 @@ local function Rows(ctx, L)
             end
         end
         local by = (L.madeExtra[id] or 0) > 0 and L.madeBy[id] or nil
-        list[#list + 1] = { id = id, need = L.used[id], have = L.start[id] or 0, missing = missing, cost = copper, costStatus = status,
+        -- what you really have (concept 4.6): the tick only when THAT covers
+        -- the need. What the plan will make (planned) lowers what has to be
+        -- bought - it is a forecast, no stock, and never ticks a row.
+        local haveKnown = not (L.unknown and L.unknown[id])
+        local have = L.start[id] or 0
+        if not haveKnown then Note(ctx, "stock_unknown", id, { item = id }) end
+        list[#list + 1] = { id = id, need = L.used[id], have = have, haveKnown = haveKnown, stock = input.stock[id],
+            covered = haveKnown and have >= L.used[id], missing = missing, cost = copper, costStatus = status,
             price = price, node = input.nodes and input.nodes[id], planned = L.madePlan[id] or 0,
             madeFrom = by and { prof = by.prof, key = by.key, made = math.max(1, by.made or 1), reagents = by.reagents, recipe = by } or nil }
     end
@@ -648,8 +670,8 @@ end
 -- The plan:
 --   status       "ok" | "done" (you are there) | "incomplete" (it says so in
 --                diagnostics: stuck, a recipe of unknown chance, a chain that
---                leads back to itself) | "invalid" (nothing to plan from:
---                never shown as a plan)
+--                leads back to itself, a count that could not be read) |
+--                "invalid" (nothing to plan from: never shown as a plan)
 --   valid, complete
 --   steps        { recipe, from, to, expected, crafts, low, high (the model's
 --                80 % range of crafts), chanceFrom, chanceTo, forMaterials,
@@ -657,8 +679,10 @@ end
 --                chance { recipe, from, chanceUnknown = true } where the
 --                plan cannot go on with a number
 --   training     { at, assumed } - where the next rank has to be trained
---   materials    { id, need, have, missing, cost, costStatus, price, node,
---                planned, madeFrom }
+--   materials    { id, need, have, haveKnown, covered (what you really have
+--                covers the need - the tick), missing (to buy), planned (what
+--                the plan's own steps will make: a forecast, no stock), cost,
+--                costStatus, price, stock (the snapshot's entry), node, madeFrom }
 --   ledger       [item] = { start, bought, madePlan, madeExtra, used, rest }
 --   extras       { recipe, times } - the extra crafts, in the order first needed
 --   cost         { known, estimated, estimatedItems, unknownItems } of what
@@ -716,4 +740,18 @@ function Core.Compute(input)
         steps = steps, training = training, materials = materials, ledger = ledger, extras = extras, stuck = stuck,
         cost = cost, total = cost.known + cost.estimated, crafts = crafts, notComparable = notComparable,
         learn = learn, diagnostics = ctx.diagnostics }
+end
+
+-- What a second reader of the plan needs (later: the shopping list), in one
+-- small table: per item need / have (and whether that is known) / missing,
+-- and what the plan is. Made from a finished plan; nothing is calculated
+-- here.
+function Core.Result(plan)
+    local items = {}
+    for _, m in ipairs(plan.materials or {}) do
+        items[m.id] = { need = m.need, have = m.haveKnown and m.have or nil, haveKnown = m.haveKnown, missing = m.missing,
+            covered = m.covered, planned = m.planned, make = m.madeFrom ~= nil, costStatus = m.costStatus }
+    end
+    return { prof = plan.prof, from = plan.from, target = plan.target, status = plan.status, valid = plan.valid == true,
+        complete = plan.complete == true, items = items }
 end

@@ -130,10 +130,19 @@ local function Snapshot(prof, from, to)
             if p.name ~= prof then input.recipes[p.name] = RecipeList(p.name, true) end
         end
     end
+    -- what you have (bags, reagent bag, bank - counted as since 0.1.18, no
+    -- parameter guessed): read once per item and plan. A count that cannot
+    -- be read (a hidden value, an error, no answer) is "unknown", not 0.
     input.stock = setmetatable({}, { __index = function(t, id)
-        local n = d.Have(id) or 0
-        rawset(t, id, n)
-        return n
+        local ok, n = pcall(d.Have, id)
+        local entry
+        if ok and n ~= nil and not ns.AnySecret("skill plan stock", n) and type(n) == "number" then
+            entry = { n = n }
+        else
+            entry = { unknown = true }
+        end
+        rawset(t, id, entry)
+        return entry
     end })
     -- what one costs to buy: the price the Crafting tab uses (a vendor who
     -- showed it, else the auction price by the 0.1.16 rule; what a vendor
@@ -153,7 +162,11 @@ local function Snapshot(prof, from, to)
         rawset(t, id, entry)
         return entry
     end })
-    input.recipeItemPrices = ns.db.vendorPrices or {}
+    input.recipeItemPrices = setmetatable({}, { __index = function(t, id)
+        local price = ns.db.vendorPrices and ns.db.vendorPrices[id]
+        rawset(t, id, price or false)
+        return price or false
+    end })
     local _, maxRank = nil, nil
     if ns.ProfessionRank then _, maxRank = ns.ProfessionRank(prof) end
     input.maxRank = (type(maxRank) == "number" and maxRank > 0) and maxRank or nil
@@ -163,6 +176,76 @@ local function Snapshot(prof, from, to)
 end
 
 ns.SkillPlanSnapshot = Snapshot
+
+---------------------------------------------------------------------------
+-- One plan per state (concept 4.6): the plan is calculated on a snapshot
+-- and gets a revision. As long as nothing it read has changed - skill,
+-- target, recipes, the counts and prices it asked for - the same plan
+-- stays, with the same revision: a burst of bag events, an event that
+-- comes twice or late, changes nothing. Only the open window calculates.
+--   ns.SkillPlanResult()   the last result for a second reader (later: the
+--                          shopping list): { revision, prof, from, target,
+--                          status, valid, complete, items = { [item] =
+--                          { need, have, haveKnown, missing, covered,
+--                          planned, make, costStatus } } } - or nil
+--   ns.skillPlanListeners  functions called with that result when a new
+--                          revision is there (nobody listens yet)
+---------------------------------------------------------------------------
+local calc = { revision = 0 }
+ns.skillPlanListeners = ns.skillPlanListeners or {}
+
+-- what is not read through the lazy tables: skill, target, ranks, recipes
+local function Signature(input)
+    local parts = { input.prof, tostring(input.skill), tostring(input.target), tostring(input.maxRank) }
+    local profs = {}
+    for prof in pairs(input.recipes) do profs[#profs + 1] = prof end
+    table.sort(profs)
+    for _, prof in ipairs(profs) do
+        local sum = 0
+        for _, r in ipairs(input.recipes[prof]) do
+            sum = sum + #r.key * 31 + (r.learn == "known" and 7 or r.learn and 3 or 0) + (r.req or 0) + (r.yellow or 0) * 2 + (r.grey or 0) * 5
+        end
+        local own = input.professions[prof]
+        parts[#parts + 1] = ("%s:%s:%d:%d"):format(prof, tostring(own and own.rank), #input.recipes[prof], sum)
+    end
+    return table.concat(parts, "|")
+end
+
+-- did anything the last plan read change? (reads them again, once each)
+local function SameReads(old, new)
+    for id, e in pairs(old.stock) do
+        local n = new.stock[id]
+        if (e.unknown or false) ~= (n.unknown or false) or e.n ~= n.n then return false end
+    end
+    for id, e in pairs(old.prices) do
+        local n = new.prices[id]
+        if e.status ~= n.status or e.copper ~= n.copper then return false end
+    end
+    for id, e in pairs(old.recipeItemPrices) do
+        if new.recipeItemPrices[id] ~= e then return false end
+    end
+    return true
+end
+
+-- the plan for this state, and whether it is a new one
+local function Calculate(prof, skill, target)
+    local input = Snapshot(prof, skill, target)
+    local sig = Signature(input)
+    if calc.plan and calc.sig == sig and SameReads(calc.input, input) then
+        return calc.plan, false
+    end
+    calc.plan = ns.PlanCore.Compute(input)
+    calc.input, calc.sig = input, sig
+    calc.revision = calc.revision + 1
+    calc.plan.revision = calc.revision
+    local result = ns.PlanCore.Result(calc.plan)
+    result.revision = calc.revision
+    calc.result = result
+    for _, fn in ipairs(ns.skillPlanListeners) do pcall(fn, result) end
+    return calc.plan, true
+end
+ns.SkillPlanCalculate = Calculate
+ns.SkillPlanResult = function() return calc.result end
 
 -- steps, materials, cost of the missing materials, where the plan got stuck,
 -- whether stand-in prices were used, and info = { learn costs, missing
@@ -236,7 +319,12 @@ local function Refresh()
     -- the targets are the usual Classic caps; without your own maximum they are assumed
     targetText:SetText(maxRank and tostring(target) or ("~" .. target))
 
-    local steps, mats, total, stuck, unknown, info, plan = ns.SkillPlan(prof, from, target)
+    local plan = Calculate(prof, from, target)
+    local steps = {}
+    for _, s in ipairs(plan.steps) do
+        if not s.chanceUnknown then steps[#steps + 1] = s end
+    end
+    local mats, total, stuck, unknown, info = plan.materials, plan.total, plan.stuck, plan.notComparable, plan.learn
     -- where you have to train the next rank: your own maximum, after that the
     -- usual caps (assumed)
     local trainAt = {}
@@ -331,12 +419,16 @@ local function Refresh()
                 ns.Debug(text)
             end
         end
-        local left = ("%s  |cff999999%d / %d|r"):format(name, m.need, m.have)
+        local left = ("%s  |cff999999%d / %s|r"):format(name, m.need, m.haveKnown and tostring(m.have) or "?")
         local right
         if m.madeFrom then
             right = "|cff999999" .. (L["(make it: %s)"]):format(d.ProfLabel(m.madeFrom.prof)) .. "|r"
-        elseif m.missing == 0 then
+        elseif m.covered then
+            -- only what you really have ticks a row
             right = "|cff55ff55" .. L["enough"] .. "|r"
+        elseif m.missing == 0 then
+            -- the plan's own steps will make it: a forecast, not stock
+            right = "|cff999999" .. (L["(make it: %s)"]):format(d.ProfLabel(prof)) .. "|r"
         else
             right = ("|cffff7070%d|r  %s%s"):format(m.missing, m.costStatus == "estimated" and "~" or "",
                 m.cost and ns.Money(m.cost) or L["|cffff7070no price|r"])
@@ -448,7 +540,8 @@ local function Build()
         end)
     end)
     for _, e in ipairs({ "BAG_UPDATE_DELAYED", "BANKFRAME_OPENED", "BANKFRAME_CLOSED",
-        "PLAYERBANKSLOTS_CHANGED", "PLAYERREAGENTBANKSLOTS_CHANGED" }) do
+        "PLAYERBANKSLOTS_CHANGED", "PLAYERREAGENTBANKSLOTS_CHANGED",
+        "SKILL_LINES_CHANGED", "NEW_RECIPE_LEARNED", "TRADE_SKILL_LIST_UPDATE" }) do
         pcall(win.RegisterEvent, win, e)
     end
 end

@@ -4429,6 +4429,157 @@ step("Skill plan 2.0: chance, number of crafts with its range, and the recipe ch
         assert(not src:find("cheapest", 1, true) and not src:find("guaranteed", 1, true), file .. " promises too much")
     end
 end)
+step("Skill plan 2.0: what you really have, progress, one plan per state (v0.2 A5)", function()
+    -- concept 4.4 and 4.6
+    local core = ns.PlanCore
+    local function R(key, product, req, upto, reagents)
+        local list = {}
+        for _, x in ipairs(reagents) do list[#list + 1] = { id = x[1], n = x[2] } end
+        return { prof = "Leatherworking", key = key, name = key, product = product, made = 1, req = req, yellow = upto, grey = upto, reagents = list, learn = "known" }
+    end
+    local function Leather(from, stock)
+        local plan = core.Compute({ prof = "Leatherworking", skill = from, target = 97, professions = { Leatherworking = { rank = from } },
+            recipes = { Leatherworking = {
+                R("Light Leather", 2318, 1, 25, { { 2934, 3 } }),
+                R("Light Armor Kit", 2304, 25, 74, { { 2318, 1 } }),
+                R("Embossed Leather Gloves", 4239, 74, 97, { { 2318, 3 }, { 2320, 2 } }),
+            } },
+            stock = stock, prices = { [2318] = { copper = 1000 }, [2934] = { copper = 10 }, [2320] = { copper = 10 } },
+            recipeItemPrices = {}, nodes = {}, caps = {} })
+        assert(core.CheckBalance(plan))
+        local m = {}
+        for _, row in ipairs(plan.materials) do m[row.id] = row end
+        return plan, m
+    end
+    local function Has(plan, code)
+        for _, d in ipairs(plan.diagnostics) do if d.code == code then return d end end
+    end
+
+    -- (1) the stock: a number, a table with its parts, "unknown", or not listed (none)
+    local plan, m = Leather(1, { [2318] = 35, [2320] = { n = 9, bags = 5, reagent = 0, bank = 4 } })
+    assert(m[2318].have == 35 and m[2318].haveKnown and m[2320].have == 9 and m[2320].haveKnown and m[2320].stock.bank == 4, "a count as a number or with its parts")
+    assert(m[2934].have == 0 and m[2934].haveKnown and m[2934].missing == 249, "an item the snapshot does not list: none")
+    assert(plan.complete and not Has(plan, "stock_unknown"), "known counts: called unknown")
+    -- a count that could not be read is not 0: the row says so, gets no tick, the plan is not called complete
+    for _, unknown in ipairs({ { unknown = true }, { n = nil }, { n = "9" } }) do
+        plan, m = Leather(1, { [2318] = 35, [2320] = unknown })
+        assert(m[2320].haveKnown == false and m[2320].covered == false, "an unreadable count is taken for a number")
+        assert(Has(plan, "stock_unknown") and Has(plan, "stock_unknown").item == 2320 and plan.status == "incomplete" and not plan.complete and plan.valid, "an unreadable count: the plan is called complete")
+        assert(m[2320].missing == 46, "an unreadable count: what is to buy is not worked out from none")
+        local result = core.Result(plan)
+        assert(result.items[2320].have == nil and result.items[2320].haveKnown == false, "the result gives a number for an unreadable count")
+    end
+    -- a known 0 is a count
+    plan, m = Leather(1, { [2318] = 35, [2320] = 0 })
+    assert(m[2320].haveKnown and m[2320].have == 0 and plan.complete, "a known 0 is called unknown")
+
+    -- (2) the tick: only what you really have. Leather: 118 needed, 35 there,
+    -- 24 from the steps, 59 made extra - nothing to buy, and no tick
+    plan, m = Leather(1, { [2318] = 35, [2320] = 9 })
+    assert(m[2318].missing == 0 and m[2318].planned == 24 and m[2318].covered == false, "a tick for leather the plan has yet to make")
+    assert(m[2320].covered == false and m[2934].covered == false, "a tick for what is missing")
+    plan, m = Leather(1, { [2318] = 118, [2320] = 46, [2934] = 72 })
+    assert(m[2318].covered and m[2320].covered and m[2934].covered and plan.total == 0, "no tick although everything is there")
+    -- what a step makes for the next one is a forecast: B needs 5 of what A makes
+    local chain = core.Compute({ prof = "Testing", skill = 1, target = 11, professions = {}, recipeItemPrices = {}, nodes = {}, caps = {},
+        recipes = { Testing = {
+            { prof = "Testing", key = "A", name = "A", product = 9700, made = 1, req = 1, yellow = 6, grey = 6, reagents = { { id = 9701, n = 1 } }, learn = "known" },
+            { prof = "Testing", key = "B", name = "B", product = 9710, made = 1, req = 6, yellow = 11, grey = 11, reagents = { { id = 9700, n = 1 } }, learn = "known" } } },
+        stock = {}, prices = { [9701] = { copper = 1 }, [9700] = { copper = 500 } } })
+    local row
+    for _, x in ipairs(chain.materials) do if x.id == 9700 then row = x end end
+    assert(row and row.need == 5 and row.missing == 0 and row.planned == 5 and row.have == 0 and row.covered == false, "a tick for a product of a later step")
+    assert(core.Result(chain).items[9700].covered == false and core.Result(chain).items[9700].planned == 5, "the result ticks a forecast")
+
+    -- (3) progress: the plan is made again from what is there now, so what is
+    -- done counts once. After the first step (24 Light Leather made from 72
+    -- scraps): skill 25, leather 35 + 24 = 59, no scraps left
+    plan, m = Leather(25, { [2318] = 59, [2320] = 9 })
+    assert(#plan.steps == 2 and plan.steps[1].recipe.key == "Light Armor Kit", "progress: the done step is planned again")
+    assert(m[2318].need == 118 and m[2318].have == 59 and m[2934].need == 177, ("progress: %d scraps, want 249 - 72 = 177"):format(m[2934].need))
+    assert(m[2320].missing == 37, "progress: the thread")
+    -- you bought the thread: ticked, nothing more to buy of it
+    plan, m = Leather(25, { [2318] = 59, [2320] = 46 })
+    assert(m[2320].covered and m[2320].missing == 0 and plan.total == 177 * 10, "progress: bought thread")
+    -- 10 leather from the bank: 10 extra crafts less, 30 scraps less
+    plan, m = Leather(25, { [2318] = 69, [2320] = 46 })
+    assert(m[2934].need == 147, "progress: leather from the bank")
+    -- half of the kits done (skill 50: 25 kits made, 25 leather used up)
+    plan, m = Leather(50, { [2318] = 44, [2320] = 46 })
+    assert(m[2318].need == 24 + 69 and m[2934].need == (93 - 44) * 3, "progress: used leather is asked for again, or made leather counted twice")
+    -- at the end: done
+    plan = Leather(97, {})
+    assert(plan.status == "done" and #plan.materials == 0, "progress: at the target")
+
+    -- (4) the window calculates on one snapshot with a revision
+    local d = ns.CraftData
+    local saved = { have = d.Have, rank = ns.ProfessionRank, price = ns.GetPrice, compute = core.Compute, secret = issecretvalue, listeners = ns.skillPlanListeners }
+    local ok, err = pcall(function()
+        local stock, rank, computes, counts, heard = { [2318] = 34 }, 30, 0, {}, {}
+        d.Have = function(id) counts[id] = (counts[id] or 0) + 1 return stock[id] or 0 end
+        ns.ProfessionRank = function(p) if p == "Leatherworking" then return rank, 75 end end
+        core.Compute = function(input) computes = computes + 1 return saved.compute(input) end
+        ns.skillPlanListeners = { function(result) heard[#heard + 1] = result.revision end }
+        ns.ShowSkillPlan("Leatherworking") advance(1)
+        local win = _G.GathercraftSkillPlan
+        local result = ns.SkillPlanResult()
+        assert(result and result.revision and result.prof == "Leatherworking" and result.valid, "no result to read")
+        local rev = result.revision
+        assert(result.items[2318] and result.items[2318].have == 34 and result.items[2318].need > 0 and result.items[2318].missing ~= nil, "the result has no need / have / missing per item")
+        -- one count per item and plan, also when several recipes use it
+        for id, n in pairs(counts) do assert(n <= 2, ("item %d was counted %d times for one plan"):format(id, n)) end
+        -- nothing changed: a burst of events calculates nothing, the revision stays
+        computes, heard = 0, {}
+        for _ = 1, 3 do fire("BAG_UPDATE_DELAYED") fire("PLAYERBANKSLOTS_CHANGED") end
+        advance(1)
+        fire("BAG_UPDATE_DELAYED") advance(1)
+        assert(computes == 0 and ns.SkillPlanResult().revision == rev and #heard == 0, ("nothing changed, calculated %d times"):format(computes))
+        -- a change: one new plan for the whole burst
+        stock[2318] = 40
+        for _ = 1, 3 do fire("BAG_UPDATE_DELAYED") end
+        advance(1)
+        assert(computes == 1 and ns.SkillPlanResult().revision == rev + 1 and ns.SkillPlanResult().items[2318].have == 40 and #heard == 1 and heard[1] == rev + 1,
+            ("a change in the bags: calculated %d times, revision %d"):format(computes, ns.SkillPlanResult().revision - rev))
+        -- the same event again, late: nothing
+        fire("BAG_UPDATE_DELAYED") advance(1)
+        assert(computes == 1, "a late event of the same change calculated again")
+        -- the skill went up
+        rank = 31
+        fire("SKILL_LINES_CHANGED") advance(1)
+        assert(computes == 2 and ns.SkillPlanResult().from == 31, "a skill point does not make a new plan")
+        -- a price changed: the next look takes it, not before
+        ns.GetPrice = function(id) return 77, "AH scan" end
+        assert(computes == 2, "a new price made the plan jump on its own")
+        fire("BAG_UPDATE_DELAYED") advance(1)
+        assert(computes == 3, "a changed price is not taken at the next look")
+        -- closed: nothing is counted or calculated, the last result stays
+        win:Hide()
+        local before = ns.SkillPlanResult().revision
+        computes, counts = 0, {}
+        stock[2318] = 99
+        fire("BAG_UPDATE_DELAYED") fire("SKILL_LINES_CHANGED") advance(2)
+        assert(computes == 0 and next(counts) == nil and ns.SkillPlanResult().revision == before, "the closed plan calculates")
+        -- a count the client hides, or a count function that fails: unknown, no error
+        local SECRET = newproxy(true)
+        issecretvalue = function(v) return rawequal(v, SECRET) end
+        d.Have = function(id) if id == 2318 then return SECRET end return 0 end
+        local snap = ns.SkillPlanSnapshot("Leatherworking", 30, 75)
+        assert(snap.stock[2318].unknown and snap.stock[2320].n == 0, "a hidden count is taken for a number")
+        d.Have = function(id) if id == 2318 then error("no count") end return 0 end
+        snap = ns.SkillPlanSnapshot("Leatherworking", 30, 75)
+        assert(snap.stock[2318].unknown, "a failing count is taken for a number")
+        d.Have = function() return nil end
+        assert(ns.SkillPlanSnapshot("Leatherworking", 30, 75).stock[2318].unknown, "no answer is taken for 0")
+        d.Have = function(id) if id == 2318 then return SECRET end return 0 end
+        local shown, why = pcall(function() ns.ShowSkillPlan("Leatherworking") advance(1) end)
+        assert(shown, "a hidden count breaks the window: " .. tostring(why))
+        assert(ns.SkillPlanResult().items[2318] and ns.SkillPlanResult().items[2318].haveKnown == false and ns.SkillPlanResult().complete == false, "a hidden count: the plan is called complete")
+        win:Hide()
+    end)
+    d.Have, ns.ProfessionRank, ns.GetPrice, core.Compute, issecretvalue, ns.skillPlanListeners = saved.have, saved.rank, saved.price, saved.compute, saved.secret, saved.listeners
+    if _G.GathercraftSkillPlan then _G.GathercraftSkillPlan:Hide() end
+    if not ok then error(err, 0) end
+end)
 -- (end of the skill plan 2.0 steps, v0.2 building block 1)
 step("Craft log: one entry per finished craft, failures and odd cases marked apart (v0.1.18 S5)", function()
     local data = GathercraftRecipeData
