@@ -139,7 +139,8 @@ function methods:GetCenter() return 500, 400 end
 function methods:GetEffectiveScale() return 1 end
 function methods:GetChecked() return self.__checked end
 function methods:SetChecked(v) self.__checked = v end
-function methods:GetFrameStrata() return "MEDIUM" end
+function methods:GetFrameStrata() return self.__strata or "MEDIUM" end
+function methods:SetFrameStrata(s) self.__strata = s end
 function methods:IsEnabled() return self.__enabled ~= false end
 function methods:Enable() self.__enabled = true end
 function methods:Disable() self.__enabled = false end
@@ -6335,6 +6336,97 @@ step("Options: the herbs/minerals switch is under General, every page fits (v0.1
             assert(h <= ROOM, ("Options %s: %d px of %d"):format(key, h, ROOM))
         end
     end
+end)
+step("Herbs / minerals switch button: on the edge of a round and a square minimap, above its frame (v0.1.20 K1)", function()
+    -- Sven (09.11.): with a square minimap (Ellesmere UI) the button was
+    -- never seen. It sat on a circle around the centre, whatever the shape.
+    local btn = GathercraftTrackButton
+    assert(btn, "no switch button")
+    local saved = { shape = _G.GetMinimapShape, w = Minimap.GetWidth, h = Minimap.GetHeight, angle = ns.db.trackButtonAngle, combat = InCombatLockdown }
+    -- places the button (older code: only its login event does)
+    local function Place()
+        if ns.PlaceTrackButton then ns.PlaceTrackButton() return end
+        local f = next(eventFrames["MINIMAP_UPDATE_TRACKING"])
+        f.__scripts.OnEvent(f, "PLAYER_LOGIN")
+    end
+    local function Pos()
+        local p = btn.__pts and btn.__pts.CENTER
+        assert(p and p[1] == Minimap and p[2] == "CENTER", "the button is not anchored to the minimap's centre")
+        return p[3], p[4]
+    end
+    local function Near(a, b) return math.abs(a - b) < 0.5 end
+    local ok, err = pcall(function()
+        Minimap.GetWidth = function() return 140 end
+        Minimap.GetHeight = function() return 140 end
+        -- round (no shape function, as the game's own minimap): a circle of 75
+        _G.GetMinimapShape = nil
+        ns.db.trackButtonAngle = 250
+        Place()
+        local x, y = Pos()
+        assert(Near(math.sqrt(x * x + y * y), 75), ("round: %.1f from the centre, want 75"):format(math.sqrt(x * x + y * y)))
+        assert(Near(x, math.cos(math.rad(250)) * 75) and Near(y, math.sin(math.rad(250)) * 75), "round: not at the saved angle")
+        -- a UI addon says ROUND: the same
+        _G.GetMinimapShape = function() return "ROUND" end
+        Place()
+        local x2, y2 = Pos()
+        assert(Near(x, x2) and Near(y, y2), "ROUND from the shape function placed differently")
+        -- SQUARE: on the rectangle's edge, 5 px outside, in the same direction
+        _G.GetMinimapShape = function() return "SQUARE" end
+        Place()
+        x, y = Pos()
+        assert(Near(y, -75), ("square at 250 degrees: y %.1f, want -75 (the bottom edge)"):format(y))
+        assert(Near(x / y, math.cos(math.rad(250)) / math.sin(math.rad(250))), "square: not in the direction of the angle")
+        assert(math.abs(x) < 75, "square: outside the rectangle's width")
+        -- at 0 degrees: the right edge
+        ns.db.trackButtonAngle = 0
+        Place()
+        x, y = Pos()
+        assert(Near(x, 75) and Near(y, 0), ("square at 0 degrees: %.1f, %.1f"):format(x, y))
+        -- at 45 degrees on a square: the corner
+        ns.db.trackButtonAngle = 45
+        Place()
+        x, y = Pos()
+        assert(Near(x, 75) and Near(y, 75), ("square at 45 degrees: %.1f, %.1f"):format(x, y))
+        -- a wider than tall minimap: the edge is the rectangle's, not a circle's
+        Minimap.GetWidth = function() return 200 end
+        ns.db.trackButtonAngle = 90
+        Place()
+        x, y = Pos()
+        assert(Near(x, 0) and Near(y, 75), ("wide minimap at 90 degrees: %.1f, %.1f"):format(x, y))
+        Minimap.GetWidth = function() return 140 end
+        -- a corner shape or an odd value: not round, so the rectangle; an
+        -- erroring or non-string answer: round
+        _G.GetMinimapShape = function() return "CORNER-TOPLEFT" end
+        ns.db.trackButtonAngle = 0
+        Place()
+        assert(Near((Pos()), 75), "a corner shape: not on the rectangle's edge")
+        _G.GetMinimapShape = function() error("no") end
+        ns.db.trackButtonAngle = 45
+        Place()
+        x, y = Pos()
+        assert(Near(math.sqrt(x * x + y * y), 75), "an erroring shape function: not round")
+        _G.GetMinimapShape = function() return 42 end
+        Place()
+        x, y = Pos()
+        assert(Near(math.sqrt(x * x + y * y), 75), "a non-string shape: not round")
+        -- above the minimap: strata MEDIUM, level above the minimap's
+        assert(btn:GetFrameStrata() == "MEDIUM", "strata: " .. tostring(btn:GetFrameStrata()))
+        assert(btn:GetFrameLevel() == Minimap:GetFrameLevel() + 8, "frame level")
+        -- in combat nothing moves (a protected frame): the old place stays
+        _G.GetMinimapShape = function() return "SQUARE" end
+        InCombatLockdown = function() return true end
+        Place()
+        x, y = Pos()
+        assert(Near(math.sqrt(x * x + y * y), 75), "moved in combat")
+        InCombatLockdown = saved.combat
+        -- after the fight the update places it again
+        ns.UpdateTrackButton()
+        x, y = Pos()
+        assert(Near(x, 75) and Near(y, 75), "not placed after the fight")
+    end)
+    _G.GetMinimapShape, Minimap.GetWidth, Minimap.GetHeight, ns.db.trackButtonAngle, InCombatLockdown = saved.shape, saved.w, saved.h, saved.angle, saved.combat
+    Place()
+    if not ok then error(err, 0) end
 end)
 step("Herbs / minerals switch button", function()
     local btn = GathercraftTrackButton

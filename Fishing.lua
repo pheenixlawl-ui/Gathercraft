@@ -566,11 +566,14 @@ local TRACK_ICONS = {
     [FIND_MINERALS] = "Interface\\Icons\\Spell_Nature_Earthquake",
 }
 
--- sits on the minimap's edge like the minimap buttons (nothing covers it)
+-- sits on the minimap's edge like the minimap buttons. Strata MEDIUM, well
+-- above the minimap (LOW): a square minimap frame of a UI addon, drawn on
+-- the minimap's own strata, does not cover it (v0.1.20 K1)
+local TRACK_STRATA = "MEDIUM"
 local track = CreateFrame("Button", TRACK_BUTTON, Minimap, "SecureActionButtonTemplate")
 track:RegisterForClicks("AnyUp", "AnyDown")
 track:SetSize(31, 31)
-track:SetFrameStrata(Minimap:GetFrameStrata() or "LOW")
+track:SetFrameStrata(TRACK_STRATA)
 track:SetFrameLevel((Minimap:GetFrameLevel() or 1) + 8)
 track:RegisterForDrag("LeftButton")
 track:Hide()
@@ -637,15 +640,40 @@ local function PrepareTrack()
     end
 end
 
--- On the minimap's edge at an angle (degrees, 0 = right, counter-clockwise)
+-- The minimap's shape, as UI addons tell it (GetMinimapShape is their
+-- common convention: "ROUND", "SQUARE", "CORNER-TOPLEFT", ...). Without
+-- the function, or with anything unreadable: round, as the game's own.
+local function MinimapShape()
+    local f = _G.GetMinimapShape
+    local ok, shape = pcall(type(f) == "function" and f or function() end)
+    return ok and type(shape) == "string" and shape:upper() or "ROUND"
+end
+
+-- On the minimap's edge at an angle (degrees, 0 = right, counter-clockwise).
+-- Round minimap: a circle of half the width + 5. Any other shape (v0.1.20
+-- K1): the edge of the minimap's rectangle in that direction, the same
+-- 5 px outside, so the button is not drawn inside a square minimap.
 local TRACK_ANGLE = 250
+local function TrackOffset(angle, shape)
+    local dx, dy = math.cos(angle), math.sin(angle)
+    local hw = (Minimap:GetWidth() or 140) / 2 + 5
+    if shape == "ROUND" then return dx * hw, dy * hw end
+    local hh = (Minimap:GetHeight() or Minimap:GetWidth() or 140) / 2 + 5
+    -- how far along the direction until the rectangle's edge
+    local k = math.min(math.abs(dx) > 1e-6 and hw / math.abs(dx) or math.huge,
+        math.abs(dy) > 1e-6 and hh / math.abs(dy) or math.huge)
+    return dx * k, dy * k
+end
 local function PlaceTrack()
     if InCombatLockdown() then return end
     local angle = math.rad(ns.db and ns.db.trackButtonAngle or TRACK_ANGLE)
-    local r = (Minimap:GetWidth() or 140) / 2 + 5
+    local x, y = TrackOffset(angle, MinimapShape())
     track:ClearAllPoints()
-    track:SetPoint("CENTER", Minimap, "CENTER", math.cos(angle) * r, math.sin(angle) * r)
+    track:SetPoint("CENTER", Minimap, "CENTER", x, y)
+    track:SetFrameStrata(TRACK_STRATA)
+    track:SetFrameLevel((Minimap:GetFrameLevel() or 1) + 8)
 end
+ns.PlaceTrackButton = PlaceTrack
 
 -- Shown when you know both (option, out of combat)
 local function UpdateTrackButton()
@@ -653,6 +681,7 @@ local function UpdateTrackButton()
     local show = not ns.db.trackButtonHidden and KnowsSpell(FIND_HERBS) and KnowsSpell(FIND_MINERALS)
     track:SetShown(show and true or false)
     PrepareTrack()
+    PlaceTrack() -- the shape or size may have changed (a UI addon, a fight)
 end
 ns.UpdateTrackButton = UpdateTrackButton
 
