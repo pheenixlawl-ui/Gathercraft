@@ -9,17 +9,18 @@ local L = ns.L or setmetatable({}, { __index = function(_, k) return k end })
 --   * skill-up chance from the recipe's colours (Data/RecipeData.lua colors):
 --     orange 100 %, yellow and green fall off towards grey
 --     (chance = (grey - skill) / (grey - yellow), the usual Classic rule)
---   * per skill point the recipe with the lowest expected cost per point;
---     staying on the same recipe is preferred a little (fewer steps)
+--   * per skill point the recipe that costs the least gold on top of what
+--     you have, per expected point (PlanCore.lua); staying on the same
+--     recipe is preferred a little (fewer steps)
 --   * the material list: what you need, what you have (bags and bank), what
 --     is missing and what that costs; bars and bolts you can make yourself
 --     (profession learned, recipe known, skill high enough) are broken down
 --     into ore and cloth, all others are bought; herbs and ore you can
 --     gather get a button that starts a farm run for them
---   * shown, but not part of the recipe choice: trainer fees and recipe
---     items of the recipes the plan uses, and where you have to train the
---     next rank; prices and fees nobody knows yet are counted as unknown,
---     never as 0
+--   * trainer fees and recipe items of the recipes the plan uses count
+--     in the choice, once each; where you have to train the next rank is a
+--     step of its own; prices and fees nobody knows yet are counted as
+--     unknown, never as 0
 ---------------------------------------------------------------------------
 local CAPS = { 75, 150, 225, 300 }
 local ROW_H = 18
@@ -153,6 +154,10 @@ local function Snapshot(prof, from, to)
         return entry
     end })
     input.recipeItemPrices = ns.db.vendorPrices or {}
+    local _, maxRank = nil, nil
+    if ns.ProfessionRank then _, maxRank = ns.ProfessionRank(prof) end
+    input.maxRank = (type(maxRank) == "number" and maxRank > 0) and maxRank or nil
+    input.caps = CAPS
     input.nodes = setmetatable({}, { __index = function(_, id) return NodeFor(id) end })
     return input
 end
@@ -165,7 +170,11 @@ ns.SkillPlanSnapshot = Snapshot
 -- (PlanCore.lua); this takes the snapshot for it.
 ns.SkillPlan = function(prof, from, to)
     local plan = ns.PlanCore.Compute(Snapshot(prof, from, to))
-    return plan.steps, plan.materials, plan.total, plan.stuck, plan.notComparable, plan.learn, plan
+    local steps = {}
+    for _, s in ipairs(plan.steps) do
+        if not s.chanceUnknown then steps[#steps + 1] = s end -- counted steps only
+    end
+    return steps, plan.materials, plan.total, plan.stuck, plan.notComparable, plan.learn, plan
 end
 
 ---------------------------------------------------------------------------
@@ -278,13 +287,13 @@ local function Refresh()
         -- ~: one of its materials has an estimated price; ?: one has no price
         -- at all, so the choice of this recipe is not fully comparable
         Line(("%d-%d  %s%s"):format(s.from, s.to, r.name, learn), (L["%dx"]):format(s.crafts)
-            .. (r.comparable == false and " ?" or r.estimated and " ~" or ""))
+            .. (s.comparable == false and " ?" or s.estimated and " ~" or ""))
     end
     if steps[#steps] then Train(steps[#steps].to) end
     local estimated, gaps = false, false
     for _, s in ipairs(steps) do
-        estimated = estimated or (s.recipe.estimated and s.recipe.comparable ~= false)
-        gaps = gaps or s.recipe.comparable == false
+        estimated = estimated or (s.estimated and s.comparable ~= false)
+        gaps = gaps or s.comparable == false
     end
     if estimated then Line(L["~ = planned with an estimated price."], nil, { 0.6, 0.6, 0.6 }) end
     if gaps then Line(L["? = a material has no price: this choice is not fully comparable."], nil, { 0.6, 0.6, 0.6 }) end
@@ -299,9 +308,6 @@ local function Refresh()
         if info.itemCost > 0 then text = text .. "  " .. (L["about %s"]):format(ns.Money(info.itemCost)) end
         if info.itemsUnknown > 0 then text = text .. "  |cffff7070" .. (L["(+%d without a price)"]):format(info.itemsUnknown) .. "|r" end
         Line(text, nil, { 0.8, 0.8, 0.8 })
-    end
-    if info.trainer > 0 or info.items > 0 then
-        Line(L["Fees and recipe items are not part of the recipe choice."], nil, { 0.6, 0.6, 0.6 })
     end
     if stuck and prof == "Mining" then
         Line((L["From %d on: mine veins to go up (farm run for ore)."]):format(stuck), nil, { 1, 0.5, 0.4 })
