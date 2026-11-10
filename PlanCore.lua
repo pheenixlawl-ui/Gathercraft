@@ -7,6 +7,15 @@ local ADDON_NAME, ns = ...
 -- game function is touched here, so the whole of it runs in a test without
 -- the game. Planner.lua takes the snapshot, calls Compute and shows the plan.
 --
+-- A big plan takes a while. Compute(input, pause) calls `pause` at many
+-- places where it can be put down and taken up again later (Rest, below):
+-- Planner.lua runs it as a coroutine and yields in there once a frame's
+-- share of time is used up, so no single call holds the game up (Codex
+-- round 2, R2-M4). Without `pause` it runs through in one go. Either way it
+-- is the same calculation and the same plan: nothing here looks at a clock.
+-- (No pause is ever asked for inside a sort or behind a protected call - a
+-- coroutine could not yield there.)
+--
 -- input = {
 --   prof     the profession to plan ("Leatherworking")
 --   skill    your skill now (a number)
@@ -178,6 +187,12 @@ local function StockNumber(input, id)
         return s.n, true
     end
     return 0, true -- not listed: none
+end
+
+-- a place to rest: the calculation may be put down here and go on later
+local function Rest(ctx)
+    local pause = ctx.pause
+    if pause then pause() end
 end
 
 local function Note(ctx, code, key, extra)
@@ -723,6 +738,7 @@ local function MakeSome(ctx, L, id, r, rest, skillNow, stack, acc)
     -- batch: never counted on, below)
     local even = SHORTCUTS and made == math.floor(made)
     while remaining > EPS do
+        Rest(ctx)
         local covers = math.min(remaining, Produced(L, batches + 1, made) - Produced(L, batches, made))
         local a = NewAcc()
         local w = even and Watch(ctx) or nil
@@ -783,6 +799,7 @@ end
 -- the plan: every way is tried out on the books and taken back, the least
 -- costly one is then carried out. Returns what it wrote, as changes.
 local function Decide(ctx, L, id, rest, skillNow, stack, acc)
+    Rest(ctx)
     local price = PriceOf(ctx.input, id)
     local buy = NewAcc()
     if price.copper then
@@ -1077,6 +1094,7 @@ local function ChoosePoints(ctx, cands, unknownChance, trainAt)
             if p > 0 then
                 local e = Evaluate(ctx, c, skill, p)
                 if c ~= current then e.score, e.gap = e.score * SWITCH_PENALTY, e.gap * SWITCH_PENALTY end
+                Rest(ctx)
                 live[#live + 1] = { c = c, p = p, e = e }
             end
         end
@@ -1208,6 +1226,7 @@ local function Walk(ctx, points, info, stuck, trainAt)
     while skill < endSkill do
         guard = guard + 1
         if guard > 5000 then break end
+        Rest(ctx)
         local c = points[skill]
         local unlock = Unlocks(ctx, c)
         local segTo, expected, ps = skill, 0, {}
@@ -1461,7 +1480,7 @@ end
 --                of the recipe taken, or of a way that could have cost less;
 --                openPrices / openLearn say what kind (a price, a learning cost)
 --   stuck, learn, diagnostics
-function Core.Compute(input)
+function Core.Compute(input, pause)
     local why = Invalid(input)
     if why then
         return { status = "invalid", valid = false, complete = false, reason = why, steps = {}, training = {}, materials = {}, ledger = {}, extras = {},
@@ -1471,7 +1490,7 @@ function Core.Compute(input)
             diagnostics = { { code = "invalid", reason = why } } }
     end
     local ctx = { input = input, noted = {}, diagnostics = {}, producers = {}, sorted = {}, stack = {}, choice = NewLedger(true), unlocks = {},
-        seen = {}, depth = 0, watch = nil, base = {} }
+        seen = {}, depth = 0, watch = nil, base = {}, pause = type(pause) == "function" and pause or nil }
     local profs = {}
     for prof in pairs(input.recipes) do profs[#profs + 1] = prof end
     table.sort(profs, function(a, b) -- the planned profession's recipes first
@@ -1485,14 +1504,18 @@ function Core.Compute(input)
                 table.insert(ctx.producers[r.product], r)
             end
         end
+        Rest(ctx)
     end
     local cands, unknownChance = Candidates(input)
+    Rest(ctx)
     ctx.candOf = {}
     for _, c in ipairs(cands) do ctx.candOf[c.key] = c end
     local training, trainAt = Training(input)
     local points, info, stuck, notComparable, unknownAt = ChoosePoints(ctx, cands, unknownChance, trainAt)
     local steps, L = Walk(ctx, points, info, stuck, trainAt)
+    Rest(ctx)
     local materials, ledger, cost = Rows(ctx, L)
+    Rest(ctx)
     local learn = LearnCosts(input, steps, L)
     learn.matsUnknown = #cost.unknownItems
     local extras = {}

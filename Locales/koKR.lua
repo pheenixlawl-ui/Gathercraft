@@ -646,4 +646,6 @@ ns.Locales.koKR = {
     ["Your skill cannot be read right now. This is a preview from the skill seen last: open your profession window to update it."] = "지금은 숙련도를 읽을 수 없습니다. 마지막으로 본 숙련도 기준의 미리보기입니다. 전문 기술 창을 열어 갱신하세요.",
     ["Preview - the amounts below are for the skill seen last, not for your skill now."] = "미리보기: 아래 수량은 현재 숙련도가 아니라 마지막으로 본 숙련도 기준입니다.",
     ["A preview from the skill seen last, not from your skill now."] = "현재 숙련도가 아니라 마지막으로 본 숙련도 기준의 미리보기입니다.",
+    ["Working out the plan ..."] = "계획을 계산하는 중 ...",
+    ["Updating the plan ..."] = "계획을 갱신하는 중 ...",
 }

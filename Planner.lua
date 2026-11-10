@@ -204,6 +204,10 @@ ns.SkillPlanSnapshot = Snapshot
 --                          reliable = false (status "preview"): the plan is
 --                          from the skill seen last, not from the skill read
 --                          now - nothing to count as reached or to buy by.
+--                          updating = true: the state has changed and a new
+--                          plan is being worked out (or would be, were the
+--                          window open) - this one is the last finished one.
+--   ns.SkillPlanBusy()     is the window working out a plan right now?
 --   ns.skillPlanListeners  functions called with that result when a new
 --                          revision is there (nobody listens yet)
 ---------------------------------------------------------------------------
@@ -253,25 +257,147 @@ local function SameReads(old, new)
     return true
 end
 
--- the plan for this state, and whether it is a new one
+-- a finished plan becomes THE plan: a new revision, a new result
+local function Publish(input, sig, plan)
+    calc.plan, calc.input, calc.sig = plan, input, sig
+    calc.revision = calc.revision + 1
+    plan.revision = calc.revision
+    local result = ns.PlanCore.Result(plan)
+    result.revision = calc.revision
+    calc.result = result
+    for _, fn in ipairs(ns.skillPlanListeners) do pcall(fn, result) end
+end
+
+-- the plan for this state, and whether it is a new one - worked out in one
+-- go (the window does it in parts, below)
 local function Calculate(prof, skill, target, source, seenAt)
     local input = Snapshot(prof, skill, target, source, seenAt)
     local sig = Signature(input)
     if calc.plan and calc.sig == sig and SameReads(calc.input, input) then
         return calc.plan, false
     end
-    calc.plan = ns.PlanCore.Compute(input)
-    calc.input, calc.sig = input, sig
-    calc.revision = calc.revision + 1
-    calc.plan.revision = calc.revision
-    local result = ns.PlanCore.Result(calc.plan)
-    result.revision = calc.revision
-    calc.result = result
-    for _, fn in ipairs(ns.skillPlanListeners) do pcall(fn, result) end
+    Publish(input, sig, ns.PlanCore.Compute(input))
     return calc.plan, true
 end
 ns.SkillPlanCalculate = Calculate
 ns.SkillPlanResult = function() return calc.result end
+
+---------------------------------------------------------------------------
+-- The window's plan is worked out in parts (Codex round 2, R2-M4). A big
+-- plan takes a while, and one long call would hold the whole game up. So
+-- the calculation runs as a coroutine: it works for BUDGET_MS, is put down
+-- at one of its resting places (PlanCore.lua, Rest) and goes on in the next
+-- frame - until it is done.
+--   * one part per frame, each at most BUDGET_MS plus the short way to the
+--     next resting place. The first part runs right away: a small plan is
+--     there at once, as before.
+--   * while it is worked out the plan of before stays on the screen, marked
+--     "Updating the plan ..."; only a finished plan takes its place. Nothing
+--     of a plan that is half done is ever shown or given out.
+--   * a new state while it is worked out (the bags, the skill, the target,
+--     a price): what was begun is dropped and the calculation starts anew.
+--     The snapshot is read as the calculation asks for it - over several
+--     frames - so a finished plan is only taken when a fresh look at the
+--     game shows everything it read unchanged: never a plan from two states.
+--   * the window is closed: nothing goes on.
+--   * the plan is the one the calculation in one go gives (the same code;
+--     where it rests changes nothing it works out).
+-- 4 ms: a quarter of a frame at 60 frames a second. ns.SkillPlanClock (ms)
+-- stands in for the game's clock in the tests.
+---------------------------------------------------------------------------
+local BUDGET_MS = 4
+local job -- the calculation that is running: { input, sig, co, deadline, parts, plan (once done) }
+
+local function Clock()
+    local clock = ns.SkillPlanClock or debugprofilestop
+    if clock then return clock() end
+    return GetTimePreciseSec and GetTimePreciseSec() * 1000 or 0
+end
+
+local function NewJob(input, sig)
+    local j = { input = input, sig = sig, parts = 0 }
+    local function Pause()
+        if Clock() >= j.deadline then coroutine.yield() end
+    end
+    j.co = coroutine.create(function() return ns.PlanCore.Compute(input, Pause) end)
+    return j
+end
+
+-- one part of the work, until BUDGET_MS after `since` (now, when nothing
+-- else was done in this call before it). An error in the calculation is an
+-- error here: it is not swallowed, and what was begun is dropped.
+local function Part(j, since)
+    j.parts = j.parts + 1
+    j.deadline = (since or Clock()) + BUDGET_MS
+    local ok, plan = coroutine.resume(j.co)
+    if not ok then
+        if job == j then job = nil end
+        error(plan, 0)
+    end
+    if coroutine.status(j.co) == "dead" then j.plan = plan end
+end
+
+-- the parts after the first: one per frame, while the window is open and
+-- this is still the calculation that is wanted. The frame after the last
+-- part takes the finished plan (a fresh look at the game, then the window is
+-- drawn) - not the frame that did the last part as well.
+local function Drive(j)
+    C_Timer.After(0, function()
+        if job ~= j then return end
+        local shown = _G.GathercraftSkillPlan
+        if not (shown and shown:IsShown()) then
+            job = nil -- closed: nothing goes on
+            return
+        end
+        if j.plan then
+            ns.RefreshSkillPlan()
+            return
+        end
+        Part(j)
+        Drive(j)
+    end)
+end
+
+-- The plan to show for this state, and whether a new one is being worked
+-- out: the plan of this state when it is there; else the last finished plan
+-- of this profession (nil when there is none) while the new one is worked
+-- out in parts.
+local function PlanToShow(prof, skill, target, source, seenAt)
+    local began = Clock() -- (taking the snapshot is part of this call's time)
+    local input = Snapshot(prof, skill, target, source, seenAt)
+    local sig = Signature(input)
+    if calc.plan and calc.sig == sig and SameReads(calc.input, input) then
+        job = nil -- (whatever was begun was for another state)
+        calc.result.updating = nil
+        return calc.plan, false
+    end
+    local j = job
+    if j and j.sig == sig and SameReads(j.input, input) then
+        -- begun for this very state, and nothing it read has changed
+        if j.plan then
+            job = nil
+            Publish(j.input, j.sig, j.plan)
+            return calc.plan, false
+        end
+    else
+        j = NewJob(input, sig)
+        job = j
+        Part(j, began)
+        if j.plan then
+            -- done in its first part (all it read, it read just now)
+            job = nil
+            Publish(j.input, j.sig, j.plan)
+            return calc.plan, false
+        end
+        Drive(j)
+    end
+    if calc.result then calc.result.updating = true end
+    return (calc.plan and calc.plan.prof == prof) and calc.plan or nil, true
+end
+-- the window shows no plan (no profession, a skill that cannot be read):
+-- nothing is worked out for it
+local function DropJob() job = nil end
+ns.SkillPlanBusy = function() return job ~= nil end
 
 -- steps, materials, cost of the missing materials, where the plan got stuck,
 -- whether stand-in prices were used, and info = { learn costs, missing
@@ -312,6 +438,9 @@ end
 --     varies
 --   * what a recipe needs beyond its ingredients (a tool, a forge, an anvil,
 --     a cooldown) is not checked: one line under the materials says so
+--   * a big plan is worked out in parts over several frames (above): the
+--     plan of before stays, marked "Updating the plan ..."; with none to
+--     show: "Working out the plan ..."
 --   * it only shows: nothing is crafted, bought, learned or moved from here
 ---------------------------------------------------------------------------
 local win, profText, skillText, targetLabel, targetButton, targetMenu, targetEdit, content, totalText, noteText
@@ -596,6 +725,7 @@ local function Refresh()
         skillText:SetText("")
         targetLabel:Hide()
         targetButton:Hide()
+        DropJob()
         Line(L["Choose a profession first."], nil, GOLD)
         Line(L["Pick one profession on the Crafting tab, then click Skill plan."], nil, GREY)
         Finish()
@@ -610,6 +740,7 @@ local function Refresh()
         skillText:SetText(L["Your skill: ? (open your profession window once)"])
         targetLabel:Hide()
         targetButton:Hide()
+        DropJob()
         Line(L["Your skill could not be read, so there is no plan yet."], nil, RED)
         Finish()
         return
@@ -628,13 +759,24 @@ local function Refresh()
         skillText:SetText(maxRank and (L["Your skill: %d / %d"]):format(rank, maxRank) or (L["Your skill: %d"]):format(rank))
     end
 
-    local plan = Calculate(prof, from, target, lastSeen and "lastSeen" or nil, seenAt)
+    local plan, updating = PlanToShow(prof, from, target, lastSeen and "lastSeen" or nil, seenAt)
+    if not plan then
+        -- being worked out, and no finished plan of this profession to show
+        -- meanwhile: nothing of a plan, only that it is on its way
+        Line(L["Working out the plan ..."], nil, GOLD)
+        Finish()
+        return
+    end
     if not plan.valid then
         Line(L["No plan: there is nothing to plan from."], nil, RED)
         Finish()
         return
     end
     local info = plan.learn
+    -- the plan of before, while the new one is worked out: said first
+    if updating then Line(L["Updating the plan ..."], nil, GOLD) end
+    -- (what marks a preview goes by the plan that is shown)
+    local preview = plan.skillSource == "lastSeen"
 
     if skillState == "unlearned" then
         Line(L["Not learned yet - learn it from a trainer. This is a preview from skill 1."], nil, GOLD)
@@ -718,9 +860,11 @@ local function Refresh()
             Line((L["%s can only be made from itself here: it is not made."]):format(ItemName(diag.item)), nil, RED)
         end
     end
-    -- (only a plan from the skill read now is ever "done")
-    if plan.status == "done" then
-        Line((L["Done: you have reached your target (%d)."]):format(target), nil, GREEN)
+    -- (only a plan from the skill read now is ever "done" - and only the
+    -- plan of the state as it is: not the one of before while a new one is
+    -- worked out)
+    if plan.status == "done" and not updating then
+        Line((L["Done: you have reached your target (%d)."]):format(plan.target), nil, GREEN)
     end
     -- the recipes to learn, with where
     if #info.list > 0 then
@@ -779,7 +923,7 @@ local function Refresh()
     head.mid:SetPoint("RIGHT", head, "LEFT", 280, 0)
     head.mid:SetWidth(140)
     head.mid:SetText("|cff999999" .. L["have / need"] .. "|r")
-    if lastSeen then
+    if preview then
         Line(L["Preview - the amounts below are for the skill seen last, not for your skill now."], nil, GOLD)
     end
     local unread = false
@@ -905,7 +1049,7 @@ local function Refresh()
     -- else a choice that is not fully comparable: what is open, and what helps
     local note = ""
     local assumed = plan.cost.assumedItems and #plan.cost.assumedItems or 0
-    if lastSeen then
+    if preview then
         -- first of all: the sum is that of a preview (the sum line itself
         -- has no room for it in most languages)
         note = L["A preview from the skill seen last, not from your skill now."]
@@ -1060,7 +1204,7 @@ local function ShowSkillPlan(prof)
         end
     end
     state.prof, state.hint = chosen, nil
-    win:Show()
-    Refresh()
+    -- (showing it refreshes it - OnShow; an open window is refreshed here)
+    if win:IsShown() then Refresh() else win:Show() end
 end
 ns.ShowSkillPlan = ShowSkillPlan

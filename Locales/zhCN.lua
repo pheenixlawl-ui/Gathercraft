@@ -646,4 +646,6 @@ ns.Locales.zhCN = {
     ["Your skill cannot be read right now. This is a preview from the skill seen last: open your profession window to update it."] = "现在无法读取你的技能。这是基于上次看到的技能的预览：请打开专业技能窗口以更新。",
     ["Preview - the amounts below are for the skill seen last, not for your skill now."] = "预览：以下数量按上次看到的技能计算，而不是你现在的技能。",
     ["A preview from the skill seen last, not from your skill now."] = "这是按上次看到的技能做的预览，不是按你现在的技能。",
+    ["Working out the plan ..."] = "正在计算计划 ...",
+    ["Updating the plan ..."] = "正在更新计划 ...",
 }

@@ -675,4 +675,6 @@ ns.Locales.deDE = {
     ["Your skill cannot be read right now. This is a preview from the skill seen last: open your profession window to update it."] = "Dein Skill lässt sich gerade nicht lesen. Dies ist eine Vorschau ab dem zuletzt gesehenen Skill: Öffne dein Berufsfenster, um ihn zu aktualisieren.",
     ["Preview - the amounts below are for the skill seen last, not for your skill now."] = "Vorschau – die Mengen unten gelten für den zuletzt gesehenen Skill, nicht für deinen jetzigen.",
     ["A preview from the skill seen last, not from your skill now."] = "Eine Vorschau ab dem zuletzt gesehenen Skill, nicht ab deinem jetzigen.",
+    ["Working out the plan ..."] = "Der Plan wird berechnet ...",
+    ["Updating the plan ..."] = "Der Plan wird aktualisiert ...",
 }

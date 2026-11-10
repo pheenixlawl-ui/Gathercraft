@@ -646,4 +646,6 @@ ns.Locales.ptBR = {
     ["Your skill cannot be read right now. This is a preview from the skill seen last: open your profession window to update it."] = "Não é possível ler sua perícia agora. Esta é uma prévia a partir da última perícia vista: abra a janela da profissão para atualizá-la.",
     ["Preview - the amounts below are for the skill seen last, not for your skill now."] = "Prévia: as quantidades abaixo valem para a última perícia vista, não para a atual.",
     ["A preview from the skill seen last, not from your skill now."] = "Prévia a partir da última perícia vista, não da atual.",
+    ["Working out the plan ..."] = "Calculando o plano ...",
+    ["Updating the plan ..."] = "Atualizando o plano ...",
 }

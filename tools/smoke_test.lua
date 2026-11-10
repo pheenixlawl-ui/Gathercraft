@@ -383,6 +383,12 @@ for line in toc:gmatch("[^\r\n]+") do
     end
 end
 
+-- The skill plan window works its plan out in parts, a few milliseconds per
+-- frame (Planner.lua). Here its clock stands still, so a plan is always done
+-- in its first part and a test sees it at once, on a fast machine and on a
+-- slow one. The step that tests the parts sets clocks of its own.
+ns.SkillPlanClock = function() return 0 end
+
 -- tools/route_sim.lua uses this file only for the mini WoW: hand it the pieces
 if HARNESS_ONLY then
     return {
@@ -6659,6 +6665,241 @@ step("Skill plan 2.0: a skill seen last is a preview - never your skill now, nev
     plan = core.Compute(Input(1))
     assert(plan.status == "ok" and plan.complete == true and plan.reliable == true, "a plan from the skill read now is not reliable")
     assert(core.Compute({}).reliable == false and core.Result(core.Compute({})).reliable == false, "an invalid plan is called reliable")
+end)
+step("Skill plan 2.0: a big plan is worked out in parts - the same plan, never a part of one shown (v0.2 r2 G4)", function()
+    -- Codex round 2, R2-M4: one long call would hold the game up. The window
+    -- works its plan out in parts of a few milliseconds, one per frame; the
+    -- plan of before stays until the new one is finished; a new state drops
+    -- what was begun; a closed window works on nothing. And the plan is the
+    -- one the calculation in one go gives.
+    local L, core, d = ns.L, ns.PlanCore, ns.CraftData
+    local f = assert(io.open(ROOT .. "/PlanCore.lua"))
+    local coreCode = f:read("*a"):gsub("%-%-[^\n]*", "")
+    f:close()
+    f = assert(io.open(ROOT .. "/Planner.lua"))
+    local planner = f:read("*a")
+    f:close()
+    -- the calculation knows no clock and no coroutine: it only calls the
+    -- pause it is given, and never from where a coroutine could not yield
+    for _, word in ipairs({ "pcall", "coroutine", "debugprofilestop", "os%.clock", "GetTimePreciseSec" }) do
+        assert(not coreCode:find(word), "PlanCore.lua uses " .. word)
+    end
+    assert(not coreCode:find("table%.sort%([^\n]*Rest%("), "a rest inside a sort")
+    local budget = tonumber(planner:match("\nlocal BUDGET_MS = ([%d.]+)\n"))
+    assert(budget and budget >= 1 and budget <= 5, "the time a part may take is not a few milliseconds: " .. tostring(budget))
+    assert(planner:find("coroutine.create", 1, true) and planner:find("C_Timer.After(0,", 1, true), "Planner.lua does not spread the calculation over frames")
+
+    local saved = { clock = ns.SkillPlanClock, rank = ns.ProfessionRank, have = d.Have, known = d.Known, cost = d.ReagentCost, compute = core.Compute,
+        targets = ns.db.planTargets, listeners = ns.skillPlanListeners, price = ns.GetPrice }
+    local win
+    local ok, err = pcall(function()
+        -- Codex' case: Leatherworking at 150 (maximum 225) with Mining next to
+        -- it, no recipe known, 15 of every third item, every price known
+        local skill, bonus = 150, 0
+        ns.ProfessionRank = function(p)
+            if p == "Leatherworking" then return skill, 225 elseif p == "Mining" then return 300, 300 elseif p == "Tailoring" then return 1, 75 end
+        end
+        d.Known = function() return {} end
+        d.Have = function(id) return (id % 3 == 0 and 15 or 0) + bonus end
+        d.ReagentCost = function(id) return (id % 97 + 1) * 10, "review", false end
+        ns.db.planTargets = nil
+        local published = {}
+        ns.skillPlanListeners = { function(result) published[#published + 1] = result end }
+        local starts, rests = 0, 0
+        core.Compute = function(input, pause)
+            starts = starts + 1
+            if not pause then return saved.compute(input) end
+            return saved.compute(input, function()
+                rests = rests + 1
+                pause()
+            end)
+        end
+        local function Whole(target) -- the plan of the state as it is, in one go
+            return saved.compute(ns.SkillPlanSnapshot("Leatherworking", skill, target))
+        end
+        local function Rows()
+            local list = {}
+            for _, o in ipairs(allFrames) do
+                if o.left and o.mid and o.right and o:IsShown() then list[#list + 1] = o end
+            end
+            return list
+        end
+        local function Shows(text)
+            for _, row in ipairs(Rows()) do
+                if row.left:GetText() == text then return row end
+            end
+        end
+        local WORKING, UPDATING, STEPS = L["Working out the plan ..."], L["Updating the plan ..."], L["Steps"]
+
+        -- ---- the calculation: put down at EVERY resting place, taken up
+        -- again - the same plan as in one go
+        local input = ns.SkillPlanSnapshot("Leatherworking", 150, 225)
+        local whole = saved.compute(input)
+        assert(whole.status == "ok" and #whole.steps > 3, "test setup: the plan of Codex' case")
+        local asked = 0
+        local co = coroutine.create(function() return saved.compute(input, function() asked = asked + 1 coroutine.yield() end) end)
+        local resumed, inParts = 0, nil
+        repeat
+            local fine, result = coroutine.resume(co)
+            assert(fine, tostring(result))
+            resumed, inParts = resumed + 1, result
+        until coroutine.status(co) == "dead"
+        local same, why = SamePlan(whole, inParts, "plan")
+        assert(same, "put down and taken up again, the plan is another one: " .. tostring(why))
+        assert(asked > 1000 and resumed == asked + 1, ("the calculation asks for a pause %d times (taken up %d times)"):format(asked, resumed))
+        -- something that is no function is no pause
+        same = SamePlan(whole, saved.compute(input, true), "plan")
+        assert(same, "a pause that is no function changes the plan")
+
+        -- ---- the window. A plan of another profession first, done at once
+        -- (the harness' clock stands still)
+        ns.ShowSkillPlan("Tailoring")
+        win = _G.GathercraftSkillPlan
+        assert(not ns.SkillPlanBusy() and ns.SkillPlanResult().prof == "Tailoring" and Shows(STEPS), "with a clock that stands still the plan is not done at once")
+        local revision, given = ns.SkillPlanResult().revision, #published
+        -- now a clock that goes on: 0.01 ms with every look at it, so a part
+        -- ends after about 400 resting places
+        local now, looks, onLook = 0, 0, nil
+        ns.SkillPlanClock = function()
+            now, looks = now + 0.01, looks + 1
+            if onLook then onLook(looks) end
+            return now
+        end
+        starts, rests = 0, 0
+        ns.ShowSkillPlan("Leatherworking")
+        -- the first part is done, the plan is not: nothing of it is shown
+        assert(ns.SkillPlanBusy() and starts == 1, "a big plan is not worked out in parts")
+        local firstPart = rests
+        assert(firstPart > 100 and firstPart < 1000, ("the first part went over %d resting places"):format(firstPart))
+        assert(Shows(WORKING) and #Rows() == 1, "while the first plan is worked out, something else than \"Working out the plan\" is shown")
+        assert(not Shows(STEPS) and not Shows(UPDATING), "a part of a plan is shown")
+        local result = ns.SkillPlanResult()
+        assert(result.prof == "Tailoring" and result.revision == revision and result.updating == true and #published == given, "a result was given out before the plan was finished")
+        -- the frames after it: part by part, then the finished plan
+        advance(1)
+        assert(not ns.SkillPlanBusy() and starts == 1 and rests > firstPart * 3, ("the rest was not worked out in parts (%d resting places, %d in the first part)"):format(rests, firstPart))
+        result = ns.SkillPlanResult()
+        assert(result.prof == "Leatherworking" and result.target == 225 and result.status == "ok" and result.updating == nil and result.revision == revision + 1 and #published == given + 1,
+            "the finished plan did not take the place of the one before")
+        assert(Shows(STEPS) and not Shows(WORKING) and not Shows(UPDATING), "the finished plan is not shown")
+        -- it is the plan the calculation in one go gives
+        local shown, new = ns.SkillPlanCalculate("Leatherworking", 150, 225)
+        assert(new == false, "test setup: the state changed")
+        local inOneGo = Whole(225)
+        inOneGo.revision = shown.revision
+        same, why = SamePlan(shown, inOneGo, "plan")
+        assert(same, "worked out in parts, the plan is another one than in one go: " .. tostring(why))
+
+        -- ---- a new target: the plan of before stays, marked, until the new one is finished
+        starts = 0
+        assert(ns.SkillPlanSetTarget(300), "test setup: the target")
+        assert(ns.SkillPlanBusy() and starts == 1, "a new target: nothing is worked out")
+        assert(Shows(UPDATING) and Shows(STEPS) and not Shows(WORKING), "the plan of before is not shown, marked as being updated")
+        result = ns.SkillPlanResult()
+        assert(result.target == 225 and result.updating == true and result.revision == revision + 1, "the result of before is not marked as being updated")
+        advance(1)
+        result = ns.SkillPlanResult()
+        assert(not ns.SkillPlanBusy() and result.target == 300 and result.updating == nil and result.revision == revision + 2 and not Shows(UPDATING), "the plan to 300 did not take over")
+        shown = ns.SkillPlanCalculate("Leatherworking", 150, 300)
+        inOneGo = Whole(300)
+        inOneGo.revision = shown.revision
+        same, why = SamePlan(shown, inOneGo, "plan")
+        assert(same, "to 300, in parts: another plan than in one go: " .. tostring(why))
+
+        -- ---- "Done" belongs to the state as it is: at 225 of 225 it is
+        -- shown; with a new target it is gone while the new plan is worked out
+        assert(ns.SkillPlanSetTarget(225)) advance(1)
+        skill = 225
+        ns.RefreshSkillPlan() advance(1)
+        local DONE = (L["Done: you have reached your target (%d)."]):format(225)
+        assert(ns.SkillPlanResult().status == "done" and Shows(DONE), "test setup: 225 of 225 is done")
+        assert(ns.SkillPlanSetTarget(300), "test setup: the target")
+        assert(ns.SkillPlanBusy() and Shows(UPDATING), "test setup: the plan from 225 to 300 is done in one part")
+        assert(not Shows(DONE), "\"Done\" of the plan before is shown while a new plan is worked out")
+        for _, row in ipairs(Rows()) do
+            assert(row.left:GetText() ~= (L["Done: you have reached your target (%d)."]):format(300), "\"Done\" from a plan that is not finished")
+        end
+        advance(1)
+        assert(not ns.SkillPlanBusy() and ns.SkillPlanResult().status ~= "done" and ns.SkillPlanResult().from == 225, "the plan from 225 did not take over")
+        skill = 150
+        ns.RefreshSkillPlan() advance(1)
+
+        -- ---- the bags change while it is worked out: what was begun is not
+        -- finished into a plan of two states
+        local count = #published
+        starts = 0
+        local from = looks
+        onLook = function(n) if n == from + 1500 then bonus = 1 end end -- (in the middle of a later part)
+        assert(ns.SkillPlanSetTarget(250), "test setup: the target")
+        advance(1)
+        onLook = nil
+        assert(bonus == 1 and starts == 2, ("the state changed while the plan was worked out: %d calculations were begun, want 2"):format(starts))
+        assert(#published == count + 1, ("%d plans were given out, want the one of the new state only"):format(#published - count))
+        shown = ns.SkillPlanCalculate("Leatherworking", 150, 250)
+        inOneGo = Whole(250)
+        inOneGo.revision = shown.revision
+        same, why = SamePlan(shown, inOneGo, "plan")
+        assert(same, "after a change in the middle the plan is not that of the new state: " .. tostring(why))
+        for id, item in pairs(published[#published].items) do
+            assert(item.have == (id % 3 == 0 and 15 or 0) + 1, "the plan that was given out counted an item before the change")
+        end
+
+        -- ---- many events while it is worked out, and nothing has changed:
+        -- still the one calculation
+        count, starts = #published, 0
+        assert(ns.SkillPlanSetTarget(260), "test setup: the target")
+        for _ = 1, 20 do fire("BAG_UPDATE_DELAYED") end
+        advance(1)
+        assert(starts == 1 and #published == count + 1 and ns.SkillPlanResult().target == 260, ("20 events without a change: %d calculations begun"):format(starts))
+
+        -- ---- the window is closed: nothing goes on, nothing is given out
+        count, starts = #published, 0
+        assert(ns.SkillPlanSetTarget(270), "test setup: the target")
+        assert(ns.SkillPlanBusy(), "test setup: a calculation is running")
+        win:Hide()
+        local before = looks
+        advance(1)
+        assert(not ns.SkillPlanBusy() and #published == count and starts == 1, "a closed window goes on working out its plan")
+        local after = looks
+        advance(1)
+        assert(looks == after and after - before <= 2, "a closed window still looks at the clock")
+        assert(ns.SkillPlanResult().target == 260 and ns.SkillPlanResult().updating == true, "the result of before is not marked as out of date")
+        -- opened again: worked out anew
+        ns.ShowSkillPlan("Leatherworking") advance(1)
+        assert(not ns.SkillPlanBusy() and #published == count + 1 and ns.SkillPlanResult().target == 270 and ns.SkillPlanResult().updating == nil, "opened again: no plan")
+
+        -- ---- the window shows no plan any more (no profession chosen):
+        -- nothing is worked out for it
+        assert(ns.SkillPlanSetTarget(275), "test setup: the target")
+        assert(ns.SkillPlanBusy(), "test setup: a calculation is running")
+        count = #published
+        ns.ShowSkillPlan("No such profession")
+        assert(Shows(L["Choose a profession first."]) and not ns.SkillPlanBusy(), "a window without a profession goes on working out a plan")
+        advance(1)
+        assert(#published == count, "a plan was given out for a window that shows none")
+        ns.ShowSkillPlan("Leatherworking") advance(1)
+        assert(not ns.SkillPlanBusy() and ns.SkillPlanResult().target == 275, "test setup: back to the plan")
+
+        -- ---- an error in the calculation is an error, not a silence
+        core.Compute = function() error("the calculation broke", 0) end
+        local fine, problem = pcall(ns.SkillPlanSetTarget, 280)
+        assert(not fine and tostring(problem):find("the calculation broke", 1, true), "an error in the calculation is swallowed")
+        assert(not ns.SkillPlanBusy(), "a calculation that broke is still called running")
+        core.Compute = saved.compute
+
+        -- ---- with the clock the game has (here: the machine's): the same
+        ns.SkillPlanClock = nil
+        ns.RefreshSkillPlan() advance(1)
+        shown = ns.SkillPlanCalculate("Leatherworking", 150, 280)
+        inOneGo = Whole(280)
+        inOneGo.revision = shown.revision
+        same, why = SamePlan(shown, inOneGo, "plan")
+        assert(same and not ns.SkillPlanBusy() and ns.SkillPlanResult().target == 280, "with a real clock: " .. tostring(why))
+    end)
+    ns.SkillPlanClock, ns.ProfessionRank, d.Have, d.Known, d.ReagentCost, core.Compute = saved.clock, saved.rank, saved.have, saved.known, saved.cost, saved.compute
+    ns.db.planTargets, ns.skillPlanListeners, ns.GetPrice = saved.targets, saved.listeners, saved.price
+    if win then win:Hide() end
+    if not ok then error(err, 0) end
 end)
 -- (end of the skill plan 2.0 steps, v0.2 building block 1)
 step("Craft log: one entry per finished craft, failures and odd cases marked apart (v0.1.18 S5)", function()
