@@ -732,9 +732,10 @@ local function Refresh()
     head.mid:SetText("|cff999999" .. L["have / need"] .. "|r")
     local unread = false
     -- the amounts are a planning estimate where a step's number of crafts is
-    -- a mean or a varying output was counted with its mean: said in every
-    -- material's tooltip and in a line under the list
-    local isEstimate = plan.estimate and (plan.estimate.crafts or plan.estimate.output) or false
+    -- a mean, a varying output was counted with its mean, or extra crafts
+    -- could give skill points that are not counted: said in every material's
+    -- tooltip and in a line under the list
+    local isEstimate = plan.estimate and (plan.estimate.crafts or plan.estimate.output or plan.estimate.skill) or false
     for _, m in ipairs(plan.materials) do
         local name = ItemName(m.id)
         -- /gcr debug: where the count comes from (once, and again when it changes)

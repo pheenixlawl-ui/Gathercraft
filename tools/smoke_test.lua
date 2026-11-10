@@ -6335,6 +6335,112 @@ step("Skill plan 2.0: the plans of Codex' matrix, with the shortcuts and without
     assert(not firstDiff, "with the shortcuts a plan of the matrix is another one - " .. tostring(firstDiff))
     assert(compared == (full and 216 or 7) and steps > compared, ("plans of the matrix compared: %d, with %d steps"):format(compared, steps))
 end)
+step("Skill plan 2.0: skill points of extra crafts that are not counted make the plan an estimate too (v0.2 r2 G5)", function()
+    -- Codex round 2, R2-N1 (the case SUPPLEMENT): two certain crafts of A
+    -- need two X; an X is made by a recipe that still gives a point now and
+    -- then (4 in 100). Those two extra crafts are counted with their
+    -- materials and their output, but not towards the skill - never a part
+    -- of a point (Sven, 10.11.2026). So the plan asks for rather too much:
+    -- that is a planning estimate, and the plan, its result and the window
+    -- say so - like they do for a mean number of crafts.
+    local core, d = ns.PlanCore, ns.CraftData
+    local L = ns.L
+    local function R(key, product, req, yellow, grey, mats, extra)
+        local r = { prof = "Testing", key = key, name = key, product = product, made = 1, req = req, yellow = yellow, grey = grey, reagents = {}, learn = "known" }
+        for _, x in ipairs(mats) do r.reagents[#r.reagents + 1] = { id = x[1], n = x[2] } end
+        for k, v in pairs(extra or {}) do r[k] = v end
+        return r
+    end
+    local function Input(makeX)
+        return { prof = "Testing", skill = 97, target = 99, recipes = { Testing = { R("A", 9840, 97, 99, 99, { { 9841, 1 } }, { name = "Recipe A" }), makeX } }, stock = {},
+            prices = { [9841] = { status = "known", copper = 1000, source = "AH scan" }, [9842] = { status = "known", copper = 1, source = "AH scan" } },
+            professions = {}, recipeItemPrices = {}, caps = {}, nodes = {} }
+    end
+    local function Extra(plan, key)
+        for _, e in ipairs(plan.extras) do if e.recipe.key == key then return e.times end end
+        return 0
+    end
+    -- Codex SUPPLEMENT: Make X is green-ish at 97 (yellow from 1, grey at 101)
+    local supplement = function() return Input(R("Make X", 9841, 1, 1, 101, { { 9842, 1 } }, { name = "Recipe X" })) end
+    local plan = core.Compute(supplement())
+    assert(#plan.steps == 1 and plan.steps[1].crafts == 2 and Extra(plan, "Make X") == 2 and plan.total == 2 and plan.status == "ok", "the plan of SUPPLEMENT changed")
+    assert(plan.estimate.crafts == false and plan.estimate.output == false, "certain crafts with a fixed output are called a mean")
+    assert(plan.estimate.skill == true, "skill points of extra crafts are not counted, and the plan does not say so")
+    assert(plan.steps[1].extraSkill == true, "the step the extra crafts were made for is not marked")
+    local result = core.Result(plan)
+    assert(result.estimate.skill == true and result.estimate.crafts == false and result.estimate.output == false, "the result does not pass it on")
+    -- an extra craft that gives no point any more (grey): nothing is left out
+    plan = core.Compute(Input(R("Make X", 9841, 1, 1, 50, { { 9842, 1 } })))
+    assert(Extra(plan, "Make X") == 2 and plan.estimate.skill == false and not plan.steps[1].extraSkill and core.Result(plan).estimate.skill == false,
+        "extra crafts of a grey recipe are called an estimate")
+    -- an extra craft that gives a point for sure (orange) is a step of its
+    -- own and counted: nothing is left out
+    plan = core.Compute(Input(R("Make X", 9841, 1, 200, 200, { { 9842, 1 } })))
+    assert(plan.steps[1].forMaterials and plan.estimate.skill == false, "extra crafts that are counted as steps are called not counted")
+    -- nothing made extra: no such mark
+    plan = core.Compute(Input(R("Make X", 9841, 1, 1, 101, { { 9842, 2000 } })))
+    assert(Extra(plan, "Make X") == 0 and plan.estimate.skill == false, "a plan without extra crafts is marked")
+    -- an invalid plan has the field too
+    assert(core.Compute({}).estimate.skill == false, "no estimate.skill on an invalid plan")
+
+    -- the window: the line under the materials and the materials' tooltips
+    local saved = { rank = ns.ProfessionRank, have = d.Have, known = d.Known, price = ns.GetPrice, compute = core.Compute, targets = ns.db.planTargets }
+    local win
+    local ok, err = pcall(function()
+        local rank = 96
+        ns.ProfessionRank = function(p) if p == "Alchemy" then return rank, 150 end end
+        d.Have = function() return 0 end
+        d.Known = function() return {} end
+        ns.GetPrice = function() return 10, "AH scan" end
+        ns.db.planTargets = nil
+        local function Show(input)
+            core.Compute = function(real)
+                for _, r in ipairs(input.recipes.Testing) do r.prof = real.prof end
+                input.prof, input.recipes = real.prof, { [real.prof] = input.recipes.Testing }
+                return saved.compute(input)
+            end
+            rank = rank + 1 -- (a new state, so the plan is made again)
+            ns.ShowSkillPlan("Alchemy") advance(1)
+            win = _G.GathercraftSkillPlan
+        end
+        local function Rows()
+            local list = {}
+            for _, o in ipairs(allFrames) do
+                if o.left and o.mid and o.right and o:IsShown() then list[#list + 1] = o end
+            end
+            return list
+        end
+        local function Count(text)
+            local n = 0
+            for _, row in ipairs(Rows()) do if row.left:GetText() == text then n = n + 1 end end
+            return n
+        end
+        local function Tip(row)
+            local lines = {}
+            if row and row.tip then row.tip({ AddLine = function(_, t) lines[#lines + 1] = t end }) end
+            return table.concat(lines, "\n")
+        end
+        local function Mat(id)
+            local name = ns.ItemName and ns.ItemName(id) or (L["item "] .. id)
+            for _, row in ipairs(Rows()) do if row.left:GetText() == name then return row end end
+        end
+        local ESTIMATE = L["Planning estimate from the average number of crafts per step - what you really need varies."]
+        Show(supplement())
+        assert(Count(ESTIMATE) == 1, ("the window calls SUPPLEMENT a planning estimate %d times, want once"):format(Count(ESTIMATE)))
+        local raw, made = Mat(9842), Mat(9841)
+        assert(raw and made, "the materials of SUPPLEMENT are not shown")
+        assert(Tip(raw):find(ESTIMATE, 1, true) and Tip(made):find(ESTIMATE, 1, true), "a material's tooltip does not say that its amount is an estimate")
+        local shown = ns.SkillPlanResult()
+        assert(shown and shown.estimate.skill == true and shown.estimate.crafts == false and shown.estimate.output == false, "the result of the shown plan does not say it")
+        -- the grey one: no such line, no such tooltip
+        Show(Input(R("Make X", 9841, 1, 1, 50, { { 9842, 1 } }, { name = "Recipe X" })))
+        assert(Count(ESTIMATE) == 0 and Mat(9842) and not Tip(Mat(9842)):find(ESTIMATE, 1, true), "a plan with nothing estimated is called an estimate")
+        assert(ns.SkillPlanResult().estimate.skill == false, "the result of a plan with nothing estimated says estimate")
+    end)
+    ns.ProfessionRank, d.Have, d.Known, ns.GetPrice, core.Compute, ns.db.planTargets = saved.rank, saved.have, saved.known, saved.price, saved.compute, saved.targets
+    if win then win:Hide() end
+    if not ok then error(err, 0) end
+end)
 -- (end of the skill plan 2.0 steps, v0.2 building block 1)
 step("Craft log: one entry per finished craft, failures and odd cases marked apart (v0.1.18 S5)", function()
     local data = GathercraftRecipeData

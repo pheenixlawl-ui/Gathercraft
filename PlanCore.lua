@@ -86,7 +86,9 @@ local DEFAULT_CAPS = { 75, 150, 225, 300 }
 --     items that rest on it - no known amount.
 --   The plan says all this about itself: plan.estimate = { crafts (a step's
 --   number of crafts is a mean), output (a varying output was counted with
---   its mean) }, step.outputAssumed, material.outputAssumed.
+--   its mean), skill (extra crafts "for materials" could give skill points
+--   that are not counted - Codex round 2, R2-N1) }, step.outputAssumed,
+--   material.outputAssumed.
 ---------------------------------------------------------------------------
 function Core.Chance(skill, req, yellow, grey)
     if skill < req then return 0 end
@@ -1234,6 +1236,7 @@ local function Walk(ctx, points, info, stuck, trainAt)
         end
         Rollback(L, mark)
         local acc = NewAcc()
+        local step
         if material then
             Apply(ctx, L, material.raw, material.crafts, skill, acc)
             if last and last.forMaterials and last.recipe == material.recipe and not trainAt[skill] then
@@ -1246,10 +1249,10 @@ local function Walk(ctx, points, info, stuck, trainAt)
                 steps[#steps + 1] = last
             end
             Flag(last, acc)
-            skill = skill + 1
+            step = last
         else
             Apply(ctx, L, c, crafts, skill, acc)
-            local step = joined
+            step = joined
             if step then
                 step.to, step.expected, step.crafts = segTo, step.expected + expected, step.crafts + crafts
                 for _, p in ipairs(ps) do step.ps[#step.ps + 1] = p end
@@ -1270,8 +1273,21 @@ local function Walk(ctx, points, info, stuck, trainAt)
                 end
             end
             Flag(step, acc)
-            skill = segTo
         end
+        -- Extra crafts that were made for this piece and are no step of their
+        -- own: where their recipe still gives skill points, those points are
+        -- not counted (never a part of a point) - the plan then asks for
+        -- rather too much. That is an estimate, and said to be one.
+        for _, r in ipairs(L.extraList) do
+            if L.extra[r] > (before[r] or 0) and r.prof == input.prof then
+                local chance = ChanceOf(r, skill)
+                if chance and chance > 0 then
+                    ctx.skillNotCounted = true
+                    step.extraSkill = true
+                end
+            end
+        end
+        skill = material and skill + 1 or segTo
     end
     for _, s in ipairs(steps) do
         local a = Core.Attempts(s.ps)
@@ -1403,7 +1419,9 @@ end
 --   steps        { recipe, from, to, expected, crafts, low, high (the model's
 --                80 % range of crafts), chanceFrom, chanceTo, forMaterials,
 --                comparable, estimated, learnOpen, priceOpen, outputAssumed
---                (its output varies: counted with the mean), why } and,
+--                (its output varies: counted with the mean), extraSkill
+--                (extra crafts made for it could give points that are not
+--                counted), why } and,
 --                last, a step of unknown chance { recipe, from,
 --                chanceUnknown = true } where the plan cannot go on with a
 --                number
@@ -1423,9 +1441,11 @@ end
 --                estimated (never a made-up price)
 --   crafts       the expected number of crafts of all steps (a sum of means;
 --                the steps' ranges are not added up - concept 4.1)
---   estimate     { crafts, output }: the amounts and the cost are a planning
---                estimate because a step's number of crafts is a mean /
---                because a varying output was counted with its mean. Both
+--   estimate     { crafts, output, skill }: the amounts and the cost are a
+--                planning estimate because a step's number of crafts is a
+--                mean / because a varying output was counted with its mean /
+--                because extra crafts could give skill points that are not
+--                counted (the plan then asks for rather too much). All
 --                false: under the model the amounts are exact.
 --   notComparable  a choice was made although a part of a cost is unknown -
 --                of the recipe taken, or of a way that could have cost less;
@@ -1436,7 +1456,7 @@ function Core.Compute(input)
     if why then
         return { status = "invalid", valid = false, complete = false, reason = why, steps = {}, training = {}, materials = {}, ledger = {}, extras = {},
             total = 0, crafts = 0, cost = { known = 0, estimated = 0, estimatedItems = {}, unknownItems = {}, assumedItems = {} },
-            estimate = { crafts = false, output = false },
+            estimate = { crafts = false, output = false, skill = false },
             learn = { fees = 0, feesUnknown = 0, trainer = 0, items = 0, itemCost = 0, itemsUnknown = 0, matsUnknown = 0, list = {} },
             diagnostics = { { code = "invalid", reason = why } } }
     end
@@ -1468,7 +1488,7 @@ function Core.Compute(input)
     local extras = {}
     for _, r in ipairs(L.extraList) do extras[#extras + 1] = { recipe = r, times = L.extra[r] } end
     local crafts, openLearn, openPrices = 0, false, false
-    local estimate = { crafts = false, output = false }
+    local estimate = { crafts = false, output = false, skill = ctx.skillNotCounted == true }
     for _, m in ipairs(materials) do
         if m.outputAssumed then estimate.output = true end
     end
@@ -1498,7 +1518,7 @@ end
 -- What a second reader of the plan needs (later: the shopping list), in one
 -- small table: per item need / have (and whether that is known) / missing,
 -- and what the plan is - also that its amounts are a planning estimate
--- (estimate) and which items rest on the mean of a varying output
+-- (estimate: any of crafts / output / skill) and which items rest on the mean of a varying output
 -- (outputAssumed). An item whose count could not be read has no "have"; its
 -- "missing" is a number all the same - counted as if you had none - and is
 -- marked missingAssumed (stockAssumed: how many such items). Made from a
@@ -1513,6 +1533,7 @@ function Core.Result(plan)
     end
     local e = plan.estimate or {}
     return { prof = plan.prof, from = plan.from, target = plan.target, status = plan.status, valid = plan.valid == true,
-        complete = plan.complete == true, items = items, estimate = { crafts = e.crafts == true, output = e.output == true },
+        complete = plan.complete == true, items = items,
+        estimate = { crafts = e.crafts == true, output = e.output == true, skill = e.skill == true },
         stockAssumed = assumed }
 end
