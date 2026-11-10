@@ -200,7 +200,15 @@ end
 
 -- a recipe as the books know it when it is learned: by its profession and
 -- its key (two professions may each have a recipe of the same name)
-local function RecipeId(r) return tostring(r.prof) .. "/" .. tostring(r.key) end
+local idOf = setmetatable({}, { __mode = "k" })
+local function RecipeId(r)
+    local id = idOf[r]
+    if not id then
+        id = tostring(r.prof) .. "/" .. tostring(r.key)
+        idOf[r] = id
+    end
+    return id
+end
 
 -- what learning a recipe costs, once: copper, and whether it is unknown.
 -- `learned`: the recipes the plan has learned by now (they cost nothing more)
@@ -247,6 +255,7 @@ end
 --   * every ingredient and every output of a planned craft counts once
 --   * an extra craft of an intermediate only for the need the stock does not
 --     cover, in whole batches; what a batch makes too much stays in stock
+--     (and is used by whatever needs it later)
 --   * made yourself only when you really can: a recipe of the planned
 --     profession that you know or can learn in the plan by then (skill,
 --     trainer, vendor), or a known recipe of ANY other profession you have,
@@ -262,13 +271,23 @@ end
 ---------------------------------------------------------------------------
 local EPS = 1e-9
 
+-- SHORTCUTS: the two places where the calculation does not work a thing out
+-- again that it has worked out before (Remember / Recall and Repeats, below).
+-- Each of them is used only where what it leaves out would come to exactly
+-- the same entries in the books and the same cost - never to save time at
+-- the price of another result (Codex round 2, R2-M2). With false, everything
+-- is worked out in full, need by need and batch by batch: that is the
+-- reference the tests compare whole plans with (tools/smoke_test.lua loads
+-- this file a second time with the switch off). Nothing else reads it.
+local SHORTCUTS = true
+
 -- Both sets of books - the plan's own and the recipe choice's - count whole
 -- crafts and whole batches: a part of a batch cannot be made (Codex round 2,
 -- R2-M1). choice: the books of the recipe choice (they spread a one-time
 -- cost over the points a recipe gives, and report nothing).
 local function NewLedger(choice)
     return { have = {}, start = {}, used = {}, bought = {}, madePlan = {}, madeExtra = {}, madeBy = {}, extra = {}, extraList = {},
-        unknown = {}, learned = {}, varies = {}, journal = {}, jn = 0, marks = 0, choice = choice or false, share = 1 }
+        unknown = {}, learned = {}, varies = {}, journal = {}, jn = 0, marks = 0, choice = choice or false, share = 1, memo = {} }
 end
 
 -- every entry of the books is written through here, so it can be taken back
@@ -298,21 +317,6 @@ local function Keep(L)
     L.marks = L.marks - 1
     if L.marks == 0 then L.journal, L.jn = {}, 0 end
 end
--- what was written since the mark, to be written again later without
--- deciding everything again (on the books as they were at the mark)
-local function Capture(L, mark)
-    local j, out, n = L.journal, {}, 0
-    for i = mark + 1, L.jn, 3 do
-        local name, key = j[i], j[i + 1]
-        out[n + 1], out[n + 2], out[n + 3] = name, key, rawget(L, name)[key]
-        n = n + 3
-    end
-    out.n = n
-    return out
-end
-local function Replay(L, writes)
-    for i = 1, writes.n, 3 do W(L, writes[i], writes[i + 1], writes[i + 2]) end
-end
 
 local function Stock(ctx, L, id)
     local have = L.have[id]
@@ -326,6 +330,63 @@ local function Stock(ctx, L, id)
     return have
 end
 
+-- What was written since the mark, as changes: for the amounts (what is in
+-- stock, used, bought, made) how much they went up or down, for the rest
+-- (learned, made by which recipe) the value. Written again with Redo - on
+-- the books as they were at the mark that gives the same entries; and where
+-- only amounts differ that the writing did not depend on, the same changes.
+local AMOUNT = { have = true, used = true, bought = true, madeExtra = true, madePlan = true, extra = true }
+local FOLLOWS = { start = true, unknown = true, extraList = true } -- (written along with "have" and "extra")
+local function Changes(ctx, L, mark)
+    local j, out, n = L.journal, {}, 0
+    local seen = ctx.seen
+    for i = mark + 1, L.jn, 3 do
+        local name, key = j[i], j[i + 1]
+        if not FOLLOWS[name] then
+            local s = seen[name]
+            if not s then
+                s = {}
+                seen[name] = s
+            end
+            if not s[key] then
+                s[key] = true
+                local value = rawget(L, name)[key]
+                if AMOUNT[name] then
+                    local before = j[i + 2]
+                    if before == nil then before = name == "have" and L.start[key] or 0 end
+                    value = value - before
+                end
+                out[n + 1], out[n + 2], out[n + 3] = name, key, value
+                n = n + 3
+            end
+        end
+    end
+    for i = 1, n, 3 do seen[out[i]][out[i + 1]] = nil end
+    out.n = n
+    return out
+end
+-- `times`: the same changes that many times over (amounts only differ)
+local function Redo(ctx, L, changes, times)
+    for i = 1, changes.n, 3 do
+        local name, key, value = changes[i], changes[i + 1], changes[i + 2]
+        if name == "have" then
+            local have = Stock(ctx, L, key)
+            if value ~= 0 then W(L, "have", key, have + value * times) end
+        elseif name == "extra" then
+            local n = L.extra[key]
+            if n == nil then
+                W(L, "extraList", #L.extraList + 1, key)
+                n = 0
+            end
+            W(L, "extra", key, n + value * times)
+        elseif AMOUNT[name] then
+            W(L, name, key, (rawget(L, name)[key] or 0) + value * times)
+        else
+            W(L, name, key, value)
+        end
+    end
+end
+
 ---------------------------------------------------------------------------
 -- Getting what the stock lacks: buy it or make it (concept 4.2 / 4.5; Codex
 -- round 1, B1). Decided for THIS need - the amount that is lacking now -
@@ -335,14 +396,17 @@ end
 --   * making it costs whole batches; what a batch makes too much is no saving
 --   * a recipe the plan has not learned yet costs its fee or its recipe item,
 --     once
---   * ways to choose from: buy all of it; make all of it; or make batch by
---     batch as long as a batch costs less than buying what it replaces, and
---     buy the rest (so raw stock for a part of the need is used for that part)
+--   * ways to choose from: buy all of it; make batch by batch as long as a
+--     batch costs less than buying what it replaces, and buy the rest (so
+--     raw stock for a part of the need is used for that part); or make all
+--     of it in one go (what the batches need is then got together - a batch
+--     further down may be worth it for all of them where it is not for one)
 --   * a way with a whole cost (known or estimated) is compared by that cost,
---     buying keeps a tie. A way with a part nobody knows (a price, a fee)
---     never wins by its known part: it is taken only when no way has a whole
---     cost - then making it (from things you may be able to get) before
---     buying at a price nobody knows.
+--     buying keeps a tie, batch by batch keeps one against all in one go. A
+--     way with a part nobody knows (a price, a fee) never wins by its known
+--     part: it is taken only when no way has a whole cost - then making it
+--     (from things you may be able to get) before buying at a price nobody
+--     knows.
 --   * when such a way of MAKING it could have been the less costly one (its
 --     known part is below the cost of the way taken), the choice is marked
 --     open: the plan is then not called fully comparable. (No price to buy
@@ -353,8 +417,6 @@ end
 --   once    one-time learning costs of the recipes used for it
 --   gap     pieces without a price, fees nobody knows (0: a whole cost)
 --   estimated, priceGap, feeGap, open, openPrice, openLearn  what kind
---   lumpy   a cost in it does not grow with the amount: a one-time cost, or
---           a batch that made more than was needed
 -- Each need is decided when it comes up; what a later step may still need
 -- of the same thing is not counted in (a heuristic, like the recipe choice).
 ---------------------------------------------------------------------------
@@ -368,7 +430,6 @@ local function Add(into, a)
     if a.open then into.open = true end
     if a.openPrice then into.openPrice = true end
     if a.openLearn then into.openLearn = true end
-    if a.lumpy then into.lumpy = true end
 end
 
 -- what a way costs when it is compared: its one-time costs count whole in
@@ -379,6 +440,199 @@ local function Value(L, a) return a.copper + a.once * L.share end
 -- rounded down over all the crafts)
 local function Produced(L, batches, made)
     return math.floor(batches * made + 1e-9)
+end
+
+---------------------------------------------------------------------------
+-- What a piece of the calculation looked at (only with SHORTCUTS). Getting
+-- an item is worked out from the books: from how many of some items are in
+-- stock, and from whether some recipes are learned. While a piece is worked
+-- out, a watch notes what it looked at and HOW the outcome hangs on it:
+--   * an item whose stock covered every need it met: the outcome is the same
+--     with any stock that covers them as well - noted is the lowest the
+--     stock went in anything that was tried (first - min: how much it takes)
+--   * an item whose stock did NOT cover a need (also: none in stock): what
+--     was lacking came from the exact count - the outcome is the same only
+--     with exactly that many in stock (exact)
+--   * a recipe that was to be learned or not: the same only when that is so
+--     again (learned)
+--   * the skill: the same from the highest skill a recipe that could be used
+--     needs (low) up to where a recipe that could not yet be used can (till)
+--   * the share of a one-time cost, where one was counted (share)
+--   * a chain that came back to an item being made further up (cyc): the
+--     outcome hangs on what is being made around it - never remembered
+-- A watch inside another hands what it noted up to it when it is done.
+-- Nothing else on the books is looked at to decide anything: what is used,
+-- bought and made so far is only added to.
+---------------------------------------------------------------------------
+local function Watch(ctx)
+    local w = { n = 0, ids = {}, first = {}, min = {}, exact = {}, ln = 0, lids = {}, lwas = {}, low = 0, till = math.huge,
+        share = false, cyc = nil, parent = ctx.watch }
+    ctx.watch = w
+    return w
+end
+
+-- the watch `w` is done: what it noted counts for the one around it too
+local function HandUp(w)
+    local p = w.parent
+    if not p then return end
+    local first, min, exact = p.first, p.min, p.exact
+    for i = 1, w.n do
+        local id = w.ids[i]
+        if first[id] == nil then
+            p.n = p.n + 1
+            p.ids[p.n], first[id], min[id] = id, w.first[id], w.min[id]
+        elseif w.min[id] < min[id] then
+            min[id] = w.min[id]
+        end
+        if w.exact[id] then exact[id] = true end
+    end
+    for i = 1, w.ln do
+        local rid = w.lids[i]
+        if p.lwas[rid] == nil then
+            p.ln = p.ln + 1
+            p.lids[p.ln], p.lwas[rid] = rid, w.lwas[rid]
+        end
+    end
+    if w.low > p.low then p.low = w.low end
+    if w.till < p.till then p.till = w.till end
+    if w.share then p.share = true end
+    if w.cyc then
+        p.cyc = p.cyc or {}
+        for id in pairs(w.cyc) do p.cyc[id] = true end
+    end
+end
+
+-- how many of an item are in stock, without writing anything
+local function Peek(ctx, L, id)
+    local have = L.have[id]
+    if have == nil then
+        have = ctx.base[id]
+        if have == nil then
+            have = StockNumber(ctx.input, id)
+            ctx.base[id] = have
+        end
+    end
+    return have
+end
+
+-- Getting `rest` of an item was worked out with the watch `w`: remembered
+-- with what it rests on, what it wrote (as changes) and what it cost.
+local function Remember(ctx, L, id, rest, w, changes, acc)
+    local e = { n = w.n, ids = w.ids, exact = {}, value = {}, ln = w.ln, lids = w.lids, lwas = {}, low = w.low, till = w.till,
+        share = w.share and L.share or false, changes = changes, acc = acc }
+    for i = 1, w.n do
+        local item = w.ids[i]
+        if w.exact[item] then
+            e.exact[i], e.value[i] = true, w.first[item]
+        else
+            e.value[i] = w.first[item] - w.min[item]
+        end
+    end
+    for i = 1, w.ln do e.lwas[i] = w.lwas[w.lids[i]] end
+    local byRest = L.memo[id]
+    if not byRest then
+        byRest = {}
+        L.memo[id] = byRest
+    end
+    byRest[rest] = e
+end
+
+-- Is what was remembered for this need still what working it out would
+-- give? Only when everything it rests on is as it was, in the sense above.
+local function Recall(ctx, L, id, rest, skillNow, stack)
+    local byRest = L.memo[id]
+    local e = byRest and byRest[rest]
+    if not e then return nil end
+    if skillNow < e.low or skillNow >= e.till then return nil end
+    if e.share and e.share ~= L.share then return nil end
+    local deep = ctx.depth > 0
+    local onBooks, base = L.have, ctx.base
+    for i = 1, e.n do
+        local item = e.ids[i]
+        local have = onBooks[item]
+        if have == nil then
+            have = base[item]
+            if have == nil then have = Peek(ctx, L, item) end
+        end
+        if e.exact[i] then
+            if have ~= e.value[i] then return nil end
+        elseif have < e.value[i] then
+            return nil
+        end
+        -- an item it looked at is being made further up now: the chain could
+        -- come back to it
+        if deep and stack[item] then return nil end
+    end
+    local learned = L.learned
+    for i = 1, e.ln do
+        if (learned[e.lids[i]] and true or false) ~= e.lwas[i] then return nil end
+    end
+    return e
+end
+
+-- what was remembered is used inside a piece that is being watched: what it
+-- rests on, the piece rests on as well (in terms of the books as they are)
+local function Inherit(ctx, L, w, e)
+    local first, min, exact = w.first, w.min, w.exact
+    for i = 1, e.n do
+        local item = e.ids[i]
+        local have = Peek(ctx, L, item)
+        if first[item] == nil then
+            w.n = w.n + 1
+            w.ids[w.n], first[item], min[item] = item, have, have
+        end
+        if e.exact[i] then
+            exact[item] = true
+        elseif have - e.value[i] < min[item] then
+            min[item] = have - e.value[i]
+        end
+    end
+    for i = 1, e.ln do
+        local rid = e.lids[i]
+        if w.lwas[rid] == nil then
+            w.ln = w.ln + 1
+            w.lids[w.ln], w.lwas[rid] = rid, e.lwas[i]
+        end
+    end
+    if e.low > w.low then w.low = e.low end
+    if e.till < w.till then w.till = e.till end
+    if e.share then w.share = true end
+end
+
+-- One batch was tried out with the watch `w` and is taken (its entries are
+-- on the books). How many MORE batches would go exactly the same way - the
+-- same things tried, the same things taken, the same cost? As many as leave
+-- everything the batch looked at as it was, in the sense above:
+--   * what the batch did not change does not limit it
+--   * an item it used up from a stock that covered every need: as long as
+--     the stock still covers what a batch takes (min / used per batch)
+--   * an item whose exact count mattered and that the batch changed, a
+--     recipe the batch learned: the next batch is another one - none
+-- At most `limit`. Also notes on the watch how low the stock goes then.
+local function Repeats(ctx, L, w, limit)
+    local more = limit
+    for i = 1, w.ln do
+        local rid = w.lids[i]
+        if (L.learned[rid] and true or false) ~= w.lwas[rid] then return 0 end
+    end
+    for i = 1, w.n do
+        local id = w.ids[i]
+        local used = w.first[id] - Peek(ctx, L, id)
+        if used ~= 0 then
+            if used < 0 or w.exact[id] then return 0 end
+            local fits = math.floor(w.min[id] / used + 1e-9)
+            if fits < more then
+                more = fits
+                if more <= 0 then return 0 end
+            end
+        end
+    end
+    for i = 1, w.n do
+        local id = w.ids[i]
+        local used = w.first[id] - Peek(ctx, L, id)
+        if used > 0 then w.min[id] = w.min[id] - used * more end
+    end
+    return more
 end
 
 local Take
@@ -399,9 +653,11 @@ end
 -- lacks, in turn, made or bought)
 local function Batches(ctx, L, id, r, batches, skillNow, stack, acc)
     stack[id] = true
+    ctx.depth = ctx.depth + 1
     for _, reagent in ipairs(Reagents(ctx, r)) do
         Take(ctx, L, reagent.id, reagent.n * batches, skillNow, stack, acc)
     end
+    ctx.depth = ctx.depth - 1
     stack[id] = nil
 end
 
@@ -409,14 +665,15 @@ end
 -- of it goes straight to the need they were made for
 local function Made(ctx, L, id, r, batches, covered, acc)
     local recipeId = RecipeId(r)
+    local w = ctx.watch
+    if w and w.lwas[recipeId] == nil then
+        w.ln = w.ln + 1
+        w.lids[w.ln], w.lwas[recipeId] = recipeId, L.learned[recipeId] and true or false
+    end
     if not L.learned[recipeId] then
         local fee, unknown = OneTime(ctx, r, L.learned)
         acc.once = acc.once + fee
-        if fee > 0 then acc.lumpy = true end
-        if fee > 0 or unknown then
-            ctx.touched = ctx.touched + 1
-            if ctx.measure then ctx.measure.deps["#" .. recipeId] = true end
-        end
+        if fee > 0 and w then w.share = true end
         if unknown then
             acc.gap = acc.gap + 1
             acc.feeGap = true
@@ -424,7 +681,6 @@ local function Made(ctx, L, id, r, batches, covered, acc)
         W(L, "learned", recipeId, true)
     end
     local produced = Produced(L, batches, math.max(1, r.made or 1))
-    if produced - covered > EPS then acc.lumpy = true end
     W(L, "madeExtra", id, (L.madeExtra[id] or 0) + produced)
     W(L, "have", id, Stock(ctx, L, id) + produced - covered)
     W(L, "madeBy", id, r)
@@ -441,6 +697,7 @@ local function Made(ctx, L, id, r, batches, covered, acc)
     W(L, "extra", r, L.extra[r] + batches)
 end
 
+-- all of it in one go
 local function MakeAll(ctx, L, id, r, rest, skillNow, stack, acc)
     local batches = math.ceil(rest / math.max(1, r.made or 1) - 1e-9)
     Batches(ctx, L, id, r, batches, skillNow, stack, acc)
@@ -448,58 +705,59 @@ local function MakeAll(ctx, L, id, r, rest, skillNow, stack, acc)
 end
 
 -- batch by batch, as long as the next batch costs less than buying what it
--- replaces; what is left is bought. Returns the batches made, what was
--- bought, and whether making ALL of it can still be the better way: it
--- cannot when the batch that was turned down cost plainly by the piece (no
--- one-time cost in it, no batch further down that made more than needed) -
--- stock only gets less, so no later batch costs less than that one.
--- (The one-time cost of learning r is not part of a batch: it counts when
--- this way is compared with the others.)
+-- replaces; what is left is bought. Returns the batches made. (The one-time
+-- cost of learning r is not part of a batch: it counts when this way is
+-- compared with the others.)
 local function MakeSome(ctx, L, id, r, rest, skillNow, stack, acc)
     local price = PriceOf(ctx.input, id)
     local made = math.max(1, r.made or 1)
-    local remaining, batches, allCanWin = rest, 0, false
-    local whole = made == math.floor(made) -- (a mean output like 1.5 is counted batch by batch)
-    local try -- the size of the next lot: twice the one that was just taken
+    local remaining, batches = rest, 0
+    -- (a mean output like 1.5 gives another number of pieces from batch to
+    -- batch: never counted on, below)
+    local even = SHORTCUTS and made == math.floor(made)
     while remaining > EPS do
-        -- Many batches that all cost the same are judged in one go: as long
-        -- as no stock runs out inside them and no cost in them is a
-        -- one-time one, each of them costs what the others cost. Where that
-        -- is not so, the lot is halved until it is, down to a single batch;
-        -- after a lot that was taken the next one may be twice as big (so
-        -- the place where a stock runs out is found in a few tries, and
-        -- what comes after it is one lot again).
-        local b = 1
-        if whole and remaining >= made then b = math.floor(remaining / made + 1e-9) end
-        if try and try < b then b = try end
-        local taken = false
-        while true do
-            local covers = math.min(remaining, Produced(L, batches + b, made) - Produced(L, batches, made))
-            local a = NewAcc()
-            local edges = ctx.edges
-            local mark = Mark(L)
-            Batches(ctx, L, id, r, b, skillNow, stack, a)
-            if b > 1 + EPS and (ctx.edges ~= edges or a.lumpy) then
-                Rollback(L, mark)
-                b = math.floor(b / 2)
-                if b < 1 then b = 1 end
-            elseif a.cyclic or a.gap > 0 or Value(L, a) >= price.copper * covers then
-                allCanWin = not a.cyclic and (a.gap > 0 or a.lumpy or false)
-                Rollback(L, mark)
-                break
+        local covers = math.min(remaining, Produced(L, batches + 1, made) - Produced(L, batches, made))
+        local a = NewAcc()
+        local w = even and Watch(ctx) or nil
+        local mark = Mark(L)
+        Batches(ctx, L, id, r, 1, skillNow, stack, a)
+        if w then ctx.watch = w.parent end
+        if a.cyclic or a.gap > 0 or Value(L, a) >= price.copper * covers then
+            Rollback(L, mark)
+            if w then HandUp(w) end
+            break
+        end
+        -- The batch is taken. The batches after it that go exactly the same
+        -- way are not tried out one by one: their entries are this batch's,
+        -- that many times over (SHORTCUTS - see Repeats). Only whole batches
+        -- that are needed in full: the last one may replace fewer pieces.
+        local more = 0
+        if w and covers == made then
+            local limit = math.floor((remaining - covers) / made + 1e-9)
+            if limit > 0 then more = Repeats(ctx, L, w, limit) end
+        end
+        if more > 0 then
+            local changes = Changes(ctx, L, mark)
+            Keep(L)
+            Redo(ctx, L, changes, more)
+        else
+            Keep(L)
+        end
+        if w then HandUp(w) end
+        Add(acc, a)
+        if more > 0 then
+            if a.copper % 1 == 0 and a.once % 1 == 0 and a.gap % 1 == 0 then
+                -- (whole numbers: the same sum whether added batch by batch or at once)
+                acc.copper, acc.once, acc.gap = acc.copper + a.copper * more, acc.once + a.once * more, acc.gap + a.gap * more
             else
-                Keep(L)
-                Add(acc, a)
-                batches, remaining, taken = batches + b, remaining - covers, true
-                try = b * 2
-                break
+                for _ = 1, more do Add(acc, a) end
             end
         end
-        if not taken then break end
+        batches, remaining = batches + 1 + more, remaining - covers * (1 + more)
     end
     if batches > 0 then Made(ctx, L, id, r, batches, rest - remaining, acc) end
-    if remaining > EPS then Buy(ctx, L, id, remaining, acc) else remaining = 0 end
-    return batches, remaining, allCanWin
+    if remaining > EPS then Buy(ctx, L, id, remaining, acc) end
+    return batches
 end
 
 -- is way `w` to be taken instead of `than`? (the earlier one keeps a tie)
@@ -515,19 +773,9 @@ local function Better(L, w, than)
 end
 
 -- `rest` of an item the stock does not have, for a craft at this point of
--- the plan: the least costly way is carried out on the books
-local function GetExact(ctx, L, id, rest, skillNow, stack, acc)
-    if stack[id] then
-        -- the chain came back to this item: it is not made from itself. The
-        -- way that led here is dropped by the one that tried it. Reported
-        -- when the plan's own books meet it - not when the recipe choice
-        -- only looked at a recipe with such a chain.
-        if not L.choice then Note(ctx, "cycle", id, { item = id }) end
-        ctx.touched = ctx.touched + 1
-        acc.cyclic = true
-        Buy(ctx, L, id, rest, acc)
-        return
-    end
+-- the plan: every way is tried out on the books and taken back, the least
+-- costly one is then carried out. Returns what it wrote, as changes.
+local function Decide(ctx, L, id, rest, skillNow, stack, acc)
     local price = PriceOf(ctx.input, id)
     local buy = NewAcc()
     if price.copper then
@@ -535,95 +783,132 @@ local function GetExact(ctx, L, id, rest, skillNow, stack, acc)
     else
         buy.gap, buy.priceGap = rest, true
     end
+    -- The ways in the order they are tried; `best` is the one to take so
+    -- far (the earlier one keeps a tie). What a way wrote is kept only when
+    -- it is the best so far: no other one can be carried out in the end.
     local best = { kind = "buy", acc = buy }
     local ways = { best }
+    local w = ctx.watch
     for _, r in ipairs(ctx.producers[id] or {}) do
-        local m = ctx.measure
-        if m and r.prof == ctx.input.prof and r.learn ~= nil and (r.req or 0) > skillNow and r.req < m.till then
-            m.till = r.req -- (from that skill on the recipe can be used: worked out again then)
+        if w and r.prof == ctx.input.prof and r.learn ~= nil then
+            -- (a recipe of the planned profession: usable from its skill on)
+            local req = r.req or 0
+            if req > skillNow then
+                if req < w.till then w.till = req end
+            elseif req > w.low then
+                w.low = req
+            end
         end
         if CanMake(ctx, r, skillNow) then
-            -- whole batches: a recipe that makes more than one piece per
-            -- craft does not cost by the piece (three pieces may be worth a
-            -- batch where one is not)
-            if math.max(1, r.made or 1) ~= 1 then ctx.touched = ctx.touched + 1 end
-            local tryAll = true
             if price.copper then
                 local a = NewAcc()
                 local mark = Mark(L)
-                local batches, bought, allCanWin = MakeSome(ctx, L, id, r, rest, skillNow, stack, a)
-                if batches > 0 then ways[#ways + 1] = { kind = "some", recipe = r, acc = a, writes = Capture(L, mark) } end
+                local batches = MakeSome(ctx, L, id, r, rest, skillNow, stack, a)
+                if batches > 0 then
+                    local way = { kind = "some", recipe = r, acc = a }
+                    ways[#ways + 1] = way
+                    if Better(L, way, best) then
+                        way.changes = Changes(ctx, L, mark)
+                        best = way
+                    end
+                end
                 Rollback(L, mark)
-                tryAll = bought > 0 and allCanWin
             end
-            if tryAll then
-                local a = NewAcc()
-                local mark = Mark(L)
-                MakeAll(ctx, L, id, r, rest, skillNow, stack, a)
-                if not a.cyclic then ways[#ways + 1] = { kind = "all", recipe = r, acc = a, writes = Capture(L, mark) } end
-                Rollback(L, mark)
+            local a = NewAcc()
+            local mark = Mark(L)
+            MakeAll(ctx, L, id, r, rest, skillNow, stack, a)
+            -- (a chain that came back to itself: this way is dropped)
+            if not a.cyclic then
+                local way = { kind = "all", recipe = r, acc = a }
+                ways[#ways + 1] = way
+                if Better(L, way, best) then
+                    way.changes = Changes(ctx, L, mark)
+                    best = way
+                end
             end
+            Rollback(L, mark)
         end
     end
-    for _, w in ipairs(ways) do
-        if Better(L, w, best) then best = w end
-    end
     if best.acc.gap == 0 then
-        for _, w in ipairs(ways) do
-            if w.kind ~= "buy" and w.acc.gap > 0 and Value(L, w.acc) < Value(L, best.acc) then
+        for _, way in ipairs(ways) do
+            if way.kind ~= "buy" and way.acc.gap > 0 and Value(L, way.acc) < Value(L, best.acc) then
                 -- a way to make it, with a part nobody knows, could have cost less
                 acc.open = true
-                if w.acc.feeGap then acc.openLearn = true end
-                if w.acc.priceGap then acc.openPrice = true end
+                if way.acc.feeGap then acc.openLearn = true end
+                if way.acc.priceGap then acc.openPrice = true end
             end
         end
     end
     if best.kind == "buy" then
         Buy(ctx, L, id, rest, acc)
-    else
-        -- as it was tried: written again, not decided again
-        Replay(L, best.writes)
-        Add(acc, best.acc)
+        return { "bought", id, rest, n = 3 }
     end
+    -- as it was tried: written again, not decided again
+    Redo(ctx, L, best.changes, 1)
+    Add(acc, best.acc)
+    return best.changes
 end
 
--- The recipe choice asks for the same things again and again, point after
--- point and recipe after recipe. Where getting an item touches no stock, no
--- one-time cost, no batch of more than one piece and no chain back to itself
--- - nothing in it and below it - its cost simply grows with the amount: it
--- has been worked out for one piece (Measure, below) and is counted by the
--- piece (whole pieces, whole copper: the same number either way). Such an
--- item changes
--- nothing the choice's books are kept for (what is in stock, what is
--- learned), so nothing is written for it. Everything else, and all of the
--- plan's own books, is worked out in full every time.
+-- `rest` of an item the stock does not have. The chain came back to an item
+-- that is being made further up: it is not made from itself - the way that
+-- led here is dropped by the one that tried it. Reported when the plan's own
+-- books meet it, not when the recipe choice only looked at such a recipe.
+-- Else: decided (Decide) - or, with SHORTCUTS, what was decided before for
+-- the same need written again, when all it rested on is as it was.
 local function Get(ctx, L, id, rest, skillNow, stack, acc)
-    local e = L.choice and ctx.unit[id]
-    if not (e and e.linear and skillNow < e.till) then return GetExact(ctx, L, id, rest, skillNow, stack, acc) end
-    local unit = e.acc
-    acc.copper, acc.gap = acc.copper + unit.copper * rest, acc.gap + unit.gap * rest
-    if unit.estimated then acc.estimated = true end
-    if unit.priceGap then acc.priceGap = true end
-    if unit.open then acc.open = true end
-    if unit.openPrice then acc.openPrice = true end
-    local m = ctx.measure
-    if m then
-        -- what this rests on, the one being measured rests on as well
-        for dep in pairs(e.deps) do m.deps[dep] = true end
-        if e.till < m.till then m.till = e.till end
+    if stack[id] then
+        if not L.choice then Note(ctx, "cycle", id, { item = id }) end
+        acc.cyclic = true
+        local w = ctx.watch
+        if w then
+            w.cyc = w.cyc or {}
+            w.cyc[id] = true
+        end
+        Buy(ctx, L, id, rest, acc)
+        return
     end
+    if not SHORTCUTS then
+        Decide(ctx, L, id, rest, skillNow, stack, acc)
+        return
+    end
+    local e = Recall(ctx, L, id, rest, skillNow, stack)
+    if e then
+        if ctx.watch then Inherit(ctx, L, ctx.watch, e) end
+        Redo(ctx, L, e.changes, 1)
+        Add(acc, e.acc)
+        return
+    end
+    local w = Watch(ctx)
+    local a = NewAcc()
+    local changes = Decide(ctx, L, id, rest, skillNow, stack, a)
+    ctx.watch = w.parent
+    if w.cyc then
+        -- (a chain back to THIS item was closed in here: nothing outside)
+        w.cyc[id] = nil
+        if next(w.cyc) == nil then w.cyc = nil end
+    end
+    if not w.cyc then Remember(ctx, L, id, rest, w, changes, a) end
+    HandUp(w)
+    Add(acc, a)
 end
 
 -- takes qty of an item out of the stock for a craft at this point of the
 -- plan; what the stock lacks is made (with all it needs) or bought now
 Take = function(ctx, L, id, qty, skillNow, stack, acc)
     local have = Stock(ctx, L, id)
-    if ctx.measure then ctx.measure.deps[id] = true end
-    local take = math.min(have, qty)
-    if take > 0 then
-        ctx.touched = ctx.touched + 1
-        if have < qty - EPS then ctx.edges = ctx.edges + 1 end -- the stock runs out within this need
+    local w = ctx.watch
+    if w then
+        if w.first[id] == nil then
+            w.n = w.n + 1
+            w.ids[w.n], w.first[id], w.min[id] = id, have, have
+        end
+        if have < qty then
+            w.exact[id] = true -- what is lacking comes from the exact count
+        elseif have - qty < w.min[id] then
+            w.min[id] = have - qty
+        end
     end
+    local take = math.min(have, qty)
     W(L, "have", id, have - take)
     W(L, "used", id, (L.used[id] or 0) + qty)
     local rest = qty - take
@@ -677,17 +962,8 @@ end
 --     recipe gives a point, then the one with the smallest gap
 --   * a recipe of unknown chance is never compared with a number
 --   A heuristic: a sensible plan, not proven to be the least costly one.
---
---   Kept fast without changing what is chosen:
---   * what an item costs by the piece, where that does not depend on the
---     books (Measure), is worked out once and kept until something it
---     rests on changes - the stock of an item it looked at, a recipe that
---     is learned, a recipe that can be used from a higher skill on
---   * a recipe is judged in full only while it can still be the best or
---     the next best one: every recipe first gets a lower bound (what the
---     by-the-piece items alone cost; all the rest counted as free), and
---     the judging goes from the least bound up and stops where no bound
---     is below the next best recipe found.
+--   Every recipe that gives a point is judged in full at every point (what
+--   that asks for again and again is what Get remembers).
 ---------------------------------------------------------------------------
 -- The recipes the plan can use (known, trainer, vendor, taught with the
 -- profession - not quest or drop recipes you don't have), and the ones
@@ -707,62 +983,13 @@ local function Candidates(input)
     return list, unknownChance
 end
 
--- What one piece of an item costs to get on the choice's books as they are,
--- and whether that is a cost by the piece ("linear": no stock, no one-time
--- cost, no chain back to itself in it or below it). Worked out with the
--- books untouched (never inside a trial), what it is made from first. Kept
--- with what it rests on:
---   deps   the items whose stock was looked at, the recipes ("#key") whose
---          learning cost counted - when one of them changes, it is dropped
---   till   the skill from which a recipe below it can be used that cannot
---          be used yet - from there on it is worked out again
-local function Measure(ctx, L, id, skill, seen)
-    local e = ctx.unit[id]
-    if e and skill < e.till then return end
-    if seen[id] then return end -- (a chain back to itself: worked out in full where it is met)
-    seen[id] = true
-    for _, r in ipairs(ctx.producers[id] or {}) do
-        if CanMake(ctx, r, skill) then
-            for _, reagent in ipairs(r.reagents) do Measure(ctx, L, reagent.id, skill, seen) end
-        end
-    end
-    seen[id] = nil
-    local m = { deps = {}, till = math.huge }
-    local touched = ctx.touched
-    local unit = NewAcc()
-    ctx.measure = m
-    local mark = Mark(L)
-    GetExact(ctx, L, id, 1, skill, ctx.stack, unit)
-    Rollback(L, mark)
-    ctx.measure = nil
-    ctx.unit[id] = { linear = ctx.touched == touched and not unit.cyclic, acc = unit, deps = m.deps, till = m.till }
-    for dep in pairs(m.deps) do
-        local list = ctx.dependents[dep]
-        if not list then
-            list = {}
-            ctx.dependents[dep] = list
-        end
-        list[#list + 1] = id
-    end
-end
-
--- something changed on the choice's books: what rested on it is dropped
-local function Changed(ctx, dep)
-    local list = ctx.dependents[dep]
-    if not list then return end
-    ctx.dependents[dep] = nil
-    for _, id in ipairs(list) do ctx.unit[id] = nil end
-end
-
 -- the share of a one-time cost a point of this recipe carries: one over the
 -- points it can still give from here, within the next LOOKAHEAD
+-- (it gives points up to its grey skill, so that many are left: counted,
+-- not tried skill by skill)
 local function Share(ctx, c, skill)
-    local count = 0
-    for s = skill, math.min(ctx.input.target, skill + LOOKAHEAD) - 1 do
-        if Chance(s, c.req, c.yellow, c.grey) <= 0 then break end
-        count = count + 1
-    end
-    return 1 / math.max(1, count)
+    local last = math.min(ctx.input.target, skill + LOOKAHEAD, math.ceil(c.grey))
+    return 1 / math.max(1, last - skill)
 end
 
 -- the whole number of crafts below the expected number for a point at
@@ -776,25 +1003,34 @@ local function WholeAndPart(p)
 end
 
 -- what `crafts` crafts of c would cost on the choice's books as they are:
--- tried out as the material balance would carry them out, and taken back
+-- tried out as the material balance would carry them out, and taken back.
+-- With SHORTCUTS what it came to is remembered like a need is (Remember /
+-- Recall, with the recipe in the place of the item): the same crafts cost
+-- the same again as long as all they rested on is as it was.
 local function Trial(ctx, c, crafts, skill)
     local CL = ctx.choice
+    if SHORTCUTS then
+        local e = Recall(ctx, CL, c, crafts, skill, ctx.stack)
+        if e then return e.acc end
+    end
+    local w = SHORTCUTS and Watch(ctx) or nil
     local acc = NewAcc()
     local mark = Mark(CL)
     for _, reagent in ipairs(Reagents(ctx, c)) do
         Take(ctx, CL, reagent.id, reagent.n * crafts, skill, ctx.stack, acc)
     end
     Rollback(CL, mark)
+    if w then
+        ctx.watch = w.parent
+        if not w.cyc then Remember(ctx, CL, c, crafts, w, nil, acc) end
+    end
     return acc
 end
 
--- a recipe for the point at `skill`: { score (copper for this point on top
--- of what you have, plus its share of the one-time costs), gap (pieces
--- without a price), comparable, estimated } - nil when it gives no point
--- here.
-local function Evaluate(ctx, c, skill)
-    local p = Chance(skill, c.req, c.yellow, c.grey)
-    if p <= 0 then return nil end
+-- a recipe for the point at `skill`, where its chance is p (above 0):
+-- { score (copper for this point on top of what you have, plus its share of
+-- the one-time costs), gap (pieces without a price), comparable, estimated }
+local function Evaluate(ctx, c, skill, p)
     local CL = ctx.choice
     local share = Share(ctx, c, skill)
     local fee, feeUnknown = OneTime(ctx, c, CL.learned)
@@ -818,27 +1054,6 @@ local function Evaluate(ctx, c, skill)
         fee = fee, feeUnknown = feeUnknown, share = share, learnGap = feeUnknown or acc.feeGap or false, priceGap = acc.priceGap or false }
 end
 
--- What Evaluate can at least come to: gap and score from the items that
--- cost by the piece alone (they cost exactly that), its own learning cost,
--- and everything else counted as free - for the same whole numbers of
--- crafts, weighed the same way.
-local function Bound(ctx, c, skill, p)
-    local CL = ctx.choice
-    local whole, part = WholeAndPart(p)
-    local copper, gap = 0, 0
-    for _, reagent in ipairs(c.reagents) do
-        local e = ctx.unit[reagent.id]
-        if e and e.linear and skill < e.till then
-            local have = Stock(ctx, CL, reagent.id)
-            local lack = math.max(0, reagent.n * whole - have)
-            if part > 0 then lack = lack * (1 - part) + math.max(0, reagent.n * (whole + 1) - have) * part end
-            copper, gap = copper + e.acc.copper * lack, gap + e.acc.gap * lack
-        end
-    end
-    local fee, feeUnknown = OneTime(ctx, c, CL.learned)
-    return gap + (feeUnknown and 1 or 0), copper + fee * Share(ctx, c, skill) + 1
-end
-
 -- Per skill point the recipe to use: points[skill] = candidate, info[skill]
 -- = how it was judged (for "why this recipe"), where the plan got stuck
 -- (if), and whether a choice was not fully comparable.
@@ -846,61 +1061,24 @@ local function ChoosePoints(ctx, cands, unknownChance, trainAt)
     local input = ctx.input
     local CL = ctx.choice
     local points, info, current, stuck, notComparable, unknownAt = {}, {}, nil, nil, false, nil
-    local seen = {}
     local runExpected, runCrafts = 0, 0 -- the points of one recipe in a row: their crafts, and how many are carried out
     for skill = input.skill, input.target - 1 do
-        -- the recipes that give a point here, each with its lower bound
+        -- every recipe that gives a point here, judged in the recipes' own order
         local live = {}
-        for order, c in ipairs(cands) do
+        for _, c in ipairs(cands) do
             local p = Chance(skill, c.req, c.yellow, c.grey)
             if p > 0 then
-                for _, reagent in ipairs(c.reagents) do Measure(ctx, CL, reagent.id, skill, seen) end
-                local gap, score = Bound(ctx, c, skill, p)
-                if c ~= current then gap, score = gap * SWITCH_PENALTY, score * SWITCH_PENALTY end
-                live[#live + 1] = { c = c, p = p, order = order, gap = gap, score = score }
+                local e = Evaluate(ctx, c, skill, p)
+                if c ~= current then e.score, e.gap = e.score * SWITCH_PENALTY, e.gap * SWITCH_PENALTY end
+                live[#live + 1] = { c = c, p = p, e = e }
             end
-        end
-        local byBound = {}
-        for i, x in ipairs(live) do byBound[i] = x end
-        table.sort(byBound, function(a, b)
-            if a.gap ~= b.gap then return a.gap < b.gap end
-            if a.score ~= b.score then return a.score < b.score end
-            return a.order < b.order
-        end)
-        local function Judge(x)
-            local e = x.judged
-            if not e then
-                e = Evaluate(ctx, x.c, skill)
-                if x.c ~= current then e.score, e.gap = e.score * SWITCH_PENALTY, e.gap * SWITCH_PENALTY end
-                x.judged = e
-            end
-            return e
         end
         local best, bestE, runner, runnerE
         for _, minChance in ipairs({ MIN_CHANCE, 0 }) do
             for _, comparable in ipairs({ true, false }) do
-                -- judged from the least bound up, until no bound is below the
-                -- second best found (so the best and the next best are among
-                -- the judged ones)
-                local firstGap, firstScore, secondGap, secondScore
-                for _, x in ipairs(byBound) do
-                    if x.p > minChance and not (comparable and x.gap > 0) then
-                        if secondGap and (x.gap > secondGap or (x.gap == secondGap and x.score - 1e-6 > secondScore)) then break end
-                        local e = Judge(x)
-                        if e.comparable == comparable then
-                            if not firstGap or e.gap < firstGap or (e.gap == firstGap and e.score < firstScore) then
-                                firstGap, firstScore, secondGap, secondScore = e.gap, e.score, firstGap, firstScore
-                            elseif not secondGap or e.gap < secondGap or (e.gap == secondGap and e.score < secondScore) then
-                                secondGap, secondScore = e.gap, e.score
-                            end
-                        end
-                    end
-                end
-                -- among them, in the recipes' own order (a tie goes to the
-                -- same recipe whatever was judged first)
                 for _, x in ipairs(live) do
-                    local e = x.judged
-                    if e and x.p > minChance and e.comparable == comparable then
+                    local e = x.e
+                    if x.p > minChance and e.comparable == comparable then
                         local c = x.c
                         if not best or e.gap < bestE.gap or (e.gap == bestE.gap and e.score < bestE.score) then
                             runner, runnerE = best, bestE
@@ -929,7 +1107,7 @@ local function ChoosePoints(ctx, cands, unknownChance, trainAt)
             other = runner and { name = runner.name, key = runner.key, score = runnerE.score, comparable = runnerE.comparable } or nil }
         -- this point is planned: on the choice's books its materials are used
         -- up, its output is there, its recipe (and what it learned for an
-        -- intermediate) is learned. What rested on any of that is dropped.
+        -- intermediate) is learned.
         -- In whole crafts, counted on like a step of the plan: the crafts
         -- of this recipe's points in a row are rounded up together (a new
         -- count after another recipe and where a rank is trained).
@@ -938,13 +1116,7 @@ local function ChoosePoints(ctx, cands, unknownChance, trainAt)
         local crafts = math.ceil(runExpected - 0.001) - runCrafts
         runCrafts = runCrafts + crafts
         CL.share = bestE.share
-        local mark = Mark(CL)
         Apply(ctx, CL, best, crafts, skill, NewAcc())
-        local j = CL.journal
-        for i = mark + 1, CL.jn, 3 do
-            if j[i] == "have" then Changed(ctx, j[i + 1]) elseif j[i] == "learned" then Changed(ctx, "#" .. j[i + 1]) end
-        end
-        Keep(CL)
         current = best
     end
     return points, info, stuck, notComparable, unknownAt
@@ -1268,7 +1440,8 @@ function Core.Compute(input)
             learn = { fees = 0, feesUnknown = 0, trainer = 0, items = 0, itemCost = 0, itemsUnknown = 0, matsUnknown = 0, list = {} },
             diagnostics = { { code = "invalid", reason = why } } }
     end
-    local ctx = { input = input, noted = {}, diagnostics = {}, producers = {}, sorted = {}, stack = {}, choice = NewLedger(true), unit = {}, dependents = {}, unlocks = {}, touched = 0, edges = 0 }
+    local ctx = { input = input, noted = {}, diagnostics = {}, producers = {}, sorted = {}, stack = {}, choice = NewLedger(true), unlocks = {},
+        seen = {}, depth = 0, watch = nil, base = {} }
     local profs = {}
     for prof in pairs(input.recipes) do profs[#profs + 1] = prof end
     table.sort(profs, function(a, b) -- the planned profession's recipes first

@@ -5967,6 +5967,374 @@ step("Skill plan 2.0: the recipe choice counts whole batches, like the material 
     plan, m = Plan({ R("A", 10, 1, 31, { { 11, 1 } }, { yellow = 1 }), R("B", 20, 1, 9, { { 21, 1 } }) }, { [11] = 4 }, { [11] = 20, [21] = 10 }, 2, 5)
     assert(Says(plan) == "A 0" and plan.steps[1].crafts == 4 and m[11].covered, "the crafts of three points in a row on the choice's books: " .. Says(plan))
 end)
+-- The calculation without its shortcuts, for the two steps below: the same
+-- PlanCore.lua, loaded a second time with the switch off (a copy for the
+-- tests - nothing of it reaches the addon). And a comparison of two plans as
+-- whole objects: every step, amount, cost, flag and book entry, no tolerance.
+local function PlanCoreWithoutShortcuts()
+    local f = assert(io.open(ROOT .. "/PlanCore.lua", "rb"))
+    local src = f:read("*a")
+    f:close()
+    local plain, count = src:gsub("\nlocal SHORTCUTS = true\n", "\nlocal SHORTCUTS = false\n")
+    assert(count == 1, "PlanCore.lua has no switch for its shortcuts (or more than one)")
+    -- nothing else decides about a shortcut: every use of the switch is a
+    -- plain test of it
+    local code = plain:gsub("%-%-[^\n]*", "")
+    for line in code:gmatch("[^\n]*SHORTCUTS[^\n]*") do
+        assert(line:find("^local SHORTCUTS = false") or line:find("if not SHORTCUTS then") or line:find("if SHORTCUTS then")
+            or line:find("= SHORTCUTS and "), "the switch is used in another way: " .. line)
+    end
+    local other = {}
+    assert(loadstring(plain, "=PlanCore(without shortcuts)"))("Gathercraft", other)
+    -- a third copy that counts how often a shortcut was really taken (so a
+    -- comparison that never used one proves nothing)
+    PLAN_SHORTCUTS_TAKEN = { recalled = 0, repeated = 0, trials = 0 }
+    local counted, n1, n2, n3 = src, 0, 0, 0
+    counted, n1 = counted:gsub("        Redo%(ctx, L, e%.changes, 1%)\n", "        PLAN_SHORTCUTS_TAKEN.recalled = PLAN_SHORTCUTS_TAKEN.recalled + 1\n        Redo(ctx, L, e.changes, 1)\n")
+    counted, n2 = counted:gsub("        if more > 0 then\n            local changes = Changes", "        if more > 0 then\n            PLAN_SHORTCUTS_TAKEN.repeated = PLAN_SHORTCUTS_TAKEN.repeated + more\n            local changes = Changes")
+    counted, n3 = counted:gsub("        if e then return e%.acc end", "        if e then PLAN_SHORTCUTS_TAKEN.trials = PLAN_SHORTCUTS_TAKEN.trials + 1 return e.acc end")
+    assert(n1 == 1 and n2 == 1 and n3 == 1, ("the places where a shortcut is taken were not found (%d, %d, %d)"):format(n1, n2, n3))
+    local third = {}
+    assert(loadstring(counted, "=PlanCore(counting)"))("Gathercraft", third)
+    return other.PlanCore, third.PlanCore, PLAN_SHORTCUTS_TAKEN
+end
+local function SamePlan(a, b, path, seen)
+    if type(a) ~= type(b) then return false, path .. ": " .. type(a) .. " / " .. type(b) end
+    if type(a) ~= "table" then
+        if a ~= b then return false, path .. ": " .. tostring(a) .. " / " .. tostring(b) end
+        return true
+    end
+    if a == b then return true end
+    seen = seen or {}
+    if seen[a] == b then return true end
+    seen[a] = b
+    for k, v in pairs(a) do
+        local ok, why = SamePlan(v, b[k], path .. "." .. tostring(k), seen)
+        if not ok then return false, why end
+    end
+    for k in pairs(b) do
+        if a[k] == nil then return false, path .. "." .. tostring(k) .. ": nil / " .. type(b[k]) end
+    end
+    return true
+end
+
+step("Skill plan 2.0: a shortcut never changes the plan - compared with the calculation without one (v0.2 r2 G2)", function()
+    -- Codex round 2, R2-M2: what the calculation leaves out to be fast must
+    -- come to exactly the plan the full calculation gives. The full
+    -- calculation decides every need on its own and tries every batch one by
+    -- one; the ways to get what is lacking are: buy it, make batch by batch
+    -- and buy the rest, or make all of it in one go.
+    local core = ns.PlanCore
+    local function R(key, product, req, upto, mats, extra)
+        local r = { prof = "Testing", key = key, name = key, product = product, made = 1, req = req, yellow = upto, grey = upto, reagents = {}, learn = "known" }
+        for _, x in ipairs(mats) do r.reagents[#r.reagents + 1] = { id = x[1], n = x[2] } end
+        for k, v in pairs(extra or {}) do r[k] = v end
+        return r
+    end
+    local function Input(recipes, stock, prices, from, to)
+        local p = {}
+        for id, copper in pairs(prices) do p[id] = { status = "known", copper = copper } end
+        return { prof = "Testing", skill = from or 1, target = to or 2, recipes = { Testing = recipes }, stock = stock, prices = p,
+            professions = {}, recipeItemPrices = {}, caps = {} }
+    end
+    local function Says(plan) -- "A,B 15": the recipes of the steps in order, and the sum
+        local keys = {}
+        for _, s in ipairs(plan.steps) do keys[#keys + 1] = s.recipe.key end
+        return table.concat(keys, ",") .. " " .. tostring(plan.total)
+    end
+    local function Extra(plan, key)
+        for _, e in ipairs(plan.extras) do if e.recipe.key == key then return e.times end end
+        return 0
+    end
+
+    -- ---- what the plan must be, as plain numbers (no second calculation)
+    -- Four Y needed. A Y takes one X and one S; three S are in the bags (a
+    -- fourth costs 5c). An X costs 20c, or two come from a batch for 30c.
+    -- Batch by batch each Y buys its X (a batch for one X is no saving): 85c.
+    -- All four in one go: two batches of X for the four of them, one S bought:
+    -- 65c - the less costly way. (Lots of batches that were halved at the
+    -- place where the S ran out gave a third number, 75c.)
+    local plan = core.Compute(Input({ R("A", 10, 1, 2, { { 13, 4 } }), R("Make Y", 13, 1, 1, { { 11, 1 }, { 14, 1 } }),
+        R("Make X", 11, 1, 1, { { 12, 1 } }, { made = 2 }) }, { [14] = 3 }, { [13] = 100, [11] = 20, [12] = 30, [14] = 5 }))
+    assert(plan.total == 65 and Extra(plan, "Make Y") == 4 and Extra(plan, "Make X") == 2 and plan.ledger[12].bought == 2 and plan.ledger[14].bought == 1,
+        ("four Y, the X in batches of two, three S in stock: %s copper"):format(tostring(plan.total)))
+    assert(core.CheckBalance(plan))
+    -- Codex' smallest case: A takes twelve X; an X costs 460c or is made from
+    -- three raw pieces (220c each), 26 of them are there. Nine X made (27
+    -- pieces, one bought: 220c), three X bought (1380c): 1600c - below B's
+    -- 1605c. The tenth X would take 660c of raw material: bought.
+    local function Smallest(rawStock, bCost)
+        local list = { R("A", 10, 1, 2, { { 11, 12 } }), R("Make X", 11, 1, 1, { { 12, 3 } }) }
+        if bCost then list[#list + 1] = R("B", 20, 1, 2, { { 21, 1 } }) end
+        return Input(list, { [12] = rawStock }, { [11] = 460, [12] = 220, [21] = bCost or 1 })
+    end
+    plan = core.Compute(Smallest(26, 1605))
+    assert(Says(plan) == "A 1600" and Extra(plan, "Make X") == 9 and plan.ledger[11].bought == 3 and plan.ledger[12].bought == 1, "A at 1600c against B at 1605c: " .. Says(plan))
+    plan = core.Compute(Smallest(26, 1595))
+    assert(Says(plan) == "B 1595", "A at 1600c against B at 1595c: " .. Says(plan))
+    -- the same need with other counts of raw material - also ones that are
+    -- no whole number of batches: every three pieces make an X for nothing,
+    -- one or two left over make the next X cost 440c or 220c (below 460c),
+    -- the rest is bought
+    for _, rawStock in ipairs({ 0, 1, 2, 3, 4, 5, 6, 7, 24, 25, 26, 27, 28, 29, 33, 34, 35, 36, 37, 40 }) do
+        local free = math.min(12, math.floor(rawStock / 3))
+        local left, want = rawStock - free * 3, 0
+        if free < 12 then
+            want = (12 - free) * 460
+            if left > 0 then want = (3 - left) * 220 + (12 - free - 1) * 460 end
+        end
+        plan = core.Compute(Smallest(rawStock))
+        assert(plan.total == want and core.CheckBalance(plan), ("%d raw pieces for twelve X: %s copper, want %d"):format(rawStock, tostring(plan.total), want))
+    end
+
+    -- ---- every plan below: with the shortcuts and without, the same object
+    local reference, counting, taken = PlanCoreWithoutShortcuts()
+    local compared = 0
+    local function Both(input, what)
+        local a, b = core.Compute(input), reference.Compute(input)
+        local ok, why = SamePlan(a, b, "plan")
+        assert(ok, ("%s: with the shortcuts the plan is another one (%s)"):format(what, tostring(why)))
+        local okA, whyA = core.CheckBalance(a)
+        assert(okA, what .. ": the books do not balance: " .. tostring(whyA))
+        counting.Compute(input)
+        compared = compared + 1
+        return a
+    end
+    -- the cases above
+    Both(Smallest(26, 1605), "Codex' smallest case")
+    for rawStock = 0, 40 do Both(Smallest(rawStock, 1605), rawStock .. " raw pieces") end
+    for _, bCost in ipairs({ 200, 900, 1595, 1600, 1601, 5000 }) do Both(Smallest(26, bCost), "B at " .. bCost) end
+
+    -- One case for each thing a shortcut rests on; each of them gives another
+    -- plan when that one thing is left out (the counter-probes do so).
+    -- a batch that learns a recipe is not the batch after it: four Y, each
+    -- from an X (its recipe costs 6c to learn, once) and an S (three are
+    -- there, a fourth costs 100c): three Y made for 1c each and the fee, the
+    -- fourth bought for 30c - 33c and 6c, below Q's 45c
+    plan = Both(Input({ R("P", 10, 1, 2, { { 13, 4 } }), R("Q", 20, 1, 2, { { 21, 1 } }), R("Make Y", 13, 1, 1, { { 11, 1 }, { 14, 1 } }),
+        R("Make X", 11, 1, 1, { { 12, 1 } }, { learn = "trainer", fee = 6 }) }, { [14] = 3 }, { [13] = 30, [11] = 50, [12] = 1, [14] = 100, [21] = 45 }), "a fee inside the first batch")
+    assert(Says(plan) == "P 33" and plan.learn.fees == 6 and Extra(plan, "Make Y") == 3, "a fee inside the first batch: " .. Says(plan))
+    -- what a recipe's share of a one-time cost is belongs to what was worked
+    -- out: A1 gives one point (the 100c fee of X counts whole: X is bought),
+    -- B9 gives many (a tenth of it: X is made)
+    plan = Both(Input({ R("A1", 10, 1, 2, { { 11, 1 } }), R("B9", 20, 1, 30, { { 11, 1 } }),
+        R("Make X", 11, 1, 1, { { 12, 1 } }, { learn = "trainer", fee = 100 }) }, {}, { [11] = 20, [12] = 1 }, 1, 11), "one fee, two shares")
+    assert(Says(plan) == "B9 10" and plan.learn.fees == 100 and Extra(plan, "Make X") == 10, "one fee, two shares: " .. Says(plan))
+    -- what was worked out for an item is not used where one of the things it
+    -- looked at is being made around it: B from A is fine on its own, not
+    -- inside the making of A
+    -- (P takes a B and two A: 10c and 20c. Q takes four A: 40c bought - not
+    -- 20c, made from two B that would be made from A)
+    plan = Both(Input({ R("P", 10, 1, 2, { { 11, 1 }, { 12, 2 } }), R("Q", 20, 1, 2, { { 12, 4 } }), R("Make A", 12, 1, 1, { { 11, 1 } }, { made = 2 }),
+        R("Make B", 11, 1, 1, { { 12, 1 } }), R("Also B", 11, 1, 1, { { 13, 3 } }) }, {}, { [11] = 100, [12] = 10, [13] = 10 }), "a chain back to itself, the item first")
+    assert(Says(plan) == "P 30" and Extra(plan, "Make A") == 0, "B from A, then A: " .. Says(plan))
+    -- ... and what was worked out INSIDE such a chain is not kept for later:
+    -- A is bought while B is being made from it, but made (from B) on its own
+    plan = Both(Input({ R("P", 10, 1, 2, { { 11, 1 }, { 12, 1 } }), R("Make A", 12, 1, 1, { { 11, 1 } }), R("Make B", 11, 1, 1, { { 12, 1 } }),
+        R("Also B", 11, 1, 1, { { 13, 3 } }) }, {}, { [11] = 100, [12] = 100, [13] = 10 }), "a chain back to itself, inside first")
+    assert(plan.total == 60 and Extra(plan, "Make A") == 1 and Extra(plan, "Also B") == 2, "A inside the making of B, then on its own: " .. Says(plan))
+    -- what was worked out before is used inside a batch: the batch rests on
+    -- what that rested on (two raw pieces left for five Y)
+    plan = Both(Input({ R("P", 10, 1, 2, { { 13, 1 } }), R("Q", 20, 2, 3, { { 13, 5 } }), R("Make Y", 13, 1, 1, { { 11, 1 } }), R("Make X", 11, 1, 1, { { 12, 1 } }) },
+        { [12] = 3 }, { [13] = 200, [11] = 50, [12] = 40 }, 1, 3), "remembered inside a batch")
+    assert(Says(plan) == "P,Q 120" and plan.ledger[12].bought == 3 and plan.ledger[12].rest == 0, "three raw pieces for six Y: " .. Says(plan))
+    -- a count that did not cover the need is exact: two R are one too few for
+    -- P2; once P1 has made the third, P2 costs nothing
+    plan = Both(Input({ R("P1", 12, 1, 3, { { 21, 1 } }), R("P2", 30, 1, 3, { { 12, 3 } }) }, { [12] = 2 }, { [12] = 40, [21] = 10 }, 1, 3), "a count that did not cover")
+    assert(Says(plan) == "P1,P2 10", "two R, a third from the first step: " .. Says(plan))
+    -- the last batch replaces fewer pieces than a whole one: seven X in
+    -- batches of three (45c) against 20c a piece - two batches, one X bought
+    plan = Both(Input({ R("P", 10, 1, 2, { { 11, 7 } }), R("Make X", 11, 1, 1, { { 12, 1 } }, { made = 3 }) }, {}, { [11] = 20, [12] = 45 }), "a last batch for one piece")
+    assert(plan.total == 110 and Extra(plan, "Make X") == 2 and plan.ledger[11].bought == 1, "seven X in batches of three: " .. Says(plan))
+    -- a recipe that can be used from a higher skill on: what was worked out
+    -- below that skill does not hold from there (Codex' UNLOCK_WITHIN_SEGMENT)
+    plan = Both(Input({ R("A", 10, 1, 9, { { 11, 1 } }), R("Make X", 11, 5, 5, { { 12, 1 } }) }, {}, { [11] = 1000, [12] = 1 }, 1, 9), "a recipe that unlocks at 5")
+    assert(plan.total == 4004, "a recipe that unlocks at 5: " .. Says(plan))
+    -- stock that covers some batches and then runs out, three levels down,
+    -- with a yellow recipe on top (1.5 crafts a point)
+    for _, rawStock in ipairs({ 0, 5, 17, 18, 19, 40, 41, 200 }) do
+        Both(Input({ R("P", 10, 1, 8, { { 13, 2 }, { 16, 1 } }, { yellow = 2 }), R("Q", 20, 1, 8, { { 21, 3 } }), R("Make Y", 13, 1, 1, { { 11, 3 } }),
+            R("Make X", 11, 1, 1, { { 12, 2 }, { 15, 1 } }), R("Make Z", 16, 1, 1, { { 12, 1 } }, { made = 2 }) },
+            { [12] = rawStock, [15] = 7, [11] = 2 }, { [13] = 900, [11] = 250, [12] = 30, [15] = 12, [16] = 25, [21] = 150 }, 1, 8), rawStock .. " raw pieces, three levels")
+    end
+
+    -- ---- many small made-up professions (the same on every machine): chains
+    -- of intermediates, batches of several pieces, fees, unknown prices and
+    -- counts, stock at every level, a second profession, chains back to
+    -- themselves
+    local state = 20261110
+    local function rnd(n)
+        state = (state * 1103515245 + 12345) % 2147483648
+        return math.floor(state / 65536) % n + 1
+    end
+    local function chance(percent) return rnd(100) <= percent end
+    local function Case()
+        local nRaw, nMid = 2 + rnd(4), rnd(5)
+        local raw, mid = {}, {}
+        for i = 1, nRaw do raw[i] = 100 + i end
+        for i = 1, nMid do mid[i] = 200 + i end
+        local recipes, other = {}, {}
+        local function Mats(level, most)
+            local list, used = {}, {}
+            for _ = 1, rnd(most) do
+                local id
+                if level > 1 and chance(60) then id = mid[chance(8) and rnd(nMid) or rnd(level - 1)] else id = raw[rnd(nRaw)] end
+                if not used[id] then
+                    used[id] = true
+                    list[#list + 1] = { id = id, n = rnd(4) }
+                end
+            end
+            return list
+        end
+        for i = 1, nMid do
+            local made = ({ 1, 1, 1, 1, 2, 3, 5, 1.5 })[rnd(8)]
+            local r = { key = "Make " .. i, name = "Make " .. i, product = mid[i], made = made, madeVaries = made == 1.5 or nil,
+                req = chance(70) and 1 or rnd(12), yellow = 1, grey = 1, reagents = Mats(i, 3) }
+            if chance(25) then
+                r.prof, r.learn = "Other", chance(80) and "known" or nil
+                other[#other + 1] = r
+            else
+                r.prof = "Testing"
+                local how = rnd(10)
+                r.learn = how <= 6 and "known" or how <= 8 and "trainer" or how == 9 and "vendor" or nil
+                if r.learn == "trainer" and chance(80) then r.fee = rnd(3) == 1 and 0 or rnd(300) end
+                if r.learn == "vendor" then r.recipeItem = 900 + i end
+                if chance(30) then r.yellow, r.grey = r.req + rnd(6), r.req + 6 + rnd(8) end
+                recipes[#recipes + 1] = r
+            end
+            if chance(10) and i > 1 then
+                recipes[#recipes + 1] = { prof = "Testing", key = "Also " .. i, name = "Also " .. i, product = mid[i], made = rnd(2), req = 1, yellow = 1, grey = 1,
+                    reagents = Mats(i, 2), learn = "known" }
+            end
+        end
+        for i = 1, 2 + rnd(4) do
+            local req = rnd(8)
+            local yellow = req + rnd(8)
+            local r = { prof = "Testing", key = "Point " .. i, name = "Point " .. i, product = chance(50) and (300 + i) or 0, made = 1,
+                req = req, yellow = yellow, grey = yellow + (chance(40) and 0 or rnd(10)), reagents = Mats(nMid + 1, 3) }
+            local how = rnd(10)
+            r.learn = how <= 6 and "known" or how <= 8 and "trainer" or "vendor"
+            if r.learn == "trainer" and chance(85) then r.fee = rnd(500) end
+            if r.learn == "vendor" then r.recipeItem = 950 + i end
+            if chance(15) and nMid > 0 then r.product = mid[rnd(nMid)] end
+            recipes[#recipes + 1] = r
+        end
+        local stock, prices, recipeItemPrices = {}, {}, {}
+        local function Fill(ids, stockChance, most)
+            for _, id in ipairs(ids) do
+                if chance(stockChance) then stock[id] = rnd(most) end
+                if chance(4) then stock[id] = { unknown = true } end
+                local kind = rnd(20)
+                if kind <= 16 then
+                    prices[id] = { status = "known", copper = rnd(60) * (chance(50) and 1 or 10) }
+                elseif kind <= 18 then
+                    prices[id] = { status = "estimated", copper = rnd(60) * 5 }
+                end
+            end
+        end
+        Fill(raw, 45, 30)
+        Fill(mid, 30, 12)
+        for i = 1, 60 do
+            if chance(70) then recipeItemPrices[900 + i] = rnd(400) end
+        end
+        local skill = rnd(6)
+        local input = { prof = "Testing", skill = skill, target = skill + rnd(18), recipes = { Testing = recipes }, stock = stock, prices = prices,
+            professions = { Testing = { rank = skill } }, recipeItemPrices = recipeItemPrices, caps = { 10, 20 }, maxRank = chance(50) and 10 or nil }
+        if #other > 0 and chance(85) then
+            input.recipes.Other = other
+            input.professions.Other = { rank = rnd(14) }
+        end
+        return input
+    end
+    for case = 1, 400 do Both(Case(), "made-up profession " .. case) end
+
+    -- the shortcuts were really taken in all that
+    assert(taken.recalled > 500 and taken.repeated > 200 and taken.trials > 500,
+        ("the comparison hardly used a shortcut: remembered %d, batches repeated %d, recipes remembered %d"):format(taken.recalled, taken.repeated, taken.trials))
+    assert(compared > 450, "plans compared: " .. compared)
+    PLAN_SHORTCUTS_TAKEN = nil
+end)
+step("Skill plan 2.0: the plans of Codex' matrix, with the shortcuts and without (v0.2 r2 G2)", function()
+    -- Codex round 2, R2-M2: the matrix that found four differing plans - the
+    -- shipped recipes of nine professions, four states of stock and
+    -- knowledge, three states of the prices, two targets: 216 plans. Each is
+    -- worked out with the shortcuts and without, and compared as a whole
+    -- object. The calculation without shortcuts takes minutes for all of
+    -- them, and the plans do not depend on the client language: all 216 run
+    -- as enUS, the other languages run the part where the old shortcuts went
+    -- wrong (Blacksmithing with much stock and every recipe) and one plan of
+    -- each other state. GC_PLAN_MATRIX=full / part sets it by hand.
+    local reference = PlanCoreWithoutShortcuts()
+    local core = ns.PlanCore
+    local d = ns.CraftData
+    local saved = { have = d.Have, cost = d.ReagentCost, known = d.Known, rank = ns.ProfessionRank }
+    local profs = { "Alchemy", "Blacksmithing", "Enchanting", "Engineering", "Leatherworking", "Tailoring", "Cooking", "First Aid", "Mining" }
+    local all = {}
+    for _, p in ipairs(profs) do all[p] = d.AllRecipes(p) end
+    local function Input(prof, mode, prices, target)
+        -- mode 1: new, nothing known, no stock; 2: skill 150, the recipes up
+        -- to it known, Mining next to it, 15 of every third item; 3: the
+        -- same at 225; 4: every profession at 300, every recipe known, 50 of
+        -- four items in five.  prices 1: none; 2: all known; 3: every fourth
+        -- item without one, every seventh an estimate
+        local skill = mode == 2 and 150 or mode == 3 and 225 or 1
+        ns.ProfessionRank = function(q)
+            if mode == 4 or q == prof then return mode == 4 and 300 or skill, 300 elseif mode >= 2 and q == "Mining" then return 300, 300 end
+        end
+        d.Known = function(q)
+            local t = {}
+            for key, packed in pairs(all[q] or {}) do
+                local _, _, req = d.Unpack(packed)
+                if mode == 4 or (mode >= 2 and (req or 0) <= skill) then t[key] = packed end
+            end
+            return t
+        end
+        d.Have = function(id)
+            if mode == 4 then return id % 5 ~= 0 and 50 or 0 elseif mode >= 2 then return id % 3 == 0 and 15 or 0 end
+            return 0
+        end
+        d.ReagentCost = function(id)
+            if prices == 1 or prices == 3 and id % 4 == 0 then return nil end
+            return (id % 97 + 1) * 10, "review", prices == 3 and id % 7 == 0
+        end
+        return ns.SkillPlanSnapshot(prof, skill, target)
+    end
+    local how = os.getenv("GC_PLAN_MATRIX")
+    local full = how == "full" or (how ~= "part" and LOCALE == "enUS")
+    local function Wanted(mode, prices, prof, target)
+        if full then return true end
+        if mode == 4 and prof == "Blacksmithing" and prices >= 2 then return true end -- (the four plans that differed)
+        return prices == 2 and target == 250 and ((mode == 1 and prof == "Tailoring") or (mode == 2 and prof == "Leatherworking") or (mode == 3 and prof == "Alchemy"))
+    end
+    local compared, steps, firstDiff = 0, 0, nil
+    local ok, err = pcall(function()
+        for mode = 1, 4 do
+            for prices = 1, 3 do
+                for _, prof in ipairs(profs) do
+                    for _, target in ipairs({ 250, 300 }) do
+                        if Wanted(mode, prices, prof, target) then
+                            local input = Input(prof, mode, prices, target)
+                            -- (the shortcut code runs faster without the JIT compiler, the full calculation with it)
+                            if jit then jit.off() end
+                            local a = core.Compute(input)
+                            if jit then jit.on() end
+                            local b = reference.Compute(input)
+                            local same, why = SamePlan(a, b, prof)
+                            if not same and not firstDiff then firstDiff = ("state %d, prices %d, %s to %d: %s"):format(mode, prices, prof, target, tostring(why)) end
+                            assert(core.CheckBalance(a) and reference.CheckBalance(b), "the books do not balance")
+                            compared, steps = compared + 1, steps + #a.steps
+                        end
+                    end
+                end
+            end
+        end
+    end)
+    if jit then jit.on() end
+    d.Have, d.ReagentCost, d.Known, ns.ProfessionRank = saved.have, saved.cost, saved.known, saved.rank
+    assert(ok, err)
+    assert(not firstDiff, "with the shortcuts a plan of the matrix is another one - " .. tostring(firstDiff))
+    assert(compared == (full and 216 or 7) and steps > compared, ("plans of the matrix compared: %d, with %d steps"):format(compared, steps))
+end)
 -- (end of the skill plan 2.0 steps, v0.2 building block 1)
 step("Craft log: one entry per finished craft, failures and odd cases marked apart (v0.1.18 S5)", function()
     local data = GathercraftRecipeData
