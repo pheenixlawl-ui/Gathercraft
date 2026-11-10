@@ -5848,6 +5848,125 @@ step("Skill plan 2.0: what the plan does not check is said once, tools are not l
     if win then win:Hide() end
     if not ok then error(err, 0) end
 end)
+step("Skill plan 2.0: the recipe choice counts whole batches, like the material balance (v0.2 r2 G1)", function()
+    -- Codex round 2, R2-M1 (concept 4.2 / 4.3): which recipe gives the next
+    -- point is judged by what the material balance would really count for
+    -- its crafts - whole batches of what they need, or the piece bought. A
+    -- part of a batch ("a third of a batch of three") cannot be made and is
+    -- no cost to compare with. Plain tables; a recipe gives one point per
+    -- craft from `req` up to `upto`.
+    local core = ns.PlanCore
+    local function R(key, product, req, upto, mats, extra)
+        local r = { prof = "Testing", key = key, name = key, product = product, made = 1, req = req, yellow = upto, grey = upto, reagents = {}, learn = "known" }
+        for _, x in ipairs(mats) do r.reagents[#r.reagents + 1] = { id = x[1], n = x[2] } end
+        for k, v in pairs(extra or {}) do r[k] = v end
+        return r
+    end
+    local function Plan(recipes, stock, prices, from, to)
+        local p = {}
+        for id, copper in pairs(prices) do p[id] = { status = "known", copper = copper } end
+        local plan = core.Compute({ prof = "Testing", skill = from or 1, target = to or 2, recipes = { Testing = recipes }, stock = stock, prices = p,
+            professions = {}, recipeItemPrices = {}, caps = {} })
+        local ok, why = core.CheckBalance(plan)
+        assert(ok, "the books do not balance: " .. tostring(why))
+        local m = {}
+        for _, row in ipairs(plan.materials) do m[row.id] = row end
+        return plan, m
+    end
+    local function Says(plan) -- "B 15" : the recipes of the steps in order, and the sum
+        local keys = {}
+        for _, s in ipairs(plan.steps) do keys[#keys + 1] = s.recipe.key end
+        return table.concat(keys, ",") .. " " .. tostring(plan.total)
+    end
+    local function Near(a, b) return type(a) == "number" and math.abs(a - b) < 1e-6 end
+
+    -- Codex BATCH_PRIMARY_CHOICE: one point, both recipes give it for sure.
+    -- A needs one X: 20c at the AH, or a batch of three from 30c of raw
+    -- material. B needs an ingredient for 15c. A really costs 20c (one X
+    -- bought) - not 10c, a third of a batch - so B is the one to take.
+    local a = R("A", 10, 1, 2, { { 11, 1 } })
+    local makeX = R("Make X", 11, 1, 1, { { 12, 1 } }, { made = 3 })
+    local function B(copper) return R("B", 20, 1, 2, { { 21, 1 } }), copper end
+    local plan, m = Plan({ a, (B(15)), makeX }, {}, { [11] = 20, [12] = 30, [21] = 15 })
+    assert(Says(plan) == "B 15", ("a third of a batch of three beats 15c: %s"):format(Says(plan)))
+    -- what the choice compared: B 15c, A 20c (each + 1, a new recipe x 1.08)
+    local why = plan.steps[1].why
+    assert(Near(why.score, 17.28) and why.other and why.other.key == "A" and Near(why.other.score, 22.68),
+        ("the choice compared %s with %s (%s)"):format(tostring(why.score), tostring(why.other and why.other.score), tostring(why.other and why.other.key)))
+    -- Codex BATCH_ONLY_B: B alone gives the same 15c
+    plan = Plan({ (B(15)), makeX }, {}, { [11] = 20, [12] = 30, [21] = 15 })
+    assert(Says(plan) == "B 15", "B alone: " .. Says(plan))
+    -- B dearer than one X bought: A, with its X bought (not a batch for one)
+    plan, m = Plan({ a, (B(25)), makeX }, {}, { [11] = 20, [12] = 30, [21] = 25 })
+    assert(Says(plan) == "A 20" and m[11].missing == 1 and not m[11].madeFrom, "B at 25c: " .. Says(plan))
+    -- where the batch IS the least costly way for the need, it counts in the
+    -- choice: A needs three X per craft - one batch, 30c, against 60c bought
+    plan, m = Plan({ R("A", 10, 1, 2, { { 11, 3 } }), (B(35)), makeX }, {}, { [11] = 20, [12] = 30, [21] = 35 })
+    assert(Says(plan) == "A 30" and m[11].madeFrom and m[11].missing == 0, "a whole batch for three: " .. Says(plan))
+    plan = Plan({ R("A", 10, 1, 2, { { 11, 3 } }), (B(25)), makeX }, {}, { [11] = 20, [12] = 30, [21] = 25 })
+    assert(Says(plan) == "B 25", "a whole batch for three against 25c: " .. Says(plan))
+
+    -- the four cases of round 1 (Codex B1), each with a second recipe for the
+    -- point - its cost lies between what A really costs and what a wrong
+    -- count would make of it
+    -- RAW_STOCK: the raw material for A's X is in the bags: A costs nothing
+    plan, m = Plan({ a, (B(5)), R("Make X", 11, 1, 1, { { 12, 1 } }) }, { [12] = 1 }, { [11] = 20, [12] = 50, [21] = 5 })
+    assert(Says(plan) == "A 0" and m[11].madeFrom and m[12].covered, "raw stock for A's X, B at 5c: " .. Says(plan))
+    -- INTERMEDIATE_FEE: making X takes 1c and a fee of 10000c: A is 20c (X
+    -- bought) - B at 15c wins, B at 25c does not
+    local function Fee(fee, bCost)
+        return Plan({ a, (B(bCost)), R("Make X", 11, 1, 1, { { 12, 1 } }, { learn = "trainer", fee = fee }) }, {}, { [11] = 20, [12] = 1, [21] = bCost })
+    end
+    plan = Fee(10000, 15)
+    assert(Says(plan) == "B 15", "a 10000c fee, B at 15c: " .. Says(plan))
+    plan = Fee(10000, 25)
+    assert(Says(plan) == "A 20" and plan.learn.trainer == 0, "a 10000c fee, B at 25c: " .. Says(plan))
+    -- UNKNOWN_INTERMEDIATE_FEE: the same with a fee nobody knows - A is not
+    -- 1c (the known part of making X)
+    plan = Fee(nil, 15)
+    assert(Says(plan) == "B 15", "an unknown fee, B at 15c: " .. Says(plan))
+    plan = Fee(nil, 25)
+    assert(Says(plan) == "A 20" and plan.notComparable == true and plan.openLearn == true, "an unknown fee, B at 25c: " .. Says(plan))
+    -- BATCH_COST is the first case above.
+
+    -- The number of crafts a point is expected to take is kept apart from
+    -- the batch: at skill 2 A gives a point in 2 of 3 crafts (yellow from 1,
+    -- grey at 4), so a point takes 1.5 crafts. One craft costs 20c (one X
+    -- bought), two cost 30c (a batch for two X is less than 40c): 25c in
+    -- between - not 15c, half a batch.
+    local yellowA = R("A", 10, 1, 4, { { 11, 1 } }, { yellow = 1 })
+    local function B2(copper) return R("B", 20, 1, 3, { { 21, 1 } }) end
+    plan = Plan({ yellowA, B2(), makeX }, {}, { [11] = 20, [12] = 30, [21] = 22 }, 2, 3)
+    assert(Says(plan) == "B 22", ("1.5 crafts of A against 22c: %s"):format(Says(plan)))
+    why = plan.steps[1].why
+    assert(Near(why.score, 24.84) and why.other and why.other.key == "A" and Near(why.other.score, 28.08),
+        ("1.5 crafts: the choice compared %s with %s"):format(tostring(why.score), tostring(why.other and why.other.score)))
+    -- B at 28c: A - and the step then counts whole crafts: two, with one
+    -- batch for their two X (30c)
+    plan, m = Plan({ yellowA, B2(), makeX }, {}, { [11] = 20, [12] = 30, [21] = 28 }, 2, 3)
+    assert(Says(plan) == "A 30" and plan.steps[1].crafts == 2 and m[11].need == 2 and m[11].madeFrom, ("1.5 crafts of A against 28c: %s"):format(Says(plan)))
+
+    -- the choice's own books count whole pieces too: two X in the bags make
+    -- two points of A free, the third costs 20c - there B (5c) takes over
+    plan, m = Plan({ R("A", 10, 1, 4, { { 11, 1 } }), R("B", 20, 1, 4, { { 21, 1 } }) }, { [11] = 2 }, { [11] = 20, [21] = 5 }, 1, 4)
+    assert(Says(plan) == "A,B 5" and plan.steps[1].to == 3 and m[11].covered and m[21].missing == 1, "two X in stock, three points: " .. Says(plan))
+    -- ... and whole crafts, as the plan's step will carry them out: the
+    -- point at skill 2 takes 1.5 crafts of the yellow A - two crafts, two X,
+    -- both from the bags. So none is left for the point at 3 (three crafts,
+    -- 60c): B (55c) takes over. (Half an X left on the books would make A
+    -- look like 50c there.)
+    plan, m = Plan({ yellowA, R("B", 20, 1, 9, { { 21, 1 } }) }, { [11] = 2 }, { [11] = 20, [21] = 55 }, 2, 4)
+    assert(Says(plan) == "A,B 55" and plan.steps[1].crafts == 2 and m[11].need == 2 and m[11].covered, "1.5 crafts carried out on the choice's books: " .. Says(plan))
+    -- ... counted on over the points of one recipe, like the step: three
+    -- points of an A that is yellow from 1 and grey at 31 take 1.03, 1.07
+    -- and 1.11 crafts - 3.2 together, four crafts, not two for each point.
+    -- With four X in the bags the third point still finds one (its second
+    -- craft, should it come to that, would cost 20c): A stays below B (10c).
+    -- (Rounded up point by point, the first two points would have used all
+    -- four, and B would take the third.)
+    plan, m = Plan({ R("A", 10, 1, 31, { { 11, 1 } }, { yellow = 1 }), R("B", 20, 1, 9, { { 21, 1 } }) }, { [11] = 4 }, { [11] = 20, [21] = 10 }, 2, 5)
+    assert(Says(plan) == "A 0" and plan.steps[1].crafts == 4 and m[11].covered, "the crafts of three points in a row on the choice's books: " .. Says(plan))
+end)
 -- (end of the skill plan 2.0 steps, v0.2 building block 1)
 step("Craft log: one entry per finished craft, failures and odd cases marked apart (v0.1.18 S5)", function()
     local data = GathercraftRecipeData

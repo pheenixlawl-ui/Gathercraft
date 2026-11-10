@@ -262,12 +262,13 @@ end
 ---------------------------------------------------------------------------
 local EPS = 1e-9
 
--- fractional: the books of the recipe choice. They count in expected
--- amounts (1 / chance crafts for a point, parts of a batch); the plan's own
--- books count whole crafts and whole batches.
-local function NewLedger(fractional)
+-- Both sets of books - the plan's own and the recipe choice's - count whole
+-- crafts and whole batches: a part of a batch cannot be made (Codex round 2,
+-- R2-M1). choice: the books of the recipe choice (they spread a one-time
+-- cost over the points a recipe gives, and report nothing).
+local function NewLedger(choice)
     return { have = {}, start = {}, used = {}, bought = {}, madePlan = {}, madeExtra = {}, madeBy = {}, extra = {}, extraList = {},
-        unknown = {}, learned = {}, varies = {}, journal = {}, jn = 0, marks = 0, fractional = fractional or false, share = 1 }
+        unknown = {}, learned = {}, varies = {}, journal = {}, jn = 0, marks = 0, choice = choice or false, share = 1 }
 end
 
 -- every entry of the books is written through here, so it can be taken back
@@ -374,10 +375,10 @@ end
 -- the plan's books, with the recipe's share in the recipe choice (L.share)
 local function Value(L, a) return a.copper + a.once * L.share end
 
+-- what `batches` crafts make: whole pieces (a mean output like 1.5 is
+-- rounded down over all the crafts)
 local function Produced(L, batches, made)
-    local n = batches * made
-    if L.fractional then return n end
-    return math.floor(n + 1e-9)
+    return math.floor(batches * made + 1e-9)
 end
 
 local Take
@@ -441,8 +442,7 @@ local function Made(ctx, L, id, r, batches, covered, acc)
 end
 
 local function MakeAll(ctx, L, id, r, rest, skillNow, stack, acc)
-    local batches = rest / math.max(1, r.made or 1)
-    if not L.fractional then batches = math.ceil(batches - 1e-9) end
+    local batches = math.ceil(rest / math.max(1, r.made or 1) - 1e-9)
     Batches(ctx, L, id, r, batches, skillNow, stack, acc)
     Made(ctx, L, id, r, batches, rest, acc)
 end
@@ -470,11 +470,7 @@ local function MakeSome(ctx, L, id, r, rest, skillNow, stack, acc)
         -- the place where a stock runs out is found in a few tries, and
         -- what comes after it is one lot again).
         local b = 1
-        if L.fractional then
-            b = remaining / made
-        elseif whole and remaining >= made then
-            b = math.floor(remaining / made + 1e-9)
-        end
+        if whole and remaining >= made then b = math.floor(remaining / made + 1e-9) end
         if try and try < b then b = try end
         local taken = false
         while true do
@@ -485,8 +481,7 @@ local function MakeSome(ctx, L, id, r, rest, skillNow, stack, acc)
             Batches(ctx, L, id, r, b, skillNow, stack, a)
             if b > 1 + EPS and (ctx.edges ~= edges or a.lumpy) then
                 Rollback(L, mark)
-                b = b / 2
-                if not L.fractional then b = math.floor(b) end
+                b = math.floor(b / 2)
                 if b < 1 then b = 1 end
             elseif a.cyclic or a.gap > 0 or Value(L, a) >= price.copper * covers then
                 allCanWin = not a.cyclic and (a.gap > 0 or a.lumpy or false)
@@ -527,7 +522,7 @@ local function GetExact(ctx, L, id, rest, skillNow, stack, acc)
         -- way that led here is dropped by the one that tried it. Reported
         -- when the plan's own books meet it - not when the recipe choice
         -- only looked at a recipe with such a chain.
-        if not L.fractional then Note(ctx, "cycle", id, { item = id }) end
+        if not L.choice then Note(ctx, "cycle", id, { item = id }) end
         ctx.touched = ctx.touched + 1
         acc.cyclic = true
         Buy(ctx, L, id, rest, acc)
@@ -548,6 +543,10 @@ local function GetExact(ctx, L, id, rest, skillNow, stack, acc)
             m.till = r.req -- (from that skill on the recipe can be used: worked out again then)
         end
         if CanMake(ctx, r, skillNow) then
+            -- whole batches: a recipe that makes more than one piece per
+            -- craft does not cost by the piece (three pieces may be worth a
+            -- batch where one is not)
+            if math.max(1, r.made or 1) ~= 1 then ctx.touched = ctx.touched + 1 end
             local tryAll = true
             if price.copper then
                 local a = NewAcc()
@@ -590,14 +589,16 @@ end
 
 -- The recipe choice asks for the same things again and again, point after
 -- point and recipe after recipe. Where getting an item touches no stock, no
--- one-time cost and no chain back to itself - nothing in it and below it -
--- its cost simply grows with the amount: it has been worked out for one
--- piece (Measure, below) and is counted by the piece. Such an item changes
+-- one-time cost, no batch of more than one piece and no chain back to itself
+-- - nothing in it and below it - its cost simply grows with the amount: it
+-- has been worked out for one piece (Measure, below) and is counted by the
+-- piece (whole pieces, whole copper: the same number either way). Such an
+-- item changes
 -- nothing the choice's books are kept for (what is in stock, what is
 -- learned), so nothing is written for it. Everything else, and all of the
 -- plan's own books, is worked out in full every time.
 local function Get(ctx, L, id, rest, skillNow, stack, acc)
-    local e = L.fractional and ctx.unit[id]
+    local e = L.choice and ctx.unit[id]
     if not (e and e.linear and skillNow < e.till) then return GetExact(ctx, L, id, rest, skillNow, stack, acc) end
     local unit = e.acc
     acc.copper, acc.gap = acc.copper + unit.copper * rest, acc.gap + unit.gap * rest
@@ -650,11 +651,23 @@ end
 --   What is compared, skill point by skill point: the gold you would have
 --   to spend ON TOP of what you have for the crafts that point is expected
 --   to take.
---   * asked on books of its own (the choice's: expected amounts, parts of a
---     batch), with the same rules as the plan's books: what you have costs
---     nothing but is used up as the choice uses it - the same stock does not
---     make every later recipe free - and a material is bought or made,
---     whichever costs less at that point (raw stock further down included)
+--   * asked on books of its own (the choice's), with the same rules as the
+--     plan's books: what you have costs nothing but is used up as the choice
+--     uses it - the same stock does not make every later recipe free - and a
+--     material is bought or made, whichever costs less at that point (raw
+--     stock further down included)
+--   * what a point costs is what the material balance would count for its
+--     crafts (Codex round 2, R2-M1): WHOLE crafts with whole batches of what
+--     they need, or the piece bought - never a part of a batch. The number
+--     of crafts a point is expected to take (1 / chance) is kept apart from
+--     that: where it is no whole number, the cost of the whole number below
+--     it and of the one above it are worked out, each as the balance would,
+--     and weighed by how far the expected number lies between them (1.25
+--     crafts: three quarters of the cost of one craft, a quarter of the cost
+--     of two).
+--   * the point that was chosen is carried out on the choice's books in
+--     whole crafts, counted on like the plan's steps: the crafts of the
+--     points of one recipe in a row, rounded up together.
 --   * learning a recipe (trainer fee, recipe item) is a one-time cost,
 --     spread over the points the recipe can still give (the next LOOKAHEAD
 --     at most) - its own, and that of a recipe it would learn for an
@@ -752,10 +765,33 @@ local function Share(ctx, c, skill)
     return 1 / math.max(1, count)
 end
 
+-- the whole number of crafts below the expected number for a point at
+-- chance p, and how far the expected number lies above it (0: it is whole)
+local function WholeAndPart(p)
+    local expected = 1 / p
+    local whole = math.floor(expected + 1e-9)
+    local part = expected - whole
+    if part < 1e-9 then part = 0 end
+    return whole, part
+end
+
+-- what `crafts` crafts of c would cost on the choice's books as they are:
+-- tried out as the material balance would carry them out, and taken back
+local function Trial(ctx, c, crafts, skill)
+    local CL = ctx.choice
+    local acc = NewAcc()
+    local mark = Mark(CL)
+    for _, reagent in ipairs(Reagents(ctx, c)) do
+        Take(ctx, CL, reagent.id, reagent.n * crafts, skill, ctx.stack, acc)
+    end
+    Rollback(CL, mark)
+    return acc
+end
+
 -- a recipe for the point at `skill`: { score (copper for this point on top
 -- of what you have, plus its share of the one-time costs), gap (pieces
 -- without a price), comparable, estimated } - nil when it gives no point
--- here. Tried out on the choice's books and taken back.
+-- here.
 local function Evaluate(ctx, c, skill)
     local p = Chance(skill, c.req, c.yellow, c.grey)
     if p <= 0 then return nil end
@@ -763,12 +799,20 @@ local function Evaluate(ctx, c, skill)
     local share = Share(ctx, c, skill)
     local fee, feeUnknown = OneTime(ctx, c, CL.learned)
     CL.share = share
-    local acc = NewAcc()
-    local mark = Mark(CL)
-    for _, reagent in ipairs(Reagents(ctx, c)) do
-        Take(ctx, CL, reagent.id, reagent.n / p, skill, ctx.stack, acc)
+    local whole, part = WholeAndPart(p)
+    local acc = Trial(ctx, c, whole, skill)
+    if part > 0 then
+        -- between two whole numbers of crafts: each counted as it would be
+        -- carried out, weighed by where the expected number lies
+        local more = Trial(ctx, c, whole + 1, skill)
+        local mixed = NewAcc()
+        Add(mixed, acc)
+        Add(mixed, more)
+        mixed.copper = acc.copper * (1 - part) + more.copper * part
+        mixed.once = acc.once * (1 - part) + more.once * part
+        mixed.gap = acc.gap * (1 - part) + more.gap * part
+        acc = mixed
     end
-    Rollback(CL, mark)
     local gap = acc.gap + (feeUnknown and 1 or 0)
     return { score = acc.copper + (acc.once + fee) * share + 1, gap = gap, comparable = gap == 0, estimated = acc.estimated or false,
         fee = fee, feeUnknown = feeUnknown, share = share, learnGap = feeUnknown or acc.feeGap or false, priceGap = acc.priceGap or false }
@@ -776,17 +820,19 @@ end
 
 -- What Evaluate can at least come to: gap and score from the items that
 -- cost by the piece alone (they cost exactly that), its own learning cost,
--- and everything else counted as free.
+-- and everything else counted as free - for the same whole numbers of
+-- crafts, weighed the same way.
 local function Bound(ctx, c, skill, p)
     local CL = ctx.choice
+    local whole, part = WholeAndPart(p)
     local copper, gap = 0, 0
     for _, reagent in ipairs(c.reagents) do
-        local lack = reagent.n / p - Stock(ctx, CL, reagent.id)
-        if lack > EPS then
-            local e = ctx.unit[reagent.id]
-            if e and e.linear and skill < e.till then
-                copper, gap = copper + e.acc.copper * lack, gap + e.acc.gap * lack
-            end
+        local e = ctx.unit[reagent.id]
+        if e and e.linear and skill < e.till then
+            local have = Stock(ctx, CL, reagent.id)
+            local lack = math.max(0, reagent.n * whole - have)
+            if part > 0 then lack = lack * (1 - part) + math.max(0, reagent.n * (whole + 1) - have) * part end
+            copper, gap = copper + e.acc.copper * lack, gap + e.acc.gap * lack
         end
     end
     local fee, feeUnknown = OneTime(ctx, c, CL.learned)
@@ -796,11 +842,12 @@ end
 -- Per skill point the recipe to use: points[skill] = candidate, info[skill]
 -- = how it was judged (for "why this recipe"), where the plan got stuck
 -- (if), and whether a choice was not fully comparable.
-local function ChoosePoints(ctx, cands, unknownChance)
+local function ChoosePoints(ctx, cands, unknownChance, trainAt)
     local input = ctx.input
     local CL = ctx.choice
     local points, info, current, stuck, notComparable, unknownAt = {}, {}, nil, nil, false, nil
     local seen = {}
+    local runExpected, runCrafts = 0, 0 -- the points of one recipe in a row: their crafts, and how many are carried out
     for skill = input.skill, input.target - 1 do
         -- the recipes that give a point here, each with its lower bound
         local live = {}
@@ -883,9 +930,16 @@ local function ChoosePoints(ctx, cands, unknownChance)
         -- this point is planned: on the choice's books its materials are used
         -- up, its output is there, its recipe (and what it learned for an
         -- intermediate) is learned. What rested on any of that is dropped.
+        -- In whole crafts, counted on like a step of the plan: the crafts
+        -- of this recipe's points in a row are rounded up together (a new
+        -- count after another recipe and where a rank is trained).
+        if best ~= current or trainAt[skill] then runExpected, runCrafts = 0, 0 end
+        runExpected = runExpected + 1 / Chance(skill, best.req, best.yellow, best.grey)
+        local crafts = math.ceil(runExpected - 0.001) - runCrafts
+        runCrafts = runCrafts + crafts
         CL.share = bestE.share
         local mark = Mark(CL)
-        Apply(ctx, CL, best, 1 / Chance(skill, best.req, best.yellow, best.grey), skill, NewAcc())
+        Apply(ctx, CL, best, crafts, skill, NewAcc())
         local j = CL.journal
         for i = mark + 1, CL.jn, 3 do
             if j[i] == "have" then Changed(ctx, j[i + 1]) elseif j[i] == "learned" then Changed(ctx, "#" .. j[i + 1]) end
@@ -1232,8 +1286,8 @@ function Core.Compute(input)
     local cands, unknownChance = Candidates(input)
     ctx.candOf = {}
     for _, c in ipairs(cands) do ctx.candOf[c.key] = c end
-    local points, info, stuck, notComparable, unknownAt = ChoosePoints(ctx, cands, unknownChance)
     local training, trainAt = Training(input)
+    local points, info, stuck, notComparable, unknownAt = ChoosePoints(ctx, cands, unknownChance, trainAt)
     local steps, L = Walk(ctx, points, info, stuck, trainAt)
     local materials, ledger, cost = Rows(ctx, L)
     local learn = LearnCosts(input, steps, L)
