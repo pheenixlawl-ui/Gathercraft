@@ -5208,6 +5208,101 @@ step("Skill plan 2.0: buying against making by the gold it really takes on top (
     if win then win:Hide() end
     if not ok then error(err, 0) end
 end)
+step("Skill plan 2.0: a recipe that unlocks inside a step is used from there on (v0.2 r1 F2)", function()
+    -- Codex round 1, B2 (concept 4.3): what can be made is asked with the
+    -- skill reached at that craft, not with the skill at the start of the
+    -- step. A step is cut inside where a recipe further down its ingredients
+    -- becomes usable; what is shown is one step all the same.
+    local core = ns.PlanCore
+    local function R(key, product, req, upto, mats, extra)
+        local r = { prof = "Testing", key = key, name = key, product = product, made = 1, req = req, yellow = upto, grey = upto, reagents = {}, learn = "known" }
+        for _, x in ipairs(mats) do r.reagents[#r.reagents + 1] = { id = x[1], n = x[2] } end
+        for k, v in pairs(extra or {}) do r[k] = v end
+        return r
+    end
+    local function Plan(recipes, stock, prices, from, to)
+        local p = {}
+        for id, copper in pairs(prices) do p[id] = { status = "known", copper = copper } end
+        local plan = core.Compute({ prof = "Testing", skill = from, target = to, recipes = { Testing = recipes }, stock = stock, prices = p,
+            professions = {}, recipeItemPrices = {}, caps = {} })
+        local ok, why = core.CheckBalance(plan)
+        assert(ok, "the books do not balance: " .. tostring(why))
+        local m = {}
+        for _, row in ipairs(plan.materials) do m[row.id] = row end
+        return plan, m
+    end
+    local function Extra(plan, key)
+        for _, e in ipairs(plan.extras) do if e.recipe.key == key then return e.times end end
+        return 0
+    end
+
+    -- Codex UNLOCK_WITHIN_SEGMENT: A gives sure points from 1 to 9 and needs
+    -- one X each. X costs 1000c; from skill 5 a trainer recipe makes it for
+    -- 1c. Four X bought, four made: 4004c - not 8000c
+    local function Unlock(fee)
+        return Plan({ R("A", 10, 1, 9, { { 11, 1 } }), R("Make X", 11, 5, 5, { { 12, 1 } }, { learn = "trainer", fee = fee }) }, {}, { [11] = 1000, [12] = 1 }, 1, 9)
+    end
+    local plan, m = Unlock(0)
+    assert(plan.total == 4004, ("a recipe that unlocks at 5 inside the step 1-9: %s copper, want 4004"):format(tostring(plan.total)))
+    assert(m[11].need == 8 and m[11].missing == 4 and Extra(plan, "Make X") == 4 and m[12].need == 4 and m[12].missing == 4, "four bought, four made")
+    -- shown as one step, counted as one step
+    assert(#plan.steps == 1 and plan.steps[1].recipe.key == "A" and plan.steps[1].from == 1 and plan.steps[1].to == 9
+        and plan.steps[1].crafts == 8 and plan.steps[1].expected == 8 and plan.steps[1].low == 8 and plan.steps[1].high == 8, "the step is shown in pieces")
+    assert(plan.status == "ok" and plan.steps[1].comparable and not plan.notComparable, "status of the plan")
+    -- its fee is paid when it pays off (4 x 1000c against 4c and 75c)
+    plan = Unlock(75)
+    assert(plan.total == 4004 and plan.learn.fees == 75 and plan.learn.trainer == 1, "the fee of the recipe that unlocks")
+    -- not before its skill, also when the step starts right below it
+    plan, m = Plan({ R("A", 10, 1, 9, { { 11, 1 } }), R("Make X", 11, 5, 5, { { 12, 1 } }) }, {}, { [11] = 1000, [12] = 1 }, 4, 6)
+    assert(plan.total == 1001 and m[11].missing == 1 and Extra(plan, "Make X") == 1, "one bought at 4, one made at 5")
+
+    -- with a chance below 1 the number of crafts stays the rounded-up mean of
+    -- the whole step: A is yellow from 1 (grey at 21), 1-9 takes 9.89 crafts
+    -- on average -> 10. The part before 5 takes 4.34 -> 5 of them (X bought),
+    -- the other 5 come after it (X made)
+    local function Yellow(more)
+        local recipes = { R("A", 10, 1, 9, { { 11, 1 } }, { yellow = 1, grey = 21 }) }
+        for _, r in ipairs(more) do recipes[#recipes + 1] = r end
+        return Plan(recipes, {}, { [11] = 1000, [12] = 1, [13] = 1 }, 1, 9)
+    end
+    plan, m = Yellow({ R("Make X", 11, 5, 5, { { 12, 1 } }) })
+    local s = plan.steps[1]
+    assert(#plan.steps == 1 and s.crafts == 10 and math.abs(s.expected - 9.8906) < 0.001 and s.from == 1 and s.to == 9, ("the crafts of a step cut inside: %s"):format(tostring(s.crafts)))
+    assert(m[11].need == 10 and m[11].missing == 5 and Extra(plan, "Make X") == 5 and plan.total == 5005, ("five bought, five made: %s copper"):format(tostring(plan.total)))
+    local whole = core.Attempts(s.ps)
+    assert(#s.ps == 8 and s.low == whole.low and s.high == whole.high and s.low < 10 and s.high > 10, "the range of a step cut inside is not the range of the whole step")
+    -- a recipe that unlocks at 5 but makes nothing this step needs cuts nothing
+    plan, m = Yellow({ R("Other", 14, 5, 5, { { 13, 1 } }) })
+    assert(#plan.steps == 1 and plan.steps[1].crafts == 10 and m[11].missing == 10 and plan.total == 10000, "a recipe the step does not need changes it")
+
+    -- two levels down: X is made from W all along (W bought, 600c); from 5
+    -- on W can be made from a 1c material
+    plan, m = Plan({ R("A", 10, 1, 9, { { 11, 1 } }), R("Make X", 11, 1, 1, { { 15, 1 } }), R("Make W", 15, 5, 5, { { 12, 1 } }) },
+        {}, { [11] = 1000, [15] = 600, [12] = 1 }, 1, 9)
+    assert(plan.total == 4 * 600 + 4 and Extra(plan, "Make X") == 8 and Extra(plan, "Make W") == 4 and m[15].missing == 4, ("a recipe two levels down unlocks: %s copper"):format(tostring(plan.total)))
+
+    -- an intermediate recipe that unlocks inside the step and still gives
+    -- points itself: its crafts come as a step "for materials" from its own
+    -- skill on - none before it, and the plan still ends at the target
+    -- (Make X gives a point in 4 of 100 crafts at 5: 25 crafts for one. A
+    -- needs 10 X a craft: 1-5 buys 40; at 5 the 40 X of the rest would be
+    -- made, 25 of them as a step with a point; A goes on at 6 with 3 crafts)
+    plan, m = Plan({ R("A", 10, 1, 9, { { 11, 10 } }), R("Make X", 11, 5, 9, { { 12, 1 } }, { yellow = -187, grey = 13 }) }, {}, { [11] = 1000, [12] = 1 }, 1, 9)
+    local at, last
+    for _, st in ipairs(plan.steps) do
+        if st.forMaterials then at = at or st.from end
+        last = st
+    end
+    assert(at == 5 and last.to == 9 and plan.steps[1].recipe.key == "A" and plan.steps[1].from == 1 and plan.steps[1].to == 5, "extra crafts that give points, from the skill their recipe unlocks at")
+    assert(#plan.steps == 3 and plan.steps[2].crafts == 25 and plan.steps[3].from == 6 and plan.steps[3].crafts == 3, "the step after the extra crafts")
+    assert(m[11].missing == 40, "before the recipe unlocks its product is bought")
+    -- training between two parts of a step still comes between them
+    local input = { prof = "Testing", skill = 1, target = 9, maxRank = 5, caps = {}, professions = {}, recipeItemPrices = {}, stock = {},
+        recipes = { Testing = { R("A", 10, 1, 9, { { 11, 1 } }), R("Make X", 11, 5, 5, { { 12, 1 } }) } },
+        prices = { [11] = { status = "known", copper = 1000 }, [12] = { status = "known", copper = 1 } } }
+    plan = core.Compute(input)
+    assert(#plan.steps == 2 and plan.steps[1].to == 5 and plan.steps[2].from == 5 and plan.training[1].at == 5 and plan.total == 4004, "training at the same skill: the step is not shown in two parts")
+end)
 -- (end of the skill plan 2.0 steps, v0.2 building block 1)
 step("Craft log: one entry per finished craft, failures and odd cases marked apart (v0.1.18 S5)", function()
     local data = GathercraftRecipeData

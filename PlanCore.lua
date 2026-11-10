@@ -882,6 +882,30 @@ local function Flag(step, acc)
     if acc.openPrice or acc.priceGap then step.priceOpen = true end
 end
 
+-- The skills at which a recipe further down the ingredients of c becomes
+-- usable (a recipe of the planned profession, at its required skill): from
+-- there on a thing that was bought may be made.
+local function Unlocks(ctx, c)
+    local set = ctx.unlocks[c.key]
+    if set then return set end
+    set = {}
+    local seen = {}
+    local function Down(reagents)
+        for _, reagent in ipairs(reagents) do
+            if not seen[reagent.id] then
+                seen[reagent.id] = true
+                for _, r in ipairs(ctx.producers[reagent.id] or {}) do
+                    if r.prof == ctx.input.prof and r.learn ~= nil then set[r.req or 0] = true end
+                    Down(r.reagents)
+                end
+            end
+        end
+    end
+    Down(c.reagents)
+    ctx.unlocks[c.key] = set
+    return set
+end
+
 -- The steps, carried out on the ledger. A step never runs across the end of
 -- a rank (training comes between). An extra craft of the planned profession
 -- can give a skill point itself (concept 4.3): while such crafts are needed
@@ -889,6 +913,14 @@ end
 -- ("for materials") and count towards the skill with their chance like any
 -- other craft - no point is promised, none is counted twice, and the step
 -- after them starts later and needs less.
+--
+-- What can be made is asked with the skill reached at that craft (Codex
+-- round 1, B2): the crafts of one recipe are carried out in pieces that end
+-- where a recipe further down its ingredients becomes usable - before that
+-- skill the thing is bought, from it on it may be made. The pieces are one
+-- step of the plan all the same: one row, the crafts of the whole step
+-- (rounded up once, each piece getting its part of them in order), one
+-- range.
 local function Walk(ctx, points, info, stuck, trainAt)
     local input = ctx.input
     local L = NewLedger(false)
@@ -900,15 +932,20 @@ local function Walk(ctx, points, info, stuck, trainAt)
         guard = guard + 1
         if guard > 5000 then break end
         local c = points[skill]
+        local unlock = Unlocks(ctx, c)
         local segTo, expected, ps = skill, 0, {}
-        while segTo < endSkill and points[segTo] == c and not (segTo > skill and trainAt[segTo]) do
+        while segTo < endSkill and points[segTo] == c and not (segTo > skill and (trainAt[segTo] or unlock[segTo])) do
             local p = Chance(segTo, c.req, c.yellow, c.grey)
             ps[#ps + 1] = p
             expected = expected + 1 / p
             segTo = segTo + 1
         end
+        -- the piece before this one, when both are one step
+        local last = steps[#steps]
+        local joined = last and not last.forMaterials and last.recipe == c and last.to == skill and not trainAt[skill] and last or nil
         local crafts = math.ceil(expected - 0.001)
-        -- what this segment would have to make extra: tried out, taken back
+        if joined then crafts = math.ceil(joined.expected + expected - 0.001) - joined.crafts end
+        -- what this piece would have to make extra: tried out, taken back
         local before = {}
         for _, r in ipairs(L.extraList) do before[r] = L.extra[r] end
         local mark = Mark(L)
@@ -929,7 +966,6 @@ local function Walk(ctx, points, info, stuck, trainAt)
         local acc = NewAcc()
         if material then
             Apply(ctx, L, material.raw, material.crafts, skill, acc)
-            local last = steps[#steps]
             if last and last.forMaterials and last.recipe == material.recipe and not trainAt[skill] then
                 last.to, last.expected, last.crafts = skill + 1, last.expected + material.expected, last.crafts + material.crafts
                 last.ps[#last.ps + 1] = material.p
@@ -942,7 +978,15 @@ local function Walk(ctx, points, info, stuck, trainAt)
             skill = skill + 1
         else
             Apply(ctx, L, c, crafts, skill, acc)
-            local step = { recipe = c, from = skill, to = segTo, expected = expected, crafts = crafts, ps = ps, comparable = true, estimated = false }
+            local step = joined
+            if step then
+                step.to, step.expected, step.crafts = segTo, step.expected + expected, step.crafts + crafts
+                for _, p in ipairs(ps) do step.ps[#step.ps + 1] = p end
+            else
+                step = { recipe = c, from = skill, to = segTo, expected = expected, crafts = crafts, ps = ps, comparable = true, estimated = false,
+                    why = info[skill] }
+                steps[#steps + 1] = step
+            end
             for s = skill, segTo - 1 do
                 local i = info[s]
                 if i then
@@ -955,8 +999,6 @@ local function Walk(ctx, points, info, stuck, trainAt)
                 end
             end
             Flag(step, acc)
-            step.why = info[skill]
-            steps[#steps + 1] = step
             skill = segTo
         end
     end
@@ -1109,7 +1151,7 @@ function Core.Compute(input)
             learn = { fees = 0, feesUnknown = 0, trainer = 0, items = 0, itemCost = 0, itemsUnknown = 0, matsUnknown = 0, list = {} },
             diagnostics = { { code = "invalid", reason = why } } }
     end
-    local ctx = { input = input, noted = {}, diagnostics = {}, producers = {}, sorted = {}, stack = {}, choice = NewLedger(true), unit = {}, dependents = {}, touched = 0, edges = 0 }
+    local ctx = { input = input, noted = {}, diagnostics = {}, producers = {}, sorted = {}, stack = {}, choice = NewLedger(true), unit = {}, dependents = {}, unlocks = {}, touched = 0, edges = 0 }
     local profs = {}
     for prof in pairs(input.recipes) do profs[#profs + 1] = prof end
     table.sort(profs, function(a, b) -- the planned profession's recipes first
