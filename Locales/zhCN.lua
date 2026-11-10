@@ -638,4 +638,6 @@ ns.Locales.zhCN = {
     ["A learning cost is unknown: your trainer or the vendor shows it."] = "学习花费未知：训练师或商人处可以看到。",
     ["Planning estimate from the average number of crafts per step - what you really need varies."] = "按每一步平均制作次数得出的计划估算：实际需要会有出入。",
     ["Counted with the average output per craft - what a craft really makes varies."] = "按每次制作的平均产量计算：实际产量会有出入。",
+    ["Counted as if you had none of the %d marked ?: the sum may be too high."] = "标有 ? 的 %d 种按没有计算：总额可能偏高。",
+    ["What is missing is counted as if you had none."] = "缺少的数量按一个都没有计算。",
 }

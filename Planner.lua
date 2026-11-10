@@ -135,9 +135,13 @@ local function Snapshot(prof, from, to)
     end
     -- what you have (bags, reagent bag, bank - counted as since 0.1.18, no
     -- parameter guessed): read once per item and plan. A count that cannot
-    -- be read (a hidden value, an error, no answer) is "unknown", not 0.
+    -- be read (a hidden value, an error, no answer) is "unknown", not 0 -
+    -- also when the game has neither of its counting functions: the 0 the
+    -- counting falls back to then is no count (Codex round 1, B6).
+    local canCount = (C_Item and C_Item.GetItemCount) or GetItemCount
     input.stock = setmetatable({}, { __index = function(t, id)
-        local ok, n = pcall(d.Have, id)
+        local ok, n = false, nil
+        if canCount then ok, n = pcall(d.Have, id) end
         local entry
         if ok and n ~= nil and not ns.AnySecret("skill plan stock", n) and type(n) == "number" then
             entry = { n = n }
@@ -767,6 +771,7 @@ local function Refresh()
             tt:AddLine(name, 1, 1, 1)
             if not m.haveKnown then
                 tt:AddLine(L["How many you have could not be read."], 1, 0.5, 0.4, true)
+                tt:AddLine(L["What is missing is counted as if you had none."], 0.9, 0.9, 0.9, true)
             else
                 tt:AddLine((L["You have %d of the %d the plan needs."]):format(m.have, m.need), 0.9, 0.9, 0.9, true)
                 local okP, _, bags, reagent, bank = pcall(d.HaveParts or function() end, m.id)
@@ -833,9 +838,14 @@ local function Refresh()
     else
         totalLine = (L["Missing materials cost about %s"]):format(ns.Money(total)) .. estimated
     end
-    -- a choice that is not fully comparable: what is open, and what helps
+    -- what the sum rests on, in the line below it: a count that could not be
+    -- read is counted as none (what to buy and the sum may then be too high);
+    -- else a choice that is not fully comparable: what is open, and what helps
     local note = ""
-    if plan.notComparable then
+    local assumed = plan.cost.assumedItems and #plan.cost.assumedItems or 0
+    if assumed > 0 then
+        note = (L["Counted as if you had none of the %d marked ?: the sum may be too high."]):format(assumed)
+    elseif plan.notComparable then
         note = (plan.openLearn and not plan.openPrices) and L["A learning cost is unknown: your trainer or the vendor shows it."]
             or L["Some prices are unknown: scan the auction house for a better plan."]
     end

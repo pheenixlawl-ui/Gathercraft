@@ -638,4 +638,6 @@ ns.Locales.koKR = {
     ["A learning cost is unknown: your trainer or the vendor shows it."] = "배우는 비용을 알 수 없습니다: 기술 전문가나 상인에게서 확인됩니다.",
     ["Planning estimate from the average number of crafts per step - what you really need varies."] = "단계별 평균 제작 횟수로 잡은 계획 추정치입니다. 실제 필요량은 달라질 수 있습니다.",
     ["Counted with the average output per craft - what a craft really makes varies."] = "제작당 평균 생산량으로 계산했습니다. 실제 생산량은 달라질 수 있습니다.",
+    ["Counted as if you had none of the %d marked ?: the sum may be too high."] = "?로 표시된 %d개는 없는 것으로 계산했습니다: 합계가 실제보다 높을 수 있습니다.",
+    ["What is missing is counted as if you had none."] = "부족한 수량은 하나도 없는 것으로 계산했습니다.",
 }

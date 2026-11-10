@@ -638,4 +638,6 @@ ns.Locales.ruRU = {
     ["A learning cost is unknown: your trainer or the vendor shows it."] = "Стоимость обучения неизвестна: её покажет учитель или торговец.",
     ["Planning estimate from the average number of crafts per step - what you really need varies."] = "Оценка плана по среднему числу изготовлений на шаг: реальная потребность может отличаться.",
     ["Counted with the average output per craft - what a craft really makes varies."] = "Посчитано по среднему выходу за изготовление: реальный выход может отличаться.",
+    ["Counted as if you had none of the %d marked ?: the sum may be too high."] = "Посчитано так, будто у вас нет ни одного из %d с «?»: сумма может быть завышена.",
+    ["What is missing is counted as if you had none."] = "Недостающее посчитано так, будто у вас нет ни одного.",
 }

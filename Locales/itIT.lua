@@ -638,4 +638,6 @@ ns.Locales.itIT = {
     ["A learning cost is unknown: your trainer or the vendor shows it."] = "Costo di apprendimento sconosciuto: lo mostra il tuo istruttore o il mercante.",
     ["Planning estimate from the average number of crafts per step - what you really need varies."] = "Stima del piano dal numero medio di creazioni per passo: ciò che ti serve davvero varia.",
     ["Counted with the average output per craft - what a craft really makes varies."] = "Contato con la quantità media per creazione: quella reale varia.",
+    ["Counted as if you had none of the %d marked ?: the sum may be too high."] = "Contato come se non avessi nessuno dei %d con ?: la somma può essere troppo alta.",
+    ["What is missing is counted as if you had none."] = "Ciò che manca è contato come se non ne avessi nessuno.",
 }

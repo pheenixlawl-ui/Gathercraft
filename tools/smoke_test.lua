@@ -5623,6 +5623,115 @@ step("Skill plan 2.0: a profession that is there with an unreadable skill is nev
     if win then win:Hide() end
     if not ok then error(err, 0) end
 end)
+step("Skill plan 2.0: a count that is not known stays unknown, and the sum says what it assumes (v0.2 r1 F6)", function()
+    -- Codex round 1, B6 (concept 4.4 - 4.6)
+    local L, core, d = ns.L, ns.PlanCore, ns.CraftData
+    local saved = { rank = ns.ProfessionRank, have = d.Have, known = d.Known, price = ns.GetPrice, compute = core.Compute, targets = ns.db.planTargets,
+        item = C_Item, count = GetItemCount }
+    local win
+    local ok, err = pcall(function()
+        -- (1) neither of the game's counting functions is there: the count is
+        -- unknown - not the 0 the counting falls back to (the real d.Have)
+        C_Item, GetItemCount = nil, nil
+        local entry = ns.SkillPlanSnapshot("Tailoring", 1, 2).stock[2589]
+        C_Item, GetItemCount = saved.item, saved.count
+        assert(type(entry) == "table" and entry.unknown == true and entry.n == nil,
+            ("no way to count: the count is %s, unknown %s"):format(tostring(entry and entry.n), tostring(entry and entry.unknown)))
+        -- with a way to count it is a number again
+        entry = ns.SkillPlanSnapshot("Tailoring", 1, 2).stock[2589]
+        assert(type(entry.n) == "number" and not entry.unknown, "a count that can be read is unknown")
+
+        -- (2) the plan goes on with 0 for a count it does not know - and says
+        -- that what is missing of it, and its cost, rest on that assumption
+        local function R(key, product, req, upto, mats, extra)
+            local r = { prof = "Testing", key = key, name = key, product = product, made = 1, req = req, yellow = upto, grey = upto, reagents = {}, learn = "known" }
+            for _, x in ipairs(mats) do r.reagents[#r.reagents + 1] = { id = x[1], n = x[2] } end
+            for k, v in pairs(extra or {}) do r[k] = v end
+            return r
+        end
+        local function Plan(recipes, stock)
+            local plan = core.Compute({ prof = "Testing", skill = 1, target = 4, recipes = { Testing = recipes }, stock = stock, professions = {}, recipeItemPrices = {}, caps = {},
+                prices = { [12] = { status = "known", copper = 2 }, [13] = { status = "known", copper = 3 }, [14] = { status = "known", copper = 500 }, [15] = { status = "known", copper = 1 } } })
+            assert(core.CheckBalance(plan))
+            local m = {}
+            for _, row in ipairs(plan.materials) do m[row.id] = row end
+            return plan, m, core.Result(plan)
+        end
+        local plan, m, result = Plan({ R("A", 10, 1, 4, { { 12, 1 }, { 13, 1 } }) }, { [12] = { unknown = true }, [13] = 5 })
+        assert(m[12].haveKnown == false and m[12].missing == 3 and m[12].cost == 6 and not m[12].covered and plan.status == "incomplete", "an unknown count: as before")
+        assert(m[12].missingAssumed == true and not m[13].missingAssumed, "what is missing of an item with an unknown count is not marked as assumed")
+        assert(#plan.cost.assumedItems == 1 and plan.cost.assumedItems[1] == 12, "the sum does not say which items it assumes none of")
+        assert(result.items[12].missingAssumed == true and result.items[12].have == nil and result.items[12].missing == 3, "the second reader cannot tell an assumed amount")
+        assert(result.items[13].missingAssumed == false and result.items[13].have == 5 and result.stockAssumed == 1, "a known count is marked as assumed")
+        -- also when the plan makes the thing instead of buying it
+        plan, m, result = Plan({ R("A", 10, 1, 4, { { 14, 1 } }), R("Make it", 14, 1, 1, { { 15, 1 } }) }, { [14] = { unknown = true } })
+        assert(m[14].madeFrom and m[14].missing == 0 and m[14].missingAssumed == true and result.items[14].missingAssumed == true and result.stockAssumed == 1,
+            "an item made for the plan with an unknown count is not marked")
+        -- every count known: nothing is assumed
+        plan, m, result = Plan({ R("A", 10, 1, 4, { { 12, 1 }, { 13, 1 } }) }, { [12] = 1, [13] = 5 })
+        assert(#plan.cost.assumedItems == 0 and result.stockAssumed == 0 and not m[12].missingAssumed, "known counts are called assumed")
+
+        -- (3) the window says it where the sum is, and in the row's tooltip
+        local rank = 1
+        ns.ProfessionRank = function(p) if p == "Alchemy" then return rank, 75 end end
+        d.Known = function() return {} end
+        ns.GetPrice = function() return 10, "AH scan" end
+        ns.db.planTargets = nil
+        local function Show(stock)
+            core.Compute = function(input)
+                local a = R("A", 9850, 1, 4, { { 9851, 1 }, { 9852, 1 } }, { name = "Recipe A" })
+                a.prof = input.prof
+                return saved.compute({ prof = input.prof, skill = 1, target = 4, professions = {}, caps = {}, nodes = {}, stock = stock, recipeItemPrices = {},
+                    recipes = { [input.prof] = { a } },
+                    prices = { [9851] = { status = "known", copper = 200, source = "AH scan" }, [9852] = { status = "known", copper = 1, source = "AH scan" } } })
+            end
+            rank = rank + 1 -- (a new state, so the plan is made again)
+            ns.ShowSkillPlan("Alchemy") advance(1)
+            win = _G.GathercraftSkillPlan
+        end
+        local function Bottom()
+            local note, total
+            for _, o in ipairs(allFrames) do
+                local at = o.__kind == "FontString" and o.__parent == win and o.__pts and o.__pts.BOTTOMLEFT
+                if at and at[2] == 24 then note = o elseif at and at[2] == 42 then total = o end
+            end
+            assert(note and total, "test setup: the note and the sum at the bottom")
+            return note:GetText() or "", total:GetText() or ""
+        end
+        local function Row(id)
+            local name = ns.ItemName and ns.ItemName(id) or (L["item "] .. id)
+            for _, o in ipairs(allFrames) do
+                if o.left and o.mid and o.right and o:IsShown() and o.left:GetText() == name then return o end
+            end
+        end
+        local ASSUMED = (L["Counted as if you had none of the %d marked ?: the sum may be too high."]):format(1)
+        Show({ [9851] = { unknown = true }, [9852] = { n = 9 } })
+        local note, total = Bottom()
+        assert(total:find((L["Missing materials cost about %s"]):format(ns.Money(600)), 1, true), "the sum under an unknown count: " .. total)
+        assert(note:find(ASSUMED, 1, true), "the sum does not say that it assumes none in stock: " .. note)
+        local row = Row(9851)
+        assert(row and row.mid:GetText():find("? / 3", 1, true) and not row.check:IsShown(), "the row of an unknown count")
+        local tip = {}
+        row.tip({ AddLine = function(_, t) tip[#tip + 1] = t end })
+        tip = table.concat(tip, "\n")
+        assert(tip:find(L["How many you have could not be read."], 1, true) and tip:find(L["What is missing is counted as if you had none."], 1, true), "the row's tooltip does not name the assumption")
+        -- the note is one line at the bottom of the card, in this language too
+        -- (an estimate: 6 px a letter, 11 px a CJK sign)
+        local px = 0
+        for ch in ((L["Counted as if you had none of the %d marked ?: the sum may be too high."]):format(12)):gmatch("[%z\1-\127\194-\244][\128-\191]*") do px = px + (#ch >= 3 and 11 or 6) end
+        assert(px <= 500, ("%s: the note about assumed stock needs %d px of 500"):format(LOCALE, px))
+        -- every count known: no such note, no such line
+        Show({ [9851] = { n = 0 }, [9852] = { n = 9 } })
+        note = Bottom()
+        tip = {}
+        Row(9851).tip({ AddLine = function(_, t) tip[#tip + 1] = t end })
+        assert(not note:find(ASSUMED, 1, true) and not table.concat(tip, "\n"):find(L["What is missing is counted as if you had none."], 1, true), "known counts: the sum says it assumes something")
+    end)
+    C_Item, GetItemCount = saved.item, saved.count
+    ns.ProfessionRank, d.Have, d.Known, ns.GetPrice, core.Compute, ns.db.planTargets = saved.rank, saved.have, saved.known, saved.price, saved.compute, saved.targets
+    if win then win:Hide() end
+    if not ok then error(err, 0) end
+end)
 -- (end of the skill plan 2.0 steps, v0.2 building block 1)
 step("Craft log: one entry per finished craft, failures and odd cases marked apart (v0.1.18 S5)", function()
     local data = GathercraftRecipeData

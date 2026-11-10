@@ -28,6 +28,10 @@ local ADDON_NAME, ns = ...
 --            read" is not 0 (concept 4.4): the books then go on with 0 so
 --            the plan stays carried out, but the row says the count is not
 --            known, gets no tick, and the plan is not called complete.
+--            What is missing of such an item (and so its cost) is counted
+--            AS IF you had none - an assumption, marked on the row
+--            (missingAssumed), in the sum (cost.assumedItems) and for a
+--            second reader (Core.Result) - Codex round 1, B6.
 --            An item the snapshot does not list counts as none.
 --   prices   [item] = { status = "known" | "estimated" | "unknown",
 --                       copper (nil when unknown), source, age (seconds) }
@@ -1049,12 +1053,15 @@ end
 
 -- the material rows, the books behind them, and what the missing ones cost:
 --   cost = { known = sum of known prices, estimated = sum of estimated ones,
---            estimatedItems = { id, ... }, unknownItems = { id, ... } }
--- A missing material without a price is in unknownItems, in no sum.
+--            estimatedItems = { id, ... }, unknownItems = { id, ... },
+--            assumedItems = { id, ... } }
+-- A missing material without a price is in unknownItems, in no sum. An item
+-- whose count could not be read is in assumedItems: what the plan buys or
+-- makes of it is counted as if you had none.
 local function Rows(ctx, L)
     local input = ctx.input
     local list, ledger = {}, {}
-    local cost = { known = 0, estimated = 0, estimatedItems = {}, unknownItems = {} }
+    local cost = { known = 0, estimated = 0, estimatedItems = {}, unknownItems = {}, assumedItems = {} }
     local ids = {}
     for id in pairs(L.used) do ids[#ids + 1] = id end
     table.sort(ids)
@@ -1080,11 +1087,14 @@ local function Rows(ctx, L)
         -- bought - it is a forecast, no stock, and never ticks a row.
         local haveKnown = not L.unknown[id]
         local have = L.start[id] or 0
-        if not haveKnown then Note(ctx, "stock_unknown", id, { item = id }) end
+        if not haveKnown then
+            Note(ctx, "stock_unknown", id, { item = id })
+            cost.assumedItems[#cost.assumedItems + 1] = id
+        end
         list[#list + 1] = { id = id, need = L.used[id], have = have, haveKnown = haveKnown, stock = input.stock[id],
             covered = haveKnown and have >= L.used[id], missing = missing, cost = copper, costStatus = status,
             price = price, node = input.nodes and input.nodes[id], planned = L.madePlan[id] or 0, made = L.madeExtra[id] or 0,
-            outputAssumed = L.varies[id] or nil,
+            outputAssumed = L.varies[id] or nil, missingAssumed = not haveKnown or nil,
             madeFrom = by and { prof = by.prof, key = by.key, made = math.max(1, by.made or 1), reagents = by.reagents, recipe = by } or nil }
     end
     for id in pairs(L.have) do
@@ -1173,11 +1183,14 @@ end
 --                the plan's own steps will make: a forecast, no stock), made
 --                (made extra for the plan), cost, costStatus, price, stock
 --                (the snapshot's entry), node, madeFrom, outputAssumed (its
---                amount rests on the mean of a varying output) }
+--                amount rests on the mean of a varying output),
+--                missingAssumed (your count is not known: what is missing
+--                or made is counted as if you had none) }
 --   ledger       [item] = { start, bought, madePlan, madeExtra, used, rest }
 --   extras       { recipe, times } - the extra crafts, in the order first needed
---   cost         { known, estimated, estimatedItems, unknownItems } of what
---                is missing; total = known + estimated (never a made-up price)
+--   cost         { known, estimated, estimatedItems, unknownItems,
+--                assumedItems } of what is missing; total = known +
+--                estimated (never a made-up price)
 --   crafts       the expected number of crafts of all steps (a sum of means;
 --                the steps' ranges are not added up - concept 4.1)
 --   estimate     { crafts, output }: the amounts and the cost are a planning
@@ -1192,7 +1205,7 @@ function Core.Compute(input)
     local why = Invalid(input)
     if why then
         return { status = "invalid", valid = false, complete = false, reason = why, steps = {}, training = {}, materials = {}, ledger = {}, extras = {},
-            total = 0, crafts = 0, cost = { known = 0, estimated = 0, estimatedItems = {}, unknownItems = {} },
+            total = 0, crafts = 0, cost = { known = 0, estimated = 0, estimatedItems = {}, unknownItems = {}, assumedItems = {} },
             estimate = { crafts = false, output = false },
             learn = { fees = 0, feesUnknown = 0, trainer = 0, items = 0, itemCost = 0, itemsUnknown = 0, matsUnknown = 0, list = {} },
             diagnostics = { { code = "invalid", reason = why } } }
@@ -1255,15 +1268,20 @@ end
 -- small table: per item need / have (and whether that is known) / missing,
 -- and what the plan is - also that its amounts are a planning estimate
 -- (estimate) and which items rest on the mean of a varying output
--- (outputAssumed). Made from a finished plan; nothing is calculated here.
+-- (outputAssumed). An item whose count could not be read has no "have"; its
+-- "missing" is a number all the same - counted as if you had none - and is
+-- marked missingAssumed (stockAssumed: how many such items). Made from a
+-- finished plan; nothing is calculated here.
 function Core.Result(plan)
-    local items = {}
+    local items, assumed = {}, 0
     for _, m in ipairs(plan.materials or {}) do
         items[m.id] = { need = m.need, have = m.haveKnown and m.have or nil, haveKnown = m.haveKnown, missing = m.missing,
             covered = m.covered, planned = m.planned, make = m.madeFrom ~= nil, costStatus = m.costStatus,
-            outputAssumed = m.outputAssumed == true }
+            outputAssumed = m.outputAssumed == true, missingAssumed = m.missingAssumed == true }
+        if m.missingAssumed then assumed = assumed + 1 end
     end
     local e = plan.estimate or {}
     return { prof = plan.prof, from = plan.from, target = plan.target, status = plan.status, valid = plan.valid == true,
-        complete = plan.complete == true, items = items, estimate = { crafts = e.crafts == true, output = e.output == true } }
+        complete = plan.complete == true, items = items, estimate = { crafts = e.crafts == true, output = e.output == true },
+        stockAssumed = assumed }
 end
