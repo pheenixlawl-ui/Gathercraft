@@ -299,6 +299,8 @@ end
 --   * the amounts are a planning estimate (PlanCore.lua): the window says so
 --     under the materials and in their tooltips, and marks an output that
 --     varies
+--   * what a recipe needs beyond its ingredients (a tool, a forge, an anvil,
+--     a cooldown) is not checked: one line under the materials says so
 --   * it only shows: nothing is crafted, bought, learned or moved from here
 ---------------------------------------------------------------------------
 local win, profText, skillText, targetLabel, targetButton, targetMenu, targetEdit, content, totalText, noteText
@@ -823,6 +825,13 @@ local function Refresh()
     if unread then Line(L["? in have / need: that count could not be read."], nil, DIM) end
     if isEstimate then
         Line(L["Planning estimate from the average number of crafts per step - what you really need varies."], nil, DIM)
+    end
+    -- What the plan does not check (concept 4.7, as Sven set it for building
+    -- block 1 on 10.11.2026): a forge, an anvil, a cooldown - like
+    -- reputation or character level - are not in the shipped data. Nothing
+    -- is made up for them; one line says so. Tools are not listed at all.
+    if #plan.steps > 0 then
+        Line(L["Some recipes also need a tool, a forge or an anvil, or have a cooldown - the plan does not check that."], nil, DIM)
     end
 
     -- the sum: what is known, what of it is only estimated, and how many

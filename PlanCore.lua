@@ -40,6 +40,10 @@ local ADDON_NAME, ns = ...
 --   recipeItemPrices  [recipe item] = copper (a vendor showed it)
 --   nodes    [item] = the node that gives it (for a farm run)
 -- }
+-- What a recipe needs beyond its record - a tool, a forge or an anvil, a
+-- cooldown, reputation, a character level - is not in the input and not in
+-- the plan: nothing here says such a thing is met or missing (concept 4.7,
+-- set apart for building block 1; the window says that it is not checked).
 ---------------------------------------------------------------------------
 local Core = {}
 ns.PlanCore = Core

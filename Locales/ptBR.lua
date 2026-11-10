@@ -640,4 +640,5 @@ ns.Locales.ptBR = {
     ["Counted with the average output per craft - what a craft really makes varies."] = "Contado com a quantidade média por criação: a quantidade real varia.",
     ["Counted as if you had none of the %d marked ?: the sum may be too high."] = "Contado como se você não tivesse nenhum dos %d com ?: a soma pode estar alta.",
     ["What is missing is counted as if you had none."] = "O que falta é contado como se você não tivesse nenhum.",
+    ["Some recipes also need a tool, a forge or an anvil, or have a cooldown - the plan does not check that."] = "Algumas receitas também precisam de uma ferramenta, uma forja ou uma bigorna, ou têm tempo de recarga: o plano não verifica isso.",
 }

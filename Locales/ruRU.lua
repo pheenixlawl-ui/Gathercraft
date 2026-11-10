@@ -640,4 +640,5 @@ ns.Locales.ruRU = {
     ["Counted with the average output per craft - what a craft really makes varies."] = "Посчитано по среднему выходу за изготовление: реальный выход может отличаться.",
     ["Counted as if you had none of the %d marked ?: the sum may be too high."] = "Посчитано так, будто у вас нет ни одного из %d с «?»: сумма может быть завышена.",
     ["What is missing is counted as if you had none."] = "Недостающее посчитано так, будто у вас нет ни одного.",
+    ["Some recipes also need a tool, a forge or an anvil, or have a cooldown - the plan does not check that."] = "Некоторым рецептам нужны ещё инструмент, кузня или наковальня, либо у них есть время восстановления - план это не проверяет.",
 }

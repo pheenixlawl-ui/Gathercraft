@@ -640,4 +640,5 @@ ns.Locales.koKR = {
     ["Counted with the average output per craft - what a craft really makes varies."] = "제작당 평균 생산량으로 계산했습니다. 실제 생산량은 달라질 수 있습니다.",
     ["Counted as if you had none of the %d marked ?: the sum may be too high."] = "?로 표시된 %d개는 없는 것으로 계산했습니다: 합계가 실제보다 높을 수 있습니다.",
     ["What is missing is counted as if you had none."] = "부족한 수량은 하나도 없는 것으로 계산했습니다.",
+    ["Some recipes also need a tool, a forge or an anvil, or have a cooldown - the plan does not check that."] = "일부 제조법은 도구, 용광로나 모루가 필요하거나 재사용 대기시간이 있습니다. 계획은 이를 확인하지 않습니다.",
 }

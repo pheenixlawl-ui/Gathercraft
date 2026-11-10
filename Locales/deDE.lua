@@ -669,4 +669,5 @@ ns.Locales.deDE = {
     ["Counted with the average output per craft - what a craft really makes varies."] = "Mit der mittleren Ausbeute je Herstellung gerechnet - die tatsächliche Ausbeute schwankt.",
     ["Counted as if you had none of the %d marked ?: the sum may be too high."] = "Gerechnet, als hättest du nichts von den %d mit ?: die Summe kann zu hoch sein.",
     ["What is missing is counted as if you had none."] = "Der Fehlbedarf ist gerechnet, als hättest du nichts davon.",
+    ["Some recipes also need a tool, a forge or an anvil, or have a cooldown - the plan does not check that."] = "Manche Rezepte brauchen außerdem ein Werkzeug, eine Schmiede oder einen Amboss oder haben eine Abklingzeit - das prüft der Plan nicht.",
 }

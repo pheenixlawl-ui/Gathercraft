@@ -640,4 +640,5 @@ ns.Locales.zhCN = {
     ["Counted with the average output per craft - what a craft really makes varies."] = "按每次制作的平均产量计算：实际产量会有出入。",
     ["Counted as if you had none of the %d marked ?: the sum may be too high."] = "标有 ? 的 %d 种按没有计算：总额可能偏高。",
     ["What is missing is counted as if you had none."] = "缺少的数量按一个都没有计算。",
+    ["Some recipes also need a tool, a forge or an anvil, or have a cooldown - the plan does not check that."] = "有些配方还需要工具、熔炉或铁砧，或有冷却时间：计划不检查这些。",
 }

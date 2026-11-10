@@ -5775,6 +5775,77 @@ step("Skill plan 2.0: a count that is not known stays unknown, and the sum says 
     if win then win:Hide() end
     if not ok then error(err, 0) end
 end)
+step("Skill plan 2.0: what the plan does not check is said once, tools are not listed (v0.2 r1 F8)", function()
+    -- Concept 4.7, as Sven set it for building block 1 on 10.11.: a forge, an
+    -- anvil, a cooldown (and reputation, character level) are not in the
+    -- shipped data, so the plan does not check them - it says so in one line.
+    -- Tools are not listed at all. No requirement is made up.
+    local L, core, d = ns.L, ns.PlanCore, ns.CraftData
+    local saved = { rank = ns.ProfessionRank, have = d.Have, known = d.Known, price = ns.GetPrice, compute = core.Compute, targets = ns.db.planTargets, filter = ns.CraftFilter }
+    local win
+    local ok, err = pcall(function()
+        local rank = 1
+        ns.ProfessionRank = function(p) if p == "Blacksmithing" or p == "Enchanting" then return rank, 75 end end
+        d.Have = function() return 0 end
+        d.Known = function() return {} end
+        ns.GetPrice = function() return 10, "AH scan" end
+        ns.db.planTargets = nil
+        local NOTE = L["Some recipes also need a tool, a forge or an anvil, or have a cooldown - the plan does not check that."]
+        -- how many rows of the plan are exactly this line (the whole text: a
+        -- short word like "Steps" is part of other lines in some languages)
+        local function Count(text)
+            local n = 0
+            for _, o in ipairs(allFrames) do
+                if o.left and o.mid and o.right and o:IsShown() and o.left:GetText() == text then n = n + 1 end
+            end
+            return n
+        end
+        -- a real plan from the shipped data: the line is there, once
+        rank = rank + 1
+        ns.ShowSkillPlan("Blacksmithing") advance(1)
+        win = _G.GathercraftSkillPlan
+        assert(Count(L["Steps"]) == 1 and Count(L["Materials"]) == 1, "test setup: no plan shown")
+        assert(Count(NOTE) == 1, ("what the plan does not check is said %d times, want once"):format(Count(NOTE)))
+        -- it promises nothing and names no requirement of a certain recipe
+        local low = NOTE:lower()
+        assert(not low:find("guarantee", 1, true) and not low:find("always", 1, true), "the line promises too much")
+        -- tools are not listed: the rod an enchanter makes once is no material
+        -- row and no row "needed, not used up"
+        rank = rank + 1
+        ns.ShowSkillPlan("Enchanting") advance(1)
+        local rod = ns.ItemName and ns.ItemName(6218)
+        assert(rod and Count(NOTE) == 1, "test setup: the rod's name")
+        for _, o in ipairs(allFrames) do
+            if o.left and o.mid and o.right and o:IsShown() and o.left:GetText() == rod then
+                error("the Runed Copper Rod is listed as a material: " .. tostring(o.mid:GetText()), 0)
+            end
+        end
+        -- the calculation knows no requirement beyond the recipe's record:
+        -- nothing in a plan claims that one is met or missing
+        local plan = core.Compute(ns.SkillPlanSnapshot("Enchanting", 1, 75))
+        assert(plan.valid and plan.requirements == nil and plan.tools == nil, "the plan claims to know requirements")
+        for _, s in ipairs(plan.steps) do
+            assert(s.requires == nil and s.tools == nil and s.cooldown == nil, "a step claims to know a requirement")
+        end
+        -- at the target there is nothing to craft: no line
+        ns.SkillPlanSetTarget(rank + 5)
+        rank = rank + 5
+        ns.ShowSkillPlan("Enchanting") advance(1)
+        assert(Count((L["Done: you have reached your target (%d)."]):format(rank)) == 1 and Count(NOTE) == 0, "the line at the target")
+        -- no plan, no line: nothing chosen, nothing to plan from
+        core.Compute = function() return saved.compute({}) end
+        rank = rank + 1
+        ns.ShowSkillPlan("Blacksmithing") advance(1)
+        assert(Count(L["No plan: there is nothing to plan from."]) == 1 and Count(NOTE) == 0, "the line without a plan")
+        core.Compute = saved.compute
+        ns.CraftFilter = function() return "mine" end
+        ns.ShowSkillPlan() advance(1)
+        assert(Count(L["Choose a profession first."]) == 1 and Count(NOTE) == 0, "the line without a profession")
+    end)
+    ns.ProfessionRank, d.Have, d.Known, ns.GetPrice, core.Compute, ns.db.planTargets, ns.CraftFilter = saved.rank, saved.have, saved.known, saved.price, saved.compute, saved.targets, saved.filter
+    if win then win:Hide() end
+    if not ok then error(err, 0) end
+end)
 -- (end of the skill plan 2.0 steps, v0.2 building block 1)
 step("Craft log: one entry per finished craft, failures and odd cases marked apart (v0.1.18 S5)", function()
     local data = GathercraftRecipeData
