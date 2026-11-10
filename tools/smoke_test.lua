@@ -5537,6 +5537,92 @@ step("Skill plan 2.0: a changed recipe is a new plan (v0.2 r1 F4)", function()
         assert(sig:find("r." .. field, 1, true), "the signature of a recipe leaves out " .. field)
     end
 end)
+step("Skill plan 2.0: a profession that is there with an unreadable skill is never \"not learned\" (v0.2 r1 F5)", function()
+    -- Codex round 1, B5 (concept 5): "not learned" needs proof - the whole
+    -- skill list readable AND the profession not in it. A line of the
+    -- profession whose skill cannot be read is the profession found with an
+    -- unknown skill: "skill unknown", no plan from 1. Through the real reader
+    -- of the skill list (ns.ProfessionRank), not a stand-in for it.
+    local L, core = ns.L, ns.PlanCore
+    local saved = { lines = GetNumSkillLines, line = GetSkillLineInfo, secret = issecretvalue, recipes = ns.db.recipes, targets = ns.db.planTargets,
+        compute = core.Compute }
+    local win
+    local ok, err = pcall(function()
+        ns.db.recipes = {}     -- no skill remembered from a profession window
+        ns.db.planTargets = nil
+        local SECRET = newproxy(true)
+        issecretvalue = function(v) return rawequal(v, SECRET) end
+        local rank, maxRank, name = SECRET, 75, "Tailoring"
+        GetNumSkillLines = function() return 3 end
+        GetSkillLineInfo = function(i)
+            if i == 1 then return "Professions", true, true, 0, 0, 0, 0 end
+            if i == 2 then return name, false, true, rank, 0, 0, maxRank end
+            return "Secondary Skills", true, true, 0, 0, 0, 0
+        end
+        local computes = 0
+        core.Compute = function(input) computes = computes + 1 return saved.compute(input) end
+        local function Shows(text)
+            for _, o in ipairs(allFrames) do
+                if o.left and o.mid and o.right and o:IsShown() then
+                    local t = o.left:GetText()
+                    if type(t) == "string" and t:find(text, 1, true) then return true end
+                end
+            end
+        end
+        local function Header(text)
+            for _, o in ipairs(allFrames) do
+                if o.__kind == "FontString" and o.__parent == win and o:GetText() == text then return true end
+            end
+        end
+
+        -- Codex' probe: the line is there, its skill is hidden
+        assert(ns.ProfessionRank("Tailoring") == nil, "test setup: the real reader gives a hidden skill out")
+        local state, r, m, why = ns.SkillPlanSkillState("Tailoring")
+        assert(state == "unknown", "a profession with a hidden skill is called " .. tostring(state))
+        assert(r == nil and m == nil and why == "rank", "found with an unknown skill is not told apart")
+        local shown, problem = pcall(function() ns.ShowSkillPlan("Tailoring") advance(1) end)
+        win = _G.GathercraftSkillPlan
+        assert(shown, "a hidden skill breaks the window: " .. tostring(problem))
+        assert(Shows(L["Your skill could not be read, so there is no plan yet."]) and computes == 0, "a hidden skill: a plan was made")
+        assert(not Shows(L["Not learned yet - learn it from a trainer. This is a preview from skill 1."]) and not Header(L["Not learned yet"]),
+            "a profession with a hidden skill is shown as not learned")
+        assert(Header(L["Your skill: ? (open your profession window once)"]) and not _G.GathercraftSkillPlanTarget:IsShown(), "skill unknown is not shown")
+        -- a skill that is no number, or missing in the line: the same
+        for _, odd in ipairs({ "12", false }) do
+            rank = odd or nil
+            state, r, m, why = ns.SkillPlanSkillState("Tailoring")
+            assert(state == "unknown" and why == "rank", "a line without a usable skill is called " .. tostring(state))
+        end
+        -- readable: learned, with its numbers (the way Codex' probe ends)
+        rank = 25
+        state, r, m = ns.SkillPlanSkillState("Tailoring")
+        assert(state == "learned" and r == 25 and m == 75, "a readable skill: " .. tostring(state))
+        -- only the maximum hidden: the real reader skips the line, the skill itself is still used
+        maxRank = SECRET
+        assert(ns.ProfessionRank("Tailoring") == nil, "test setup: a line with a hidden maximum is read")
+        state, r, m = ns.SkillPlanSkillState("Tailoring")
+        assert(state == "learned" and r == 25 and m == nil, "a hidden maximum hides the skill: " .. tostring(state))
+        computes = 0
+        ns.ShowSkillPlan("Tailoring") advance(1)
+        assert(computes > 0 and Header((L["Your skill: %d"]):format(25)), "a hidden maximum: no plan from the readable skill")
+        maxRank = 75
+        -- the profession really is not in a list that can be read whole: not learned, a preview from 1
+        name = "Herbalism"
+        state = ns.SkillPlanSkillState("Tailoring")
+        assert(state == "unlearned", "positively not learned is called " .. tostring(state))
+        computes = 0
+        ns.db.planTargets = nil
+        ns.ShowSkillPlan("Tailoring") advance(1)
+        assert(computes > 0 and Shows(L["Not learned yet - learn it from a trainer. This is a preview from skill 1."]), "positively not learned: no preview")
+        -- a line whose NAME is hidden could be the profession: unknown
+        name = SECRET
+        state = ns.SkillPlanSkillState("Tailoring")
+        assert(state == "unknown", "a hidden line: called " .. tostring(state))
+    end)
+    GetNumSkillLines, GetSkillLineInfo, issecretvalue, ns.db.recipes, ns.db.planTargets, core.Compute = saved.lines, saved.line, saved.secret, saved.recipes, saved.targets, saved.compute
+    if win then win:Hide() end
+    if not ok then error(err, 0) end
+end)
 -- (end of the skill plan 2.0 steps, v0.2 building block 1)
 step("Craft log: one entry per finished craft, failures and odd cases marked apart (v0.1.18 S5)", function()
     local data = GathercraftRecipeData

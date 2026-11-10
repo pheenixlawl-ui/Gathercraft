@@ -282,7 +282,8 @@ end
 --     here; none chosen: "Choose a profession first."
 --   * your skill is read, never assumed: learned -> the plan from there;
 --     positively not learned -> a preview from 1, said so; not readable ->
---     "skill unknown" and no plan (not a start at 1)
+--     "skill unknown" and no plan (not a start at 1) - also when the
+--     profession is in the skill list and only its skill cannot be read
 --   * the target comes from a small menu (75 / 150 / 225 / 300, a value of
 --     your own, back to the default) and stays as you set it - per character
 --     and profession in ns.db.planTargets. Reached: "done", no jump to the
@@ -311,27 +312,40 @@ local function CharKey()
     return (ns.Readable(UnitName("player"), "skill plan") or "?") .. "-" .. ((GetNormalizedRealmName and GetNormalizedRealmName()) or "?")
 end
 
--- Your skill in a profession: "learned" with rank and maximum, "unlearned"
--- (only when the whole skill list could be read and the profession is not
--- in it), or "unknown". Every value is checked for being readable before it
--- is compared, counted with or shown.
+-- Your skill in a profession:
+--   "learned", rank, maximum
+--   "unlearned"   only with proof: the whole skill list could be read - it
+--                 is there, every line readable, no group folded - AND the
+--                 profession is not in it
+--   "unknown"     everything else. With "rank" as the fourth value when the
+--                 profession was FOUND but its skill cannot be read (hidden,
+--                 no number): that is never "not learned" (Codex round 1, B5).
+-- Every value is checked for being readable before it is compared, counted
+-- with or shown.
 local function SkillState(prof)
     local ok, rank, maxRank = pcall(ns.ProfessionRank, prof)
     if not ok then return "unknown" end
     if rank ~= nil then
-        if ns.AnySecret("skill plan skill", rank) or type(rank) ~= "number" then return "unknown" end
+        if ns.AnySecret("skill plan skill", rank) or type(rank) ~= "number" then return "unknown", nil, nil, "rank" end
         if maxRank ~= nil and (ns.AnySecret("skill plan skill", maxRank) or type(maxRank) ~= "number" or maxRank <= 0) then maxRank = nil end
         return "learned", rank, maxRank
     end
-    -- not found. "Not learned" only when nothing can hide it: the list is
-    -- there, every line of it readable, no group folded
+    -- The reader found no skill (it leaves out a line with a hidden value).
+    -- The list itself says whether the profession is there: line by line,
+    -- by the profession each line names.
     if not (GetNumSkillLines and GetSkillLineInfo) then return "unknown" end
     local okN, count = pcall(GetNumSkillLines)
     if not okN or count == nil or ns.AnySecret("skill plan skills", count) or type(count) ~= "number" or count <= 0 then return "unknown" end
     for i = 1, count do
-        local okL, name, isHeader, isExpanded = pcall(GetSkillLineInfo, i)
-        if not okL or name == nil or ns.AnySecret("skill plan skills", name, isHeader, isExpanded) then return "unknown" end
+        local okL, name, isHeader, isExpanded, lineRank, _, _, lineMax = pcall(GetSkillLineInfo, i)
+        if not okL or name == nil or ns.AnySecret("skill plan skills", name, isHeader, isExpanded) or type(name) ~= "string" then return "unknown" end
         if isHeader and isExpanded == false then return "unknown" end
+        if not isHeader and (ns.ProfKey and ns.ProfKey(name) or name) == prof then
+            -- the profession is there: its skill, or "unknown" - never "not learned"
+            if lineRank == nil or ns.AnySecret("skill plan skill", lineRank) or type(lineRank) ~= "number" then return "unknown", nil, nil, "rank" end
+            if lineMax ~= nil and (ns.AnySecret("skill plan skill", lineMax) or type(lineMax) ~= "number" or lineMax <= 0) then lineMax = nil end
+            return "learned", lineRank, lineMax
+        end
     end
     return "unlearned"
 end
