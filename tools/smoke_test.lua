@@ -6901,6 +6901,55 @@ step("Skill plan 2.0: a big plan is worked out in parts - the same plan, never a
     if win then win:Hide() end
     if not ok then error(err, 0) end
 end)
+step("Skill plan 2.0: what a batch made too much is used by the next need (v0.2 r2 G6)", function()
+    -- Codex round 2 (the note on "no look ahead"): a need is decided when it
+    -- comes up, and what a batch makes too much is no saving at that moment
+    -- (selling it is not part of the plan). But a surplus that IS there is
+    -- stock like any other: the next need uses it before anything is bought
+    -- or made - on the plan's books and on the books of the recipe choice.
+    local core = ns.PlanCore
+    local function R(key, product, req, upto, mats, extra)
+        local r = { prof = "Testing", key = key, name = key, product = product, made = 1, req = req, yellow = upto, grey = upto, reagents = {}, learn = "known" }
+        for _, x in ipairs(mats) do r.reagents[#r.reagents + 1] = { id = x[1], n = x[2] } end
+        for k, v in pairs(extra or {}) do r[k] = v end
+        return r
+    end
+    local function Plan(recipes, prices, to)
+        local p = {}
+        for id, copper in pairs(prices) do p[id] = { status = "known", copper = copper } end
+        local plan = core.Compute({ prof = "Testing", skill = 1, target = to or 3, recipes = { Testing = recipes }, stock = {}, prices = p,
+            professions = {}, recipeItemPrices = {}, caps = {} })
+        local ok, why = core.CheckBalance(plan)
+        assert(ok, "the books do not balance: " .. tostring(why))
+        local keys = {}
+        for _, s in ipairs(plan.steps) do keys[#keys + 1] = s.recipe.key end
+        return plan, table.concat(keys, ",") .. " " .. tostring(plan.total)
+    end
+    -- an X costs 20c, a batch of three 30c
+    local makeX = R("Make X", 11, 1, 1, { { 12, 1 } }, { made = 3 })
+    local prices = { [11] = 20, [12] = 30, [21] = 5 }
+    -- the first step takes two X: a batch (30c, below 40c) - one X is left.
+    -- The second step takes one X: the one that is left, nothing is bought
+    local plan, says = Plan({ R("A", 10, 1, 2, { { 11, 2 } }), R("B", 20, 2, 3, { { 11, 1 } }), makeX }, prices)
+    local x = plan.ledger[11]
+    assert(says == "A,B 30", "one X left from the batch, one X needed: " .. says)
+    assert(x.madeExtra == 3 and x.used == 3 and x.bought == 0 and x.rest == 0, ("the X: made %d, used %d, bought %d, left %d"):format(x.madeExtra, x.used, x.bought, x.rest))
+    -- the recipe choice sees it too: with the X that is left B costs nothing
+    -- at the second point - C (5c) is not taken. (Without it B would cost
+    -- 20c and C would be.)
+    plan, says = Plan({ R("A", 10, 1, 2, { { 11, 2 } }), R("B", 20, 2, 3, { { 11, 1 } }), R("C", 30, 2, 3, { { 21, 1 } }), makeX }, prices)
+    assert(says == "A,B 30", "the recipe choice does not count the X that is left: " .. says)
+    -- a surplus that covers a part of the next need: the rest is decided
+    -- for itself - one more X bought (20c), no second batch (30c)
+    plan, says = Plan({ R("A", 10, 1, 2, { { 11, 2 } }), R("B", 20, 2, 3, { { 11, 2 } }), makeX }, prices)
+    x = plan.ledger[11]
+    assert(says == "A,B 50" and x.madeExtra == 3 and x.bought == 1 and x.used == 4 and x.rest == 0, "one X left, two needed: " .. says)
+    -- and what is left at the end is left: it is in the books, not sold, not
+    -- counted as a saving
+    plan, says = Plan({ R("A", 10, 1, 2, { { 11, 2 } }), makeX }, prices, 2)
+    x = plan.ledger[11]
+    assert(says == "A 30" and x.madeExtra == 3 and x.used == 2 and x.rest == 1, "what is left at the end: " .. says)
+end)
 -- (end of the skill plan 2.0 steps, v0.2 building block 1)
 step("Craft log: one entry per finished craft, failures and odd cases marked apart (v0.1.18 S5)", function()
     local data = GathercraftRecipeData
