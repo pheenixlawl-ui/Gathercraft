@@ -376,7 +376,9 @@ local function Learn(reader)
         local product, nMin, nMax, _, reagentText = packed:match("^(%d+):(%d+):(%d+):(%d+)|(.*)$")
         if product then MergeRecipe(prof, name, tonumber(product), tonumber(nMin), tonumber(nMax), nil, reagentText) end
     end
-    mine[prof] = { list = old, updated = time() }
+    -- (the skill seen last stays until a newer one is read)
+    local before = mine[prof]
+    mine[prof] = { list = old, updated = time(), rank = before and before.rank or nil, rankAt = before and before.rankAt or nil }
     -- the skill shown in the window (for the skill planner)
     local _, rank
     if GetTradeSkillLine then
@@ -387,7 +389,7 @@ local function Learn(reader)
         local name, r = GetCraftDisplaySkillLine()
         if ProfKey(name) == prof then rank = r end
     end
-    if type(rank) == "number" and rank > 0 then mine[prof].rank = rank end
+    if type(rank) == "number" and rank > 0 then mine[prof].rank, mine[prof].rankAt = rank, time() end
     if not told[prof] then
         told[prof] = true
         local total = 0
@@ -1854,32 +1856,54 @@ local function ProfessionLines()
         unclear and " (some hidden)" or "") }
 end
 
--- Your skill in a profession: the game's list of your professions (by the
--- line's number, no window needed), else the skill list, else what the
--- profession window showed last time
+-- Your skill in a profession - the skill you have NOW: the game's list of
+-- your professions (by the line's number, no window needed), else the skill
+-- list. When neither can be read: the skill that was seen last (in one of
+-- them or in the profession window), said to be that - rank, nil,
+-- "lastSeen", when it was seen (nil: before that was kept). Codex round 2,
+-- R2-M3:
+--   * every skill that is read now is kept as the one seen last, with the
+--     time - so an older, lower one from the profession window never comes
+--     back in place of a skill that was read after it
+--   * who gets "lastSeen" knows it is no current skill
+-- (Kept where the profession window's recipes are kept: for a profession
+-- whose window was never read nothing is kept, and nothing is given out.)
 local SKILL_TYPE = { Mining = "ore", Cooking = "cook", ["First Aid"] = "aid" }
+local function RankSeen(prof, rank)
+    if rank == nil or ns.AnySecret("skills", rank) or type(rank) ~= "number" or rank <= 0 then return end
+    local mine = CharRecipes()[prof]
+    if mine then mine.rank, mine.rankAt = rank, time() end
+end
+ns.ProfessionRankSeen = RankSeen
 ns.ProfessionRank = function(prof)
     if ns.ProfessionSlots then
         for _, slot in ipairs(ns.ProfessionSlots()) do
             if PROF_LINE[slot.line] == prof and not ns.AnySecret("skills", slot.rank, slot.maxRank) and slot.rank then
+                RankSeen(prof, slot.rank)
                 return slot.rank, slot.maxRank
             end
         end
     end
     if SKILL_TYPE[prof] and ns.GetSkill then
         local rank, maxRank = ns.GetSkill(SKILL_TYPE[prof])
-        if rank then return rank, maxRank end
+        if rank then
+            RankSeen(prof, rank)
+            return rank, maxRank
+        end
     end
     if GetNumSkillLines and GetSkillLineInfo then
         TellUnknownSkillLines()
         for i = 1, ns.Readable(GetNumSkillLines(), "skills") or 0 do
             local name, isHeader, _, rank, _, _, maxRank = GetSkillLineInfo(i)
             if not ns.AnySecret("skills", name, isHeader, rank, maxRank)
-                and not isHeader and name and ProfKey(name) == prof then return rank, maxRank end
+                and not isHeader and name and ProfKey(name) == prof then
+                RankSeen(prof, rank)
+                return rank, maxRank
+            end
         end
     end
     local mine = CharRecipes()[prof]
-    return mine and mine.rank
+    if mine and mine.rank then return mine.rank, nil, "lastSeen", mine.rankAt end
 end
 
 -- For the skill planner (Planner.lua)

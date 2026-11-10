@@ -641,4 +641,9 @@ ns.Locales.koKR = {
     ["Counted as if you had none of the %d marked ?: the sum may be too high."] = "?로 표시된 %d개는 없는 것으로 계산했습니다: 합계가 실제보다 높을 수 있습니다.",
     ["What is missing is counted as if you had none."] = "부족한 수량은 하나도 없는 것으로 계산했습니다.",
     ["Some recipes also need a tool, a forge or an anvil, or have a cooldown - the plan does not check that."] = "일부 제조법은 도구, 용광로나 모루가 필요하거나 재사용 대기시간이 있습니다. 계획은 이를 확인하지 않습니다.",
+    ["Skill last seen: %d"] = "마지막으로 본 숙련도: %d",
+    ["Your skill cannot be read right now. This is a preview from the skill seen last (%s): open your profession window to update it."] = "지금은 숙련도를 읽을 수 없습니다. 마지막으로 본 숙련도(%s) 기준의 미리보기입니다. 전문 기술 창을 열어 갱신하세요.",
+    ["Your skill cannot be read right now. This is a preview from the skill seen last: open your profession window to update it."] = "지금은 숙련도를 읽을 수 없습니다. 마지막으로 본 숙련도 기준의 미리보기입니다. 전문 기술 창을 열어 갱신하세요.",
+    ["Preview - the amounts below are for the skill seen last, not for your skill now."] = "미리보기: 아래 수량은 현재 숙련도가 아니라 마지막으로 본 숙련도 기준입니다.",
+    ["A preview from the skill seen last, not from your skill now."] = "현재 숙련도가 아니라 마지막으로 본 숙련도 기준의 미리보기입니다.",
 }

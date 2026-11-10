@@ -122,9 +122,11 @@ local function RecipeList(prof, onlyKnown)
     return list
 end
 
-local function Snapshot(prof, from, to)
+-- source, seenAt: "lastSeen" (and when) for a skill that is not read now
+local function Snapshot(prof, from, to, source, seenAt)
     local d = Data()
     local input = { prof = prof, skill = from, target = to, recipes = {}, professions = {} }
+    if source == "lastSeen" then input.skillSource, input.skillSeenAt = "lastSeen", seenAt end
     input.recipes[prof] = RecipeList(prof)
     for _, p in ipairs(d.Professions) do
         local rank = ns.ProfessionRank and ns.ProfessionRank(p.name)
@@ -195,9 +197,13 @@ ns.SkillPlanSnapshot = Snapshot
 -- output is another state, and gives a new plan.
 --   ns.SkillPlanResult()   the last result for a second reader (later: the
 --                          shopping list): { revision, prof, from, target,
---                          status, valid, complete, items = { [item] =
+--                          status, valid, complete, skillSource, skillSeenAt,
+--                          reliable, items = { [item] =
 --                          { need, have, haveKnown, missing, covered,
---                          planned, make, costStatus } } } - or nil
+--                          planned, make, costStatus } } } - or nil.
+--                          reliable = false (status "preview"): the plan is
+--                          from the skill seen last, not from the skill read
+--                          now - nothing to count as reached or to buy by.
 --   ns.skillPlanListeners  functions called with that result when a new
 --                          revision is there (nobody listens yet)
 ---------------------------------------------------------------------------
@@ -216,7 +222,8 @@ end
 
 -- what is not read through the lazy tables: skill, target, ranks, recipes
 local function Signature(input)
-    local parts = { input.prof, tostring(input.skill), tostring(input.target), tostring(input.maxRank) }
+    -- (a skill seen last is another state than the same skill read now)
+    local parts = { input.prof, tostring(input.skill), tostring(input.target), tostring(input.maxRank), tostring(input.skillSource) }
     local profs = {}
     for prof in pairs(input.recipes) do profs[#profs + 1] = prof end
     table.sort(profs)
@@ -247,8 +254,8 @@ local function SameReads(old, new)
 end
 
 -- the plan for this state, and whether it is a new one
-local function Calculate(prof, skill, target)
-    local input = Snapshot(prof, skill, target)
+local function Calculate(prof, skill, target, source, seenAt)
+    local input = Snapshot(prof, skill, target, source, seenAt)
     local sig = Signature(input)
     if calc.plan and calc.sig == sig and SameReads(calc.input, input) then
         return calc.plan, false
@@ -288,6 +295,10 @@ end
 --     positively not learned -> a preview from 1, said so; not readable ->
 --     "skill unknown" and no plan (not a start at 1) - also when the
 --     profession is in the skill list and only its skill cannot be read
+--   * not readable now, but seen before (Codex round 2, R2-M3): the skill
+--     seen last, said to be that and how old it is - a PREVIEW from there.
+--     No "done", the materials and the sum marked as a preview, the result
+--     not reliable.
 --   * the target comes from a small menu (75 / 150 / 225 / 300, a value of
 --     your own, back to the default) and stays as you set it - per character
 --     and profession in ns.db.planTargets. Reached: "done", no jump to the
@@ -318,42 +329,71 @@ local function CharKey()
     return (ns.Readable(UnitName("player"), "skill plan") or "?") .. "-" .. ((GetNormalizedRealmName and GetNormalizedRealmName()) or "?")
 end
 
+-- What the skill list itself says about a profession, line by line, by the
+-- profession each line names:
+--   "rank", rank, maximum   its line is there and its skill can be read
+--   "hidden"                its line is there, its skill cannot be read
+--   "absent"                the whole list could be read - it is there, every
+--                           line readable, no group folded - and the
+--                           profession is not in it
+--   nil                     the list cannot be read
+local function ListSays(prof)
+    if not (GetNumSkillLines and GetSkillLineInfo) then return nil end
+    local okN, count = pcall(GetNumSkillLines)
+    if not okN or count == nil or ns.AnySecret("skill plan skills", count) or type(count) ~= "number" or count <= 0 then return nil end
+    for i = 1, count do
+        local okL, name, isHeader, isExpanded, lineRank, _, _, lineMax = pcall(GetSkillLineInfo, i)
+        if not okL or name == nil or ns.AnySecret("skill plan skills", name, isHeader, isExpanded) or type(name) ~= "string" then return nil end
+        if isHeader and isExpanded == false then return nil end
+        if not isHeader and (ns.ProfKey and ns.ProfKey(name) or name) == prof then
+            if lineRank == nil or ns.AnySecret("skill plan skill", lineRank) or type(lineRank) ~= "number" then return "hidden" end
+            if lineMax ~= nil and (ns.AnySecret("skill plan skill", lineMax) or type(lineMax) ~= "number" or lineMax <= 0) then lineMax = nil end
+            return "rank", lineRank, lineMax
+        end
+    end
+    return "absent"
+end
+
 -- Your skill in a profession:
---   "learned", rank, maximum
---   "unlearned"   only with proof: the whole skill list could be read - it
---                 is there, every line readable, no group folded - AND the
---                 profession is not in it
+--   "learned", rank, maximum, nil, source, seenAt
+--                 source "current": the skill read now. "lastSeen": it cannot
+--                 be read now - the rank is the one seen last (seenAt: when,
+--                 nil when that was not kept). Never shown or counted as the
+--                 current skill (Codex round 2, R2-M3).
+--   "unlearned"   only with proof: the whole skill list could be read AND the
+--                 profession is not in it (a skill seen earlier does not
+--                 stand against that)
 --   "unknown"     everything else. With "rank" as the fourth value when the
 --                 profession was FOUND but its skill cannot be read (hidden,
 --                 no number): that is never "not learned" (Codex round 1, B5).
 -- Every value is checked for being readable before it is compared, counted
 -- with or shown.
 local function SkillState(prof)
-    local ok, rank, maxRank = pcall(ns.ProfessionRank, prof)
+    local ok, rank, maxRank, source, seenAt = pcall(ns.ProfessionRank, prof)
     if not ok then return "unknown" end
-    if rank ~= nil then
+    if rank ~= nil and source ~= "lastSeen" then
         if ns.AnySecret("skill plan skill", rank) or type(rank) ~= "number" then return "unknown", nil, nil, "rank" end
         if maxRank ~= nil and (ns.AnySecret("skill plan skill", maxRank) or type(maxRank) ~= "number" or maxRank <= 0) then maxRank = nil end
-        return "learned", rank, maxRank
+        return "learned", rank, maxRank, nil, "current"
     end
-    -- The reader found no skill (it leaves out a line with a hidden value).
-    -- The list itself says whether the profession is there: line by line,
-    -- by the profession each line names.
-    if not (GetNumSkillLines and GetSkillLineInfo) then return "unknown" end
-    local okN, count = pcall(GetNumSkillLines)
-    if not okN or count == nil or ns.AnySecret("skill plan skills", count) or type(count) ~= "number" or count <= 0 then return "unknown" end
-    for i = 1, count do
-        local okL, name, isHeader, isExpanded, lineRank, _, _, lineMax = pcall(GetSkillLineInfo, i)
-        if not okL or name == nil or ns.AnySecret("skill plan skills", name, isHeader, isExpanded) or type(name) ~= "string" then return "unknown" end
-        if isHeader and isExpanded == false then return "unknown" end
-        if not isHeader and (ns.ProfKey and ns.ProfKey(name) or name) == prof then
-            -- the profession is there: its skill, or "unknown" - never "not learned"
-            if lineRank == nil or ns.AnySecret("skill plan skill", lineRank) or type(lineRank) ~= "number" then return "unknown", nil, nil, "rank" end
-            if lineMax ~= nil and (ns.AnySecret("skill plan skill", lineMax) or type(lineMax) ~= "number" or lineMax <= 0) then lineMax = nil end
-            return "learned", lineRank, lineMax
-        end
+    -- The reader gave no current skill (it leaves out a line with a hidden
+    -- value). The list itself says whether the profession is there.
+    local says, lineRank, lineMax = ListSays(prof)
+    if says == "rank" then
+        -- (a line the reader left out for another hidden value: its skill
+        -- is read now all the same, and kept as the one seen last)
+        if ns.ProfessionRankSeen then pcall(ns.ProfessionRankSeen, prof, lineRank) end
+        return "learned", lineRank, lineMax, nil, "current"
     end
-    return "unlearned"
+    if says == "absent" then return "unlearned" end
+    -- its skill cannot be read now: the one seen last, said to be that
+    if rank ~= nil and not ns.AnySecret("skill plan skill", rank) and type(rank) == "number" then
+        if seenAt ~= nil and (ns.AnySecret("skill plan skill", seenAt) or type(seenAt) ~= "number") then seenAt = nil end
+        return "learned", rank, nil, nil, "lastSeen", seenAt
+    end
+    -- the profession is there with an unreadable skill: "unknown", never "not learned"
+    if says == "hidden" then return "unknown", nil, nil, "rank" end
+    return "unknown"
 end
 ns.SkillPlanSkillState = SkillState
 
@@ -562,7 +602,8 @@ local function Refresh()
         return
     end
     profText:SetText(d.ProfLabel(prof))
-    local skillState, rank, maxRank = SkillState(prof)
+    local skillState, rank, maxRank, _, skillSource, seenAt = SkillState(prof)
+    local lastSeen = skillState == "learned" and skillSource == "lastSeen"
     if skillState == "unknown" then
         -- not readable is not "1": no plan from a guess
         state.skill = nil
@@ -581,11 +622,13 @@ local function Refresh()
     targetButton:SetText(tostring(target))
     if skillState == "unlearned" then
         skillText:SetText(L["Not learned yet"])
+    elseif lastSeen then
+        skillText:SetText((L["Skill last seen: %d"]):format(rank)) -- never "Your skill: ..."
     else
         skillText:SetText(maxRank and (L["Your skill: %d / %d"]):format(rank, maxRank) or (L["Your skill: %d"]):format(rank))
     end
 
-    local plan = Calculate(prof, from, target)
+    local plan = Calculate(prof, from, target, lastSeen and "lastSeen" or nil, seenAt)
     if not plan.valid then
         Line(L["No plan: there is nothing to plan from."], nil, RED)
         Finish()
@@ -595,6 +638,11 @@ local function Refresh()
 
     if skillState == "unlearned" then
         Line(L["Not learned yet - learn it from a trainer. This is a preview from skill 1."], nil, GOLD)
+    elseif lastSeen then
+        -- how old the skill is, and what makes it current again
+        local age = seenAt and (time() - seenAt) or nil
+        Line((age and age >= 0) and (L["Your skill cannot be read right now. This is a preview from the skill seen last (%s): open your profession window to update it."]):format(Ago(age))
+            or L["Your skill cannot be read right now. This is a preview from the skill seen last: open your profession window to update it."], nil, GOLD)
     end
     Line(L["Steps"], nil, GOLD)
     if prof == "Mining" then
@@ -670,6 +718,7 @@ local function Refresh()
             Line((L["%s can only be made from itself here: it is not made."]):format(ItemName(diag.item)), nil, RED)
         end
     end
+    -- (only a plan from the skill read now is ever "done")
     if plan.status == "done" then
         Line((L["Done: you have reached your target (%d)."]):format(target), nil, GREEN)
     end
@@ -730,6 +779,9 @@ local function Refresh()
     head.mid:SetPoint("RIGHT", head, "LEFT", 280, 0)
     head.mid:SetWidth(140)
     head.mid:SetText("|cff999999" .. L["have / need"] .. "|r")
+    if lastSeen then
+        Line(L["Preview - the amounts below are for the skill seen last, not for your skill now."], nil, GOLD)
+    end
     local unread = false
     -- the amounts are a planning estimate where a step's number of crafts is
     -- a mean, a varying output was counted with its mean, or extra crafts
@@ -853,7 +905,11 @@ local function Refresh()
     -- else a choice that is not fully comparable: what is open, and what helps
     local note = ""
     local assumed = plan.cost.assumedItems and #plan.cost.assumedItems or 0
-    if assumed > 0 then
+    if lastSeen then
+        -- first of all: the sum is that of a preview (the sum line itself
+        -- has no room for it in most languages)
+        note = L["A preview from the skill seen last, not from your skill now."]
+    elseif assumed > 0 then
         note = (L["Counted as if you had none of the %d marked ?: the sum may be too high."]):format(assumed)
     elseif plan.notComparable then
         note = (plan.openLearn and not plan.openPrices) and L["A learning cost is unknown: your trainer or the vendor shows it."]

@@ -6441,6 +6441,225 @@ step("Skill plan 2.0: skill points of extra crafts that are not counted make the
     if win then win:Hide() end
     if not ok then error(err, 0) end
 end)
+step("Skill plan 2.0: a skill seen last is a preview - never your skill now, never \"done\" (v0.2 r2 G3)", function()
+    -- Codex round 2, R2-M3 (concept 5): when the skill list hides your skill,
+    -- the reader falls back to the skill that was seen last. That is no
+    -- current skill: the window and the result say "last seen", there is no
+    -- "done" and nothing to rely on. And a skill that was read live is kept
+    -- as the one seen last, so an older, lower one from the profession window
+    -- never takes its place. Through the real reader (ns.ProfessionRank) and
+    -- the place it keeps the skill in, not a stand-in.
+    local L, core, d = ns.L, ns.PlanCore, ns.CraftData
+    local saved = { lines = GetNumSkillLines, line = GetSkillLineInfo, secret = issecretvalue, recipes = ns.db.recipes, targets = ns.db.planTargets,
+        have = d.Have, known = d.Known, all = d.AllRecipes }
+    local win
+    local ok, err = pcall(function()
+        ns.db.recipes = {}
+        ns.db.planTargets = nil
+        d.Have = function() return 0 end
+        local SECRET = newproxy(true)
+        issecretvalue = function(v) return rawequal(v, SECRET) end
+        local rank, maxRank, name = 25, 75, "Tailoring"
+        GetNumSkillLines = function() return 3 end
+        GetSkillLineInfo = function(i)
+            if i == 1 then return "Professions", true, true, 0, 0, 0, 0 end
+            if i == 2 then return name, false, true, rank, 0, 0, maxRank end
+            return "Secondary Skills", true, true, 0, 0, 0, 0
+        end
+        local function Rows()
+            local list = {}
+            for _, o in ipairs(allFrames) do
+                if o.left and o.mid and o.right and o:IsShown() then list[#list + 1] = o end
+            end
+            return list
+        end
+        local function Shows(text)
+            for _, row in ipairs(Rows()) do
+                if row.left:GetText() == text then return row end
+            end
+        end
+        local function Header(text)
+            for _, o in ipairs(allFrames) do
+                if o.__kind == "FontString" and o.__parent == win and o:GetText() == text then return o end
+            end
+        end
+        local function Bottom(y) -- the sum (42) and the note below it (24), by their place
+            for _, o in ipairs(allFrames) do
+                local at = o.__parent == win and o.__kind == "FontString" and o.__pts and o.__pts.BOTTOMLEFT
+                if at and at[2] == y then return o end
+            end
+        end
+        local function Total() return Bottom(42) end
+        local function Note() return Bottom(24) end
+        local function Px(t) -- (an estimate: 6 px a letter, 11 px a CJK sign; colour codes take no room)
+            t = (t or ""):gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")
+            local px = 0
+            for ch in t:gmatch("[%z\1-\127\194-\244][\128-\191]*") do px = px + (#ch >= 3 and 11 or 6) end
+            return px
+        end
+        local function Refresh() ns.RefreshSkillPlan() advance(1) end
+        local DONE = (L["Done: you have reached your target (%d)."]):format(75)
+        local AMOUNTS = L["Preview - the amounts below are for the skill seen last, not for your skill now."]
+        local function Seen(ago) return (L["Your skill cannot be read right now. This is a preview from the skill seen last (%s): open your profession window to update it."]):format(ago) end
+        local SEEN_ONCE = L["Your skill cannot be read right now. This is a preview from the skill seen last: open your profession window to update it."]
+        local SUM_NOTE = L["A preview from the skill seen last, not from your skill now."]
+
+        -- ---- read now: "current", and nothing is kept for a profession
+        -- whose window was never read
+        local r, m, source = ns.ProfessionRank("Tailoring")
+        assert(r == 25 and m == 75 and source == nil, "the reader does not give the skill read now")
+        local state, sr, sm, _, ssource = ns.SkillPlanSkillState("Tailoring")
+        assert(state == "learned" and sr == 25 and sm == 75 and ssource == "current", "a skill read now is not called current")
+        local mine
+        for _, char in pairs(ns.db.recipes) do mine = char end
+        assert(mine and mine.Tailoring == nil, "a profession record was made up to keep a skill in")
+        ns.ShowSkillPlan("Tailoring") advance(1)
+        win = _G.GathercraftSkillPlan
+        assert(ns.SkillPlanSetTarget(75), "test setup: the target")
+        advance(1)
+        local res = ns.SkillPlanResult()
+        assert(res.from == 25 and res.status == "ok" and res.skillSource == "current" and res.reliable == true and res.skillSeenAt == nil, "the result of a plan from the skill read now")
+        local revision = res.revision
+
+        -- ---- the profession window was read once, long ago, at 25 (as the
+        -- game left it: no time kept with it)
+        mine.Tailoring = { rank = 25, list = { ["Bolt of Linen Cloth"] = "2996:1:1:1|2589:2" } }
+        -- now the skill list reads 75: read live - and kept as the one seen last
+        rank = 75
+        local before = time()
+        Refresh()
+        res = ns.SkillPlanResult()
+        assert(res.from == 75 and res.status == "done" and res.reliable == true, ("live 75 of 75: %s from %s"):format(tostring(res.status), tostring(res.from)))
+        assert(Shows(DONE) and Header((L["Your skill: %d / %d"]):format(75, 75)), "live 75 of 75 is not shown as done")
+        assert(mine.Tailoring.rank == 75 and type(mine.Tailoring.rankAt) == "number" and mine.Tailoring.rankAt >= before,
+            ("a skill read live is not kept as the one seen last (%s)"):format(tostring(mine.Tailoring.rank)))
+        assert(next(mine.Tailoring.list), "the recipes of the profession window are gone")
+        -- the list hides the skill (Codex STALE_25): not back to 25, and not "done"
+        rank = SECRET
+        r, m, source = ns.ProfessionRank("Tailoring")
+        assert(r == 75 and m == nil and source == "lastSeen", ("the reader gives %s (%s) for a hidden skill after a live 75"):format(tostring(r), tostring(source)))
+        state, sr, sm, _, ssource = ns.SkillPlanSkillState("Tailoring")
+        assert(state == "learned" and sr == 75 and ssource == "lastSeen", "a skill seen last is not told apart from a current one")
+        Refresh()
+        res = ns.SkillPlanResult()
+        assert(res.from == 75, ("an older cache undercuts the skill that was read live: the plan is from %s"):format(tostring(res.from)))
+        assert(res.status == "preview" and res.skillSource == "lastSeen" and res.reliable == false and res.complete == false,
+            ("a plan from a skill seen last: status %s, source %s, reliable %s"):format(tostring(res.status), tostring(res.skillSource), tostring(res.reliable)))
+        assert(res.skillSeenAt == mine.Tailoring.rankAt, "the result does not say when the skill was seen")
+        assert(not Shows(DONE), "\"Done\" from a skill that is not read now")
+        assert(Header((L["Skill last seen: %d"]):format(75)) and not Header((L["Your skill: %d"]):format(75)) and not Header((L["Your skill: %d / %d"]):format(75, 75)),
+            "a skill seen last is shown as your skill")
+        assert(Shows(Seen(L["just now"])), "the window does not say that this is a preview from the skill seen last")
+        for _, row in ipairs(Rows()) do assert(not row.check:IsShown(), "a tick in a preview of a reached target") end
+        -- two hours later it still cannot be read: the age is said
+        advance(7200)
+        Refresh()
+        assert(Shows(Seen(2 .. L[" h ago"])), "the age of the skill seen last is not said")
+        -- readable again (Codex RESTORED_75)
+        rank = 75
+        Refresh()
+        res = ns.SkillPlanResult()
+        assert(res.from == 75 and res.status == "done" and res.skillSource == "current" and res.reliable == true and Shows(DONE), "readable again: not back to the plan from the skill read now")
+        assert(not Shows(Seen(L["just now"])) and not Shows(SEEN_ONCE) and not Header((L["Skill last seen: %d"]):format(75)), "readable again: still called last seen")
+
+        -- ---- Codex' control: 75 kept from the profession window (no time
+        -- with it), the skill never readable - no "done" from that either
+        mine.Tailoring = { rank = 75, list = { ["Bolt of Linen Cloth"] = "2996:1:1:1|2589:2" } }
+        rank = SECRET
+        state, sr, sm, _, ssource = ns.SkillPlanSkillState("Tailoring")
+        assert(state == "learned" and sr == 75 and ssource == "lastSeen", "a kept skill with a hidden line: " .. tostring(state))
+        Refresh()
+        res = ns.SkillPlanResult()
+        assert(res.status == "preview" and res.reliable == false and res.skillSeenAt == nil and not Shows(DONE), "a kept 75 with a hidden skill is \"done\"")
+        assert(Shows(SEEN_ONCE), "a skill seen at an unknown time: the window does not say that it is a preview")
+
+        -- ---- a preview with something to do: 25 seen last, the target 75
+        -- (the maximum is hidden all along, so that nothing but "read now"
+        -- against "seen last" tells the two states apart)
+        mine.Tailoring = { rank = 25, rankAt = time() - 600, list = { ["Bolt of Linen Cloth"] = "2996:1:1:1|2589:2" } }
+        rank, maxRank = 25, SECRET
+        Refresh()
+        res = ns.SkillPlanResult()
+        assert(res.status == "ok" and res.from == 25 and res.reliable == true and res.skillSource == "current", "test setup: the plan from a live 25")
+        revision = res.revision
+        local liveTotal = Total():GetText()
+        rank = SECRET
+        Refresh()
+        res = ns.SkillPlanResult()
+        assert(res.from == 25 and res.status == "preview" and res.reliable == false and res.revision > revision, "the same skill, now only seen last, is not a new state")
+        local missing = 0
+        for _, item in pairs(res.items) do missing = missing + item.missing end
+        assert(missing > 0, "test setup: the preview has nothing to buy")
+        assert(Shows(L["Steps"]) and Shows(AMOUNTS), "the materials of a preview are not marked as a preview")
+        -- the sum: the line below it says what it is (the sum line itself has
+        -- no room for more in most languages)
+        assert(Note():GetText() == SUM_NOTE, "the sum of a preview is not marked: " .. tostring(Note():GetText()))
+        assert(Px(SUM_NOTE) <= 500, ("%s: the note under the sum of a preview needs %d px of 500"):format(LOCALE, Px(SUM_NOTE)))
+        assert(Total():GetText() == liveTotal, "the sum of the preview is another one than that of the same plan read live")
+        local head = Header((L["Skill last seen: %d"]):format(25))
+        assert(head and Px(head:GetText()) <= 200 and Px((L["Skill last seen: %d"]):format(300)) <= 200, LOCALE .. ": \"Skill last seen\" does not fit its 200 px")
+        -- a live plan has no such marks
+        rank = 25
+        Refresh()
+        assert(not Shows(AMOUNTS) and Note():GetText() ~= SUM_NOTE, "a plan from the skill read now is marked as a preview")
+        maxRank = 75
+
+        -- ---- proof beats what was seen: the whole list can be read and the
+        -- profession is not in it - not learned (any more), whatever was kept
+        name = "Herbalism"
+        state = ns.SkillPlanSkillState("Tailoring")
+        assert(state == "unlearned", "a profession that is not in the list is called " .. tostring(state) .. " because a skill was seen once")
+        name = "Tailoring"
+        -- nothing kept and hidden: unknown, as before (round 1, B5)
+        ns.db.recipes = {}
+        rank = SECRET
+        local why
+        state, sr, sm, why = ns.SkillPlanSkillState("Tailoring")
+        assert(state == "unknown" and sr == nil and why == "rank", "hidden with nothing kept: " .. tostring(state))
+        -- a line the reader leaves out for its hidden MAXIMUM: the skill is
+        -- read now all the same - and kept
+        for _, char in pairs(ns.db.recipes) do mine = char end
+        mine.Tailoring = { rank = 10, list = {} }
+        rank, maxRank = 30, SECRET
+        assert(select(3, ns.ProfessionRank("Tailoring")) == "lastSeen", "test setup: the reader reads a line with a hidden maximum")
+        state, sr, sm, _, ssource = ns.SkillPlanSkillState("Tailoring")
+        assert(state == "learned" and sr == 30 and ssource == "current", "a hidden maximum: the readable skill is not the current one")
+        assert(mine.Tailoring.rank == 30 and mine.Tailoring.rankAt, "a skill the window read itself is not kept as the one seen last")
+        maxRank = 75
+        -- a value that is no skill is never kept
+        mine.Tailoring = { rank = 40, rankAt = 5, list = {} }
+        rank = "12"
+        ns.ProfessionRank("Tailoring")
+        rank = 0
+        ns.ProfessionRank("Tailoring")
+        assert(mine.Tailoring.rank == 40 and mine.Tailoring.rankAt == 5, "a value that is no skill was kept as the skill seen last")
+    end)
+    GetNumSkillLines, GetSkillLineInfo, issecretvalue, ns.db.recipes, ns.db.planTargets = saved.lines, saved.line, saved.secret, saved.recipes, saved.targets
+    d.Have, d.Known, d.AllRecipes = saved.have, saved.known, saved.all
+    if win then win:Hide() end
+    if not ok then error(err, 0) end
+
+    -- the calculation itself: a plan from a skill seen last is a preview,
+    -- whatever it comes to
+    local function Input(skill, source)
+        return { prof = "Testing", skill = skill, target = 3, skillSource = source, skillSeenAt = source and 1234 or nil,
+            recipes = { Testing = { { prof = "Testing", key = "A", name = "A", product = 10, made = 1, req = 1, yellow = 9, grey = 9, reagents = { { id = 11, n = 1 } }, learn = "known" } } },
+            stock = {}, prices = { [11] = { status = "known", copper = 5 } }, professions = {}, recipeItemPrices = {}, caps = {} }
+    end
+    local plan = core.Compute(Input(3, "lastSeen"))
+    assert(plan.status == "preview" and plan.reliable == false and plan.complete == false and plan.skillSource == "lastSeen" and plan.skillSeenAt == 1234,
+        "at the target by a skill seen last: " .. tostring(plan.status))
+    local said = false
+    for _, diag in ipairs(plan.diagnostics) do said = said or diag.code == "skill_last_seen" end
+    assert(said, "the plan does not say why it is not complete")
+    plan = core.Compute(Input(1, "lastSeen"))
+    assert(plan.status == "preview" and #plan.steps == 1 and plan.total == 10 and core.Result(plan).reliable == false and core.Result(plan).status == "preview", "a preview with steps")
+    plan = core.Compute(Input(3))
+    assert(plan.status == "done" and plan.reliable == true and plan.skillSource == "current" and plan.skillSeenAt == nil and core.Result(plan).reliable == true, "the skill read now: " .. tostring(plan.status))
+    plan = core.Compute(Input(1))
+    assert(plan.status == "ok" and plan.complete == true and plan.reliable == true, "a plan from the skill read now is not reliable")
+    assert(core.Compute({}).reliable == false and core.Result(core.Compute({})).reliable == false, "an invalid plan is called reliable")
+end)
 -- (end of the skill plan 2.0 steps, v0.2 building block 1)
 step("Craft log: one entry per finished craft, failures and odd cases marked apart (v0.1.18 S5)", function()
     local data = GathercraftRecipeData

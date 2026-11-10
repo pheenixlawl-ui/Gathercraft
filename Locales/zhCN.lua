@@ -641,4 +641,9 @@ ns.Locales.zhCN = {
     ["Counted as if you had none of the %d marked ?: the sum may be too high."] = "标有 ? 的 %d 种按没有计算：总额可能偏高。",
     ["What is missing is counted as if you had none."] = "缺少的数量按一个都没有计算。",
     ["Some recipes also need a tool, a forge or an anvil, or have a cooldown - the plan does not check that."] = "有些配方还需要工具、熔炉或铁砧，或有冷却时间：计划不检查这些。",
+    ["Skill last seen: %d"] = "上次看到的技能：%d",
+    ["Your skill cannot be read right now. This is a preview from the skill seen last (%s): open your profession window to update it."] = "现在无法读取你的技能。这是基于上次看到的技能（%s）的预览：请打开专业技能窗口以更新。",
+    ["Your skill cannot be read right now. This is a preview from the skill seen last: open your profession window to update it."] = "现在无法读取你的技能。这是基于上次看到的技能的预览：请打开专业技能窗口以更新。",
+    ["Preview - the amounts below are for the skill seen last, not for your skill now."] = "预览：以下数量按上次看到的技能计算，而不是你现在的技能。",
+    ["A preview from the skill seen last, not from your skill now."] = "这是按上次看到的技能做的预览，不是按你现在的技能。",
 }

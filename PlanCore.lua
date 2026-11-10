@@ -10,6 +10,11 @@ local ADDON_NAME, ns = ...
 -- input = {
 --   prof     the profession to plan ("Leatherworking")
 --   skill    your skill now (a number)
+--   skillSource  "lastSeen" when that is not the skill read now but the one
+--            that was seen last (skillSeenAt: when, if known). The plan is
+--            then a PREVIEW: worked out all the same, but never "done", not
+--            complete, not reliable - nobody may take it for your state now
+--            (Codex round 2, R2-M3).
 --   target   the skill to reach
 --   maxRank  the highest skill your rank allows (nil: not known)
 --   caps     where a rank ends when maxRank does not say ({ 75, 150, ... })
@@ -1414,8 +1419,13 @@ end
 --   status       "ok" | "done" (you are there) | "incomplete" (it says so in
 --                diagnostics: stuck, a recipe of unknown chance, a chain that
 --                leads back to itself, a count that could not be read) |
+--                "preview" (from the skill seen last, not the one read now:
+--                never "done" or "ok", whatever it comes to) |
 --                "invalid" (nothing to plan from: never shown as a plan)
 --   valid, complete
+--   skillSource  "current" | "lastSeen", skillSeenAt (when, if known),
+--                reliable (false for a preview: nothing in it says what you
+--                need or have reached NOW)
 --   steps        { recipe, from, to, expected, crafts, low, high (the model's
 --                80 % range of crafts), chanceFrom, chanceTo, forMaterials,
 --                comparable, estimated, learnOpen, priceOpen, outputAssumed
@@ -1456,7 +1466,7 @@ function Core.Compute(input)
     if why then
         return { status = "invalid", valid = false, complete = false, reason = why, steps = {}, training = {}, materials = {}, ledger = {}, extras = {},
             total = 0, crafts = 0, cost = { known = 0, estimated = 0, estimatedItems = {}, unknownItems = {}, assumedItems = {} },
-            estimate = { crafts = false, output = false, skill = false },
+            estimate = { crafts = false, output = false, skill = false }, reliable = false,
             learn = { fees = 0, feesUnknown = 0, trainer = 0, items = 0, itemCost = 0, itemsUnknown = 0, matsUnknown = 0, list = {} },
             diagnostics = { { code = "invalid", reason = why } } }
     end
@@ -1499,6 +1509,9 @@ function Core.Compute(input)
         if s.comparable == false then notComparable = true end
         openLearn, openPrices = openLearn or s.learnOpen == true, openPrices or s.priceOpen == true
     end
+    -- from a skill that was only seen last: said in the plan, and no plan to rely on
+    local lastSeen = input.skillSource == "lastSeen"
+    if lastSeen then Note(ctx, "skill_last_seen", input.prof, { seenAt = input.skillSeenAt }) end
     if stuck then Note(ctx, "stuck", stuck, { skill = stuck }) end
     if unknownAt then
         -- the plan cannot go on with a number: the recipe is named, not counted
@@ -1508,7 +1521,8 @@ function Core.Compute(input)
     local done = input.skill >= input.target
     local complete = not stuck and #ctx.diagnostics == 0
     return { prof = input.prof, from = input.skill, target = input.target,
-        status = done and "done" or complete and "ok" or "incomplete", valid = true, complete = complete,
+        status = lastSeen and "preview" or done and "done" or complete and "ok" or "incomplete", valid = true, complete = complete,
+        skillSource = lastSeen and "lastSeen" or "current", skillSeenAt = lastSeen and input.skillSeenAt or nil, reliable = not lastSeen,
         steps = steps, training = training, materials = materials, ledger = ledger, extras = extras, stuck = stuck,
         cost = cost, total = cost.known + cost.estimated, crafts = crafts, notComparable = notComparable,
         openLearn = openLearn, openPrices = openPrices, estimate = estimate,
@@ -1521,7 +1535,9 @@ end
 -- (estimate: any of crafts / output / skill) and which items rest on the mean of a varying output
 -- (outputAssumed). An item whose count could not be read has no "have"; its
 -- "missing" is a number all the same - counted as if you had none - and is
--- marked missingAssumed (stockAssumed: how many such items). Made from a
+-- marked missingAssumed (stockAssumed: how many such items). A plan from the
+-- skill seen last says so: skillSource "lastSeen", skillSeenAt, reliable
+-- false, status "preview" - nothing to tick off or to buy by. Made from a
 -- finished plan; nothing is calculated here.
 function Core.Result(plan)
     local items, assumed = {}, 0
@@ -1534,6 +1550,7 @@ function Core.Result(plan)
     local e = plan.estimate or {}
     return { prof = plan.prof, from = plan.from, target = plan.target, status = plan.status, valid = plan.valid == true,
         complete = plan.complete == true, items = items,
+        skillSource = plan.skillSource, skillSeenAt = plan.skillSeenAt, reliable = plan.reliable == true,
         estimate = { crafts = e.crafts == true, output = e.output == true, skill = e.skill == true },
         stockAssumed = assumed }
 end

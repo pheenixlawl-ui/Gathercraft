@@ -641,4 +641,9 @@ ns.Locales.ruRU = {
     ["Counted as if you had none of the %d marked ?: the sum may be too high."] = "Посчитано так, будто у вас нет ни одного из %d с «?»: сумма может быть завышена.",
     ["What is missing is counted as if you had none."] = "Недостающее посчитано так, будто у вас нет ни одного.",
     ["Some recipes also need a tool, a forge or an anvil, or have a cooldown - the plan does not check that."] = "Некоторым рецептам нужны ещё инструмент, кузня или наковальня, либо у них есть время восстановления - план это не проверяет.",
+    ["Skill last seen: %d"] = "Навык в прошлый раз: %d",
+    ["Your skill cannot be read right now. This is a preview from the skill seen last (%s): open your profession window to update it."] = "Сейчас ваш навык прочитать не удаётся. Это предпросмотр с навыка, который был виден в прошлый раз (%s): откройте окно профессии, чтобы обновить его.",
+    ["Your skill cannot be read right now. This is a preview from the skill seen last: open your profession window to update it."] = "Сейчас ваш навык прочитать не удаётся. Это предпросмотр с навыка, который был виден в прошлый раз: откройте окно профессии, чтобы обновить его.",
+    ["Preview - the amounts below are for the skill seen last, not for your skill now."] = "Предпросмотр: количества ниже рассчитаны для навыка, который был виден в прошлый раз, а не для текущего.",
+    ["A preview from the skill seen last, not from your skill now."] = "Предпросмотр с навыка, виденного в прошлый раз, а не с текущего.",
 }

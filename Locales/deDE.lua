@@ -670,4 +670,9 @@ ns.Locales.deDE = {
     ["Counted as if you had none of the %d marked ?: the sum may be too high."] = "Gerechnet, als hättest du nichts von den %d mit ?: die Summe kann zu hoch sein.",
     ["What is missing is counted as if you had none."] = "Der Fehlbedarf ist gerechnet, als hättest du nichts davon.",
     ["Some recipes also need a tool, a forge or an anvil, or have a cooldown - the plan does not check that."] = "Manche Rezepte brauchen außerdem ein Werkzeug, eine Schmiede oder einen Amboss oder haben eine Abklingzeit - das prüft der Plan nicht.",
+    ["Skill last seen: %d"] = "Skill zuletzt gesehen: %d",
+    ["Your skill cannot be read right now. This is a preview from the skill seen last (%s): open your profession window to update it."] = "Dein Skill lässt sich gerade nicht lesen. Dies ist eine Vorschau ab dem zuletzt gesehenen Skill (%s): Öffne dein Berufsfenster, um ihn zu aktualisieren.",
+    ["Your skill cannot be read right now. This is a preview from the skill seen last: open your profession window to update it."] = "Dein Skill lässt sich gerade nicht lesen. Dies ist eine Vorschau ab dem zuletzt gesehenen Skill: Öffne dein Berufsfenster, um ihn zu aktualisieren.",
+    ["Preview - the amounts below are for the skill seen last, not for your skill now."] = "Vorschau – die Mengen unten gelten für den zuletzt gesehenen Skill, nicht für deinen jetzigen.",
+    ["A preview from the skill seen last, not from your skill now."] = "Eine Vorschau ab dem zuletzt gesehenen Skill, nicht ab deinem jetzigen.",
 }
