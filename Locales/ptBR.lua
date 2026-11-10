@@ -636,4 +636,6 @@ ns.Locales.ptBR = {
     ["vendor"] = "vendedor",
     ["? = a part of the cost is unknown: this choice is not fully comparable."] = "? = uma parte do custo é desconhecida: esta escolha não é totalmente comparável.",
     ["A learning cost is unknown: your trainer or the vendor shows it."] = "Um custo de aprendizado é desconhecido: seu instrutor ou o vendedor o mostra.",
+    ["Planning estimate from the average number of crafts per step - what you really need varies."] = "Estimativa do plano pelo número médio de criações por etapa: o que você realmente precisa varia.",
+    ["Counted with the average output per craft - what a craft really makes varies."] = "Contado com a quantidade média por criação: a quantidade real varia.",
 }

@@ -104,6 +104,8 @@ local function RecipeList(prof, onlyKnown)
     for key, packed in pairs(source) do
         local product, made, req, reagents = d.Unpack(packed)
         if reagents then
+            -- "makes 1 to 2": Unpack gives the mean; that it is one is passed on
+            local least, most = packed:match("^%d+:(%d+):(%d+):")
             local spell = spells[key]
             local c = spell and colors[spell]
             local yellow, grey
@@ -113,6 +115,7 @@ local function RecipeList(prof, onlyKnown)
             local learn, fee, recipeItem
             if known[key] then learn = "known" elseif not onlyKnown then learn, fee, recipeItem = HowToLearn(prof, key, spell, known, req, grey) end
             list[#list + 1] = { prof = prof, key = key, name = d.DisplayName(prof, key), spell = spell, product = product, made = made,
+                madeVaries = least ~= most,
                 req = req, yellow = yellow, grey = grey, reagents = reagents, learn = learn, fee = fee, recipeItem = recipeItem }
         end
     end
@@ -276,6 +279,9 @@ end
 --     when what you really have covers the need
 --   * steps: skill range, recipe, chance, about how many crafts with the
 --     model's range; training the next rank is a row between
+--   * the amounts are a planning estimate (PlanCore.lua): the window says so
+--     under the materials and in their tooltips, and marks an output that
+--     varies
 --   * it only shows: nothing is crafted, bought, learned or moved from here
 ---------------------------------------------------------------------------
 local win, profText, skillText, targetLabel, targetButton, targetMenu, targetEdit, content, totalText, noteText
@@ -600,6 +606,9 @@ local function Refresh()
                 tt:AddLine((L["About %d crafts on average; in 8 of 10 cases between %d and %d."]):format(s.crafts, s.low, s.high), 0.9, 0.9, 0.9, true)
                 tt:AddLine(L["A range of the model, not a guarantee."], 0.6, 0.6, 0.6, true)
             end
+            if s.outputAssumed then
+                tt:AddLine(L["Counted with the average output per craft - what a craft really makes varies."], 0.7, 0.7, 0.7, true)
+            end
             if s.forMaterials then
                 tt:AddLine(L["Made for materials the plan needs - each craft can give a skill point too."], 0.9, 0.9, 0.9, true)
             elseif s.why then
@@ -690,6 +699,10 @@ local function Refresh()
     head.mid:SetWidth(140)
     head.mid:SetText("|cff999999" .. L["have / need"] .. "|r")
     local unread = false
+    -- the amounts are a planning estimate where a step's number of crafts is
+    -- a mean or a varying output was counted with its mean: said in every
+    -- material's tooltip and in a line under the list
+    local isEstimate = plan.estimate and (plan.estimate.crafts or plan.estimate.output) or false
     for _, m in ipairs(plan.materials) do
         local name = ItemName(m.id)
         -- /gcr debug: where the count comes from (once, and again when it changes)
@@ -745,6 +758,12 @@ local function Refresh()
             if m.madeFrom then
                 tt:AddLine((L["The rest you make yourself (%s)."]):format(d.ProfLabel(m.madeFrom.prof)), 0.7, 0.7, 0.7, true)
             end
+            if m.outputAssumed then
+                tt:AddLine(L["Counted with the average output per craft - what a craft really makes varies."], 0.7, 0.7, 0.7, true)
+            end
+            if isEstimate then
+                tt:AddLine(L["Planning estimate from the average number of crafts per step - what you really need varies."], 0.6, 0.6, 0.6, true)
+            end
             if m.missing > 0 then
                 if m.price.status == "unknown" then
                     tt:AddLine(L["No price known: its cost is not in the sum."], 1, 0.5, 0.4, true)
@@ -771,6 +790,9 @@ local function Refresh()
         end
     end
     if unread then Line(L["? in have / need: that count could not be read."], nil, DIM) end
+    if isEstimate then
+        Line(L["Planning estimate from the average number of crafts per step - what you really need varies."], nil, DIM)
+    end
 
     -- the sum: what is known, what of it is only estimated, and how many
     -- materials have no price at all - those count as unknown, never as 0

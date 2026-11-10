@@ -5303,6 +5303,157 @@ step("Skill plan 2.0: a recipe that unlocks inside a step is used from there on 
     plan = core.Compute(input)
     assert(#plan.steps == 2 and plan.steps[1].to == 5 and plan.steps[2].from == 5 and plan.training[1].at == 5 and plan.total == 4004, "training at the same skill: the step is not shown in two parts")
 end)
+step("Skill plan 2.0: amounts are a planning estimate, and said to be one (v0.2 r1 F3)", function()
+    -- Codex round 1, B3, as Sven decided on 10.11.: the amounts and the cost
+    -- of a plan are a PLANNING ESTIMATE from the rounded-up mean number of
+    -- crafts of each step - not an expected value over all the ways a plan
+    -- can go (concept 4.1 / 4.3 is changed in this for 0.2, on purpose). The
+    -- plan says so, and an output that varies is marked as an assumption.
+    local core, L, d = ns.PlanCore, ns.L, ns.CraftData
+    local function R(key, product, req, upto, mats, extra)
+        local r = { prof = "Testing", key = key, name = key, product = product, made = 1, req = req, yellow = upto, grey = upto, reagents = {}, learn = "known" }
+        for _, x in ipairs(mats) do r.reagents[#r.reagents + 1] = { id = x[1], n = x[2] } end
+        for k, v in pairs(extra or {}) do r[k] = v end
+        return r
+    end
+    local function Plan(recipes, stock, prices, from, to)
+        local p = {}
+        for id, copper in pairs(prices) do p[id] = { status = "known", copper = copper } end
+        local plan = core.Compute({ prof = "Testing", skill = from, target = to, recipes = { Testing = recipes }, stock = stock, prices = p,
+            professions = {}, recipeItemPrices = {}, caps = {} })
+        local ok, why = core.CheckBalance(plan)
+        assert(ok, "the books do not balance: " .. tostring(why))
+        local m = {}
+        for _, row in ipairs(plan.materials) do m[row.id] = row end
+        return plan, m
+    end
+    local function Extra(plan, key)
+        for _, e in ipairs(plan.extras) do if e.recipe.key == key then return e.times end end
+        return 0
+    end
+
+    -- Codex JOINT_EXPECTATION, kept as a DOCUMENTED DEVIATION: A gives the
+    -- point 1-2 with a chance of 1/2 and makes one X a craft; B (2-3, sure)
+    -- needs two X. Going through every way the plan can go, the raw material
+    -- needed is max(T, 2) for T tries of A - 2.5 on average. The planning
+    -- estimate counts the rounded-up mean of the step instead: 2 crafts of A,
+    -- 2 X, 2 raw pieces. (The joint expectation would be 2.5; by design it is
+    -- not modelled.)
+    local plan, m = Plan({ R("A", 11, 1, 2, { { 12, 1 } }, { yellow = 0 }), R("B", 10, 2, 3, { { 11, 2 } }) }, {}, { [11] = 1000, [12] = 1 }, 1, 3)
+    assert(#plan.steps == 2 and plan.steps[1].recipe.key == "A" and plan.steps[1].crafts == 2 and plan.steps[1].expected == 2
+        and plan.steps[1].low == 1 and plan.steps[1].high == 4, "A: 2 crafts on average, 1 to 4 in 8 of 10 cases")
+    assert(m[12].need == 2 and plan.total == 2 and m[11].need == 2 and m[11].missing == 0 and Extra(plan, "A") == 0,
+        ("the planning estimate of the documented case changed: %s raw pieces"):format(tostring(m[12].need)))
+    -- ... and it is called what it is: an estimate of the amounts, because a
+    -- step's number of crafts is a mean
+    assert(type(plan.estimate) == "table" and plan.estimate.crafts == true and plan.estimate.output == false, "the plan does not say that its amounts are an estimate")
+    assert(core.Result(plan).estimate and core.Result(plan).estimate.crafts == true, "the second reader is not told")
+    -- every step certain, every output fixed: the amounts are what the model
+    -- says exactly, nothing is called an estimate
+    plan = Plan({ R("A", 11, 1, 3, { { 12, 1 } }) }, {}, { [12] = 1 }, 1, 3)
+    assert(plan.estimate.crafts == false and plan.estimate.output == false, "a plan of certain steps is called an estimate")
+
+    -- Codex SUPPLEMENT, also on purpose: two extra crafts of Make X (4 of 100
+    -- for a point at 97) are needed. They are made, their material is
+    -- counted, their output is used - but no part of a skill point is
+    -- counted for them: an extra craft counts towards the skill only as a
+    -- whole point, once its crafts reach the mean for one (25 here). Counting
+    -- less would promise a point that mostly does not come.
+    plan, m = Plan({ R("A", 10, 97, 99, { { 11, 1 } }), R("Make X", 11, 1, 101, { { 12, 1 } }, { yellow = 1 }) }, {}, { [11] = 1000, [12] = 1 }, 97, 99)
+    assert(#plan.steps == 1 and plan.steps[1].recipe.key == "A" and plan.steps[1].crafts == 2 and not plan.steps[1].forMaterials,
+        "two extra crafts with a small chance changed the steps")
+    assert(Extra(plan, "Make X") == 2 and m[12].need == 2 and m[11].need == 2 and m[11].missing == 0 and plan.total == 2, "the extra crafts or their output are dropped")
+
+    -- an output that varies (the game makes 1 to 2: counted with the mean,
+    -- 1.5) is an ASSUMPTION, not a known amount: the step, the item it makes
+    -- and what its extra crafts use are marked
+    plan, m = Plan({ R("A", 11, 1, 2, { { 12, 1 } }, { made = 1.5, madeVaries = true }), R("B", 10, 2, 3, { { 11, 2 } }) }, {}, { [11] = 100, [12] = 1 }, 1, 3)
+    assert(plan.steps[1].outputAssumed == true and not plan.steps[2].outputAssumed, "a step with a varying output is not marked")
+    assert(m[11].outputAssumed == true and m[12].outputAssumed == true, "the items that rest on a varying output are not marked")
+    assert(plan.estimate.output == true and core.Result(plan).items[11].outputAssumed == true, "a varying output is not passed on as an assumption")
+    -- (a mean that is no whole number is one too, also when nobody said so)
+    plan = Plan({ R("A", 11, 1, 2, { { 12, 1 } }, { made = 1.5 }), R("B", 10, 2, 3, { { 11, 2 } }) }, {}, { [11] = 100, [12] = 1 }, 1, 3)
+    assert(plan.steps[1].outputAssumed == true and plan.estimate.output == true, "a mean output that is no whole number is taken for a fixed amount")
+    -- a fixed output of more than one is no assumption
+    plan, m = Plan({ R("A", 11, 1, 2, { { 12, 1 } }, { made = 2 }), R("B", 10, 2, 3, { { 11, 2 } }) }, {}, { [11] = 100, [12] = 1 }, 1, 3)
+    assert(not plan.steps[1].outputAssumed and not m[11].outputAssumed and plan.estimate.output == false, "a fixed output is called an assumption")
+
+    -- the snapshot tells the calculation which outputs vary (the game's
+    -- recipe record says "makes 1 to 2")
+    local saved = { rank = ns.ProfessionRank, have = d.Have, known = d.Known, all = d.AllRecipes, price = ns.GetPrice, compute = core.Compute, targets = ns.db.planTargets }
+    local win
+    local ok, err = pcall(function()
+        local rank = 1
+        ns.ProfessionRank = function(p) if p == "Tailoring" then return rank, 75 end end
+        d.Have = function() return 0 end
+        d.AllRecipes = function(p) return p == "Tailoring" and { ["Bolt of Linen Cloth"] = "2996:1:2:1|2589:2", ["Linen Bandage"] = "1251:1:1:1|2589:1" } or {} end
+        d.Known = d.AllRecipes
+        local snapshot = ns.SkillPlanSnapshot("Tailoring", 1, 2)
+        local byKey = {}
+        for _, r in ipairs(snapshot.recipes.Tailoring) do byKey[r.key] = r end
+        assert(byKey["Bolt of Linen Cloth"].made == 1.5 and byKey["Bolt of Linen Cloth"].madeVaries == true, "the snapshot does not say that an output varies")
+        assert(byKey["Linen Bandage"].made == 1 and not byKey["Linen Bandage"].madeVaries, "a fixed output is said to vary")
+        d.Known, d.AllRecipes = saved.known, saved.all
+
+        -- the window says it: one line under the materials, and in the tooltips
+        d.Known = function() return {} end
+        ns.GetPrice = function() return 10, "AH scan" end
+        ns.db.planTargets = nil
+        local function Show(recipes)
+            core.Compute = function(input)
+                for _, r in ipairs(recipes) do r.prof = input.prof end
+                return saved.compute({ prof = input.prof, skill = 1, target = 3, professions = {}, caps = {}, nodes = {}, stock = {}, recipeItemPrices = {},
+                    recipes = { [input.prof] = recipes }, prices = { [9841] = { status = "known", copper = 100, source = "AH scan" }, [9842] = { status = "known", copper = 1, source = "AH scan" } } })
+            end
+            rank = rank + 1 -- (a new state, so the plan is made again)
+            ns.ShowSkillPlan("Tailoring") advance(1)
+            win = _G.GathercraftSkillPlan
+        end
+        local function Rows()
+            local list = {}
+            for _, o in ipairs(allFrames) do
+                if o.left and o.mid and o.right and o:IsShown() then list[#list + 1] = o end
+            end
+            return list
+        end
+        local function Shows(text)
+            for _, row in ipairs(Rows()) do
+                local t = row.left:GetText()
+                if type(t) == "string" and t:find(text, 1, true) then return row end
+            end
+        end
+        local function Tip(row)
+            local lines = {}
+            if row and row.tip then row.tip({ AddLine = function(_, t) lines[#lines + 1] = t end }) end
+            return table.concat(lines, "\n")
+        end
+        local ESTIMATE = L["Planning estimate from the average number of crafts per step - what you really need varies."]
+        local OUTPUT = L["Counted with the average output per craft - what a craft really makes varies."]
+        Show({ R("A", 9841, 1, 2, { { 9842, 1 } }, { yellow = 0, made = 1.5, madeVaries = true, name = "Recipe A" }), R("B", 9840, 2, 3, { { 9841, 2 } }, { name = "Recipe B" }) })
+        assert(Shows(ESTIMATE), "the window does not call the amounts a planning estimate")
+        local stepA = Shows("Recipe A")
+        assert(stepA and Tip(stepA):find(OUTPUT, 1, true), "the step's tooltip does not say that its output varies")
+        local function Mat(id)
+            local name = ns.ItemName and ns.ItemName(id) or (L["item "] .. id)
+            for _, row in ipairs(Rows()) do if row.left:GetText() == name then return row end end
+        end
+        local raw, made = Mat(9842), Mat(9841)
+        assert(raw and Tip(raw):find(ESTIMATE, 1, true), "a material's tooltip does not say that its amount is an estimate")
+        assert(made and Tip(made):find(OUTPUT, 1, true) and not Tip(raw):find(OUTPUT, 1, true), "the item with the varying output is not marked in its tooltip")
+        assert(not Tip(Shows("Recipe B")):find(OUTPUT, 1, true), "a fixed output is said to vary")
+        -- nothing is promised by these texts
+        for _, text in ipairs({ ESTIMATE, OUTPUT }) do
+            local low = text:lower()
+            assert(not low:find("exact", 1, true) and not low:find("guarantee", 1, true) and not low:find("cheapest", 1, true), "a text promises too much: " .. text)
+        end
+        -- a plan of certain steps with fixed outputs: no such line
+        Show({ R("A", 9841, 1, 3, { { 9842, 1 } }, { name = "Recipe A" }) })
+        assert(not Shows(ESTIMATE), "a plan without anything estimated is called an estimate")
+    end)
+    ns.ProfessionRank, d.Have, d.Known, d.AllRecipes, ns.GetPrice, core.Compute, ns.db.planTargets = saved.rank, saved.have, saved.known, saved.all, saved.price, saved.compute, saved.targets
+    if win then win:Hide() end
+    if not ok then error(err, 0) end
+end)
 -- (end of the skill plan 2.0 steps, v0.2 building block 1)
 step("Craft log: one entry per finished craft, failures and odd cases marked apart (v0.1.18 S5)", function()
     local data = GathercraftRecipeData

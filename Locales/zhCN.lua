@@ -636,4 +636,6 @@ ns.Locales.zhCN = {
     ["vendor"] = "商人",
     ["? = a part of the cost is unknown: this choice is not fully comparable."] = "? = 部分花费未知：此选择无法完全比较。",
     ["A learning cost is unknown: your trainer or the vendor shows it."] = "学习花费未知：训练师或商人处可以看到。",
+    ["Planning estimate from the average number of crafts per step - what you really need varies."] = "按每一步平均制作次数得出的计划估算：实际需要会有出入。",
+    ["Counted with the average output per craft - what a craft really makes varies."] = "按每次制作的平均产量计算：实际产量会有出入。",
 }

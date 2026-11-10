@@ -636,4 +636,6 @@ ns.Locales.ruRU = {
     ["vendor"] = "торговец",
     ["? = a part of the cost is unknown: this choice is not fully comparable."] = "? = часть стоимости неизвестна: этот выбор нельзя сравнить полностью.",
     ["A learning cost is unknown: your trainer or the vendor shows it."] = "Стоимость обучения неизвестна: её покажет учитель или торговец.",
+    ["Planning estimate from the average number of crafts per step - what you really need varies."] = "Оценка плана по среднему числу изготовлений на шаг: реальная потребность может отличаться.",
+    ["Counted with the average output per craft - what a craft really makes varies."] = "Посчитано по среднему выходу за изготовление: реальный выход может отличаться.",
 }

@@ -636,4 +636,6 @@ ns.Locales.koKR = {
     ["vendor"] = "상인",
     ["? = a part of the cost is unknown: this choice is not fully comparable."] = "? = 비용의 일부를 알 수 없어 이 선택은 완전히 비교할 수 없습니다.",
     ["A learning cost is unknown: your trainer or the vendor shows it."] = "배우는 비용을 알 수 없습니다: 기술 전문가나 상인에게서 확인됩니다.",
+    ["Planning estimate from the average number of crafts per step - what you really need varies."] = "단계별 평균 제작 횟수로 잡은 계획 추정치입니다. 실제 필요량은 달라질 수 있습니다.",
+    ["Counted with the average output per craft - what a craft really makes varies."] = "제작당 평균 생산량으로 계산했습니다. 실제 생산량은 달라질 수 있습니다.",
 }
