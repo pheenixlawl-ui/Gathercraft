@@ -4594,7 +4594,7 @@ step("Skill plan 2.0: the window - one profession, skill read, target menu, have
     local L, core, d = ns.L, ns.PlanCore, ns.CraftData
     local saved = { rank = ns.ProfessionRank, have = d.Have, known = d.Known, price = ns.GetPrice, filter = ns.CraftFilter, compute = core.Compute,
         lines = GetNumSkillLines, line = GetSkillLineInfo, secret = issecretvalue, targets = ns.db.planTargets, tab = ns.db.craftTab,
-        waypoint = ns.SetWaypoint, run = ns.StartRun, vendor = ns.db.vendorPrices }
+        waypoint = ns.SetWaypoint, run = ns.StartRun, vendor = ns.db.vendorPrices, log = ns.db.craftLog }
     local function Rows()
         local list = {}
         for _, o in ipairs(allFrames) do
@@ -4664,6 +4664,27 @@ step("Skill plan 2.0: the window - one profession, skill read, target menu, have
             "the Crafting tab does not hand over its profession")
 
         -- (3) the target: the default once, then it stays as set
+        -- What else is saved stays as it is, whatever is done with the target
+        -- (Codex round 1, N2): recipes and a craft log prepared for it, written
+        -- out in full before and compared with the same after.
+        local function Dump(v)
+            if type(v) ~= "table" then return type(v) .. ":" .. tostring(v) end
+            local keys = {}
+            for k in pairs(v) do keys[#keys + 1] = k end
+            table.sort(keys, function(a, b) return tostring(a) < tostring(b) end)
+            local parts = {}
+            for _, k in ipairs(keys) do parts[#parts + 1] = tostring(k) .. "=" .. Dump(v[k]) end
+            return "{" .. table.concat(parts, ",") .. "}"
+        end
+        saved.known("Tailoring") -- (the real reader once: this character's own entry is there before the comparison)
+        ns.db.recipes["Other-Realm"] = { Tailoring = { rank = 7, list = { ["Bolt of Linen Cloth"] = "2996:1:1:1|2589:2" } } }
+        local log = {}
+        for i, entry in ipairs(saved.log or {}) do log[i] = entry end
+        log[#log + 1] = { t = 1, prof = "Tailoring", name = "Bolt of Linen Cloth", before = 6, after = 7 }
+        ns.db.craftLog = log
+        local function Saved() return Dump(ns.db.recipes) .. "|" .. Dump(ns.db.craftLog) end
+        local savedBefore = Saved()
+        assert(savedBefore:find("Other-Realm", 1, true) and savedBefore:find("after=number:7", 1, true), "test setup: nothing prepared to compare")
         assert(target:IsShown() and target:GetText() == "150", "skill 81: the default target is not 150: " .. tostring(target:GetText()))
         ranks.Tailoring = { 82, 150 }
         fire("SKILL_LINES_CHANGED") advance(1)
@@ -4714,8 +4735,28 @@ step("Skill plan 2.0: the window - one profession, skill read, target menu, have
         ns.db.planTargets = nil
         ns.ShowSkillPlan("Tailoring") advance(1)
         assert(target:GetText() == "300" and Shows((L["Done: you have reached your target (%d)."]):format(300)), "at 300: a new plan")
-        -- another profession keeps its own target; other saved data is not touched
-        assert(ns.db.recipes ~= nil and ns.db.craftLog ~= nil or true)
+        -- another profession keeps its own target
+        ranks.Tailoring = { 82, 150 }
+        ns.ShowSkillPlan("Tailoring") advance(1)
+        assert(ns.SkillPlanSetTarget(120), "test setup: a target for Tailoring")
+        ns.ShowSkillPlan("Alchemy") advance(1)
+        assert(ns.SkillPlanSetTarget(60), "test setup: a target for Alchemy")
+        ns.ShowSkillPlan("Tailoring") advance(1)
+        assert(target:GetText() == "120", "another profession's target changed this one: " .. tostring(target:GetText()))
+        ns.ShowSkillPlan("Alchemy") advance(1)
+        assert(target:GetText() == "60", "a profession does not keep its own target")
+        -- ... and nothing else that is saved was touched by any of it: the
+        -- prepared recipes and craft log are, entry for entry, what they were
+        assert(Saved() == savedBefore, "the plan window changed other saved data")
+        -- (the comparison is not blind: one changed value, one removed entry and it fails)
+        log[#log].after = 8
+        assert(Saved() ~= savedBefore, "test setup: a changed craft log entry goes unnoticed")
+        log[#log].after = 7
+        local kept = ns.db.recipes["Other-Realm"].Tailoring.list
+        ns.db.recipes["Other-Realm"].Tailoring.list = {}
+        assert(Saved() ~= savedBefore, "test setup: a removed recipe goes unnoticed")
+        ns.db.recipes["Other-Realm"].Tailoring.list = kept
+        assert(Saved() == savedBefore, "test setup: the prepared data was not put back")
 
         -- (4) the skill is read, never assumed
         ns.db.planTargets = nil
@@ -4868,6 +4909,8 @@ step("Skill plan 2.0: the window - one profession, skill read, target menu, have
     ns.ProfessionRank, d.Have, d.Known, ns.GetPrice, ns.CraftFilter, core.Compute = saved.rank, saved.have, saved.known, saved.price, saved.filter, saved.compute
     GetNumSkillLines, GetSkillLineInfo, issecretvalue = saved.lines, saved.line, saved.secret
     ns.db.planTargets, ns.db.craftTab, ns.SetWaypoint, ns.StartRun, ns.db.vendorPrices = saved.targets, saved.tab, saved.waypoint, saved.run, saved.vendor
+    ns.db.craftLog = saved.log
+    if ns.db.recipes then ns.db.recipes["Other-Realm"] = nil end
     if win then win:Hide() end
     if not ok then error(err, 0) end
 end)
