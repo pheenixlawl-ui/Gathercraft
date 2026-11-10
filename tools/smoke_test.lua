@@ -5454,6 +5454,89 @@ step("Skill plan 2.0: amounts are a planning estimate, and said to be one (v0.2 
     if win then win:Hide() end
     if not ok then error(err, 0) end
 end)
+step("Skill plan 2.0: a changed recipe is a new plan (v0.2 r1 F4)", function()
+    -- Codex round 1, B4 (concept 4.6): the plan is kept only as long as
+    -- everything it was made from is the same - also the recipes themselves:
+    -- what they need, what and how many they make, their skill and colours,
+    -- how they are learned and what that costs.
+    local d = ns.CraftData
+    local saved = { rank = ns.ProfessionRank, have = d.Have, cost = d.ReagentCost, known = d.Known, all = d.AllRecipes }
+    local key = "Bolt of Linen Cloth"
+    local spell = GathercraftRecipeData.spells.Tailoring[key]
+    assert(spell and GathercraftRecipeData.colors[spell], "test setup: " .. key .. " has no colour data")
+    local colours, fee = GathercraftRecipeData.colors[spell], GathercraftRecipeSources.trainer[spell]
+    local ok, err = pcall(function()
+        local packed, knows = "2996:1:1:1|2589:2", true
+        ns.ProfessionRank = function(p) if p == "Tailoring" then return 1, 75 end end
+        d.AllRecipes = function(p) return p == "Tailoring" and { [key] = packed } or {} end
+        d.Known = function(p) return (p == "Tailoring" and knows) and { [key] = packed } or {} end
+        d.Have = function() return 0 end
+        d.ReagentCost = function() return 1, "AH scan", false end
+        local function Calc()
+            local plan, new = ns.SkillPlanCalculate("Tailoring", 1, 2)
+            local m = {}
+            for _, row in ipairs(plan.materials) do m[row.id] = row end
+            return plan, new, m
+        end
+        local plan, new, m = Calc()
+        local revision = plan.revision
+        assert(m[2589] and m[2589].need == 2, "test setup: the plan needs 2 Linen Cloth")
+        -- nothing changed: the same plan, the same revision
+        plan, new = Calc()
+        assert(not new and plan.revision == revision, "the same state gives a new plan")
+        local function Changed(what)
+            local p, isNew, rows = Calc()
+            assert(isNew and p.revision == revision + 1, what .. ": the old plan is kept (revision " .. tostring(p.revision) .. ")")
+            assert(ns.SkillPlanResult().revision == p.revision, what .. ": the second reader has the old revision")
+            revision = p.revision
+            return p, rows
+        end
+        -- Codex RECIPE_REVISION: the recipe now needs 5 Linen Cloth, not 2
+        packed = "2996:1:1:1|2589:5"
+        plan, m = Changed("another amount of an ingredient")
+        assert(m[2589].need == 5, ("the plan still needs %d Linen Cloth, want 5"):format(m[2589].need))
+        -- another ingredient
+        packed = "2996:1:1:1|2592:5"
+        plan, m = Changed("another ingredient")
+        assert(m[2592] and m[2592].need == 5 and not m[2589], "the plan still needs the old ingredient")
+        -- the same name, the same ingredients, the same prices - only what a craft makes
+        packed = "2996:2:2:1|2592:5"
+        plan = Changed("another number made")
+        assert(plan.ledger[2996].madePlan == 2, "the plan still makes one a craft")
+        packed = "2997:2:2:1|2592:5"
+        plan = Changed("another product")
+        assert(plan.ledger[2997] and not plan.ledger[2996], "the plan still makes the old product")
+        packed = "2997:1:3:1|2592:5" -- (the same mean, now a varying output)
+        Changed("an output that varies")
+        -- its colours
+        local yellow, grey = colours:match("^(%d+):(%d+)$")
+        GathercraftRecipeData.colors[spell] = ("%d:%d"):format(yellow, grey + 10)
+        Changed("another colour threshold")
+        -- how it is learned, and what that costs
+        knows = false
+        GathercraftRecipeSources.trainer[spell] = 50
+        plan = Changed("not known any more")
+        assert(plan.learn.trainer == 1 and plan.learn.fees == 50, "test setup: the recipe is learned from a trainer for 50c")
+        GathercraftRecipeSources.trainer[spell] = 70
+        plan = Changed("another trainer fee")
+        assert(plan.learn.fees == 70, "the plan still counts the old fee")
+        -- and again nothing changed
+        plan, new = Calc()
+        assert(not new and plan.revision == revision, "the same state gives a new plan (after the changes)")
+    end)
+    ns.ProfessionRank, d.Have, d.ReagentCost, d.Known, d.AllRecipes = saved.rank, saved.have, saved.cost, saved.known, saved.all
+    GathercraftRecipeData.colors[spell], GathercraftRecipeSources.trainer[spell] = colours, fee
+    if not ok then error(err, 0) end
+    -- every field of a recipe the calculation reads comes from what the
+    -- signature holds: the record as the game gave it, and what the snapshot adds
+    local f = assert(io.open(ROOT .. "/Planner.lua"))
+    local planner = f:read("*a") f:close()
+    local sig = planner:match("local function RecipeSignature%(r%)(.-)\nend")
+    assert(sig, "no signature of a recipe")
+    for _, field in ipairs({ "key", "packed", "learn", "req", "yellow", "grey", "fee", "recipeItem" }) do
+        assert(sig:find("r." .. field, 1, true), "the signature of a recipe leaves out " .. field)
+    end
+end)
 -- (end of the skill plan 2.0 steps, v0.2 building block 1)
 step("Craft log: one entry per finished craft, failures and odd cases marked apart (v0.1.18 S5)", function()
     local data = GathercraftRecipeData

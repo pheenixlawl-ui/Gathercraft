@@ -115,7 +115,7 @@ local function RecipeList(prof, onlyKnown)
             local learn, fee, recipeItem
             if known[key] then learn = "known" elseif not onlyKnown then learn, fee, recipeItem = HowToLearn(prof, key, spell, known, req, grey) end
             list[#list + 1] = { prof = prof, key = key, name = d.DisplayName(prof, key), spell = spell, product = product, made = made,
-                madeVaries = least ~= most,
+                madeVaries = least ~= most, packed = packed,
                 req = req, yellow = yellow, grey = grey, reagents = reagents, learn = learn, fee = fee, recipeItem = recipeItem }
         end
     end
@@ -186,6 +186,9 @@ ns.SkillPlanSnapshot = Snapshot
 -- target, recipes, the counts and prices it asked for - the same plan
 -- stays, with the same revision: a burst of bag events, an event that
 -- comes twice or late, changes nothing. Only the open window calculates.
+-- "Recipes" means all of a recipe the calculation uses (RecipeSignature): a
+-- recipe the profession window read anew with other ingredients or another
+-- output is another state, and gives a new plan.
 --   ns.SkillPlanResult()   the last result for a second reader (later: the
 --                          shopping list): { revision, prof, from, target,
 --                          status, valid, complete, items = { [item] =
@@ -197,6 +200,16 @@ ns.SkillPlanSnapshot = Snapshot
 local calc = { revision = 0 }
 ns.skillPlanListeners = ns.skillPlanListeners or {}
 
+-- Everything of a recipe the calculation uses (Codex round 1, B4): its
+-- record as the game gave it - the product, how many a craft makes, every
+-- ingredient with its amount - and what the snapshot adds: the skill it
+-- needs, its colours, how it is learned and what that costs. Written out in
+-- full, no sum over it: two different recipes never look the same.
+local function RecipeSignature(r)
+    return table.concat({ r.key, tostring(r.packed), tostring(r.learn), tostring(r.req), tostring(r.yellow), tostring(r.grey),
+        tostring(r.fee), tostring(r.recipeItem) }, "\031")
+end
+
 -- what is not read through the lazy tables: skill, target, ranks, recipes
 local function Signature(input)
     local parts = { input.prof, tostring(input.skill), tostring(input.target), tostring(input.maxRank) }
@@ -204,12 +217,11 @@ local function Signature(input)
     for prof in pairs(input.recipes) do profs[#profs + 1] = prof end
     table.sort(profs)
     for _, prof in ipairs(profs) do
-        local sum = 0
-        for _, r in ipairs(input.recipes[prof]) do
-            sum = sum + #r.key * 31 + (r.learn == "known" and 7 or r.learn and 3 or 0) + (r.req or 0) + (r.yellow or 0) * 2 + (r.grey or 0) * 5
-        end
+        local list = {}
+        for i, r in ipairs(input.recipes[prof]) do list[i] = RecipeSignature(r) end
+        table.sort(list) -- (the same recipes in another order are the same state)
         local own = input.professions[prof]
-        parts[#parts + 1] = ("%s:%s:%d:%d"):format(prof, tostring(own and own.rank), #input.recipes[prof], sum)
+        parts[#parts + 1] = ("%s:%s:%d:"):format(prof, tostring(own and own.rank), #list) .. table.concat(list, "\030")
     end
     return table.concat(parts, "|")
 end
