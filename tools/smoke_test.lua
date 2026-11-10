@@ -4916,9 +4916,11 @@ step("Skill plan 2.0: the window - one profession, skill read, target menu, have
 end)
 step("Skill plan 2.0: texts in every language, an internal build mark, nothing published yet (v0.2 A7)", function()
     -- 0.2 is built block by block and published as one release: this build is
-    -- marked internal, and what players read about releases is not touched
+    -- marked internal, and what players read about releases is not touched.
+    -- (b1r1: building block 1 after the fixes of Codex' round 1 - so the
+    -- build that is installed can be told from the first one)
     local version = toc:match("## Version: ([%w%.%-]+)")
-    assert(version == "0.2.0-b1", "TOC version: " .. tostring(version))
+    assert(version == "0.2.0-b1r1", "TOC version: " .. tostring(version))
     assert(toc:match("## Interface: (%d+)") == "16001", "TOC interface changed")
     local function Read(name)
         local f = assert(io.open(ROOT .. "/" .. name))
@@ -14617,7 +14619,7 @@ step("Welcome, what's new and the run summary (v0.1.13)", function()
     SendChatMessage = nil
 end)
 step("What's new: 0.1.23 after an update, in this language and all translations", function()
-    -- (0.2 is built internally, block by block: the TOC says 0.2.0-b1, what
+    -- (0.2 is built internally, block by block: the TOC says 0.2.0-b1r1, what
     -- players read about releases stays that of 0.1.23 until 0.2 is published)
     local version = "0.1.23"
     assert(toc:match("## Interface: (%d+)") == "16001", "TOC interface changed")
