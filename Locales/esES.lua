@@ -588,7 +588,6 @@ ns.Locales.esES = {
     ["Ping when I reach a route point"] = "Ping al llegar a un punto de la ruta",
     ["Scan the auction house automatically when I open it"] = "Escanear la casa de subastas automáticamente al abrirla",
     ["Only nodes near you get a minimap pin now - less work for the game while you move. The auction house scan starts when you open the window (Options, Rares & prices). The skill plan reads your profession skill from the game itself; where that fails, opening the profession window once still does it. New: Options, Fishing - and a switch for the ping at route points (Options, General)."] = "Ahora solo los nodos cercanos tienen un pin en el minimapa: menos trabajo para el juego mientras te mueves. El escaneo de la casa de subastas empieza al abrir la ventana (Opciones, Raros y precios). El plan de habilidad lee tu habilidad de profesión del propio juego; donde eso falle, basta como antes con abrir una vez la ventana de la profesión. Nuevo: Opciones, Pesca, y un interruptor para el ping en los puntos de la ruta (Opciones, General).",
-    ["? = a material has no price: this choice is not fully comparable."] = "? = un material no tiene precio: esta elección no es del todo comparable.",
     ["(%s of it estimated)"] = "(%s de ello estimado)",
     ["%s can only be made from itself here: it is not made."] = "%s solo podría hacerse a partir de sí mismo aquí: no se fabrica.",
     ["%s trainer"] = "Instructor de %s",
@@ -635,4 +634,6 @@ ns.Locales.esES = {
     ["have / need"] = "tienes / necesitas",
     ["place unknown"] = "lugar desconocido",
     ["vendor"] = "vendedor",
+    ["? = a part of the cost is unknown: this choice is not fully comparable."] = "? = una parte del coste es desconocida: esta elección no es del todo comparable.",
+    ["A learning cost is unknown: your trainer or the vendor shows it."] = "Un coste de aprendizaje es desconocido: tu instructor o el vendedor lo muestra.",
 }

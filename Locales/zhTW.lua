@@ -588,7 +588,6 @@ ns.Locales.zhTW = {
     ["Ping when I reach a route point"] = "到達路線上的點時播放提示音",
     ["Scan the auction house automatically when I open it"] = "打開拍賣場時自動掃描",
     ["Only nodes near you get a minimap pin now - less work for the game while you move. The auction house scan starts when you open the window (Options, Rares & prices). The skill plan reads your profession skill from the game itself; where that fails, opening the profession window once still does it. New: Options, Fishing - and a switch for the ping at route points (Options, General)."] = "現在只有你附近的採集點才有小地圖標記——移動時遊戲的負擔更小。打開拍賣場視窗時自動開始掃描（選項，稀有和價格）。技能規劃直接從遊戲讀取你的專業技能；讀不到時，照舊打開一次專業技能視窗即可。新增：選項，釣魚——以及到達路線點時提示音的開關（選項，一般）。",
-    ["? = a material has no price: this choice is not fully comparable."] = "? = 有材料沒有價格：此選擇無法完全比較。",
     ["(%s of it estimated)"] = "（其中 %s 為估算）",
     ["%s can only be made from itself here: it is not made."] = "%s 在這裡只能用它自己製作：不製作。",
     ["%s trainer"] = "%s訓練師",
@@ -635,4 +634,6 @@ ns.Locales.zhTW = {
     ["have / need"] = "擁有 / 需要",
     ["place unknown"] = "地點未知",
     ["vendor"] = "商人",
+    ["? = a part of the cost is unknown: this choice is not fully comparable."] = "? = 部分花費未知：此選擇無法完全比較。",
+    ["A learning cost is unknown: your trainer or the vendor shows it."] = "學習花費未知：訓練師或商人處可以看到。",
 }

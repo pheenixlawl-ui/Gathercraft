@@ -618,7 +618,7 @@ local function Refresh()
     end
     if plan.steps[#plan.steps] and not plan.steps[#plan.steps].chanceUnknown then Train(plan.steps[#plan.steps].to) end
     for at in pairs(trainAt) do Train(at) end -- (at your maximum with nothing planned after it)
-    if gaps then Line(L["? = a material has no price: this choice is not fully comparable."], nil, DIM) end
+    if gaps then Line(L["? = a part of the cost is unknown: this choice is not fully comparable."], nil, DIM) end
     -- what the plan says about itself
     for _, diag in ipairs(plan.diagnostics) do
         if diag.code == "stuck" and prof == "Mining" then
@@ -707,11 +707,12 @@ local function Refresh()
         local right
         if m.covered then
             right = "|cff55ff55" .. L["enough"] .. "|r" -- only what you really have ticks a row
-        elseif m.madeFrom then
+        elseif m.missing == 0 and m.madeFrom then
             right = "|cff999999" .. (L["(make it: %s)"]):format(d.ProfLabel(m.madeFrom.prof)) .. "|r"
         elseif m.missing == 0 then
             right = "|cff999999" .. L["(from the plan's steps)"] .. "|r" -- a forecast, not stock
         else
+            -- to buy (a part of it may be made as well: the tooltip says so)
             local source = m.price.status == "unknown" and "" or (m.price.source == "vendor" and L["vendor"] or L["AH"])
             right = ("|cffff7070%d|r  |cff999999%s|r %s%s"):format(m.missing, source, m.costStatus == "estimated" and "~" or "",
                 m.cost and ns.Money(m.cost) or L["|cffff7070no price|r"])
@@ -784,7 +785,13 @@ local function Refresh()
     else
         totalLine = (L["Missing materials cost about %s"]):format(ns.Money(total)) .. estimated
     end
-    Finish(totalLine, plan.notComparable and L["Some prices are unknown: scan the auction house for a better plan."] or "")
+    -- a choice that is not fully comparable: what is open, and what helps
+    local note = ""
+    if plan.notComparable then
+        note = (plan.openLearn and not plan.openPrices) and L["A learning cost is unknown: your trainer or the vendor shows it."]
+            or L["Some prices are unknown: scan the auction house for a better plan."]
+    end
+    Finish(totalLine, note)
 end
 ns.RefreshSkillPlan = Refresh
 

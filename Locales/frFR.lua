@@ -588,7 +588,6 @@ ns.Locales.frFR = {
     ["Ping when I reach a route point"] = "Ping quand j'atteins un point de la route",
     ["Scan the auction house automatically when I open it"] = "Scanner l'hôtel des ventes automatiquement à l'ouverture",
     ["Only nodes near you get a minimap pin now - less work for the game while you move. The auction house scan starts when you open the window (Options, Rares & prices). The skill plan reads your profession skill from the game itself; where that fails, opening the profession window once still does it. New: Options, Fishing - and a switch for the ping at route points (Options, General)."] = "Seuls les gisements proches de toi ont maintenant un repère sur la minicarte : moins de travail pour le jeu quand tu te déplaces. Le scan de l'hôtel des ventes démarre à l'ouverture de la fenêtre (Options, Rares et prix). Le plan de compétence lit ta compétence de métier directement dans le jeu ; là où cela échoue, ouvrir une fois la fenêtre du métier suffit toujours. Nouveau : Options, Pêche – et un réglage pour le ping aux points de la route (Options, Général).",
-    ["? = a material has no price: this choice is not fully comparable."] = "? = un matériau n'a pas de prix : ce choix n'est pas entièrement comparable.",
     ["(%s of it estimated)"] = "(dont %s estimés)",
     ["%s can only be made from itself here: it is not made."] = "%s ne pourrait être fabriqué ici qu'à partir de lui-même : il n'est pas fabriqué.",
     ["%s trainer"] = "Maître de %s",
@@ -635,4 +634,6 @@ ns.Locales.frFR = {
     ["have / need"] = "possédé / requis",
     ["place unknown"] = "lieu inconnu",
     ["vendor"] = "marchand",
+    ["? = a part of the cost is unknown: this choice is not fully comparable."] = "? = une partie du coût est inconnue : ce choix n'est pas entièrement comparable.",
+    ["A learning cost is unknown: your trainer or the vendor shows it."] = "Un coût d'apprentissage est inconnu : votre maître ou le marchand l'affiche.",
 }
