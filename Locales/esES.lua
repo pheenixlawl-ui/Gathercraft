@@ -650,4 +650,5 @@ ns.Locales.esES = {
     ["Updating the plan ..."] = "Actualizando el plan ...",
     ["Your %s skill cannot be read right now. The plan makes materials with it, going by the skill seen last: until it can be read, this is a preview."] = "Ahora no se puede leer tu habilidad de %s. El plan fabrica materiales con ella según la última habilidad vista: hasta que se pueda leer, esto es una vista previa.",
     ["A preview: it uses a profession whose skill cannot be read right now."] = "Vista previa: usa una profesión cuya habilidad no se puede leer ahora.",
+    ["The plan could not be worked out: an error occurred."] = "No se pudo calcular el plan: se produjo un error.",
 }

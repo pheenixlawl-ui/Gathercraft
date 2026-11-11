@@ -650,4 +650,5 @@ ns.Locales.frFR = {
     ["Updating the plan ..."] = "Mise à jour du plan ...",
     ["Your %s skill cannot be read right now. The plan makes materials with it, going by the skill seen last: until it can be read, this is a preview."] = "Ta compétence en %s ne peut pas être lue pour le moment. Le plan fabrique des composants avec elle d'après la dernière compétence vue : tant qu'elle n'est pas lisible, ceci est un aperçu.",
     ["A preview: it uses a profession whose skill cannot be read right now."] = "Aperçu : il utilise un métier dont la compétence est illisible pour le moment.",
+    ["The plan could not be worked out: an error occurred."] = "Le plan n'a pas pu être calculé : une erreur s'est produite.",
 }

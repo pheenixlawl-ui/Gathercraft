@@ -315,13 +315,20 @@ ns.SkillPlanResult = function() return calc.result end
 --     frames - so a finished plan is only taken when a fresh look at the
 --     game shows everything it read unchanged: never a plan from two states.
 --   * the window is closed: nothing goes on.
+--   * the calculation breaks (an error, in whatever part): what was begun is
+--     dropped, the window is drawn anew - the plan of before without
+--     "Updating", and a line that says the plan could not be worked out -
+--     and THEN the error is raised: reported as an error, not swallowed.
+--     Nothing is begun again for the same state (it would break again, part
+--     after part); a new state, opening the window or setting a target is.
 --   * the plan is the one the calculation in one go gives (the same code;
 --     where it rests changes nothing it works out).
 -- 4 ms: a quarter of a frame at 60 frames a second. ns.SkillPlanClock (ms)
 -- stands in for the game's clock in the tests.
 ---------------------------------------------------------------------------
 local BUDGET_MS = 4
-local job -- the calculation that is running: { input, sig, co, deadline, parts, plan (once done) }
+local job -- the calculation that is running: { input, sig, co, deadline, parts, plan (once done), failed (its error) }
+local broke -- the calculation broke for this state: { input, sig, err, reported }
 
 local function Clock()
     local clock = ns.SkillPlanClock or debugprofilestop
@@ -339,15 +346,18 @@ local function NewJob(input, sig)
 end
 
 -- one part of the work, until BUDGET_MS after `since` (now, when nothing
--- else was done in this call before it). An error in the calculation is an
--- error here: it is not swallowed, and what was begun is dropped.
+-- else was done in this call before it). An error in the calculation ends
+-- it: what was begun is dropped and the error kept for this state - the
+-- window is drawn first and raises it then (Refresh).
 local function Part(j, since)
     j.parts = j.parts + 1
     j.deadline = (since or Clock()) + BUDGET_MS
     local ok, plan = coroutine.resume(j.co)
     if not ok then
+        j.failed = plan == nil and "the skill plan calculation failed" or plan
         if job == j then job = nil end
-        error(plan, 0)
+        broke = { input = j.input, sig = j.sig, err = j.failed, reported = false }
+        return
     end
     if coroutine.status(j.co) == "dead" then j.plan = plan end
 end
@@ -369,23 +379,38 @@ local function Drive(j)
             return
         end
         Part(j)
+        if j.failed then
+            -- it broke in this part: the window is drawn without "Updating"
+            -- and raises the error
+            ns.RefreshSkillPlan()
+            return
+        end
         Drive(j)
     end)
 end
 
--- The plan to show for this state, and whether a new one is being worked
--- out: the plan of this state when it is there; else the last finished plan
--- of this profession (nil when there is none) while the new one is worked
--- out in parts.
+-- The plan to show for this state, whether a new one is being worked out,
+-- and - when the calculation broke for this state - what broke: the plan of
+-- this state when it is there; else the last finished plan of this
+-- profession (nil when there is none) while the new one is worked out in
+-- parts, or after it broke.
 local function PlanToShow(prof, skill, target, source, seenAt)
     local began = Clock() -- (taking the snapshot is part of this call's time)
     local input = Snapshot(prof, skill, target, source, seenAt)
     local sig = Signature(input)
     if calc.plan and calc.sig == sig and SameReads(calc.input, input) then
-        job = nil -- (whatever was begun was for another state)
+        job, broke = nil, nil -- (whatever was begun or broke was for another state)
         calc.result.updating = nil
         return calc.plan, false
     end
+    local before = (calc.plan and calc.plan.prof == prof) and calc.plan or nil
+    if broke and broke.sig == sig and SameReads(broke.input, input) then
+        -- it broke for this very state: not begun again. The plan of before
+        -- is out of date, and nothing is on its way.
+        if calc.result then calc.result.updating = true end
+        return before, false, broke
+    end
+    broke = nil
     local j = job
     if j and j.sig == sig and SameReads(j.input, input) then
         -- begun for this very state, and nothing it read has changed
@@ -398,6 +423,10 @@ local function PlanToShow(prof, skill, target, source, seenAt)
         j = NewJob(input, sig)
         job = j
         Part(j, began)
+        if j.failed then
+            if calc.result then calc.result.updating = true end
+            return before, false, broke
+        end
         if j.plan then
             -- done in its first part (all it read, it read just now)
             job = nil
@@ -407,11 +436,14 @@ local function PlanToShow(prof, skill, target, source, seenAt)
         Drive(j)
     end
     if calc.result then calc.result.updating = true end
-    return (calc.plan and calc.plan.prof == prof) and calc.plan or nil, true
+    return before, true
 end
 -- the window shows no plan (no profession, a skill that cannot be read):
 -- nothing is worked out for it
 local function DropJob() job = nil end
+-- the player asks again (opens the window, sets a target): what broke
+-- before may be tried once more
+local function TryAgain() broke = nil end
 ns.SkillPlanBusy = function() return job ~= nil end
 
 -- steps, materials, cost of the missing materials, where the plan got stuck,
@@ -588,6 +620,7 @@ ns.SkillPlanSetTarget = function(value)
     if not state.prof then return false end
     local ok, hint = SetTarget(state.prof, value, state.skill or 1)
     state.hint = hint
+    TryAgain()
     if ns.RefreshSkillPlan then ns.RefreshSkillPlan() end
     return ok, hint
 end
@@ -777,22 +810,42 @@ local function Refresh()
         skillText:SetText(maxRank and (L["Your skill: %d / %d"]):format(rank, maxRank) or (L["Your skill: %d"]):format(rank))
     end
 
-    local plan, updating = PlanToShow(prof, from, target, lastSeen and "lastSeen" or nil, seenAt)
+    local plan, updating, broken = PlanToShow(prof, from, target, lastSeen and "lastSeen" or nil, seenAt)
+    -- The calculation broke (Codex round 3): the window is drawn first - no
+    -- "Updating" and no "Working out" stays behind, a line says what happened
+    -- - and then the error is raised, once, so it is reported like any other.
+    local function Report()
+        if broken and not broken.reported then
+            broken.reported = true
+            error(broken.err, 0)
+        end
+    end
     if not plan then
-        -- being worked out, and no finished plan of this profession to show
-        -- meanwhile: nothing of a plan, only that it is on its way
-        Line(L["Working out the plan ..."], nil, GOLD)
+        if broken then
+            Line(L["The plan could not be worked out: an error occurred."], nil, RED)
+        else
+            -- being worked out, and no finished plan of this profession to
+            -- show meanwhile: nothing of a plan, only that it is on its way
+            Line(L["Working out the plan ..."], nil, GOLD)
+        end
         Finish()
+        Report()
         return
     end
     if not plan.valid then
         Line(L["No plan: there is nothing to plan from."], nil, RED)
         Finish()
+        Report()
         return
     end
     local info = plan.learn
-    -- the plan of before, while the new one is worked out: said first
-    if updating then Line(L["Updating the plan ..."], nil, GOLD) end
+    -- the plan of before, while the new one is worked out - or after it
+    -- could not be: said first
+    if broken then
+        Line(L["The plan could not be worked out: an error occurred."], nil, RED)
+    elseif updating then
+        Line(L["Updating the plan ..."], nil, GOLD)
+    end
     -- (what marks a preview goes by the plan that is shown)
     local preview = plan.skillSource == "lastSeen"
 
@@ -887,7 +940,7 @@ local function Refresh()
     -- (only a plan from the skill read now is ever "done" - and only the
     -- plan of the state as it is: not the one of before while a new one is
     -- worked out)
-    if plan.status == "done" and not updating then
+    if plan.status == "done" and not updating and not broken then
         Line((L["Done: you have reached your target (%d)."]):format(plan.target), nil, GREEN)
     end
     -- the recipes to learn, with where
@@ -1086,6 +1139,7 @@ local function Refresh()
             or L["Some prices are unknown: scan the auction house for a better plan."]
     end
     Finish(totalLine, note)
+    Report()
 end
 ns.RefreshSkillPlan = Refresh
 
@@ -1230,6 +1284,7 @@ local function ShowSkillPlan(prof)
         end
     end
     state.prof, state.hint = chosen, nil
+    TryAgain()
     -- (showing it refreshes it - OnShow; an open window is refreshed here)
     if win:IsShown() then Refresh() else win:Show() end
 end

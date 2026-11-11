@@ -6888,9 +6888,12 @@ step("Skill plan 2.0: a big plan is worked out in parts - the same plan, never a
         core.Compute = saved.compute
 
         -- ---- with the clock the game has (here: the machine's): the same
+        -- (asked again by the player: what broke before is tried once more)
         ns.SkillPlanClock = nil
-        ns.RefreshSkillPlan() advance(1)
-        shown = ns.SkillPlanCalculate("Leatherworking", 150, 280)
+        ns.ShowSkillPlan("Leatherworking") advance(1)
+        assert(not ns.SkillPlanBusy() and ns.SkillPlanResult().target == 280 and ns.SkillPlanResult().updating == nil, "asked again after an error, the window has no plan")
+        shown, new = ns.SkillPlanCalculate("Leatherworking", 150, 280)
+        assert(new == false, "the window's plan is not that of the state as it is")
         inOneGo = Whole(280)
         inOneGo.revision = shown.revision
         same, why = SamePlan(shown, inOneGo, "plan")
@@ -7149,6 +7152,137 @@ step("Skill plan 2.0: a profession you no longer have makes nothing, one that ca
     end)
     GetNumSkillLines, GetSkillLineInfo, issecretvalue, ns.db.recipes, ns.db.planTargets = saved.lines, saved.line, saved.secret, saved.recipes, saved.targets
     core.Compute, d.Have, d.ReagentCost = saved.compute, saved.have, saved.cost
+    if win then win:Hide() end
+    if not ok then error(err, 0) end
+end)
+step("Skill plan 2.0: a calculation that breaks in a later part leaves no \"Updating\" behind (v0.2 r3 H2)", function()
+    -- Codex round 3: an error in the first part of the calculation was
+    -- tested. When it breaks only after it was put down once, the error was
+    -- reported and the work dropped - but "Updating the plan ..." stayed on
+    -- the screen until the next refresh. Now the window is drawn anew (the
+    -- plan of before, no "Updating", a line that says what happened), then
+    -- the error is raised; and nothing is begun again for the same state.
+    local L, core, d = ns.L, ns.PlanCore, ns.CraftData
+    local saved = { clock = ns.SkillPlanClock, rank = ns.ProfessionRank, have = d.Have, known = d.Known, cost = d.ReagentCost, compute = core.Compute,
+        targets = ns.db.planTargets, listeners = ns.skillPlanListeners }
+    local win
+    local reported = #errors
+    local ok, err = pcall(function()
+        local bonus = 0
+        ns.ProfessionRank = function(p)
+            if p == "Leatherworking" then return 150, 225 elseif p == "Mining" then return 300, 300 elseif p == "Tailoring" then return 1, 75 end
+        end
+        d.Known = function() return {} end
+        d.Have = function(id) return (id % 3 == 0 and 15 or 0) + bonus end
+        d.ReagentCost = function(id) return (id % 97 + 1) * 10, "review", false end
+        ns.db.planTargets = nil
+        local published = 0
+        ns.skillPlanListeners = { function() published = published + 1 end }
+        -- the calculation, breaking after `breakAt` resting places (nil: never)
+        local starts, breakAt = 0, nil
+        core.Compute = function(input, pause)
+            starts = starts + 1
+            if not pause then return saved.compute(input) end
+            local rests = 0
+            return saved.compute(input, function()
+                rests = rests + 1
+                if breakAt and rests > breakAt then error("the calculation broke after a rest", 0) end
+                pause()
+            end)
+        end
+        local function Rows()
+            local list = {}
+            for _, o in ipairs(allFrames) do
+                if o.left and o.mid and o.right and o:IsShown() then list[#list + 1] = o end
+            end
+            return list
+        end
+        local function Count(text)
+            local n = 0
+            for _, row in ipairs(Rows()) do if row.left:GetText() == text then n = n + 1 end end
+            return n
+        end
+        -- the errors the harness caught since the last look (and takes them
+        -- off its list: they are what this step is about)
+        local function Caught()
+            local list = {}
+            while #errors > reported do list[#list + 1] = table.remove(errors) end
+            return list
+        end
+        local WORKING, UPDATING, STEPS = L["Working out the plan ..."], L["Updating the plan ..."], L["Steps"]
+        local BROKE = L["The plan could not be worked out: an error occurred."]
+
+        -- a finished plan to 225 first (the harness' clock stands still)
+        ns.ShowSkillPlan("Leatherworking")
+        win = _G.GathercraftSkillPlan
+        assert(ns.SkillPlanSetTarget(225), "test setup: the target")
+        local before = ns.SkillPlanResult()
+        assert(before.prof == "Leatherworking" and before.target == 225 and Count(STEPS) == 1 and #Caught() == 0, "test setup: the plan to 225")
+        -- a clock that goes on: a part ends after about 400 resting places
+        local now = 0
+        ns.SkillPlanClock = function()
+            now = now + 0.01
+            return now
+        end
+
+        -- ---- the calculation breaks in a later part
+        starts, published, breakAt = 0, 0, 600
+        assert(ns.SkillPlanSetTarget(300), "test setup: the target")
+        assert(ns.SkillPlanBusy() and Count(UPDATING) == 1 and #Caught() == 0, "test setup: the first part did not go through")
+        advance(1)
+        local caught = Caught()
+        assert(#caught == 1 and tostring(caught[1]):find("the calculation broke after a rest", 1, true),
+            ("an error in a later part is reported %d times, want once (%s)"):format(#caught, tostring(caught[1])))
+        assert(not ns.SkillPlanBusy(), "a calculation that broke is still called running")
+        assert(Count(UPDATING) == 0 and Count(WORKING) == 0, "\"Updating the plan ...\" stays on the screen after the calculation broke")
+        assert(Count(BROKE) == 1, ("the window says %d times that the plan could not be worked out, want once"):format(Count(BROKE)))
+        assert(Count(STEPS) == 1, "the plan of before is gone after the calculation broke")
+        local result = ns.SkillPlanResult()
+        assert(result.target == 225 and result.revision == before.revision and result.updating == true and published == 0, "a result was given out by a calculation that broke")
+        -- nothing is begun again for the same state: no error every 0.2 s
+        for _ = 1, 5 do fire("BAG_UPDATE_DELAYED") end
+        advance(1)
+        assert(starts == 1 and #Caught() == 0, ("the same state after an error: %d calculations begun"):format(starts))
+        assert(Count(BROKE) == 1 and Count(UPDATING) == 0, "the line about the error does not stay for the same state")
+        -- a new state is worked out again - and when that goes well, the line is gone
+        breakAt, bonus = nil, 1
+        fire("BAG_UPDATE_DELAYED")
+        advance(1)
+        result = ns.SkillPlanResult()
+        assert(starts == 2 and #Caught() == 0 and not ns.SkillPlanBusy() and result.target == 300 and result.updating == nil and published == 1, "a new state after an error is not worked out")
+        assert(Count(BROKE) == 0 and Count(UPDATING) == 0 and Count(STEPS) == 1, "the line about the error stays after a plan that went well")
+
+        -- ---- it breaks in a later part with no plan of the profession to
+        -- show: "Working out the plan ..." does not stay either
+        ns.ShowSkillPlan("Tailoring") advance(1)
+        assert(#Caught() == 0 and ns.SkillPlanResult().prof == "Tailoring", "test setup: a plan of another profession")
+        starts, published, breakAt = 0, 0, 600
+        ns.ShowSkillPlan("Leatherworking")
+        assert(ns.SkillPlanBusy() and Count(WORKING) == 1 and #Rows() == 1, "test setup: nothing to show while the first part runs")
+        advance(1)
+        caught = Caught()
+        assert(#caught == 1 and Count(WORKING) == 0 and Count(BROKE) == 1 and #Rows() == 1 and not ns.SkillPlanBusy(), "\"Working out the plan ...\" stays after the calculation broke")
+        assert(ns.SkillPlanResult().prof == "Tailoring" and ns.SkillPlanResult().updating == true and published == 0, "a result was given out")
+        -- asked again by the player: tried once more
+        breakAt = nil
+        ns.ShowSkillPlan("Leatherworking") advance(1)
+        assert(#Caught() == 0 and ns.SkillPlanResult().prof == "Leatherworking" and Count(BROKE) == 0 and Count(STEPS) == 1, "opened again after an error: no plan")
+
+        -- ---- it breaks in the very first part: raised to the one who asked
+        -- (as before) - and the window does not keep an old "Updating"
+        breakAt = 600
+        assert(ns.SkillPlanSetTarget(260), "test setup: the target")
+        assert(ns.SkillPlanBusy() and Count(UPDATING) == 1, "test setup: a calculation is running")
+        breakAt = 0 -- (the next calculation breaks at its first resting place)
+        local fine, problem = pcall(ns.SkillPlanSetTarget, 270)
+        assert(not fine and tostring(problem):find("the calculation broke after a rest", 1, true), "an error in the first part is swallowed")
+        assert(not ns.SkillPlanBusy() and Count(UPDATING) == 0 and Count(BROKE) == 1, "an error in the first part: \"Updating\" of the calculation before stays")
+        advance(1)
+        assert(#Caught() == 0, "the error of the first part is reported a second time")
+    end)
+    while #errors > reported do table.remove(errors) end
+    ns.SkillPlanClock, ns.ProfessionRank, d.Have, d.Known, d.ReagentCost, core.Compute = saved.clock, saved.rank, saved.have, saved.known, saved.cost, saved.compute
+    ns.db.planTargets, ns.skillPlanListeners = saved.targets, saved.listeners
     if win then win:Hide() end
     if not ok then error(err, 0) end
 end)

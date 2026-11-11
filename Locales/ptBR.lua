@@ -650,4 +650,5 @@ ns.Locales.ptBR = {
     ["Updating the plan ..."] = "Atualizando o plano ...",
     ["Your %s skill cannot be read right now. The plan makes materials with it, going by the skill seen last: until it can be read, this is a preview."] = "Não é possível ler sua perícia em %s agora. O plano cria materiais com ela conforme a última perícia vista: até que possa ser lida, isto é uma prévia.",
     ["A preview: it uses a profession whose skill cannot be read right now."] = "Prévia: usa uma profissão cuja perícia não pode ser lida agora.",
+    ["The plan could not be worked out: an error occurred."] = "Não foi possível calcular o plano: ocorreu um erro.",
 }
