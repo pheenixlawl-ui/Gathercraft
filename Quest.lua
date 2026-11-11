@@ -55,6 +55,20 @@ end
 -- filter knows) and enough skill (the trainer colour is not red; a bonus
 -- counts). Chests only while chests are shown. Not a node just harvested or
 -- found empty, nor one parked as always empty (the run's own rest times).
+--
+-- One ring per PLACE (T1 of 0.1.21; Sven, 10.11.2026, Hillsbrad 57.0 / 8.5):
+-- the starter data has one entry per sort a spawn point can hold - Copper,
+-- Tin and Silver Vein at the very same spot. Mining the tin put only the
+-- tin entry to rest; copper and silver there could still be gathered, so
+-- the ring stayed after the vein was gone. Now, for the rings only:
+--   * entries of one kind (herb, ore, chest) no further apart than SAME_PLACE
+--     are one place, and a place gets at most one ring
+--   * while any entry of that kind there rests (harvested, found empty,
+--     parked), the whole place gets none
+--   * the ring sits on an entry this character can gather; with none, no ring
+-- Nothing is written to a node for this: the recorder, routes, sync and
+-- statistics see what they saw. Places are made up among the nodes within
+-- the radius only.
 ---------------------------------------------------------------------------
 -- Options > Map & minimap: 50, 75 (default) or 100 yards
 local RADII = { 50, 75, 100 }
@@ -66,6 +80,9 @@ local RADIUS = 75
 local TICK = 0.5
 local MOVE = 5      -- yards
 local REFRESH = 2   -- seconds
+-- yards: entries of one kind this close are one place - the recorder's own
+-- rule for "the same node" (MERGE_RADIUS in Core.lua)
+local SAME_PLACE = 10
 
 local function Radius()
     local r = ns.db and ns.db.questRadius
@@ -164,24 +181,50 @@ local function Pick()
     -- as ns.Distance counts (the same numbers, node for node)
     local w, h = ns.Distance(mapID, 0, 0, 1, 0), ns.Distance(mapID, 0, 0, 0, 1)
     local a = Abilities()
-    local nearest, nearestD
     local nodes, near, rings = 0, 0, 0
+    -- the places near you, in the order their first entry comes in the zone:
+    -- { kind, x, y (yards from you), resting, node (the entry that carries
+    -- the ring), d }
+    local places = {}
+    local same = SAME_PLACE * SAME_PLACE
     for _, n in ipairs(ns.db.nodes[mapID] or {}) do
         nodes = nodes + 1
-        if Kind(n) then
+        local kind = Kind(n)
+        if kind then
             local dx, dy = (n.x - px) * w, (n.y - py) * h
             if dx <= r + 1 and dx >= -r - 1 and dy <= r + 1 and dy >= -r - 1 then
                 -- in whole yards, as the game shows them (75.0000001 is 75)
                 local d = math.floor(math.sqrt(dx * dx + dy * dy) + 0.5)
                 if d <= r then
                     near = near + 1
-                    if not Resting(n) and Able(n, a) then
-                        want[n] = true
-                        rings = rings + 1
-                        if not nearestD or d < nearestD then nearest, nearestD = n, d end
+                    local place
+                    for i = 1, #places do
+                        local s = places[i]
+                        if s.kind == kind and (s.x - dx) * (s.x - dx) + (s.y - dy) * (s.y - dy) <= same then
+                            place = s
+                            break
+                        end
+                    end
+                    if not place then
+                        place = { kind = kind, x = dx, y = dy }
+                        places[#places + 1] = place
+                    end
+                    if Resting(n) then
+                        place.resting = true -- the whole place: no ring
+                    elseif not place.resting and not place.node and Able(n, a) then
+                        place.node, place.d = n, d
                     end
                 end
             end
+        end
+    end
+    local nearest, nearestD
+    for i = 1, #places do
+        local s = places[i]
+        if s.node and not s.resting then
+            want[s.node] = true
+            rings = rings + 1
+            if not nearestD or s.d < nearestD then nearest, nearestD = s.node, s.d end
         end
     end
     look.nodes, look.near, look.rings = nodes, near, rings

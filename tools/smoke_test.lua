@@ -6094,10 +6094,12 @@ step("Questing mode: gold rings on nearby nodes you can gather, minimap only (v0
         local edge = At(75, "Mageroyal", "herb")          -- skill 50, yours 52
         local out = At(76, "Peacebloom", "herb")
         local ore = At(40, "Copper Vein", "ore")
-        local herbHigh = At(10, "Briarthorn", "herb")    -- needs 70
+        -- (other herbs stand more than 10 yd from `near`: since 0.1.21 herbs
+        -- that close are one place with one ring - its own step, T1)
+        local herbHigh = At(-40, "Briarthorn", "herb")   -- needs 70
         local oreHigh = At(12, "Tin Vein", "ore")        -- needs 65, yours 30
         local chest = At(30, "Battered Chest", "chest")
-        local resting = At(15, "Silverleaf", "herb", { emptyUntil = time() + 300 }) -- just harvested / found empty
+        local resting = At(-15, "Silverleaf", "herb", { emptyUntil = time() + 300 }) -- just harvested / found empty
         ns.db.nodes[Z2] = {}
         local other = { id = "o1617", name = "Silverleaf", type = "herb", x = px + 0.001, y = py, count = 1, last = 1, hits = 1 }
         table.insert(ns.db.nodes[Z2], other)
@@ -6220,10 +6222,13 @@ step("Questing mode: radius 50 / 75 / 100 yd and the arrow to the nearest ring (
     local wasOpen, wasSection = win:IsShown(), ns.db.optionsSection
     local px, py = 0.5, 0.5
     -- dir: east, west or north of you (the map is 5000 x 3333 yd)
-    local function Node(yd, dir)
+    -- (kind: the three nodes at a limit are a herb, a vein and a chest - one
+    -- yard apart, three of one kind would be one place with one ring: T1)
+    local KINDS = { herb = { "o1618", "Peacebloom" }, ore = { "o1731", "Copper Vein" }, chest = { "o2843", "Battered Chest" } }
+    local function Node(yd, dir, kind)
         local x, y = px, py
         if dir == "east" then x = px + yd / 5000 elseif dir == "west" then x = px - yd / 5000 else y = py - yd / 3333 end
-        local n = { id = "o1618", name = "Peacebloom", type = "herb", x = x, y = y, count = 1, last = 1, hits = 1 }
+        local n = { id = KINDS[kind][1], name = KINDS[kind][2], type = kind, x = x, y = y, count = 1, last = 1, hits = 1 }
         table.insert(ns.db.nodes[Z], n)
         return n
     end
@@ -6242,7 +6247,7 @@ step("Questing mode: radius 50 / 75 / 100 yd and the arrow to the nearest ring (
         -- three nodes at each limit, each radius in its own direction
         local rows = {}
         for r, dir in pairs({ [50] = "east", [75] = "west", [100] = "north" }) do
-            rows[r] = { Node(r - 1, dir), Node(r, dir), Node(r + 1, dir) }
+            rows[r] = { Node(r - 1, dir, "herb"), Node(r, dir, "ore"), Node(r + 1, dir, "chest") }
         end
         ns.NotifyNodesChanged() advance(1)
         ns.SetQuestMode(true) advance(1)
@@ -6482,18 +6487,44 @@ step("Questing mode: a look reads your skill once and asks only the nodes near y
             if level == "grey" and ns.db.hideGreyNodes then return false end
             return true
         end
+        -- (since T1, the next step, rings go by places: the slow way does too.
+        -- Every distance asked from ns.Distance, node by node; a place is the
+        -- entries of one kind within 10 yd of its first entry, in the zone's
+        -- order; it has a ring on its first entry OldCanGather says yes to,
+        -- and none while an entry of it rests.)
         local function OldPick()
             local mapID, px, py = ns.GetPlayerPos()
             if not (mapID and px and py) then return end
             local want, r = {}, ns.QuestRadius()
-            local nearest, nearestD
+            local places = {}
             for _, n in ipairs(ns.db.nodes[mapID] or {}) do
-                if OldCanGather(n) then
+                local lit = n.x and n.y and not n.pendingReport
+                    and (n.type == "herb" or n.type == "ore" or (n.type == "chest" and not ns.db.chestsHidden))
+                if lit then
                     local d = math.floor(ns.Distance(mapID, px, py, n.x, n.y) + 0.5)
                     if d <= r then
-                        want[n] = true
-                        if not nearestD or d < nearestD then nearest, nearestD = n, d end
+                        local place
+                        for _, s in ipairs(places) do
+                            if not place and s.kind == n.type and ns.Distance(mapID, s[1].n.x, s[1].n.y, n.x, n.y) <= 10 then place = s end
+                        end
+                        if not place then
+                            place = { kind = n.type }
+                            places[#places + 1] = place
+                        end
+                        place[#place + 1] = { n = n, d = d }
                     end
+                end
+            end
+            local nearest, nearestD
+            for _, s in ipairs(places) do
+                local resting, first
+                for _, e in ipairs(s) do
+                    if (ns.IsOnCooldown and ns.IsOnCooldown(e.n)) or (ns.IsParked and ns.IsParked(e.n)) then resting = true end
+                    if not first and OldCanGather(e.n) then first = e end
+                end
+                if first and not resting then
+                    want[first.n] = true
+                    if not nearestD or first.d < nearestD then nearest, nearestD = first.n, first.d end
                 end
             end
             return mapID, want, nearest
@@ -6626,6 +6657,160 @@ step("Questing mode: a look reads your skill once and asks only the nodes near y
     ns.GatherProfessions, ns.GetSkill, ns.IsOnCooldown, issecretvalue, ns.Debug = keep.gp, keep.skill, keep.cool, keep.secret, keep.say
     ns.db.chestsHidden, ns.db.hideGreyNodes, ns.db.questRadius, ns.db.questArrow, ns.db.debug = keep.chests, keep.grey, keep.radius, keep.arrow, keep.debug
     ns.db.nodes[Z] = keep.nodes
+    player.map, player.x, player.y = keep.map, keep.x, keep.y
+    fire("ZONE_CHANGED_NEW_AREA") advance(1)
+    ns.NotifyNodesChanged() advance(1)
+    if not ok then error(err, 0) end
+end)
+step("Questing mode: one ring per place, and none while something of its kind rests there (v0.1.21 T1)", function()
+    -- Sven, 10.11.2026, Hillsbrad 57.0 / 8.5: Copper, Tin and Silver Vein are
+    -- three entries at the very same spot (the starter data has one per sort
+    -- a spawn point can hold). The tin was mined: only the tin entry rested,
+    -- copper and silver there still counted - the gold ring stayed on a vein
+    -- that was gone. For the rings, entries of one kind at one place are ONE
+    -- place now. Nothing is written to the nodes for it.
+    -- map 5000 x 3333 yd in the mock: 0.001 in x is 5 yd
+    local Z, H = 1460, 1424
+    local keep = { nodes = ns.db.nodes[Z], hills = ns.db.nodes[H], chests = ns.db.chestsHidden, grey = ns.db.hideGreyNodes, radius = ns.db.questRadius,
+        arrow = ns.db.questArrow, gp = ns.GatherProfessions, skill = ns.GetSkill, map = player.map, x = player.x, y = player.y }
+    local px, py = 0.5, 0.5
+    local function At(yd, name, kind, extra)
+        local n = { id = "o9" .. math.random(100000, 999999), name = name, type = kind, x = px + yd / 5000, y = py, count = 1, last = 1, hits = 1 }
+        for k, v in pairs(extra or {}) do n[k] = v end
+        table.insert(ns.db.nodes[Z], n)
+        return n
+    end
+    local function Rings(among)
+        ns.UpdateQuestRings()
+        local lit, count = ns.QuestRings(), 0
+        for _, n in ipairs(among) do if lit[n] then count = count + 1 end end
+        return count
+    end
+    local ok, err = pcall(function()
+        ns.SetQuestMode(false)
+        ns.db.nodes[Z] = {}
+        ns.db.chestsHidden, ns.db.hideGreyNodes, ns.db.questRadius, ns.db.questArrow = nil, nil, 75, true
+        ns.GatherProfessions = function() return true, true, true end
+        ns.GetSkill = function(kind) if kind == "ore" then return 70, 75, 70 elseif kind == "herb" then return 60, 75, 60 end end
+        -- three sorts at one place, 20 yd away: copper (1) and tin (65) you
+        -- can mine at 70, silver (75) not
+        local copper = At(20, "Copper Vein", "ore")
+        local tin = At(20, "Tin Vein", "ore")
+        local silver = At(20, "Silver Vein", "ore")
+        local vein = { copper, tin, silver }
+        -- further out, another place of its own
+        local far = At(60, "Copper Vein", "ore")
+        player.map, player.x, player.y = Z, px, py
+        fire("ZONE_CHANGED_NEW_AREA") advance(1)
+        ns.NotifyNodesChanged() advance(1)
+        ns.SetQuestMode(true) advance(1)
+        local lit = ns.QuestRings()
+        -- nothing mined: one ring for the place, on a sort you can mine
+        assert(Rings(vein) == 1, ("three sorts at one place: %d rings, want one"):format(Rings(vein)))
+        assert(lit[copper] and not lit[silver], "the ring of the place is not on a sort you can mine")
+        assert(lit[far], "test setup: the other place")
+        assert(ns.QuestArrowNode() == copper, "the arrow does not point at the place 20 yd away")
+        -- the tin is mined (the recorder puts THAT entry to rest): the whole
+        -- place has no ring, and the arrow goes on to the next one
+        local before = {}
+        for _, n in ipairs(vein) do before[n] = { n.emptyUntil, n.parked, n.source, n.hits, n.x, n.y, n.count, n.last } end
+        tin.emptyUntil = time() + 600
+        before[tin][1] = tin.emptyUntil
+        assert(Rings(vein) == 0, ("the tin is mined: the place still has %d ring(s)"):format(Rings(vein)))
+        assert(lit[far] and ns.QuestArrowNode() == far, "the arrow still points at a place where the vein is gone")
+        -- ... and nothing was written to its neighbours for that
+        for _, n in ipairs(vein) do
+            local b = before[n]
+            assert(n.emptyUntil == b[1] and n.parked == b[2] and n.source == b[3] and n.hits == b[4] and n.x == b[5] and n.y == b[6] and n.count == b[7] and n.last == b[8],
+                "the questing mode wrote to a node: " .. n.name)
+        end
+        assert(ns.IsOnCooldown(tin) and not ns.IsOnCooldown(copper) and not ns.IsOnCooldown(silver), "a rest time was put on a neighbour")
+        -- the rest is over: the ring is back
+        tin.emptyUntil = time() - 1
+        assert(Rings(vein) == 1 and ns.QuestArrowNode() == copper, "the ring does not come back when the rest is over")
+        -- the sort you cannot mine rests: still the whole place
+        silver.emptyUntil = time() + 600
+        assert(Rings(vein) == 0, "the silver rests (a sort you cannot mine): the place keeps its ring")
+        silver.emptyUntil = nil
+        -- a parked entry at the place: no ring either
+        tin.parked, tin.source, tin.hits = true, "sync", 0
+        assert(ns.IsParked(tin) and Rings(vein) == 0, "a parked entry at the place: the place keeps its ring")
+        tin.parked, tin.source, tin.hits = nil, nil, 1
+        assert(Rings(vein) == 1, "test setup: the place again")
+        -- only sorts you cannot mine at a place: no ring
+        local onlyHigh = { At(-30, "Silver Vein", "ore"), At(-30, "Gold Vein", "ore") }
+        assert(Rings(onlyHigh) == 0, "a place with only sorts you cannot mine has a ring")
+        -- the first sort you cannot, the second you can: the ring is on the second
+        local mixed = { At(-45, "Silver Vein", "ore"), At(-45, "Tin Vein", "ore") }
+        assert(Rings(mixed) == 1 and lit[mixed[2]], "a place whose first entry you cannot mine gets no ring from the second")
+        -- other kinds at the same spot are places of their own: a herb next
+        -- to the vein keeps its ring while the vein rests, and the other way
+        local herb = At(20, "Mageroyal", "herb")
+        tin.emptyUntil = time() + 600
+        assert(Rings(vein) == 0 and Rings({ herb }) == 1, "a resting vein takes the ring of a herb at the same spot")
+        tin.emptyUntil = nil
+        herb.emptyUntil = time() + 600
+        assert(Rings(vein) == 1 and Rings({ herb }) == 0, "a resting herb takes the ring of a vein at the same spot")
+        herb.emptyUntil = nil
+        -- chests: two entries at one spot are one place too
+        local chests = { At(35, "Battered Chest", "chest"), At(35, "Solid Chest", "chest") }
+        assert(Rings(chests) == 1, ("two chests at one spot: %d rings"):format(Rings(chests)))
+        chests[2].emptyUntil = time() + 600
+        assert(Rings(chests) == 0, "one chest of the spot was opened: the spot keeps its ring")
+        chests[2].emptyUntil = nil
+        -- how close is one place: 8 yd apart is one (the recorder's own rule
+        -- for "the same node"), 12 and 20 yd apart are two
+        local eight = { At(-60, "Copper Vein", "ore"), At(-52, "Tin Vein", "ore") }
+        local twelve = { At(-10, "Copper Vein", "ore"), At(2, "Tin Vein", "ore") }
+        local twenty = { At(40, "Copper Vein", "ore"), At(40, "Tin Vein", "ore", { y = py + 20 / 3333 }) }
+        assert(Rings(eight) == 1, ("8 yd apart: %d rings, want one"):format(Rings(eight)))
+        assert(Rings(twelve) == 2, ("12 yd apart: %d rings, want two"):format(Rings(twelve)))
+        assert(Rings(twenty) == 2, ("20 yd apart: %d rings, want two"):format(Rings(twenty)))
+        twelve[1].emptyUntil = time() + 600
+        assert(Rings(twelve) == 1 and lit[twelve[2]], "a resting vein 12 yd away takes the ring of the next place")
+        twelve[1].emptyUntil = nil
+
+        -- ---- Sven's place: the shipped spawn points of Hillsbrad
+        local hills = QuestieZoneNodes(H)
+        local spot = {}
+        for _, n in ipairs(hills) do
+            if math.abs(n.x - 0.57) < 0.0006 and math.abs(n.y - 0.085) < 0.0006 and n.type == "ore" then spot[#spot + 1] = n end
+        end
+        local names = {}
+        for _, n in ipairs(spot) do names[#names + 1] = n.name end
+        table.sort(names)
+        assert(table.concat(names, ", ") == "Copper Vein, Silver Vein, Tin Vein", "test setup: at 57.0 / 8.5 the data has " .. table.concat(names, ", "))
+        ns.db.nodes[H] = hills
+        player.map, player.x, player.y = H, 0.5702, 0.0852
+        fire("ZONE_CHANGED_NEW_AREA") advance(1)
+        ns.NotifyNodesChanged() advance(1)
+        assert(Rings(spot) == 1, ("Hillsbrad 57.0 / 8.5, nothing mined: %d rings"):format(Rings(spot)))
+        for _, n in ipairs(spot) do if n.name == "Tin Vein" then n.emptyUntil = time() + 600 end end
+        assert(Rings(spot) == 0, ("Hillsbrad 57.0 / 8.5, the tin mined: %d ring(s) stay"):format(Rings(spot)))
+        -- the whole zone: no place has two rings
+        ns.db.questRadius = 100
+        for _, pos in ipairs({ { 0.5702, 0.0852 }, { 0.3, 0.4 }, { 0.62, 0.2 }, { 0.45, 0.72 } }) do
+            player.x, player.y = pos[1], pos[2]
+            ns.UpdateQuestRings()
+            local carriers = {}
+            for n in pairs(ns.QuestRings()) do carriers[#carriers + 1] = n end
+            for i = 1, #carriers do
+                for j = i + 1, #carriers do
+                    local a, b = carriers[i], carriers[j]
+                    assert(a.type ~= b.type or ns.Distance(H, a.x, a.y, b.x, b.y) > 10, ("two rings at one place: %s and %s"):format(a.name, b.name))
+                end
+            end
+        end
+        -- a look at the full zone stays quick (the mock's clock: a rough bound only)
+        local t0 = os.clock()
+        for _ = 1, 20 do ns.UpdateQuestRings() end
+        local ms = (os.clock() - t0) * 1000 / 20
+        assert(ms < 25, ("one look at %d nodes takes %.1f ms"):format(#hills, ms))
+    end)
+    ns.SetQuestMode(false)
+    ns.GatherProfessions, ns.GetSkill = keep.gp, keep.skill
+    ns.db.chestsHidden, ns.db.hideGreyNodes, ns.db.questRadius, ns.db.questArrow = keep.chests, keep.grey, keep.radius, keep.arrow
+    ns.db.nodes[Z], ns.db.nodes[H] = keep.nodes, keep.hills
     player.map, player.x, player.y = keep.map, keep.x, keep.y
     fire("ZONE_CHANGED_NEW_AREA") advance(1)
     ns.NotifyNodesChanged() advance(1)
