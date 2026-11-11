@@ -717,9 +717,12 @@ local function PlaceTarget()
 end
 
 ---------------------------------------------------------------------------
--- Questing mode (Quest.lua): the nodes near you that you can gather get the
--- run target's gold ring, on the minimap only. Quest.lua picks them; here
--- they are drawn. No pulse: several rings may be lit at once.
+-- Questing mode (Quest.lua): the nodes near you that you can gather get a
+-- gold ring as big as the run target's, on the minimap only. Quest.lua
+-- picks them; here they are drawn. No pulse: several rings may be lit at
+-- once. Always the thin gold ring (v0.1.21 T6; Sven, 10.11.2026: "der ist
+-- mords dick"): in "Ring only" the run target alone has the broad one, and
+-- the middle of a questing ring - the game's yellow dot - is wider.
 ---------------------------------------------------------------------------
 local QUEST_REF = ADDON_NAME .. "Quest"
 local questFree = {}
@@ -738,7 +741,7 @@ local function LookQuest(pin, n)
     local size, bare = MiniTargetLook()
     pin.node, pin.mapID, pin.others = n, questMap, nil
     pin:SetSize(size, size)
-    Decorate(pin, bare and RING_GOLD_BOLD or RING_GOLD)
+    Decorate(pin, RING_GOLD)
     pin.icon:SetTexture(NodeIcon(n))
     pin.icon:SetDesaturated(false)
     pin.icon:SetAlpha(1)

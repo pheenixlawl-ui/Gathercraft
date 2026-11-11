@@ -6121,7 +6121,8 @@ step("Questing mode: gold rings on nearby nodes you can gather, minimap only (v0
         assert(not Lit(other), "a node of another zone lit")
         -- the minimap only
         assert(HBD_ADDS[REF].mini >= 4 and HBD_ADDS[REF].world == 0, ("rings: %d minimap, %d world map"):format(HBD_ADDS[REF].mini, HBD_ADDS[REF].world))
-        -- the look of the run target: ring only = broad gold ring, no icon
+        -- the look of the run target (ring only: its size, no icon - and since
+        -- 0.1.21 the thin gold ring where the target has the broad one: T6)
         local function Tex(pin) return tostring(pin.ring and pin.ring.__tex or "") end
         local function TargetLook(style)
             ns.db.miniPinStyle = style
@@ -6136,7 +6137,8 @@ step("Questing mode: gold rings on nearby nodes you can gather, minimap only (v0
             ns.NotifyNodesChanged() advance(1) -- the options rebuild the pins
             local pin = ns.QuestRings()[near]
             assert(pin, style .. ": the ring went with the rebuild")
-            assert(Tex(pin) == ttex and pin.__w == tw and (pin.icon.__shown ~= false) == tshown,
+            local want = style == "ring" and ttex:gsub("RingGoldBold$", "RingGold") or ttex
+            assert(Tex(pin) == want and pin.__w == tw and (pin.icon.__shown ~= false) == tshown,
                 ("%s: ring %s %spx icon %s, the run target %s %spx icon %s"):format(style, Tex(pin), tostring(pin.__w),
                     tostring(pin.icon.__shown ~= false), ttex, tostring(tw), tostring(tshown)))
             if style == "ring" then assert(ttex:find("RingGoldBold$") and not tshown, "test setup: ring only target") end
@@ -7171,6 +7173,111 @@ step("Herbs / minerals switch button: on the screen, not on the minimap; follows
     ns.db.trackButtonAngle, ns.db.minimapShape, ns.db.trackButtonHidden = saved.angle, saved.choice, saved.hidden
     ns.UpdateTrackButton()
     GathercraftOptions:Refresh()
+    if not ok then error(err, 0) end
+end)
+step("Questing mode: in \"Ring only\" the rings are the thin gold ring, the run target stays broad (v0.1.21 T6)", function()
+    -- Sven, 10.11.2026 23:11, about the questing mode's ring: "der ist mords
+    -- dick". In the minimap style "Ring only" its rings took the run target's
+    -- broad ring (RingGoldBold: the wall is 22 % of the texture). They take
+    -- the thin one now (RingGold: 14 %), at the same size - the middle, where
+    -- the game's yellow dot shows, gets wider. The run target is as it was.
+    -- map 5000 x 3333 yd in the mock: 0.001 in x is 5 yd
+    local Z = 1460
+    local keep = { nodes = ns.db.nodes[Z], style = ns.db.miniPinStyle, size = ns.db.pinSize, chests = ns.db.chestsHidden,
+        gp = ns.GatherProfessions, map = player.map, x = player.x, y = player.y }
+    local px, py = 0.5, 0.5
+    local function At(yd, name, kind)
+        local n = { id = "o9" .. math.random(100000, 999999), name = name, type = kind, x = px + yd / 5000, y = py, count = 1, last = 1, hits = 1 }
+        table.insert(ns.db.nodes[Z], n)
+        return n
+    end
+    local function Tex(pin) return tostring(pin.ring and pin.ring.__tex or "") end
+    local ok, err = pcall(function()
+        ns.SetQuestMode(false)
+        ns.db.nodes[Z] = {}
+        local herb, ore, chest = At(20, "Peacebloom", "herb"), At(40, "Copper Vein", "ore"), At(-30, "Battered Chest", "chest")
+        local far = At(60, "Silverleaf", "herb")
+        player.map, player.x, player.y = Z, px, py
+        fire("ZONE_CHANGED_NEW_AREA") advance(1)
+        ns.db.miniPinStyle, ns.db.chestsHidden, ns.db.pinSize = nil, nil, nil -- ring only, chests shown
+        ns.GatherProfessions = function() return true, true, true end
+        ns.NotifyNodesChanged() advance(1)
+        ns.SetQuestMode(true) advance(1)
+        local function Rings()
+            local list = {}
+            for _, n in ipairs({ herb, ore, chest, far }) do
+                local pin = ns.QuestRings()[n]
+                assert(pin, "test setup: " .. n.name .. " has no ring")
+                list[#list + 1] = pin
+            end
+            return list
+        end
+        -- the run target in a style: size, icon shown, texture
+        local function TargetLook()
+            ns.SetRouteTarget(Z, herb)
+            local _, mini = ns.RouteTargetPins()
+            local w, shown, tex = mini.__w, mini.icon.__shown ~= false, Tex(mini)
+            ns.ClearRouteTarget()
+            return w, shown, tex
+        end
+        -- ring only: every ring thin, no icon, as big as the run target
+        local tw, tshown, ttex = TargetLook()
+        assert(ttex:find("RingGoldBold$") and not tshown, "ring only: the run target is no longer the broad gold ring without an icon (" .. ttex .. ")")
+        for _, pin in ipairs(Rings()) do
+            assert(Tex(pin):find("RingGold$"), "ring only: the ring of " .. pin.node.name .. " is not the thin gold ring (" .. Tex(pin) .. ")")
+            assert(pin.icon.__shown == false, "ring only: the ring of " .. pin.node.name .. " shows an icon")
+            assert(pin.ring:IsShown(), "ring only: no ring texture shown")
+            assert(pin.__w == tw and pin.__h == tw, ("ring only: the ring is %s px, the run target %s px"):format(tostring(pin.__w), tostring(tw)))
+        end
+        -- the style changes while the mode is on: every ring takes the new look
+        for _, style in ipairs({ "subtle", "normal" }) do
+            ns.db.miniPinStyle = style
+            ns.NotifyNodesChanged() advance(1)
+            tw, tshown, ttex = TargetLook()
+            ns.NotifyNodesChanged() advance(1)
+            assert(ttex:find("RingGold$") and tshown, style .. ": test setup, the run target is the icon in a thin gold ring")
+            for _, pin in ipairs(Rings()) do
+                assert(Tex(pin) == ttex and pin.__w == tw and pin.icon.__shown ~= false,
+                    ("%s: the ring of %s is %s, %s px, icon %s - not the run target's look"):format(style, pin.node.name, Tex(pin), tostring(pin.__w), tostring(pin.icon.__shown ~= false)))
+            end
+        end
+        -- and back to ring only: thin again, the icons gone again (pins are reused)
+        ns.db.miniPinStyle = nil
+        ns.NotifyNodesChanged() advance(1)
+        tw = TargetLook()
+        ns.NotifyNodesChanged() advance(1)
+        for _, pin in ipairs(Rings()) do
+            assert(Tex(pin):find("RingGold$") and pin.icon.__shown == false and pin.__w == tw, "back to ring only: the ring of " .. pin.node.name .. " kept the other style's look")
+        end
+        -- another pin size: the rings follow, still thin
+        ns.db.pinSize = 20
+        ns.NotifyNodesChanged() advance(1)
+        local big = TargetLook()
+        ns.NotifyNodesChanged() advance(1)
+        assert(big > tw, "test setup: a bigger pin size gives a bigger target")
+        for _, pin in ipairs(Rings()) do
+            assert(Tex(pin):find("RingGold$") and pin.__w == big, "pin size 20: the ring of " .. pin.node.name .. " did not follow")
+        end
+        ns.db.pinSize = nil
+        ns.NotifyNodesChanged() advance(1)
+        -- a ring lit later (walking up to it) is thin too; one that went and came back as well
+        ns.SetQuestMode(false) advance(1)
+        ns.SetQuestMode(true) advance(1)
+        for _, pin in ipairs(Rings()) do
+            assert(Tex(pin):find("RingGold$") and pin.icon.__shown == false, "lit anew: the ring of " .. pin.node.name .. " is not thin")
+        end
+        -- the run target next to the rings: still the broad one
+        ns.SetRouteTarget(Z, herb)
+        local _, mini = ns.RouteTargetPins()
+        assert(Tex(mini):find("RingGoldBold$") and mini.icon.__shown == false, "the run target lost its broad ring")
+        ns.ClearRouteTarget()
+    end)
+    ns.SetQuestMode(false)
+    ns.GatherProfessions = keep.gp
+    ns.db.nodes[Z], ns.db.miniPinStyle, ns.db.pinSize, ns.db.chestsHidden = keep.nodes, keep.style, keep.size, keep.chests
+    player.map, player.x, player.y = keep.map, keep.x, keep.y
+    fire("ZONE_CHANGED_NEW_AREA") advance(1)
+    ns.NotifyNodesChanged() advance(1)
     if not ok then error(err, 0) end
 end)
 -- (end of the v0.1.21 steps)
