@@ -26,6 +26,7 @@ local WHATS_NEW = {
     ["0.1.18"] = "Skill plan: correct material amounts – crafted intermediates and all bags now counted. Sharing shows how many spots other players sent you.",
     ["0.1.19"] = "Questing mode: no route, no window – nearby nodes you can gather get a gold ring (Ctrl + right-click on the minimap button, or /gcr quest). The herbs/minerals switch is now under Options, General.",
     ["0.1.20"] = "The herbs/minerals button now sits on the edge of a square minimap too. Craft log: a Create All series counts as one block when it is clear; no green threshold is made up any more.",
+    ["0.1.21"] = "Questing mode: nodes at one spot share one ring, none on a spot just harvested; thinner rings; a much lighter search. The Fish key that gathers no longer blocks fishing there: it gathers only while a node is marked. Craft log: Create All ended by moving keeps its series. New in Options, General: Minimap shape.",
 }
 
 -- What comes next (Sven, 08.11.2026): only what is really planned, no dates;

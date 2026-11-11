@@ -568,4 +568,5 @@ ns.Locales.ruRU = {
     ["Round"] = "Круглая",
     ["Square"] = "Квадратная",
     ["Where the herbs/minerals button sits. Auto: round, unless your UI addon tells Gathercraft another shape. Pick Square if the button sits inside a square minimap."] = "Где располагается кнопка «травы / минералы». Авто: круглая, если ваш аддон интерфейса не сообщает Gathercraft другую форму. Выберите «Квадратная», если кнопка оказывается внутри квадратной миникарты.",
+    ["Questing mode: nodes at one spot share one ring, none on a spot just harvested; thinner rings; a much lighter search. The Fish key that gathers no longer blocks fishing there: it gathers only while a node is marked. Craft log: Create All ended by moving keeps its series. New in Options, General: Minimap shape."] = "Режим заданий: точки в одном месте делят одно кольцо, у только что собранного места кольца нет; кольца тоньше; поиск намного легче. Собирающая клавиша рыбалки больше не мешает там рыбачить: она собирает, только пока точка отмечена. Журнал создания: «Создать все», прерванное движением, сохраняет свою серию. Новое в разделе Настройки, Общие: Форма миникарты.",
 }

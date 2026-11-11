@@ -568,4 +568,5 @@ ns.Locales.frFR = {
     ["Round"] = "Ronde",
     ["Square"] = "Carrée",
     ["Where the herbs/minerals button sits. Auto: round, unless your UI addon tells Gathercraft another shape. Pick Square if the button sits inside a square minimap."] = "L'emplacement du bouton herbes/gisements. Auto : ronde, sauf si votre addon d'interface indique une autre forme à Gathercraft. Choisissez Carrée si le bouton se trouve à l'intérieur d'une minicarte carrée.",
+    ["Questing mode: nodes at one spot share one ring, none on a spot just harvested; thinner rings; a much lighter search. The Fish key that gathers no longer blocks fishing there: it gathers only while a node is marked. Craft log: Create All ended by moving keeps its series. New in Options, General: Minimap shape."] = "Mode quêtes : les nœuds d'un même endroit partagent un anneau, un endroit tout juste récolté n'en a pas ; anneaux plus fins ; recherche bien plus légère. La touche de pêche qui récolte n'y bloque plus la pêche : elle ne récolte que tant qu'un nœud est marqué. Journal de fabrication : « Tout créer » terminé en bougeant garde sa série. Nouveau dans Options, Général : Forme de la minicarte.",
 }

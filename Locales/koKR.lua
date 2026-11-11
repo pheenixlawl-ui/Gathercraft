@@ -568,4 +568,5 @@ ns.Locales.koKR = {
     ["Round"] = "원형",
     ["Square"] = "사각형",
     ["Where the herbs/minerals button sits. Auto: round, unless your UI addon tells Gathercraft another shape. Pick Square if the button sits inside a square minimap."] = "약초/광물 버튼이 놓이는 위치입니다. 자동: UI 애드온이 Gathercraft에 다른 모양을 알려 주지 않으면 원형입니다. 버튼이 사각형 미니맵 안쪽에 있으면 사각형을 고르세요.",
+    ["Questing mode: nodes at one spot share one ring, none on a spot just harvested; thinner rings; a much lighter search. The Fish key that gathers no longer blocks fishing there: it gathers only while a node is marked. Craft log: Create All ended by moving keeps its series. New in Options, General: Minimap shape."] = "퀘스트 모드: 같은 자리의 채집물은 고리 하나를 함께 쓰고, 방금 채집한 자리에는 고리가 없습니다. 고리가 더 가늘어졌고, 탐색이 훨씬 가벼워졌습니다. 채집하는 낚시 키가 그곳에서 더 이상 낚시를 막지 않습니다: 채집물이 표시된 동안에만 채집합니다. 제작 기록: 이동으로 끝낸 ‘모두 제작’은 연속을 유지합니다. 새 설정: 옵션, 일반, 미니맵 모양.",
 }

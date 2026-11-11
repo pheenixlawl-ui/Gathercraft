@@ -597,4 +597,5 @@ ns.Locales.deDE = {
     ["Round"] = "Rund",
     ["Square"] = "Eckig",
     ["Where the herbs/minerals button sits. Auto: round, unless your UI addon tells Gathercraft another shape. Pick Square if the button sits inside a square minimap."] = "Wo der Kräuter/Mineralien-Knopf sitzt. Auto: rund, außer dein UI-Addon nennt Gathercraft eine andere Form. Wähle Eckig, wenn der Knopf in einer eckigen Minikarte sitzt.",
+    ["Questing mode: nodes at one spot share one ring, none on a spot just harvested; thinner rings; a much lighter search. The Fish key that gathers no longer blocks fishing there: it gathers only while a node is marked. Craft log: Create All ended by moving keeps its series. New in Options, General: Minimap shape."] = "Questmodus: Nodes an derselben Stelle teilen sich einen Ring, eine gerade abgeerntete Stelle bekommt keinen; dünnere Ringe; die Suche ist viel leichter. Die sammelnde Angeltaste blockiert dort das Angeln nicht mehr: Sie sammelt nur, solange ein Node markiert ist. Craft-Protokoll: „Alle herstellen“, durch Bewegen beendet, behält seine Serie. Neu unter Optionen, Allgemein: Form der Minikarte.",
 }

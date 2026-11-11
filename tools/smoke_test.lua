@@ -10008,25 +10008,45 @@ step("Welcome, what's new and the run summary (v0.1.13)", function()
     ns.db.summaryOff = nil
     SendChatMessage = nil
 end)
-step("What's new: 0.1.20 after an update, in this language and all translations", function()
+step("What's new: 0.1.21 after an update, in this language and all translations", function()
     local version = toc:match("## Version: ([%d%.]+)")
-    assert(version == "0.1.20", "TOC version: " .. tostring(version))
+    assert(version == "0.1.21", "TOC version: " .. tostring(version))
     assert(toc:match("## Interface: (%d+)") == "16001", "TOC interface changed")
     local f = assert(io.open(ROOT .. "/Welcome.lua"))
     local src = f:read("*a") f:close()
-    local key = src:match('%["0%.1%.20"%] = "([^"]+)"')
-    assert(key and key:find("square minimap", 1, true) and key:find("Create All", 1, true) and key:find("green threshold", 1, true),
-        "no entry for 0.1.20 in Welcome.lua")
-    -- the 0.1.19 entry stays for players who skip a version
-    assert(src:match('%["0%.1%.19"%] = "([^"]+)"'), "the 0.1.19 entry is gone")
+    local key = src:match('%["0%.1%.21"%] = "([^"]+)"')
+    assert(key and key:find("Questing mode", 1, true) and key:find("one ring", 1, true) and key:find("Fish key", 1, true)
+        and key:find("Create All", 1, true) and key:find("Minimap shape", 1, true), "no entry for 0.1.21 in Welcome.lua")
+    -- said as it is (Sven, 11.11.2026: 0.1.20 promised the button on a square
+    -- minimap, which only held for some UIs): no word of what is not proved
+    for _, word in ipairs({ "Ellesmere", "square", "hitch", "now sits" }) do
+        assert(not key:find(word, 1, true), "what's new 0.1.21 says \"" .. word .. "\"")
+    end
+    -- the entries before stay for players who skip a version
+    assert(src:match('%["0%.1%.19"%] = "([^"]+)"') and src:match('%["0%.1%.20"%] = "([^"]+)"'), "the 0.1.19 or 0.1.20 entry is gone")
+    -- every translation names the options page and the new choice as the options show them
+    for _, code in ipairs({ "deDE", "esES", "frFR", "itIT", "koKR", "ptBR", "ruRU", "zhCN", "zhTW" }) do
+        local loc = ns.Locales[code]
+        local t = loc and loc[key]
+        assert(t and loc["General"] and t:find(loc["General"], 1, true), code .. ": the page General is not named as the options call it")
+        assert(loc["Minimap shape"] and t:find(loc["Minimap shape"], 1, true), code .. ": the choice is not named as the options call it")
+        assert(loc["Questing mode"] and t:find(loc["Questing mode"], 1, true), code .. ": the questing mode is not named as everywhere else")
+    end
     -- README and CHANGELOG say it
     local rf = assert(io.open(ROOT .. "/README.md"))
     local readme = rf:read("*a") rf:close()
     assert(readme:find("Questing mode – gather along the way", 1, true) and readme:find("`/gcr quest`", 1, true), "README: no questing mode")
     local cf = assert(io.open(ROOT .. "/CHANGELOG.md"))
     local changelog = cf:read("*a") cf:close()
-    assert(changelog:find("^## v0%.1%.20") and not changelog:find("v0.1.19", 1, true), "CHANGELOG: not 0.1.20 only")
-    assert(changelog:find("square minimap", 1, true) and changelog:find("Create All", 1, true) and changelog:find("yellow/green", 1, true), "CHANGELOG: K1-K3 missing")
+    assert(changelog:find("^## v0%.1%.21") and not changelog:find("## v0.1.20", 1, true), "CHANGELOG: not 0.1.21 only")
+    for _, said in ipairs({ "one spot", "once per look", "Ellesmere UI", "Fish key gathers the marked node", "Minimap shape", "Create All ended by moving", "gave more than one point", "Ring only" }) do
+        assert(changelog:find(said, 1, true), "CHANGELOG: nothing about \"" .. said .. "\"")
+    end
+    -- the date comes with the release itself (0.1.20 carried the day it was
+    -- built, not the day it went out): the heading is the version alone, or
+    -- the version and a date
+    local heading = changelog:match("^(## v0%.1%.21[^\r\n]*)")
+    assert(heading == "## v0.1.21" or heading:match("^## v0%.1%.21 – %d%d%d%d%-%d%d%-%d%d$"), "CHANGELOG heading: " .. tostring(heading))
     -- every translation is there, whatever language this run is in
     for _, code in ipairs({ "deDE", "esES", "frFR", "itIT", "koKR", "ptBR", "ruRU", "zhCN", "zhTW" }) do
         local t = ns.Locales[code] and ns.Locales[code][key]
@@ -10046,7 +10066,7 @@ step("What's new: 0.1.20 after an update, in this language and all translations"
         -- (since 0.1.19 in its own window, Q5)
         local win = _G.GathercraftWhatsNew
         if win then win:Hide() end
-        ns.db.lastVersion = "0.1.19"
+        ns.db.lastVersion = "0.1.20"
         ns.WelcomeOnLogin()
         win = _G.GathercraftWhatsNew
         assert(win and win:IsShown() and win.body:GetText() == text and win.title:GetText():find(version, 1, true),

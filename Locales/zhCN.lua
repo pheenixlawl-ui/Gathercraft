@@ -568,4 +568,5 @@ ns.Locales.zhCN = {
     ["Round"] = "圆形",
     ["Square"] = "方形",
     ["Where the herbs/minerals button sits. Auto: round, unless your UI addon tells Gathercraft another shape. Pick Square if the button sits inside a square minimap."] = "草药/矿物按钮的位置。自动：圆形，除非你的界面插件告诉 Gathercraft 其他形状。如果按钮出现在方形小地图内部，请选择方形。",
+    ["Questing mode: nodes at one spot share one ring, none on a spot just harvested; thinner rings; a much lighter search. The Fish key that gathers no longer blocks fishing there: it gathers only while a node is marked. Craft log: Create All ended by moving keeps its series. New in Options, General: Minimap shape."] = "任务模式：同一位置的采集点共用一个圆环，刚采集过的位置没有圆环；圆环更细；搜索轻快得多。用于采集的钓鱼键在该模式下不再妨碍钓鱼：只有在采集点被标记时才采集。制造记录：因移动而结束的“全部制造”保留其连续记录。新增：选项，常规，小地图形状。",
 }

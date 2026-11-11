@@ -568,4 +568,5 @@ ns.Locales.esES = {
     ["Round"] = "Redondo",
     ["Square"] = "Cuadrado",
     ["Where the herbs/minerals button sits. Auto: round, unless your UI addon tells Gathercraft another shape. Pick Square if the button sits inside a square minimap."] = "Dónde se coloca el botón de hierbas/minerales. Auto: redondo, salvo que tu addon de interfaz indique otra forma a Gathercraft. Elige Cuadrado si el botón queda dentro de un minimapa cuadrado.",
+    ["Questing mode: nodes at one spot share one ring, none on a spot just harvested; thinner rings; a much lighter search. The Fish key that gathers no longer blocks fishing there: it gathers only while a node is marked. Craft log: Create All ended by moving keeps its series. New in Options, General: Minimap shape."] = "Modo misiones: los nodos de un mismo punto comparten un anillo, y un punto recién recogido no tiene ninguno; anillos más finos; una búsqueda mucho más ligera. La tecla de pesca que recoge ya no bloquea la pesca allí: solo recoge mientras haya un nodo marcado. Registro de creación: «Crear todo» terminado al moverte conserva su serie. Nuevo en Opciones, General: Forma del minimapa.",
 }
