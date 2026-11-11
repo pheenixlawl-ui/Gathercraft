@@ -1855,14 +1855,55 @@ local function MouseFocus()
     return GetMouseFocus and GetMouseFocus()
 end
 
+-- Does this frame lie over the whole minimap? (T2 of 0.1.21; Sven,
+-- 10.11.2026, with Ellesmere UI: the game's tooltip showed "Tin Vein", but
+-- under the mouse was not the minimap - a nameless frame, a child of it,
+-- 255 x 256 like the minimap itself.) A direct child of the minimap that is
+-- as big as the minimap and sits where it sits, within COVER pixels on the
+-- screen. A pin - ours or another addon's - is small, or is ours: no.
+-- Only looked at, never changed; nothing here knows any other addon.
+local COVER = 4
+local function CoversMinimap(f)
+    if type(f) ~= "table" or f == Minimap then return false end
+    if f.node or f.isTarget then return false end -- one of our pins
+    local ok, covers = pcall(function()
+        if not (f.GetParent and f.GetWidth and f.GetHeight and f.GetCenter) then return false end
+        if f:GetParent() ~= Minimap then return false end
+        local fs = f.GetEffectiveScale and f:GetEffectiveScale() or 1
+        local ms = Minimap.GetEffectiveScale and Minimap:GetEffectiveScale() or 1
+        local fw, fh = f:GetWidth(), f:GetHeight()
+        local fx, fy = f:GetCenter()
+        local mw, mh = Minimap:GetWidth(), Minimap:GetHeight()
+        local mx, my = Minimap:GetCenter()
+        if AnySecret("the minimap's cover", fs, ms, fw, fh, fx, fy, mw, mh, mx, my) then return false end
+        for _, v in ipairs({ fs, ms, fw, fh, fx, fy, mw, mh, mx, my }) do
+            if type(v) ~= "number" then return false end
+        end
+        -- (ipairs stops at a missing value: all ten must be there)
+        if not (fs and ms and fw and fh and fx and fy and mw and mh and mx and my) then return false end
+        return math.abs(fw * fs - mw * ms) <= COVER and math.abs(fh * fs - mh * ms) <= COVER
+            and math.abs(fx * fs - mx * ms) <= COVER and math.abs(fy * fs - my * ms) <= COVER
+    end)
+    return ok and covers == true
+end
+
+-- Is the minimap itself under the mouse - not a pin on it, not something
+-- else? Nothing known about the mouse counts as the minimap, as before. One
+-- place for both that ask: the tooltip of ours below the game's, and the
+-- learning by pointing.
+local function MouseOnMinimapItself()
+    local focus = MouseFocus()
+    return focus == nil or focus == Minimap or CoversMinimap(focus)
+end
+ns.MouseOnMinimapItself = MouseOnMinimapItself -- (the tests)
+
 -- The game's own minimap tooltip, not a pin of ours or of another addon:
 -- the minimap itself is under the mouse (a pin would be), and the tooltip
 -- belongs to the minimap or to the screen (WoW Forever: UIParent)
 local function IsMinimapTooltip()
     local owner = GameTooltip:GetOwner()
     if owner and owner.node then return false end -- one of our pins
-    local focus = MouseFocus()
-    if focus ~= nil and focus ~= Minimap then return false end
+    if not MouseOnMinimapItself() then return false end
     if owner == nil or owner == Minimap or owner == MinimapCluster or owner == MinimapBackdrop
         or owner == UIParent then
         return true
@@ -1966,8 +2007,7 @@ local function MiniTipTarget(names)
 end
 local function UpdateMiniTip()
     if not (ns.AddNodeTooltipLines and Minimap:IsMouseOver()) then return HideMiniTip() end
-    local focus = MouseFocus()
-    if focus ~= nil and focus ~= Minimap then return HideMiniTip() end
+    if not MouseOnMinimapItself() then return HideMiniTip() end
     local gameShows = GameTooltip:IsShown() and IsMinimapTooltip()
     local names = gameShows and TooltipLines() or nil
     if names and #names == 0 then names, gameShows = nil, false end

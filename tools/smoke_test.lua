@@ -6816,6 +6816,161 @@ step("Questing mode: one ring per place, and none while something of its kind re
     ns.NotifyNodesChanged() advance(1)
     if not ok then error(err, 0) end
 end)
+step("Minimap tooltip: a frame that covers the whole minimap counts as the minimap, a pin does not (v0.1.21 T2)", function()
+    -- Sven, 10.11.2026, with Ellesmere UI: the game's tooltip showed "Tin
+    -- Vein", Gathercraft said "minimap tooltip [UIParent, ignored]". Under the
+    -- mouse was not the minimap but a nameless frame, a child of it, 255 x 256
+    -- - like the minimap itself. Such a frame counts as the minimap now, for
+    -- the tooltip of ours below the game's AND for learning by pointing (one
+    -- check for both). A pin on the minimap does not, as before.
+    local Z = 1466
+    local names = GathercraftNodeNames and GathercraftNodeNames[GetLocale()]
+    local herbName = names and names[1618] or "Peacebloom"
+    local keep = { nodes = ns.db.nodes[Z], map = player.map, x = player.x, y = player.y, foci = GetMouseFoci, focus = GetMouseFocus, cursor = GetCursorPosition,
+        cvar = GetCVar, secret = issecretvalue, learnOff = ns.db.minimapLearnOff }
+    local mm, gt = {}, {}
+    for _, k in ipairs({ "IsMouseOver", "GetCenter", "GetWidth", "GetHeight", "GetZoom", "GetEffectiveScale" }) do mm[k] = rawget(Minimap, k) end
+    for _, k in ipairs({ "IsShown", "GetOwner", "NumLines" }) do gt[k] = rawget(GameTooltip, k) end
+    local texts = {}
+    local ok, err = pcall(function()
+        -- the minimap as Ellesmere shows it: 255 x 256, centre at 500 / 400
+        local lines, owner = {}, UIParent
+        Minimap.IsMouseOver = function() return true end
+        Minimap.GetCenter = function() return 500, 400 end
+        Minimap.GetWidth = function() return 255 end
+        Minimap.GetHeight = function() return 256 end
+        Minimap.GetZoom = function() return 0 end
+        Minimap.GetEffectiveScale = function() return 1 end
+        GameTooltip.IsShown = function() return #lines > 0 end
+        GameTooltip.GetOwner = function() return owner end
+        GameTooltip.NumLines = function() return #lines end
+        for i = 1, 3 do
+            local fs = _G["GameTooltipTextLeft" .. i] or newObject("FontString", "GameTooltipTextLeft" .. i)
+            _G["GameTooltipTextLeft" .. i] = fs
+            texts[i] = rawget(fs, "GetText")
+            fs.GetText = function() return lines[i] end
+        end
+        GetCursorPosition = function() return 540, 400 end
+        GetCVar = function() return "0" end
+        ns.db.minimapLearnOff = nil
+        player.map, player.x, player.y = Z, 0.5, 0.5
+        local mapID, cx, cy = ns.CursorOnMap()
+        assert(mapID == Z and cx and cy, "test setup: the cursor on the map")
+        -- a herb we know, right under the cursor, resting: pointing at it
+        -- marks it as up (learning) and shows our tooltip below the game's
+        local herb = { id = "o1618", name = herbName, type = "herb", x = cx, y = cy, count = 1, last = 1, source = "questie" }
+        ns.db.nodes[Z] = { herb }
+        ns.NotifyNodesChanged() advance(1)
+        local tip
+        -- what is under the mouse -> learned, our tooltip shown
+        local function Point(focus)
+            lines = {}
+            advance(6) -- (the same name at the same place counts again after 5 s)
+            herb.seenAt, herb.upAt, herb.emptyUntil = nil, nil, time() + 600
+            if focus == "none" then
+                GetMouseFoci, GetMouseFocus = nil, nil
+            else
+                GetMouseFoci = function() return { focus } end
+            end
+            lines = { herbName }
+            local fine, problem = pcall(advance, 2)
+            assert(fine, "pointing at the minimap raises an error: " .. tostring(problem))
+            tip = tip or _G.GathercraftMinimapTooltip
+            local learned = herb.seenAt ~= nil and not herb.emptyUntil
+            local shown = (tip and tip:IsShown() and tip.node == herb) and true or false
+            if ns.MouseOnMinimapItself then assert(ns.MouseOnMinimapItself() == learned, "the check for the mouse and the learning disagree") end
+            return learned, shown
+        end
+        local function Child(w, h, x, y, parent)
+            local f = newObject("Frame", nil, parent or Minimap)
+            f:SetSize(w, h)
+            f.GetCenter = function() return x or 500, y or 400 end
+            return f
+        end
+        local learned, shown
+        -- the minimap itself, as before
+        learned, shown = Point(Minimap)
+        assert(learned and shown, "the minimap under the mouse: not read any more")
+        -- Sven's case: a nameless child of the minimap, as big as the minimap
+        local cover = Child(255, 256)
+        assert(cover:GetParent() == Minimap and cover:GetName() == nil, "test setup: the frame over the minimap")
+        learned, shown = Point(cover)
+        assert(learned, "a frame over the whole minimap: the tooltip is ignored (nothing learned)")
+        assert(shown, "a frame over the whole minimap: our tooltip does not show below the game's")
+        -- a few pixels off is still "the whole minimap", also at another scale
+        learned, shown = Point(Child(253, 258, 502, 399))
+        assert(learned and shown, "a frame 2 px off the minimap's size and place is not taken as the minimap")
+        local scaled = Child(510, 512, 1000, 800)
+        scaled.GetEffectiveScale = function() return 0.5 end
+        learned, shown = Point(scaled)
+        assert(learned and shown, "a frame over the whole minimap at half the scale is not taken as the minimap")
+        -- a pin of another addon: a small child of the minimap
+        learned, shown = Point(Child(16, 16, 540, 400))
+        assert(not learned and not shown, "another addon's pin under the mouse: its tooltip was read")
+        -- one of our own pins - whatever its size
+        local ours = Child(255, 256)
+        ours.node = herb
+        learned, shown = Point(ours)
+        assert(not learned and not shown, "one of our own pins is taken for the minimap")
+        local target = Child(255, 256)
+        target.isTarget = true
+        learned = Point(target)
+        assert(not learned, "the run target's pin is taken for the minimap")
+        -- another size, another place, another parent: not the minimap
+        learned = Point(Child(200, 256))
+        assert(not learned, "a child 55 px narrower than the minimap is taken for it")
+        learned = Point(Child(255, 200))
+        assert(not learned, "a child 56 px lower than the minimap is taken for it")
+        learned = Point(Child(255, 256, 540, 400))
+        assert(not learned, "a child 40 px beside the minimap's place is taken for it")
+        learned = Point(Child(255, 256, 500, 400, UIParent))
+        assert(not learned, "a frame as big as the minimap that is no child of it is taken for it")
+        local grand = Child(255, 256, 500, 400, Child(255, 256))
+        learned = Point(grand)
+        assert(not learned, "a grandchild of the minimap is taken for it")
+        -- things that cannot be read: not the minimap, and no error
+        learned = Point({})
+        assert(not learned, "a thing without a size is taken for the minimap")
+        local broken = Child(255, 256)
+        broken.GetWidth = function() error("no width") end
+        learned = Point(broken)
+        assert(not learned, "a frame whose size cannot be read is taken for the minimap")
+        local SECRET = newproxy(true)
+        issecretvalue = function(v) return rawequal(v, SECRET) end
+        local hidden = Child(255, 256)
+        hidden.GetHeight = function() return SECRET end
+        learned = Point(hidden)
+        assert(not learned, "a frame with a hidden size is taken for the minimap")
+        issecretvalue = keep.secret
+        local odd = Child(255, 256)
+        odd.GetCenter = function() return nil end
+        learned = Point(odd)
+        assert(not learned, "a frame without a place is taken for the minimap")
+        -- the client tells nothing about the mouse (neither function): as before
+        learned, shown = Point("none")
+        assert(learned and shown, "without GetMouseFoci / GetMouseFocus the minimap tooltip is not read any more")
+        -- only the old function, with the cover under the mouse
+        GetMouseFoci, GetMouseFocus = nil, function() return cover end
+        lines = {}
+        advance(6)
+        herb.seenAt, herb.upAt, herb.emptyUntil = nil, nil, time() + 600
+        lines = { herbName }
+        advance(2)
+        assert(herb.seenAt and not herb.emptyUntil, "the cover under the mouse, told by the old function: not read")
+        -- nothing was changed on the frames we looked at
+        assert(cover:GetParent() == Minimap and cover.__w == 255 and cover.__h == 256 and cover.__shown ~= false, "a frame of another addon was changed")
+        lines = {}
+        advance(2)
+    end)
+    GetMouseFoci, GetMouseFocus, GetCursorPosition, GetCVar, issecretvalue = keep.foci, keep.focus, keep.cursor, keep.cvar, keep.secret
+    for _, k in ipairs({ "IsMouseOver", "GetCenter", "GetWidth", "GetHeight", "GetZoom", "GetEffectiveScale" }) do Minimap[k] = mm[k] end
+    for _, k in ipairs({ "IsShown", "GetOwner", "NumLines" }) do GameTooltip[k] = gt[k] end
+    for i = 1, 3 do if _G["GameTooltipTextLeft" .. i] then _G["GameTooltipTextLeft" .. i].GetText = texts[i] end end
+    ns.db.nodes[Z], ns.db.minimapLearnOff = keep.nodes, keep.learnOff
+    player.map, player.x, player.y = keep.map, keep.x, keep.y
+    ns.NotifyNodesChanged() advance(2)
+    if not ok then error(err, 0) end
+end)
 -- (end of the v0.1.21 steps)
 step("Gathering help: mark the node you walk towards, put back like fishing (v0.1.19 Q6 A)", function()
     local saved = { get = GetCVar, set = SetCVar, mark = ns.db.gatherMark, bobber = ns.db.fishMarkBobber, loud = ns.db.fishLoudSplash,
