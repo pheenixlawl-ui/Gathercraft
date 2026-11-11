@@ -568,9 +568,15 @@ local TRACK_ICONS = {
 
 -- sits on the minimap's edge like the minimap buttons. Strata MEDIUM, well
 -- above the minimap (LOW): a square minimap frame of a UI addon, drawn on
--- the minimap's own strata, does not cover it (v0.1.20 K1)
+-- the minimap's own strata, does not cover it (v0.1.20 K1).
+-- A child of the screen, not of the minimap (v0.1.21 T5; Sven, 10.11.2026,
+-- Ellesmere UI: shown, but with an effective alpha of 0 - something that
+-- goes through the minimap's children had faded it). It is only anchored to
+-- the minimap; what a child got for free is done by hand below: the
+-- minimap's scale, and hidden when the minimap is. Nothing is put right
+-- against another addon: no alpha is ever set here.
 local TRACK_STRATA = "MEDIUM"
-local track = CreateFrame("Button", TRACK_BUTTON, Minimap, "SecureActionButtonTemplate")
+local track = CreateFrame("Button", TRACK_BUTTON, UIParent, "SecureActionButtonTemplate")
 track:RegisterForClicks("AnyUp", "AnyDown")
 track:SetSize(31, 31)
 track:SetFrameStrata(TRACK_STRATA)
@@ -640,10 +646,15 @@ local function PrepareTrack()
     end
 end
 
--- The minimap's shape, as UI addons tell it (GetMinimapShape is their
--- common convention: "ROUND", "SQUARE", "CORNER-TOPLEFT", ...). Without
--- the function, or with anything unreadable: round, as the game's own.
+-- The minimap's shape. Chosen in the options (v0.1.21 T5: Round / Square),
+-- else - Auto - as UI addons tell it (GetMinimapShape is their common
+-- convention: "ROUND", "SQUARE", "CORNER-TOPLEFT", ...). Without the
+-- function, or with anything unreadable: round, as the game's own. (A UI
+-- that makes the minimap square without telling cannot be told apart here:
+-- Sven's Ellesmere UI has no GetMinimapShape - hence the choice.)
 local function MinimapShape()
+    local choice = ns.db and ns.db.minimapShape
+    if choice == "round" then return "ROUND" elseif choice == "square" then return "SQUARE" end
     local f = _G.GetMinimapShape
     local ok, shape = pcall(type(f) == "function" and f or function() end)
     return ok and type(shape) == "string" and shape:upper() or "ROUND"
@@ -664,10 +675,20 @@ local function TrackOffset(angle, shape)
         math.abs(dy) > 1e-6 and hh / math.abs(dy) or math.huge)
     return dx * k, dy * k
 end
+-- The button's scale: drawn as big as a child of the minimap would be
+-- (place and size are told in the minimap's own measure). Unreadable: 1.
+local function TrackScale()
+    local ok, s = pcall(function()
+        local m, u = Minimap:GetEffectiveScale(), UIParent:GetEffectiveScale()
+        if type(m) == "number" and type(u) == "number" and m > 0 and u > 0 then return m / u end
+    end)
+    return ok and type(s) == "number" and s or 1
+end
 local function PlaceTrack()
     if InCombatLockdown() then return end
     local angle = math.rad(ns.db and ns.db.trackButtonAngle or TRACK_ANGLE)
     local x, y = TrackOffset(angle, MinimapShape())
+    track:SetScale(TrackScale())
     track:ClearAllPoints()
     track:SetPoint("CENTER", Minimap, "CENTER", x, y)
     track:SetFrameStrata(TRACK_STRATA)
@@ -675,15 +696,32 @@ local function PlaceTrack()
 end
 ns.PlaceTrackButton = PlaceTrack
 
--- Shown when you know both (option, out of combat)
-local function UpdateTrackButton()
+-- Is the minimap on the screen? (Itself and what it sits in.)
+local function MinimapVisible()
+    local ok, visible = pcall(function() return Minimap:IsVisible() end)
+    return not ok or (visible and true or false)
+end
+
+-- Shown when you know both (option, out of combat) and the minimap is on
+-- the screen. minimapShown: told by the minimap's own show / hide below.
+local function UpdateTrackButton(minimapShown)
     if InCombatLockdown() or not ns.db then return end
-    local show = not ns.db.trackButtonHidden and KnowsSpell(FIND_HERBS) and KnowsSpell(FIND_MINERALS)
+    if minimapShown == nil then minimapShown = MinimapVisible() end
+    local show = minimapShown and not ns.db.trackButtonHidden and KnowsSpell(FIND_HERBS) and KnowsSpell(FIND_MINERALS)
     track:SetShown(show and true or false)
     PrepareTrack()
     PlaceTrack() -- the shape or size may have changed (a UI addon, a fight)
 end
-ns.UpdateTrackButton = UpdateTrackButton
+ns.UpdateTrackButton = function() UpdateTrackButton() end
+
+-- The button follows the minimap: gone with it, back with it. Only listened
+-- to (a hook after the minimap's own scripts), nothing on it is changed. In
+-- a fight the button stays as it is - a protected frame - and the end of
+-- the fight catches up (PLAYER_REGEN_ENABLED below).
+if Minimap.HookScript then
+    pcall(Minimap.HookScript, Minimap, "OnShow", function() UpdateTrackButton(true) end)
+    pcall(Minimap.HookScript, Minimap, "OnHide", function() UpdateTrackButton(false) end)
+end
 
 track:SetScript("PreClick", function()
     if not InCombatLockdown() then PrepareTrack() end

@@ -6971,6 +6971,208 @@ step("Minimap tooltip: a frame that covers the whole minimap counts as the minim
     ns.NotifyNodesChanged() advance(2)
     if not ok then error(err, 0) end
 end)
+step("Herbs / minerals switch button: on the screen, not on the minimap; follows it; the shape can be chosen (v0.1.21 T5)", function()
+    -- Sven, 10.11.2026, Ellesmere UI, square minimap: the button was shown but
+    -- had an effective alpha of 0 - something that goes through the minimap's
+    -- children had faded it - and with no GetMinimapShape it sat on a circle.
+    -- The button is a child of the screen now, only anchored to the minimap,
+    -- and the shape can be chosen in the options.
+    local btn = GathercraftTrackButton
+    assert(btn, "no switch button")
+    local saved = { shape = _G.GetMinimapShape, w = rawget(Minimap, "GetWidth"), h = rawget(Minimap, "GetHeight"), es = rawget(Minimap, "GetEffectiveScale"),
+        ues = rawget(UIParent, "GetEffectiveScale"), angle = ns.db.trackButtonAngle, combat = InCombatLockdown, known = IsPlayerSpell,
+        choice = ns.db.minimapShape, hidden = ns.db.trackButtonHidden, mparent = Minimap.__parent, mshown = Minimap.__shown,
+        setAlpha = rawget(btn, "SetAlpha"), setScale = rawget(btn, "SetScale") }
+    local function Pos()
+        local p = btn.__pts and btn.__pts.CENTER
+        assert(p and p[1] == Minimap and p[2] == "CENTER", "the button is not anchored to the minimap's centre")
+        return p[3], p[4]
+    end
+    local function Near(a, b) return math.abs(a - b) < 0.5 end
+    local function Radius() local x, y = Pos() return math.sqrt(x * x + y * y) end
+    local ok, err = pcall(function()
+        -- not a child of the minimap, nowhere up the line
+        assert(btn:GetParent() ~= Minimap, "the button is a child of the minimap")
+        assert(btn:GetParent() == UIParent, "the button is not a child of the screen (UIParent)")
+        for _, o in ipairs(allFrames) do
+            if o.__parent == Minimap then
+                assert(o ~= btn and (not o.GetName or o:GetName() ~= "GathercraftTrackButton"), "the minimap has the switch button as a child")
+            end
+        end
+        local alphas, scale = 0, nil
+        btn.SetAlpha = function() alphas = alphas + 1 end
+        btn.SetScale = function(_, s) scale = s end
+        Minimap.GetWidth = function() return 140 end
+        Minimap.GetHeight = function() return 140 end
+        _G.GetMinimapShape = nil
+        ns.db.minimapShape, ns.db.trackButtonAngle, ns.db.trackButtonHidden = nil, 250, nil
+        IsPlayerSpell = function(id) return id == 2383 or id == 2580 or saved.known(id) end
+        Minimap.__shown = true
+        ns.UpdateTrackButton()
+        assert(btn:IsShown(), "test setup: the button shows with both tracking spells")
+        -- place, strata and level as before: on the minimap's edge, above it
+        assert(Near(Radius(), 75), ("round: %.1f from the centre, want 75"):format(Radius()))
+        assert(btn:GetFrameStrata() == "MEDIUM" and btn:GetFrameLevel() == Minimap:GetFrameLevel() + 8, "strata or level changed")
+        -- as big as a child of the minimap would be: the minimap's scale
+        assert(scale == 1, "the button's scale with minimap and screen at the same scale: " .. tostring(scale))
+        Minimap.GetEffectiveScale = function() return 0.6 end
+        UIParent.GetEffectiveScale = function() return 0.75 end
+        ns.PlaceTrackButton()
+        assert(scale and Near(scale * 100, 80), "a minimap at 0.6 on a screen at 0.75: the button's scale is " .. tostring(scale) .. ", want 0.8")
+        Minimap.GetEffectiveScale = function() return nil end
+        assert(pcall(ns.PlaceTrackButton) and scale == 1, "a scale that cannot be read: an error, or not 1")
+        Minimap.GetEffectiveScale = function() error("no scale") end
+        assert(pcall(ns.PlaceTrackButton) and scale == 1, "a scale that raises an error: an error, or not 1")
+        Minimap.GetEffectiveScale, UIParent.GetEffectiveScale = saved.es, saved.ues
+
+        -- the minimap hidden: the button goes; shown again: back
+        Minimap:Hide()
+        assert(not btn:IsShown(), "the minimap is hidden, the button still shows")
+        Minimap:Show()
+        assert(btn:IsShown(), "the minimap is back, the button is not")
+        -- hidden through what the minimap sits in (its cluster)
+        local cluster = newObject("Frame", nil, UIParent)
+        Minimap.__parent = cluster
+        cluster:Hide()
+        ns.UpdateTrackButton()
+        assert(not btn:IsShown(), "the minimap's parent is hidden, the button still shows")
+        cluster:Show()
+        ns.UpdateTrackButton()
+        assert(btn:IsShown(), "the minimap's parent is back, the button is not")
+        Minimap.__parent = saved.mparent
+        -- in a fight nothing changes (a protected frame); the fight's end catches up
+        InCombatLockdown = function() return true end
+        Minimap:Hide()
+        assert(btn:IsShown(), "the button was hidden in combat")
+        InCombatLockdown = saved.combat
+        fire("PLAYER_REGEN_ENABLED")
+        assert(not btn:IsShown(), "after the fight the button still shows, the minimap is hidden")
+        InCombatLockdown = function() return true end
+        Minimap:Show()
+        assert(not btn:IsShown(), "the button was shown in combat")
+        InCombatLockdown = saved.combat
+        fire("PLAYER_REGEN_ENABLED")
+        assert(btn:IsShown(), "after the fight the button is not back")
+        -- the option off: hidden, whatever the minimap does
+        ns.db.trackButtonHidden = true
+        ns.UpdateTrackButton()
+        Minimap:Hide() Minimap:Show()
+        assert(not btn:IsShown(), "the option is off, the button shows when the minimap comes back")
+        ns.db.trackButtonHidden = nil
+        ns.UpdateTrackButton()
+        assert(btn:IsShown(), "the option is on again, no button")
+        -- only one of the two spells known: no button when the minimap comes back
+        IsPlayerSpell = saved.known
+        Minimap:Hide() Minimap:Show()
+        assert(not btn:IsShown(), "the button shows without both tracking spells when the minimap comes back")
+        IsPlayerSpell = function(id) return id == 2383 or id == 2580 or saved.known(id) end
+        ns.UpdateTrackButton()
+        -- no fight against another addon: the alpha is never set
+        assert(alphas == 0, "the button's alpha was set " .. alphas .. " times")
+
+        -- the shape: Auto as before (what a UI addon tells, else round)
+        local x, y
+        _G.GetMinimapShape = function() return "SQUARE" end
+        ns.PlaceTrackButton()
+        x, y = Pos()
+        assert(Near(y, -75) and math.abs(x) < 75, "Auto with a UI addon saying SQUARE: not on the rectangle's edge")
+        _G.GetMinimapShape = nil
+        ns.PlaceTrackButton()
+        assert(Near(Radius(), 75), "Auto without a shape function: not round")
+        -- Square chosen, no shape function (Sven's case): the rectangle's edge
+        ns.db.minimapShape = "square"
+        ns.PlaceTrackButton()
+        x, y = Pos()
+        assert(Near(y, -75), ("Square chosen, at 250 degrees: y %.1f, want -75 (the bottom edge)"):format(y))
+        assert(Near(x / y, math.cos(math.rad(250)) / math.sin(math.rad(250))), "Square chosen: not in the direction of the angle")
+        Minimap.GetWidth = function() return 255 end
+        Minimap.GetHeight = function() return 256 end
+        ns.db.trackButtonAngle = 180
+        ns.PlaceTrackButton()
+        x, y = Pos()
+        assert(Near(x, -132.5) and Near(y, 0), ("Square chosen, a minimap of 255 x 256 at 180 degrees: %.1f, %.1f"):format(x, y))
+        ns.db.trackButtonAngle = 45
+        ns.PlaceTrackButton()
+        x, y = Pos()
+        assert(Near(x, 132.5) and Near(y, 132.5), ("Square chosen, 255 x 256 at 45 degrees: %.1f, %.1f"):format(x, y))
+        Minimap.GetWidth = function() return 140 end
+        Minimap.GetHeight = function() return 140 end
+        -- Round chosen wins over a UI addon that says SQUARE
+        ns.db.minimapShape = "round"
+        _G.GetMinimapShape = function() return "SQUARE" end
+        ns.PlaceTrackButton()
+        assert(Near(Radius(), 75), "Round chosen: not on the circle")
+        -- an odd saved value: Auto
+        ns.db.minimapShape = "hexagon"
+        ns.PlaceTrackButton()
+        x, y = Pos()
+        assert(Near(x, 75) and Near(y, 75), "an unknown saved shape is not taken as Auto")
+        _G.GetMinimapShape = nil
+        ns.db.minimapShape = nil
+
+        -- the option: under General, next to the button's other things
+        local label, less, more, value
+        for _, o in ipairs(allFrames) do
+            if o.GetText and o:GetText() == ns.L["Minimap shape"] then label = o end
+            if o.gcShapeStep == -1 then less = o elseif o.gcShapeStep == 1 then more = o end
+            if o.gcShapeValue then value = o end
+        end
+        assert(label and less and more and value, "no choice \"Minimap shape\" in the options")
+        local p = label.__parent
+        while p and not p.key do p = p.__parent end
+        assert(p and p.key == "general", "the choice of the shape is not under General")
+        assert(less.__parent == p and more.__parent == p, "the buttons of the choice are on another page")
+        ns.db.trackButtonAngle = 45
+        GathercraftOptions:Refresh() -- (as opening the options does)
+        local function Shown() return value:GetText() end
+        assert(Shown() == ns.L["Auto"], "the choice does not start at Auto: " .. tostring(Shown()))
+        more.__scripts.OnClick(more)
+        assert(ns.db.minimapShape == "round" and Shown() == ns.L["Round"], "> after Auto is not Round")
+        assert(Near(Radius(), 75), "Round picked: the button did not move at once")
+        more.__scripts.OnClick(more)
+        assert(ns.db.minimapShape == "square" and Shown() == ns.L["Square"], "> after Round is not Square")
+        x, y = Pos()
+        assert(Near(x, 75) and Near(y, 75), "Square picked: the button did not move to the corner at once")
+        more.__scripts.OnClick(more)
+        assert(ns.db.minimapShape == nil and Shown() == ns.L["Auto"], "> after Square is not Auto (nothing saved)")
+        less.__scripts.OnClick(less)
+        assert(ns.db.minimapShape == "square", "< before Auto is not Square")
+        less.__scripts.OnClick(less)
+        less.__scripts.OnClick(less)
+        assert(ns.db.minimapShape == nil, "< twice more is not Auto")
+        -- in a fight the choice is saved, the button moves after it
+        InCombatLockdown = function() return true end
+        more.__scripts.OnClick(more) more.__scripts.OnClick(more)
+        assert(ns.db.minimapShape == "square" and Near(Radius(), 75), "picked in combat: not saved, or the button moved")
+        InCombatLockdown = saved.combat
+        fire("PLAYER_REGEN_ENABLED")
+        x, y = Pos()
+        assert(Near(x, 75) and Near(y, 75), "picked in combat: not placed after the fight")
+        assert(pcall(more.__scripts.OnEnter, more), "the tooltip of the choice")
+        -- the page still fits
+        local used = ns.OptionsUsedHeight()
+        assert(used.general <= 640 - 112 - 18 - 4 - 66, "Options, General: " .. tostring(used.general) .. " px, too long")
+        -- shift-drag still saves the angle
+        local realShift, realCursor = IsShiftKeyDown, GetCursorPosition
+        IsShiftKeyDown = function() return true end
+        GetCursorPosition = function() return 400, 300 end
+        ns.db.trackButtonAngle = nil
+        btn.__scripts.OnDragStart(btn)
+        assert(btn.__scripts.OnUpdate and pcall(btn.__scripts.OnUpdate, btn, 0.1), "dragging does not follow the cursor")
+        btn.__scripts.OnDragStop(btn)
+        IsShiftKeyDown, GetCursorPosition = realShift, realCursor
+        assert(ns.db.trackButtonAngle, "dragging did not save the angle")
+        assert(alphas == 0, "the button's alpha was set")
+    end)
+    _G.GetMinimapShape, InCombatLockdown, IsPlayerSpell = saved.shape, saved.combat, saved.known
+    Minimap.GetWidth, Minimap.GetHeight, Minimap.GetEffectiveScale, UIParent.GetEffectiveScale = saved.w, saved.h, saved.es, saved.ues
+    Minimap.__parent, Minimap.__shown = saved.mparent, saved.mshown
+    btn.SetAlpha, btn.SetScale = saved.setAlpha, saved.setScale
+    ns.db.trackButtonAngle, ns.db.minimapShape, ns.db.trackButtonHidden = saved.angle, saved.choice, saved.hidden
+    ns.UpdateTrackButton()
+    GathercraftOptions:Refresh()
+    if not ok then error(err, 0) end
+end)
 -- (end of the v0.1.21 steps)
 step("Gathering help: mark the node you walk towards, put back like fishing (v0.1.19 Q6 A)", function()
     local saved = { get = GetCVar, set = SetCVar, mark = ns.db.gatherMark, bobber = ns.db.fishMarkBobber, loud = ns.db.fishLoudSplash,

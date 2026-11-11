@@ -564,4 +564,8 @@ ns.Locales.zhCN = {
     ["  Series of %s are not counted: a craft there gave more than one point."] = "  %s 的连续制作不计入：其中一次制作提升了超过一点。",
     ["The herbs/minerals button now sits on the edge of a square minimap too. Craft log: a Create All series counts as one block when it is clear; no green threshold is made up any more."] = "草药/矿物按钮现在在方形小地图上也位于边缘。制造记录：清晰的“全部制造”连续制作计为一组；不再虚构绿色阈值。",
     ["Skill plan 2.0 · Item tooltips · Shopping list on the map"] = "技能计划 2.0 · 物品提示 · 地图上的购物清单",
+    ["Minimap shape"] = "小地图形状",
+    ["Round"] = "圆形",
+    ["Square"] = "方形",
+    ["Where the herbs/minerals button sits. Auto: round, unless your UI addon tells Gathercraft another shape. Pick Square if the button sits inside a square minimap."] = "草药/矿物按钮的位置。自动：圆形，除非你的界面插件告诉 Gathercraft 其他形状。如果按钮出现在方形小地图内部，请选择方形。",
 }

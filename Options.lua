@@ -541,6 +541,21 @@ local function AddMiniStyle()
     nextY = nextY - 30
 end
 
+-- The minimap's shape, for the place of the herbs/minerals button (v0.1.21
+-- T5): < Auto | Round | Square >. Auto saves nothing.
+local SHAPES = {
+    { name = "Auto" },
+    { code = "round", name = "Round" },
+    { code = "square", name = "Square" },
+}
+local SHAPE_W = 80
+local shapeText
+local function ShapeIndex()
+    local code = ns.db and ns.db.minimapShape
+    for i, s in ipairs(SHAPES) do if s.code == code then return i end end
+    return 1
+end
+
 -- World map pin style: < Normal | Ring >
 local worldStyleText
 local function AddWorldStyle()
@@ -823,6 +838,9 @@ function options:Refresh()
     if miniStyleText then
         miniStyleText:SetText(L[MINI_STYLES[MiniStyleIndex()].name])
     end
+    if shapeText then
+        shapeText:SetText(L[SHAPES[ShapeIndex()].name])
+    end
     if worldStyleText then
         worldStyleText:SetText(L[ns.RingedWorldMap() and "Ring" or "Normal"])
     end
@@ -1063,6 +1081,46 @@ local function Build()
         local macro = CreateFrame("Button", nil, page, "UIPanelButtonTemplate")
         macro:SetSize(180, 22)
         macro:SetPoint("TOPLEFT", colX + 30, nextY)
+        -- the minimap's shape, for the button's place (v0.1.21 T5): on the
+        -- same row, right of the macro button - the page has no row to spare
+        local more = CreateFrame("Button", nil, page, "UIPanelButtonTemplate")
+        more:SetSize(24, 20)
+        more:SetPoint("TOPRIGHT", page, "TOPRIGHT", 0, nextY - 1)
+        more:SetText(">")
+        more.gcShapeStep = 1
+        shapeText = page:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        shapeText:SetPoint("RIGHT", more, "LEFT", -6, 0)
+        shapeText:SetWidth(SHAPE_W)
+        shapeText.gcShapeValue = true
+        local less = CreateFrame("Button", nil, page, "UIPanelButtonTemplate")
+        less:SetSize(24, 20)
+        less:SetPoint("RIGHT", shapeText, "LEFT", -6, 0)
+        less:SetText("<")
+        less.gcShapeStep = -1
+        local shapeLabel = page:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        shapeLabel:SetPoint("LEFT", macro, "RIGHT", 10, 0)
+        shapeLabel:SetPoint("RIGHT", less, "LEFT", -6, 0)
+        shapeLabel:SetJustifyH("RIGHT")
+        if shapeLabel.SetWordWrap then shapeLabel:SetWordWrap(false) end
+        ns.LText(shapeLabel, "Minimap shape")
+        local function ShapeTip(self)
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            GameTooltip:AddLine(L["Minimap shape"], 1, 0.82, 0)
+            GameTooltip:AddLine(L["Where the herbs/minerals button sits. Auto: round, unless your UI addon tells Gathercraft another shape. Pick Square if the button sits inside a square minimap."], 1, 1, 1, true)
+            GameTooltip:Show()
+        end
+        local function ShapeChange(self)
+            local i = ShapeIndex() + self.gcShapeStep
+            if i < 1 then i = #SHAPES elseif i > #SHAPES then i = 1 end
+            ns.db.minimapShape = SHAPES[i].code
+            if ns.UpdateTrackButton then ns.UpdateTrackButton() end -- (in a fight: after it)
+            options:Refresh()
+        end
+        for _, b in ipairs({ less, more }) do
+            b:SetScript("OnClick", ShapeChange)
+            b:SetScript("OnEnter", ShapeTip)
+            b:SetScript("OnLeave", GameTooltip_Hide)
+        end
         ns.LText(macro, "Put it on an action bar")
         macro:SetScript("OnClick", function() if ns.TrackMacro then ns.TrackMacro() end end)
         macro:SetScript("OnEnter", function(self)

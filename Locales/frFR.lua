@@ -564,4 +564,8 @@ ns.Locales.frFR = {
     ["  Series of %s are not counted: a craft there gave more than one point."] = "  Les séries de %s ne sont pas comptées : une fabrication y a donné plus d'un point.",
     ["The herbs/minerals button now sits on the edge of a square minimap too. Craft log: a Create All series counts as one block when it is clear; no green threshold is made up any more."] = "Le bouton herbes/minerais se place désormais aussi au bord d'une minicarte carrée. Journal de fabrication : une série « Tout créer » compte comme un bloc quand elle est nette ; plus aucun seuil vert inventé.",
     ["Skill plan 2.0 · Item tooltips · Shopping list on the map"] = "Plan de compétence 2.0 · Infobulles d'objets · Liste de courses sur la carte",
+    ["Minimap shape"] = "Forme de la minicarte",
+    ["Round"] = "Ronde",
+    ["Square"] = "Carrée",
+    ["Where the herbs/minerals button sits. Auto: round, unless your UI addon tells Gathercraft another shape. Pick Square if the button sits inside a square minimap."] = "L'emplacement du bouton herbes/gisements. Auto : ronde, sauf si votre addon d'interface indique une autre forme à Gathercraft. Choisissez Carrée si le bouton se trouve à l'intérieur d'une minicarte carrée.",
 }

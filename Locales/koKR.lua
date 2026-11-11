@@ -564,4 +564,8 @@ ns.Locales.koKR = {
     ["  Series of %s are not counted: a craft there gave more than one point."] = "  %s의 연속 제작은 집계하지 않습니다: 한 번의 제작이 1점 넘게 올렸습니다.",
     ["The herbs/minerals button now sits on the edge of a square minimap too. Craft log: a Create All series counts as one block when it is clear; no green threshold is made up any more."] = "약초/광물 버튼이 이제 사각형 미니맵에서도 가장자리에 놓입니다. 제작 기록: 명확한 ‘모두 제작’ 연속은 하나의 묶음으로 집계되며, 초록 기준치를 더 이상 임의로 만들지 않습니다.",
     ["Skill plan 2.0 · Item tooltips · Shopping list on the map"] = "숙련도 계획 2.0 · 아이템 툴팁 · 지도 위 구매 목록",
+    ["Minimap shape"] = "미니맵 모양",
+    ["Round"] = "원형",
+    ["Square"] = "사각형",
+    ["Where the herbs/minerals button sits. Auto: round, unless your UI addon tells Gathercraft another shape. Pick Square if the button sits inside a square minimap."] = "약초/광물 버튼이 놓이는 위치입니다. 자동: UI 애드온이 Gathercraft에 다른 모양을 알려 주지 않으면 원형입니다. 버튼이 사각형 미니맵 안쪽에 있으면 사각형을 고르세요.",
 }

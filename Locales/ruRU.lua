@@ -564,4 +564,8 @@ ns.Locales.ruRU = {
     ["  Series of %s are not counted: a craft there gave more than one point."] = "  Серии для %s не учитываются: одно создание дало там больше одного очка.",
     ["The herbs/minerals button now sits on the edge of a square minimap too. Craft log: a Create All series counts as one block when it is clear; no green threshold is made up any more."] = "Кнопка травы/минералы теперь располагается у края и квадратной миникарты. Журнал создания: серия «Создать все» считается одним блоком, если она однозначна; зелёный порог больше не выдумывается.",
     ["Skill plan 2.0 · Item tooltips · Shopping list on the map"] = "План навыка 2.0 · Подсказки предметов · Список покупок на карте",
+    ["Minimap shape"] = "Форма миникарты",
+    ["Round"] = "Круглая",
+    ["Square"] = "Квадратная",
+    ["Where the herbs/minerals button sits. Auto: round, unless your UI addon tells Gathercraft another shape. Pick Square if the button sits inside a square minimap."] = "Где располагается кнопка «травы / минералы». Авто: круглая, если ваш аддон интерфейса не сообщает Gathercraft другую форму. Выберите «Квадратная», если кнопка оказывается внутри квадратной миникарты.",
 }

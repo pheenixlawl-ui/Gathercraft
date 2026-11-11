@@ -593,4 +593,8 @@ ns.Locales.deDE = {
     ["  Series of %s are not counted: a craft there gave more than one point."] = "  Serien von %s werden nicht gezählt: dort gab eine Herstellung mehr als einen Punkt.",
     ["The herbs/minerals button now sits on the edge of a square minimap too. Craft log: a Create All series counts as one block when it is clear; no green threshold is made up any more."] = "Der Kräuter/Mineralien-Knopf sitzt jetzt auch bei einer eckigen Minikarte am Rand. Craft-Protokoll: eine „Alle herstellen“-Serie zählt als ein Block, wenn sie eindeutig ist; eine Grün-Schwelle wird nicht mehr erfunden.",
     ["Skill plan 2.0 · Item tooltips · Shopping list on the map"] = "Skill-Plan 2.0 · Gegenstands-Tooltips · Einkaufsliste auf der Karte",
+    ["Minimap shape"] = "Form der Minikarte",
+    ["Round"] = "Rund",
+    ["Square"] = "Eckig",
+    ["Where the herbs/minerals button sits. Auto: round, unless your UI addon tells Gathercraft another shape. Pick Square if the button sits inside a square minimap."] = "Wo der Kräuter/Mineralien-Knopf sitzt. Auto: rund, außer dein UI-Addon nennt Gathercraft eine andere Form. Wähle Eckig, wenn der Knopf in einer eckigen Minikarte sitzt.",
 }

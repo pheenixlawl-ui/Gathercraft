@@ -564,4 +564,8 @@ ns.Locales.ptBR = {
     ["  Series of %s are not counted: a craft there gave more than one point."] = "  As séries de %s não são contadas: lá uma criação deu mais de um ponto.",
     ["The herbs/minerals button now sits on the edge of a square minimap too. Craft log: a Create All series counts as one block when it is clear; no green threshold is made up any more."] = "O botão de ervas/minerais agora fica na borda também de um minimapa quadrado. Registro de criação: uma série de “Criar tudo” conta como um bloco quando é clara; nenhum limite verde é mais inventado.",
     ["Skill plan 2.0 · Item tooltips · Shopping list on the map"] = "Plano de perícia 2.0 · Dicas de itens · Lista de compras no mapa",
+    ["Minimap shape"] = "Forma do minimapa",
+    ["Round"] = "Redondo",
+    ["Square"] = "Quadrado",
+    ["Where the herbs/minerals button sits. Auto: round, unless your UI addon tells Gathercraft another shape. Pick Square if the button sits inside a square minimap."] = "Onde fica o botão de ervas/minérios. Auto: redondo, a menos que seu addon de interface informe outra forma ao Gathercraft. Escolha Quadrado se o botão ficar dentro de um minimapa quadrado.",
 }
