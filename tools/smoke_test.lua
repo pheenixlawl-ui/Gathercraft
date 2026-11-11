@@ -6401,6 +6401,237 @@ step("Questing mode: looks again only after 5 yd, a change or 2 s; nothing while
     ns.NotifyNodesChanged() advance(1)
     if not ok then error(err, 0) end
 end)
+-- Every herb and ore spawn point of a zone as the shipped Questie data has
+-- it, as fresh node tables (the starter import itself runs once per session
+-- and merges what lies close together: the 0.1.21 steps want the raw points)
+local function QuestieZoneNodes(mapID)
+    local data = GathercraftQuestieData
+    local kindOf = { h = "herb", o = "ore" }
+    local list = {}
+    for id, xs, ys in (data.zones[mapID] or ""):gmatch("(%d+),(%d+),(%d+)") do
+        local kind = data.kinds["o" .. id]
+        if kind and kindOf[kind[1]] then
+            list[#list + 1] = { id = "o" .. id, type = kindOf[kind[1]], name = kind[3], x = tonumber(xs) / 10000, y = tonumber(ys) / 10000,
+                count = 0, last = 0, hits = 1, source = "questie" }
+        end
+    end
+    return list
+end
+step("Questing mode: a look reads your skill once and asks only the nodes near you; the same rings (v0.1.21 T3)", function()
+    -- Sven, 10.11.2026, Hillsbrad: a short hitch every few yards while the
+    -- questing mode is on. A look went through every node of the zone and
+    -- read the skill for each one (the whole skill list of the game, node by
+    -- node), also for the nodes far away. Now the skill is read once per
+    -- look, and only the nodes within the radius are asked the rest. Which
+    -- nodes get a ring - and which one the arrow points at - is what it was:
+    -- compared here with a copy of the old way, on a full zone with every
+    -- kind of state mixed in.
+    local Z = 1424 -- Hillsbrad Foothills
+    local keep = { nodes = ns.db.nodes[Z], map = player.map, x = player.x, y = player.y, gp = ns.GatherProfessions, skill = ns.GetSkill, cool = ns.IsOnCooldown,
+        secret = issecretvalue, chests = ns.db.chestsHidden, grey = ns.db.hideGreyNodes, radius = ns.db.questRadius, arrow = ns.db.questArrow,
+        debug = ns.db.debug, say = ns.Debug }
+    local ok, err = pcall(function()
+        ns.SetQuestMode(false)
+        -- one entry per place and kind (what several entries at one place do
+        -- is another step): an entry closer than 15 yd to an earlier one of
+        -- its kind is left out
+        local all, list = QuestieZoneNodes(Z), {}
+        assert(#all >= 600, "test setup: Hillsbrad has " .. #all .. " spawn points")
+        for _, n in ipairs(all) do
+            local alone = true
+            for _, m in ipairs(list) do
+                if m.type == n.type and ns.Distance(Z, m.x, m.y, n.x, n.y) < 15 then alone = false break end
+            end
+            if alone then list[#list + 1] = n end
+        end
+        assert(#list >= 300, "test setup: Hillsbrad has " .. #list .. " places")
+        -- every kind of state, spread over the zone
+        local now = time()
+        for i, n in ipairs(list) do
+            n.emptyUntil, n.parked, n.source, n.hits, n.pendingReport = nil, nil, nil, 1, nil
+            if i % 7 == 0 then n.emptyUntil = now + 600 end                        -- just harvested / found empty
+            if i % 11 == 0 then n.emptyUntil = now - 5 end                         -- rested long ago
+            if i % 13 == 0 then n.parked, n.source, n.hits = true, "sync", 0 end   -- parked as always empty
+            if i % 17 == 0 then n.pendingReport = {} end                           -- a report nobody confirmed
+        end
+        for i = 1, 40 do
+            local at = list[i * 7]
+            list[#list + 1] = { id = "o9" .. (800000 + i), name = "Battered Chest", type = "chest", x = at.x + 0.004, y = at.y + 0.003, count = 1, last = 1, hits = 1 }
+            list[#list + 1] = { id = "o9" .. (810000 + i), name = "School of Fish", type = "fish", x = at.x - 0.004, y = at.y + 0.003, count = 1, last = 1, hits = 1 }
+        end
+        list[#list + 1] = { id = "o9820000", name = "Peacebloom", type = "herb", count = 1, last = 1, hits = 1 } -- no place
+        ns.db.nodes[Z] = list
+        ns.NotifyNodesChanged() advance(1)
+
+        -- ---- the old way (0.1.20), word for word
+        local function OldCanGather(n)
+            if not (n and n.x and n.y) or n.pendingReport then return false end
+            if ns.IsOnCooldown and ns.IsOnCooldown(n) then return false end
+            if ns.IsParked and ns.IsParked(n) then return false end
+            if n.type == "chest" then return not ns.db.chestsHidden end
+            if n.type ~= "herb" and n.type ~= "ore" then return false end
+            if ns.GatherProfessions then
+                local herb, ore, known = ns.GatherProfessions()
+                if known and not ((n.type == "herb" and herb) or (n.type == "ore" and ore)) then return false end
+            end
+            local rank, _, effective
+            if ns.GetSkill then rank, _, effective = ns.GetSkill(n.type) end
+            if not rank or ns.AnySecret("questing mode", rank, effective) then return false end
+            local level = ns.SkillLevel(n.name, n.id, rank, effective)
+            if level == "red" then return false end
+            if level == "grey" and ns.db.hideGreyNodes then return false end
+            return true
+        end
+        local function OldPick()
+            local mapID, px, py = ns.GetPlayerPos()
+            if not (mapID and px and py) then return end
+            local want, r = {}, ns.QuestRadius()
+            local nearest, nearestD
+            for _, n in ipairs(ns.db.nodes[mapID] or {}) do
+                if OldCanGather(n) then
+                    local d = math.floor(ns.Distance(mapID, px, py, n.x, n.y) + 0.5)
+                    if d <= r then
+                        want[n] = true
+                        if not nearestD or d < nearestD then nearest, nearestD = n, d end
+                    end
+                end
+            end
+            return mapID, want, nearest
+        end
+
+        -- ---- the same rings and the same arrow, state by state
+        local SECRET = newproxy(true)
+        local herbSkill, oreSkill = { 100, 150, 105 }, { 70, 75, 70 }
+        ns.GetSkill = function(kind)
+            local s = kind == "herb" and herbSkill or kind == "ore" and oreSkill or nil
+            if s then return s[1], s[2], s[3] end
+        end
+        ns.GatherProfessions = function() return true, true, true end
+        ns.db.questArrow = true
+        player.map = Z
+        fire("ZONE_CHANGED_NEW_AREA") advance(1)
+        ns.SetQuestMode(true)
+        local compared, lit, arrows = 0, 0, 0
+        -- places to stand: next to nodes spread over the zone, and one in the open
+        local stands = { { 0.05, 0.95 } }
+        for _, i in ipairs({ 15, 70, 130, 190, 250 }) do stands[#stands + 1] = { list[i].x + 0.002, list[i].y + 0.001 } end
+        local function Same(what)
+            for _, pos in ipairs(stands) do
+                player.x, player.y = pos[1], pos[2]
+                for _, radius in ipairs({ 50, 75, 100 }) do
+                    ns.db.questRadius = radius
+                    local _, want, nearest = OldPick()
+                    ns.UpdateQuestRings()
+                    local rings = ns.QuestRings()
+                    for n in pairs(want) do
+                        assert(rings[n], ("%s, at %.2f / %.2f, %d yd: %s has no ring any more"):format(what, pos[1], pos[2], radius, tostring(n.name)))
+                        lit = lit + 1
+                    end
+                    for n in pairs(rings) do
+                        assert(want[n], ("%s, at %.2f / %.2f, %d yd: %s has a ring it did not have"):format(what, pos[1], pos[2], radius, tostring(n.name)))
+                    end
+                    assert(ns.QuestArrowNode() == nearest, ("%s, at %.2f / %.2f, %d yd: the arrow points at another node"):format(what, pos[1], pos[2], radius))
+                    if nearest then arrows = arrows + 1 end
+                    compared = compared + 1
+                end
+            end
+        end
+        Same("every profession")
+        ns.db.hideGreyNodes = true
+        Same("grey nodes hidden")
+        ns.db.hideGreyNodes = nil
+        ns.db.chestsHidden = true
+        Same("chests hidden")
+        ns.db.chestsHidden = nil
+        ns.GatherProfessions = function() return false, true, true end
+        Same("no Herbalism")
+        ns.GatherProfessions = function() return true, false, false end -- (not known for sure: the skill decides)
+        Same("professions not known for sure")
+        ns.GatherProfessions = function() return true, true, true end
+        oreSkill = nil
+        Same("Mining not learned")
+        oreSkill = { 300, 300, 300 }
+        herbSkill = { 1, 75, 1 }
+        Same("Herbalism at 1, Mining at 300")
+        issecretvalue = function(v) return rawequal(v, SECRET) end
+        herbSkill = { SECRET, 150, SECRET }
+        Same("a hidden Herbalism skill")
+        issecretvalue = keep.secret
+        herbSkill, oreSkill = { 100, 150, 105 }, { 70, 75, 70 }
+        ns.GatherProfessions = nil
+        Same("no profession watch")
+        ns.GatherProfessions = function() return true, true, true end
+        assert(compared == 9 * 18 and lit > 150 and arrows > 60, ("test setup: %d looks compared, %d rings, %d arrows"):format(compared, lit, arrows))
+        -- asking about one node (the way other parts ask) gives the old answer too
+        for _, n in ipairs(list) do
+            assert(ns.QuestCanGather(n) == OldCanGather(n), "asked alone, " .. tostring(n.name) .. " gets another answer")
+        end
+
+        -- ---- what a look costs: the skill once per kind, the rest only near you
+        -- (where it asks the most nodes for their skill colour: there the
+        -- skill would be read the most often)
+        ns.db.questRadius = 100
+        local realLevel = ns.SkillLevel
+        local asks, best = 0, nil
+        for i = 5, #list, 5 do
+            local at = list[i]
+            if at.x then
+                player.x, player.y = at.x + 0.001, at.y
+                ns.UpdateQuestRings()
+                local levels = 0
+                ns.SkillLevel = function(...) levels = levels + 1 return realLevel(...) end
+                ns.UpdateQuestRings()
+                ns.SkillLevel = realLevel
+                if levels > asks then asks, best = levels, at end
+            end
+        end
+        assert(best and asks >= 4, "test setup: no place where a look asks 4 nodes or more for their colour (" .. asks .. ")")
+        player.x, player.y = best.x + 0.001, best.y
+        local within = 0
+        for _, n in ipairs(list) do
+            if n.x and math.floor(ns.Distance(Z, player.x, player.y, n.x, n.y) + 0.5) <= 100 then within = within + 1 end
+        end
+        assert(within > 0 and within < 80, "test setup: " .. within .. " nodes within 100 yd")
+        ns.UpdateQuestRings() -- (the rings of this place are lit: the pins have asked what they ask)
+        local skillReads, restAsked = 0, 0
+        local realSkill, realCool = ns.GetSkill, ns.IsOnCooldown
+        ns.GetSkill = function(kind) skillReads = skillReads + 1 return realSkill(kind) end
+        ns.IsOnCooldown = function(n) restAsked = restAsked + 1 return realCool(n) end
+        ns.UpdateQuestRings()
+        ns.GetSkill, ns.IsOnCooldown = realSkill, realCool
+        local ringCount = 0
+        for _ in pairs(ns.QuestRings()) do ringCount = ringCount + 1 end
+        assert(ringCount > 0, "test setup: no ring at this place")
+        assert(skillReads >= 1 and skillReads <= 2, ("one look read your skill %d times (%d nodes in the zone, %d asked for their colour)"):format(skillReads, #list, asks))
+        assert(restAsked <= within, ("one look asked %d nodes whether they rest, %d are within the radius"):format(restAsked, within))
+        local info = ns.QuestLook()
+        assert(info.nodes == #list and info.near > 0 and info.near <= within and info.rings == ringCount,
+            ("what the look says about itself: %d nodes, %d near, %d rings"):format(info.nodes, info.near, info.rings))
+
+        -- ---- /gcr debug: how long a look took, a line now and then
+        local lines = {}
+        ns.Debug = function(text) if tostring(text):find("^QUEST ") then lines[#lines + 1] = text end end
+        ns.db.debug = false
+        advance(6)
+        assert(#lines == 0, "a line about the look without /gcr debug")
+        ns.db.debug = true
+        for _ = 1, 8 do ns.UpdateQuestRings() end
+        assert(#lines == 1, ("8 looks in a row wrote %d lines, want one"):format(#lines))
+        local ms, nodes, near, rings = lines[1]:match("^QUEST look ([%d%.]+) ms: (%d+) nodes in the zone, (%d+) near, (%d+) rings$")
+        assert(ms and tonumber(nodes) == #list and tonumber(near) == info.near and tonumber(rings) == info.rings, "the line about the look: " .. tostring(lines[1]))
+        advance(21) -- (about ten looks: one every 2 s)
+        assert(#lines >= 3 and #lines <= 6, ("21 s wrote %d lines, want one about every 5 s"):format(#lines))
+    end)
+    ns.SetQuestMode(false)
+    ns.GatherProfessions, ns.GetSkill, ns.IsOnCooldown, issecretvalue, ns.Debug = keep.gp, keep.skill, keep.cool, keep.secret, keep.say
+    ns.db.chestsHidden, ns.db.hideGreyNodes, ns.db.questRadius, ns.db.questArrow, ns.db.debug = keep.chests, keep.grey, keep.radius, keep.arrow, keep.debug
+    ns.db.nodes[Z] = keep.nodes
+    player.map, player.x, player.y = keep.map, keep.x, keep.y
+    fire("ZONE_CHANGED_NEW_AREA") advance(1)
+    ns.NotifyNodesChanged() advance(1)
+    if not ok then error(err, 0) end
+end)
+-- (end of the v0.1.21 steps)
 step("Gathering help: mark the node you walk towards, put back like fishing (v0.1.19 Q6 A)", function()
     local saved = { get = GetCVar, set = SetCVar, mark = ns.db.gatherMark, bobber = ns.db.fishMarkBobber, loud = ns.db.fishLoudSplash,
         cvars = ns.db.fishingCVars, map = player.map, x = player.x, y = player.y }

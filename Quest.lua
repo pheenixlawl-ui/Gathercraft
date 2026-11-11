@@ -74,43 +74,117 @@ local function Radius()
 end
 ns.QuestRadius = Radius
 
-local function CanGather(n)
-    if not (n and n.x and n.y) or n.pendingReport then return false end
-    if ns.IsOnCooldown and ns.IsOnCooldown(n) then return false end
-    if ns.IsParked and ns.IsParked(n) then return false end
-    if n.type == "chest" then return not ns.db.chestsHidden end
-    if n.type ~= "herb" and n.type ~= "ore" then return false end
+-- One look goes through every node of the zone - several hundred in a full
+-- one. So that this does not hitch while you walk (Sven, 10.11.2026, T3 of
+-- 0.1.21: reading your skill went through the whole skill list of the game
+-- for EVERY node, also for the ones far away):
+--   * what this character can gather - the professions, the skill for herbs
+--     and for ore - is read ONCE per look and handed to the check of each
+--     node (the pins do the same, see Skills.lua)
+--   * what costs nothing is asked first: is it a kind that gets a ring at
+--     all, is it within the radius. Only the few nodes near you are asked
+--     whether they rest and whether your skill is enough.
+-- Which nodes get a ring is exactly what it was.
+
+-- What this character can gather, for one look: the professions now, the
+-- skills when the first node of that kind asks for them
+local function Abilities()
+    local a = { skill = {} }
     if ns.GatherProfessions then
-        local herb, ore, known = ns.GatherProfessions()
-        if known and not ((n.type == "herb" and herb) or (n.type == "ore" and ore)) then return false end
+        a.asked = true
+        a.herb, a.ore, a.known = ns.GatherProfessions()
     end
-    local rank, _, effective
-    if ns.GetSkill then rank, _, effective = ns.GetSkill(n.type) end
-    if not rank or ns.AnySecret("questing mode", rank, effective) then return false end
-    local level = ns.SkillLevel(n.name, n.id, rank, effective)
+    return a
+end
+
+-- the skill for "herb" / "ore": { rank, effective }, or false when there is
+-- none to go by (not learned, hidden)
+local function SkillOf(a, kind)
+    local s = a.skill[kind]
+    if s == nil then
+        s = false
+        local rank, _, effective
+        if ns.GetSkill then rank, _, effective = ns.GetSkill(kind) end
+        if rank and not ns.AnySecret("questing mode", rank, effective) then s = { rank, effective } end
+        a.skill[kind] = s
+    end
+    return s
+end
+
+-- the kind of a node the questing mode can light at all ("herb", "ore",
+-- "chest" while chests are shown), else nil. Asks the game nothing.
+local function Kind(n)
+    if not (n and n.x and n.y) or n.pendingReport then return nil end
+    local kind = n.type
+    if kind == "chest" then
+        if ns.db.chestsHidden then return nil end
+        return kind
+    end
+    if kind == "herb" or kind == "ore" then return kind end
+    return nil
+end
+
+-- just harvested, found empty, or parked as always empty
+local function Resting(n)
+    if ns.IsOnCooldown and ns.IsOnCooldown(n) then return true end
+    if ns.IsParked and ns.IsParked(n) then return true end
+    return false
+end
+
+-- can this character gather a node of its kind: the profession and enough
+-- skill (a chest needs neither)
+local function Able(n, a)
+    local kind = n.type
+    if kind == "chest" then return true end
+    if a.asked and a.known and not ((kind == "herb" and a.herb) or (kind == "ore" and a.ore)) then return false end
+    local s = SkillOf(a, kind)
+    if not s then return false end
+    local level = ns.SkillLevel(n.name, n.id, s[1], s[2])
     if level == "red" then return false end
     -- Options > Leveling, "Hide grey nodes": no more skill-ups, no ring either
     if level == "grey" and ns.db.hideGreyNodes then return false end
     return true
 end
-ns.QuestCanGather = CanGather
+
+-- a: what Abilities() gave for this look (read here when it is left out)
+local function CanGather(n, a)
+    if not Kind(n) or Resting(n) then return false end
+    return Able(n, a or Abilities())
+end
+ns.QuestCanGather = function(n) return CanGather(n) end
+
+local look = {} -- the last look, for /gcr debug: ms, nodes, near, rings
 
 -- the nodes to light now: mapID, set (node -> true), or nil
 local function Pick()
     local mapID, px, py = ns.GetPlayerPos()
     if not (mapID and px and py) then return end
     local want, r = {}, Radius()
+    -- how many yards the map is wide and high: asked once, and counted with
+    -- as ns.Distance counts (the same numbers, node for node)
+    local w, h = ns.Distance(mapID, 0, 0, 1, 0), ns.Distance(mapID, 0, 0, 0, 1)
+    local a = Abilities()
     local nearest, nearestD
+    local nodes, near, rings = 0, 0, 0
     for _, n in ipairs(ns.db.nodes[mapID] or {}) do
-        if CanGather(n) then
-            -- in whole yards, as the game shows them (75.0000001 is 75)
-            local d = math.floor(ns.Distance(mapID, px, py, n.x, n.y) + 0.5)
-            if d <= r then
-                want[n] = true
-                if not nearestD or d < nearestD then nearest, nearestD = n, d end
+        nodes = nodes + 1
+        if Kind(n) then
+            local dx, dy = (n.x - px) * w, (n.y - py) * h
+            if dx <= r + 1 and dx >= -r - 1 and dy <= r + 1 and dy >= -r - 1 then
+                -- in whole yards, as the game shows them (75.0000001 is 75)
+                local d = math.floor(math.sqrt(dx * dx + dy * dy) + 0.5)
+                if d <= r then
+                    near = near + 1
+                    if not Resting(n) and Able(n, a) then
+                        want[n] = true
+                        rings = rings + 1
+                        if not nearestD or d < nearestD then nearest, nearestD = n, d end
+                    end
+                end
             end
         end
     end
+    look.nodes, look.near, look.rings = nodes, near, rings
     return mapID, want, nearest
 end
 
@@ -126,20 +200,34 @@ local picks = 0 -- how often the nodes were gone through (the tests count it)
 local last = { at = -math.huge }
 local dirty = true
 
+-- /gcr debug: how long a look took, at most one line every SAY_EVERY seconds
+local SAY_EVERY = 5
+local saidAt = -math.huge
+
 local function Update()
     if not (On() and ns.SetQuestRings) then return end
     picks = picks + 1
+    local clock = debugprofilestop
+    local began = clock and clock()
     local mapID, px, py = ns.GetPlayerPos()
     last.map, last.x, last.y, last.at = mapID, px, py, GetTime()
     dirty = false
+    look.nodes, look.near, look.rings = 0, 0, 0
     local want, nearest
     mapID, want, nearest = Pick()
     arrowNode, arrowMap = nearest, mapID
     ns.SetQuestRings(mapID, want)
     if ns.UpdateArrow then ns.UpdateArrow() end
+    look.ms = began and (clock() - began) or nil
+    if ns.db.debug and ns.Debug and GetTime() - saidAt >= SAY_EVERY then
+        saidAt = GetTime()
+        ns.Debug(("QUEST look %s ms: %d nodes in the zone, %d near, %d rings"):format(
+            look.ms and ("%.2f"):format(look.ms) or "?", look.nodes, look.near, look.rings))
+    end
 end
 ns.UpdateQuestRings = Update
 ns.QuestPicks = function() return picks end
+ns.QuestLook = function() return look end -- (the tests)
 
 -- every TICK while on: go through the nodes only when something changed
 local function Tick()
