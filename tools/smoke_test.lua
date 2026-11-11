@@ -4261,6 +4261,7 @@ step("Craft log: a Create All series counts as one block, only when it is clear 
         Cast(1) advance(0.3)
         Cast(1) advance(0.3)
         slash("craftlog clear")
+        advance(2) -- (since 0.1.21, T8: the cleared crafts' points may still be on the way)
         Cast(1) advance(2)
         assert(#ns.db.craftLog == 1 and not ns.db.craftLog[1].kind and not ns.db.craftLog[1].overlap and ns.db.craftLog[1].gain == 1, "after a clear in a series: " .. #ns.db.craftLog .. " entries")
         Cast(1) advance(0.3) Cast(1) advance(2)
@@ -4315,6 +4316,9 @@ step("Craft log: switching the recording off or on is a hard break (v0.1.20 F1)"
         ns.db.craftLogOff = true
         Done(b, 0)
         ns.db.craftLogOff = nil
+        -- (2 s: since 0.1.21 a craft that starts right after one the log did
+        -- not read - B - has no reliable "before": its own step, T8)
+        advance(2)
         for _, gain in ipairs({ 0, 0, 1 }) do Done(Start(), gain) advance(0.3) end
         advance(2)
         local byColour, _, others = ns.CraftLogSummary()
@@ -7526,6 +7530,283 @@ step("Craft log: Create All ended by an aborted cast keeps its block; the header
     advance(3)
     ns.db.craftLog, ns.db.craftMulti = saved.log, saved.multi
     advance(3)
+    if not ok then error(err, 0) end
+end)
+step("Craft log: a craft without a reliable \"before\" is no proof of a multi-point craft and in no rate (v0.1.21 T8)", function()
+    -- Sven, 11.11.2026 19:10, 0.1.20: during Create All (Cooking) recording
+    -- switched off and on again for a craft or two. After that: "Series of
+    -- Cooking are not counted: a craft there gave more than one point." The
+    -- chat showed exactly +1 after every "You create".
+    local data = GathercraftRecipeData
+    local spell, other = data.spells.Leatherworking["Light Leather"], data.spells.Leatherworking["Light Armor Kit"]
+    local saved = { rank = ns.ProfessionRank, have = ns.CraftData.Have, colors = data.colors[spell], colors2 = data.colors[other],
+        log = ns.db.craftLog, off = ns.db.craftLogOff, multi = ns.db.craftMulti, secret = issecretvalue }
+    local SECRET = newproxy(true)
+    local rank, maxRank = 10, 75
+    ns.ProfessionRank = function(p) if p == "Leatherworking" then return rank, maxRank end end
+    ns.CraftData.Have = function() return 0 end
+    data.colors[spell], data.colors[other] = "25:45", "25:45" -- orange below 25
+    ns.db.craftLog, ns.db.craftLogOff, ns.db.craftMulti = {}, nil, nil
+    local n = 0
+    local function Guid() n = n + 1 return "Cast-t8-" .. n end
+    local function Start(sp) local g = Guid() fire("UNIT_SPELLCAST_START", "player", g, sp or spell) return g end
+    -- the point of a craft arrives LAG seconds after its success (as in the
+    -- game: later than the event)
+    local LAG = 0.5
+    local function Ok(g, gain, sp)
+        fire("UNIT_SPELLCAST_SUCCEEDED", "player", g, sp or spell)
+        if gain and gain ~= 0 then C_Timer.After(LAG, function() rank = rank + gain end) end
+    end
+    -- the option's switch, as Options.lua does it
+    local function Switch(on)
+        ns.db.craftLogOff = not on or nil
+        ns.CraftLogBreak()
+    end
+    local function Blocks()
+        local list = {}
+        for _, e in ipairs(ns.db.craftLog) do if e.kind == "series" then list[#list + 1] = e end end
+        return list
+    end
+    local function Reset(skill) advance(3) ns.db.craftLog, ns.db.craftMulti = {}, nil rank = skill advance(3) end
+    local function NoteLine()
+        local mark = #log
+        slash("craftlog")
+        local text = table.concat(log, "\n", mark + 1)
+        return text:find((ns.L["  Series of %s are not counted: a craft there gave more than one point."]):format(ns.L["Leatherworking"]), 1, true) ~= nil, text
+    end
+    -- nothing in the log says more points than crafts
+    local function Honest(what)
+        local byColour, byGap, others = ns.CraftLogSummary()
+        for colour, c in pairs(byColour) do assert(c.ups <= c.tries, what .. ": " .. colour .. " " .. c.ups .. "/" .. c.tries) end
+        for _, g in pairs(byGap) do assert(g.ups <= g.tries, what .. ": a distance line with more points than crafts") end
+        assert(others.multi == 0, what .. ": " .. others.multi .. " \"gave more than one point\"")
+        for _, e in ipairs(ns.db.craftLog) do
+            assert(not (e.multi and not e.overlap), what .. ": a craft with " .. tostring(e.gain) .. " points counts alone")
+        end
+        return byColour, others
+    end
+    local ok, err = pcall(function()
+        advance(3)
+        -- (1) Sven's test 6: Create All with 3 s casts, every craft +1. Off
+        -- during the second cast, on again during the third.
+        local g = Start()                    -- A
+        advance(3) Ok(g, 1) g = Start()      -- B runs
+        advance(1) Switch(false)
+        advance(2) Ok(g, 1) g = Start()      -- B succeeds (off), C runs
+        advance(1) Switch(true)
+        advance(2) Ok(g, 1) g = Start()      -- C succeeds: over for the log. D starts - C's point is not there yet
+        advance(3) Ok(g, 1) g = Start()      -- D succeeds, E runs
+        advance(2)                           -- D is read: 2 more than at its start
+        assert(not (ns.db.craftMulti and ns.db.craftMulti.Leatherworking), "switched off and on during Create All: the note \"a craft gave more than one point\" is set")
+        advance(1) Ok(g, 1) g = Start()      -- E succeeds, F runs
+        advance(3) Ok(g, 1) g = Start()      -- F succeeds, a last cast runs
+        advance(1) fire("UNIT_SPELLCAST_INTERRUPTED", "player", g, spell) -- ended by moving
+        advance(3)
+        assert(rank == 16, "test setup: six crafts, six points (" .. rank .. ")")
+        local noted, text = NoteLine()
+        assert(not noted and not ns.db.craftMulti, "the line \"Series of ... are not counted\" shows: " .. text)
+        local byColour, others = Honest("after the switch")
+        assert(not byColour.orange or byColour.orange.tries <= 1, "crafts after the switch are in the rates: orange " .. tostring(byColour.orange and byColour.orange.ups) .. "/" .. tostring(byColour.orange and byColour.orange.tries))
+        assert(#Blocks() == 0, "a block out of the crafts after the switch")
+        -- D is in the log, marked: it started while C's point was on its way
+        local blind = 0
+        for _, e in ipairs(ns.db.craftLog) do
+            if e.blind then
+                blind = blind + 1
+                assert(e.blind == "settle" and e.overlap and e.result == "ok", "the craft after the switch: blind " .. tostring(e.blind))
+            end
+        end
+        assert(blind == 1, blind .. " crafts marked as started while another's point was on its way, want 1 (D)")
+        -- the next Create All, after a pause, counts as ever: a block of 3
+        advance(3)
+        g = Start()
+        for _ = 1, 3 do advance(3) Ok(g, 1) g = Start() end
+        advance(1) fire("UNIT_SPELLCAST_INTERRUPTED", "player", g, spell)
+        advance(3)
+        assert(#Blocks() == 1 and Blocks()[1].n == 3 and Blocks()[1].gain == 3 and Blocks()[1].before == 16 and Blocks()[1].after == 19,
+            "the next Create All after the switch is not a block of 3 (" .. #Blocks() .. " blocks)")
+
+        -- (2) the same with single crafts: one made while off, the next
+        -- started at once after switching on
+        Reset(10)
+        Switch(false)
+        g = Start() advance(3) Ok(g, 1)
+        Switch(true)
+        g = Start() advance(3) Ok(g, 1) advance(3)
+        assert(not ns.db.craftMulti, "a craft started right after one made while off: taken as proof of a multi-point craft")
+        assert(#ns.db.craftLog == 1 and ns.db.craftLog[1].blind == "settle" and ns.db.craftLog[1].overlap, "that craft is not marked overlapping")
+        Honest("a craft right after one made while off")
+        -- one second after it: still inside the 1.5 s
+        Reset(10)
+        Switch(false)
+        g = Start() advance(3) Ok(g, 1)
+        Switch(true)
+        advance(1)
+        g = Start() advance(3) Ok(g, 1) advance(3)
+        assert(#ns.db.craftLog == 1 and ns.db.craftLog[1].blind == "settle" and ns.db.craftLog[1].overlap, "a craft 1 s after one made while off counts")
+        -- 1.5 s after the craft made while off, a craft counts as ever
+        Reset(10)
+        Switch(false)
+        g = Start() advance(3) Ok(g, 1)
+        Switch(true)
+        advance(1.6)
+        g = Start() advance(3) Ok(g, 1) advance(3)
+        byColour = ns.CraftLogSummary()
+        assert(#ns.db.craftLog == 1 and not ns.db.craftLog[1].overlap and not ns.db.craftLog[1].blind and ns.db.craftLog[1].gain == 1 and byColour.orange.tries == 1 and byColour.orange.ups == 1,
+            "a craft 1.6 s after one made while off does not count")
+
+        -- (3) a success whose start was never seen (after a reload in the
+        -- middle of a cast, say): no "before" at all
+        Reset(10)
+        Ok(Guid(), 1) -- no START
+        g = Start()   -- Create All goes on
+        advance(3) Ok(g, 1) g = Start()
+        advance(3) Ok(g, 1)
+        advance(3)
+        assert(not ns.db.craftMulti, "a success without a start: taken as proof of a multi-point craft")
+        local first = ns.db.craftLog[1]
+        assert(first and first.blind == "start" and first.before == nil and first.overlap and first.result == "ok" and first.gain == nil,
+            "a success without a start: blind " .. tostring(first and first.blind) .. ", before " .. tostring(first and first.before))
+        byColour, others = Honest("a success without a start")
+        assert(not next(byColour) and #Blocks() == 0 and others.overlap == 3, "a success without a start, then two more of Create All: " .. others.overlap .. " overlapping, want all 3")
+        -- with a late point that makes two at once: still no note
+        Reset(10)
+        g = Start() advance(3) Ok(g, 1)        -- a normal craft, its point 0.5 s later
+        advance(0.2)
+        Ok(Guid(), 1)                          -- a success without a start, inside the reading
+        advance(3)
+        assert(not ns.db.craftMulti, "a success without a start inside a reading: the note is set")
+        Honest("a success without a start inside a reading")
+        assert(select(3, ns.CraftLogSummary()).overlap == 2, "both are not overlapping")
+
+        -- (4) login, reload, a loading screen: what succeeded just before was not seen
+        Reset(10)
+        fire("PLAYER_ENTERING_WORLD", false, true)
+        C_Timer.After(LAG, function() rank = rank + 1 end) -- the point of a craft made just before
+        g = Start() advance(3) Ok(g, 1) advance(3)
+        assert(not ns.db.craftMulti and ns.db.craftLog[1].blind == "settle" and ns.db.craftLog[1].overlap, "a craft started right after a reload: counted alone, +" .. tostring(ns.db.craftLog[1].gain))
+        Honest("right after a reload")
+        Reset(10)
+        fire("PLAYER_ENTERING_WORLD", false, true)
+        advance(1.6)
+        g = Start() advance(3) Ok(g, 1) advance(3)
+        assert(not ns.db.craftLog[1].blind and not ns.db.craftLog[1].overlap, "a craft 1.6 s after a reload does not count")
+
+        -- (5) cleared while a craft is still being read, the next starts at once
+        Reset(10)
+        g = Start() advance(3) Ok(g, 1)
+        advance(0.2)
+        slash("craftlog clear")
+        g = Start() advance(3) Ok(g, 1) advance(3)
+        assert(not ns.db.craftMulti, "a craft started right after a clear: taken as proof of a multi-point craft")
+        assert(#ns.db.craftLog == 1 and ns.db.craftLog[1].blind == "settle" and ns.db.craftLog[1].overlap, "a craft started right after a clear inside a reading is not overlapping")
+        -- cleared with nothing being read: the next craft counts
+        Reset(10)
+        slash("craftlog clear")
+        g = Start() advance(3) Ok(g, 1) advance(3)
+        assert(#ns.db.craftLog == 1 and not ns.db.craftLog[1].overlap and ns.db.craftLog[1].gain == 1, "a craft after a clear with nothing open does not count")
+
+        -- (6) a craft with a hidden cast ID, the next starts at once
+        Reset(10)
+        issecretvalue = function(v) return rawequal(v, SECRET) end
+        fire("UNIT_SPELLCAST_SUCCEEDED", "player", SECRET, spell)
+        C_Timer.After(LAG, function() rank = rank + 1 end)
+        issecretvalue = saved.secret
+        g = Start() advance(3) Ok(g, 1) advance(3)
+        assert(not ns.db.craftMulti, "a craft started right after one with a hidden cast ID: taken as proof of a multi-point craft")
+        Honest("right after a hidden cast ID")
+
+        -- (7) a cast open at a switch that succeeds later, the next at once
+        Reset(10)
+        g = Start()
+        advance(1) Switch(false) Switch(true)
+        advance(2) Ok(g, 1)
+        g = Start() advance(3) Ok(g, 1) advance(3)
+        assert(not ns.db.craftMulti and #ns.db.craftLog == 1 and ns.db.craftLog[1].overlap, "a craft started right after a cast that was open at a switch")
+        Honest("right after a cast open at a switch")
+
+        -- (8) what must stay: a repeated event of a logged cast is nothing
+        -- new - Create All stays a block
+        Reset(10)
+        g = Start()
+        for _ = 1, 4 do
+            advance(3)
+            Ok(g, 1)
+            fire("UNIT_SPELLCAST_SUCCEEDED", "player", g, spell) -- told twice
+            g = Start()
+        end
+        advance(1) fire("UNIT_SPELLCAST_INTERRUPTED", "player", g, spell)
+        advance(3)
+        assert(#Blocks() == 1 and Blocks()[1].n == 4 and Blocks()[1].gain == 4, "successes told twice: no block of 4")
+        -- a spell that is no recipe, cast while off or ignored, makes nothing blind
+        Reset(10)
+        Switch(false)
+        fire("UNIT_SPELLCAST_START", "player", "Cast-t8-hearth", 8690)
+        fire("UNIT_SPELLCAST_SUCCEEDED", "player", "Cast-t8-hearth", 8690)
+        Switch(true)
+        g = Start() advance(3) Ok(g, 1) advance(3)
+        assert(#ns.db.craftLog == 1 and not ns.db.craftLog[1].blind and not ns.db.craftLog[1].overlap, "a spell that is no recipe made the next craft blind")
+        -- a cast begun while off that is aborted after switching on made
+        -- nothing: the next craft counts
+        Reset(10)
+        Switch(false)
+        g = Start()
+        advance(1)
+        Switch(true)
+        fire("UNIT_SPELLCAST_INTERRUPTED", "player", g, spell)
+        g = Start() advance(3) Ok(g, 1) advance(3)
+        assert(#ns.db.craftLog == 1 and not ns.db.craftLog[1].blind and not ns.db.craftLog[1].overlap and ns.db.craftLog[1].gain == 1,
+            "an aborted cast that was begun while off made the next craft blind")
+        -- a blind cast breaks a series that is still open (its last cast
+        -- never ended for the log - a loading screen, say): no block
+        Reset(10)
+        g = Start() advance(3) Ok(g, 0)   -- A, no point
+        local b = Start()                   -- B, in A's reading: a series
+        advance(2)
+        fire("PLAYER_ENTERING_WORLD", false, false)
+        local c = Start()                   -- C: blind
+        advance(1) Ok(c, 1)
+        advance(0.2) Ok(b, 1)               -- B's success after all
+        advance(3)
+        assert(#Blocks() == 0, "a blind cast while a series was open: a block of 2 with 2 points (A gave none)")
+        Honest("a blind cast while a series was open")
+        -- a failure never makes the next craft blind
+        Reset(10)
+        fire("UNIT_SPELLCAST_FAILED", "player", Guid(), spell)
+        g = Start() advance(3) Ok(g, 1) advance(3)
+        local counted = 0
+        for _, e in ipairs(ns.db.craftLog) do if e.result == "ok" and not e.overlap and e.gain == 1 then counted = counted + 1 end end
+        assert(counted == 1, "a craft after a failure without a start does not count")
+
+        -- (9) a real single craft with two points, its start seen, nothing
+        -- unsettled: the note is set as before
+        Reset(10)
+        g = Start() advance(3) Ok(g, 2) advance(3)
+        assert(ns.db.craftMulti and ns.db.craftMulti.Leatherworking, "a clear single craft with two points: no note")
+        assert(NoteLine(), "the line of the note does not show")
+        -- and an old log (0.1.20) with such an entry still gives the note
+        ns.db.craftMulti = nil
+        ns.db.craftLog = {
+            { t = 1, result = "ok", prof = "Leatherworking", spell = spell, colour = "orange", before = 10, after = 12, gain = 2, multi = true },
+        }
+        g = Start() advance(0.3) Ok(g, 1) g = Start() advance(0.3) Ok(g, 1) advance(3)
+        assert(ns.db.craftMulti and ns.db.craftMulti.Leatherworking and #Blocks() == 0, "an old entry with two points: the note is not found again")
+        -- an entry marked blind never gives it
+        ns.db.craftMulti = nil
+        ns.db.craftLog = {
+            { t = 1, result = "ok", prof = "Leatherworking", spell = spell, colour = "orange", before = 10, after = 12, gain = 2, multi = true, blind = "settle" },
+        }
+        rank = 12
+        advance(3)
+        g = Start() advance(0.3) Ok(g, 1) g = Start() advance(0.3) Ok(g, 1) advance(3)
+        assert(not ns.db.craftMulti and #Blocks() == 1, "an entry marked blind is taken as proof of a multi-point craft")
+    end)
+    advance(3)
+    ns.ProfessionRank, ns.CraftData.Have, data.colors[spell], data.colors[other] = saved.rank, saved.have, saved.colors, saved.colors2
+    ns.db.craftLogOff, issecretvalue = saved.off, saved.secret
+    if ns.CraftLogBreak then ns.CraftLogBreak() end
+    advance(3)
+    ns.db.craftLog, ns.db.craftMulti = saved.log, saved.multi
     if not ok then error(err, 0) end
 end)
 -- (end of the v0.1.21 steps)

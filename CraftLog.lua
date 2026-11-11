@@ -93,6 +93,37 @@ end
 local casts = {}   -- castGUID -> the cast while it runs
 local reading = {} -- entries waiting for their second reading (SETTLE)
 local generation = 0 -- /gcr craftlog clear: readings started before it are dropped
+
+---------------------------------------------------------------------------
+-- No reliable "before" (v0.1.21 T8). Sven, 11.11.2026: recording switched
+-- off and on again for a craft or two in the middle of Create All (Cooking,
+-- every craft exactly +1 in the chat) - and the log said "a craft there
+-- gave more than one point" and stopped counting Cooking's series.
+-- What happened: the cast running through the switch is over for the log,
+-- its success is ignored. The next cast starts in the same moment - its
+-- start is seen, the skill is read, but the point of the ignored craft has
+-- not arrived yet. 1.5 s after its own success the skill is two higher: a
+-- craft "alone" with +2.
+-- The skill read at a start is a "before" only when no craft the log is
+-- not reading has just succeeded. So every craft success the log does not
+-- read itself is noted (`unread`): one made while recording is off, one of
+-- a cast that was over for the log (begun before a switch or a clear), one
+-- with a hidden cast ID, readings dropped by a hard break, and whatever
+-- happened before this file could see anything (login, reload, a loading
+-- screen). A cast that starts within SETTLE of that, and a success whose
+-- start was never seen at all, is "blind":
+--   * it is marked overlapping at once - which it is: its reading shares
+--     the time with a craft before it - so it is in no rate, opens and
+--     joins no series, and is never proof of a multi-point craft;
+--   * the entry says why (blind = "settle" / "start"); without a seen start
+--     no "before" is kept at all - what was read then is none.
+-- Nothing is estimated: the crafts after it in the same Create All stay
+-- overlapping as well (each start falls into the reading of the one
+-- before), until a craft starts with nothing left to settle.
+---------------------------------------------------------------------------
+local unread = GetTime and GetTime() or nil -- when the last craft the log does not read succeeded
+local function Unread() unread = GetTime() end
+local function Unsettled() return unread ~= nil and GetTime() - unread < SETTLE end
 ---------------------------------------------------------------------------
 -- Series (v0.1.20 K2, Sven 09.11.): "Create All" casts the same recipe
 -- again the moment the last one succeeded, so every craft but the last is
@@ -183,7 +214,7 @@ local function MultiSeen(prof)
     local m = ns.db.craftMulti
     if m and m[prof] then return true end
     for _, e in ipairs(DB()) do
-        if e.multi and e.prof == prof and not e.kind and not e.overlap and not e.secret then
+        if e.multi and e.prof == prof and not e.kind and not e.overlap and not e.secret and not e.blind then
             SawMulti(prof)
             return true
         end
@@ -229,10 +260,15 @@ end
 local done = {}    -- castGUID -> true: logged, later events of it change nothing
 local doneOrder = {}
 
-local function Done(guid)
-    done[guid] = true
-    doneOrder[#doneOrder + 1] = guid
-    if #doneOrder > 200 then done[table.remove(doneOrder, 1)] = nil end
+-- ignored: over for the log without having been logged (begun while off,
+-- or open at a hard break) - its success, when it comes, is a craft the log
+-- does not read (T8). A cast that was logged stays "logged".
+local function Done(guid, ignored)
+    if done[guid] == nil then
+        doneOrder[#doneOrder + 1] = guid
+        if #doneOrder > 200 then done[table.remove(doneOrder, 1)] = nil end
+    end
+    if done[guid] ~= true then done[guid] = ignored and "ignored" or true end
 end
 
 ---------------------------------------------------------------------------
@@ -244,8 +280,9 @@ end
 ---------------------------------------------------------------------------
 local function Break()
     generation = generation + 1
+    if next(reading) then Unread() end -- their points may still be on the way (T8)
     wipe(reading)
-    for guid in pairs(casts) do Done(guid) end
+    for guid in pairs(casts) do Done(guid, true) end
     wipe(casts)
     local s = series
     series = nil
@@ -267,7 +304,9 @@ local function State()
     return on
 end
 
-local function Start(guid, spell)
+-- late: the cast's start was not seen - "ok" when it has succeeded now,
+-- "failed" when it failed (a failure makes nothing: handled as before)
+local function Start(guid, spell, late)
     local r = Recipe(spell)
     if not r then return end
     local before, maxRank, secret = Rank(r.prof)
@@ -275,7 +314,18 @@ local function Start(guid, spell)
     local had, hidden = Count(product)
     local c = { spell = spell, prof = r.prof, key = r.key, before = before, max = maxRank, secret = secret or hidden,
         product = product, had = had, t = time() }
-    if not Chain(c) then Overlap(c) end
+    if late == "ok" or Unsettled() then
+        -- no reliable "before" (T8, see above): overlapping from the start,
+        -- in no series; what is being read now shares its reading with it
+        c.blind = late == "ok" and "start" or "settle"
+        if late == "ok" then c.before = nil end
+        Overlap(c)
+        c.overlap = true
+        if series then series.broken = true end
+    else
+        if late then c.blind = "start" end
+        if not Chain(c) then Overlap(c) end
+    end
     casts[guid] = c
     return c
 end
@@ -285,12 +335,12 @@ local function Entry(c, result)
     local build = GetBuildInfo and select(2, GetBuildInfo())
     return { t = c.t, build = tonumber(build) or build, prof = c.prof, spell = c.spell, recipe = c.key,
         before = c.before, max = c.max, colour = colour, yellow = yellow, grey = grey,
-        result = result, secret = c.secret or nil, overlap = c.overlap or nil,
+        result = result, secret = c.secret or nil, overlap = c.overlap or nil, blind = c.blind,
         atCap = (c.before and c.max and c.before >= c.max) or nil }
 end
 
 local function Succeeded(guid, spell)
-    local c = casts[guid] or Start(guid, spell)
+    local c = casts[guid] or Start(guid, spell, "ok") -- (a start that was never seen: blind, T8)
     if not c then return end
     casts[guid] = nil
     Done(guid)
@@ -344,7 +394,7 @@ local function Succeeded(guid, spell)
 end
 
 local function Failed(guid, spell, result)
-    local c = casts[guid] or Start(guid, spell) -- also a cast that never started
+    local c = casts[guid] or Start(guid, spell, "failed") -- also a cast that never started
     if not c then return end
     casts[guid] = nil
     Done(guid)
@@ -365,18 +415,32 @@ end
 local HIDDEN_REPEAT = 0.5 -- seconds; no craft is that fast
 local hiddenLast = {}     -- recipe spell -> when its last hidden-ID success came
 
+-- a craft has succeeded that the log does not read: a recipe's spell, or a
+-- spell the client hid (it may be one)
+local function UnreadCraft(event, spell)
+    if event ~= "UNIT_SPELLCAST_SUCCEEDED" then return end
+    if ns.AnySecret("craft log unread", spell) or Recipe(spell) then Unread() end
+end
+
 local watch = CreateFrame("Frame")
 for _, e in ipairs({ "UNIT_SPELLCAST_START", "UNIT_SPELLCAST_SUCCEEDED", "UNIT_SPELLCAST_FAILED", "UNIT_SPELLCAST_INTERRUPTED" }) do
     if watch.RegisterUnitEvent then pcall(watch.RegisterUnitEvent, watch, e, "player") else pcall(watch.RegisterEvent, watch, e) end
 end
+pcall(watch.RegisterEvent, watch, "PLAYER_ENTERING_WORLD")
 watch:SetScript("OnEvent", function(_, event, unit, guid, spell)
+    if event == "PLAYER_ENTERING_WORLD" then
+        -- login, reload, a loading screen: what succeeded just before was not seen (T8)
+        Unread()
+        return
+    end
     if unit ~= "player" then return end
     if not State() then
         -- off: nothing is recorded. A cast seen now is over for the log, so
         -- its success after switching on again is not taken for a new craft
         -- (and any craft now, of whatever recipe, has ended an open series:
         -- the switch was a hard break)
-        if guid ~= nil and not ns.AnySecret("craft log off", guid) then Done(guid) end
+        if guid ~= nil and not ns.AnySecret("craft log off", guid) then Done(guid, true) end
+        UnreadCraft(event, spell)
         return
     end
     if ns.AnySecret("craft log " .. event, guid) then
@@ -394,9 +458,17 @@ watch:SetScript("OnEvent", function(_, event, unit, guid, spell)
         -- a craft all the same: one still being read shares its readings (Codex B1)
         Overlap(e)
         Add(e)
+        Unread() -- its own point is read by nobody (T8)
         return
     end
-    if not guid or done[guid] then return end
+    if not guid then return end
+    if done[guid] then
+        -- over for the log. Never logged (begun while off, open at a hard
+        -- break): its success now is a craft the log does not read (T8).
+        -- Logged already: a repeated event, nothing new.
+        if done[guid] == "ignored" then UnreadCraft(event, spell) end
+        return
+    end
     if event == "UNIT_SPELLCAST_START" then
         if not casts[guid] then Start(guid, spell) end
     elseif event == "UNIT_SPELLCAST_SUCCEEDED" then
