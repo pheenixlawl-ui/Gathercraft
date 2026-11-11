@@ -283,8 +283,14 @@ local function Publish(input, sig, plan)
     for _, fn in ipairs(ns.skillPlanListeners) do pcall(fn, result) end
 end
 
--- the plan for this state, and whether it is a new one - worked out in one
--- go (the window does it in parts, below)
+-- the plan for this state, and whether it is a new one - worked out in ONE
+-- GO: the whole calculation runs inside this call (the window does it in
+-- parts, below). For the tests and for a caller that needs the plan at
+-- once, outside of play. NOT for a call on every event in the game: a big
+-- plan would hold the game up for its whole length. A later reader of the
+-- plan (the shopping list) does not call this - it takes what the window
+-- worked out, ns.SkillPlanResult() and ns.skillPlanListeners, and goes by
+-- its status, reliable and updating.
 local function Calculate(prof, skill, target, source, seenAt)
     local input = Snapshot(prof, skill, target, source, seenAt)
     local sig = Signature(input)
@@ -450,6 +456,9 @@ ns.SkillPlanBusy = function() return job ~= nil end
 -- whether stand-in prices were used, and info = { learn costs, missing
 -- materials without a price }. The calculation itself is ns.PlanCore.Compute
 -- (PlanCore.lua); this takes the snapshot for it.
+-- Like ns.SkillPlanCalculate it works the plan out in one go, inside the
+-- call, and keeps nothing: for the tests, not for a call on every event in
+-- the game (see there).
 ns.SkillPlan = function(prof, from, to)
     local plan = ns.PlanCore.Compute(Snapshot(prof, from, to))
     local steps = {}
