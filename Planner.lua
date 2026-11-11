@@ -122,16 +122,30 @@ local function RecipeList(prof, onlyKnown)
     return list
 end
 
+local SkillState -- (your skill in a profession, as the window reads it: further down)
+
 -- source, seenAt: "lastSeen" (and when) for a skill that is not read now
 local function Snapshot(prof, from, to, source, seenAt)
     local d = Data()
     local input = { prof = prof, skill = from, target = to, recipes = {}, professions = {} }
     if source == "lastSeen" then input.skillSource, input.skillSeenAt = "lastSeen", seenAt end
     input.recipes[prof] = RecipeList(prof)
+    -- The professions you have, each read like the planned one (Codex round
+    -- 3, R3-M1) - a remembered skill and remembered recipes are no proof:
+    --   * read now: its known recipes can be used
+    --   * the whole skill list can be read and it is NOT in it: you do not
+    --     have it (any more) - nothing is made with it, whatever was kept
+    --     from its window. (What was kept stays: it counts again when the
+    --     profession is back.)
+    --   * its skill cannot be read now, one was seen before: used with the
+    --     skill seen last, said to be that - a plan that makes something
+    --     with it is a preview (PlanCore.lua)
+    --   * nothing known about it: not used
     for _, p in ipairs(d.Professions) do
-        local rank = ns.ProfessionRank and ns.ProfessionRank(p.name)
-        if rank then
-            input.professions[p.name] = { rank = rank }
+        local state, rank, _, _, rankSource, rankSeenAt = SkillState(p.name)
+        if state == "learned" then
+            input.professions[p.name] = { rank = rank, source = rankSource == "lastSeen" and "lastSeen" or nil,
+                seenAt = rankSource == "lastSeen" and rankSeenAt or nil }
             if p.name ~= prof then input.recipes[p.name] = RecipeList(p.name, true) end
         end
     end
@@ -236,7 +250,8 @@ local function Signature(input)
         for i, r in ipairs(input.recipes[prof]) do list[i] = RecipeSignature(r) end
         table.sort(list) -- (the same recipes in another order are the same state)
         local own = input.professions[prof]
-        parts[#parts + 1] = ("%s:%s:%d:"):format(prof, tostring(own and own.rank), #list) .. table.concat(list, "\030")
+        -- (a skill seen last is another state than the same skill read now)
+        parts[#parts + 1] = ("%s:%s:%s:%d:"):format(prof, tostring(own and own.rank), tostring(own and own.source), #list) .. table.concat(list, "\030")
     end
     return table.concat(parts, "|")
 end
@@ -425,6 +440,9 @@ end
 --     seen last, said to be that and how old it is - a PREVIEW from there.
 --     No "done", the materials and the sum marked as a preview, the result
 --     not reliable.
+--   * the same for a profession next to it that the plan makes something
+--     with (Codex round 3, R3-M1): a line names it, the sum says "preview",
+--     no "done". A profession you no longer have makes nothing.
 --   * the target comes from a small menu (75 / 150 / 225 / 300, a value of
 --     your own, back to the default) and stays as you set it - per character
 --     and profession in ns.db.planTargets. Reached: "done", no jump to the
@@ -497,7 +515,7 @@ end
 --                 no number): that is never "not learned" (Codex round 1, B5).
 -- Every value is checked for being readable before it is compared, counted
 -- with or shown.
-local function SkillState(prof)
+SkillState = function(prof)
     local ok, rank, maxRank, source, seenAt = pcall(ns.ProfessionRank, prof)
     if not ok then return "unknown" end
     if rank ~= nil and source ~= "lastSeen" then
@@ -786,6 +804,12 @@ local function Refresh()
         Line((age and age >= 0) and (L["Your skill cannot be read right now. This is a preview from the skill seen last (%s): open your profession window to update it."]):format(Ago(age))
             or L["Your skill cannot be read right now. This is a preview from the skill seen last: open your profession window to update it."], nil, GOLD)
     end
+    -- another profession the plan makes something with, by a skill that was
+    -- only seen last
+    local otherSeen = plan.lastSeenProfessions or {}
+    for _, other in ipairs(otherSeen) do
+        Line((L["Your %s skill cannot be read right now. The plan makes materials with it, going by the skill seen last: until it can be read, this is a preview."]):format(d.ProfLabel(other)), nil, GOLD)
+    end
     Line(L["Steps"], nil, GOLD)
     if prof == "Mining" then
         Line(L["Mining also rises when you mine veins: a farm run for ore often does both."], nil, GREY)
@@ -1053,6 +1077,8 @@ local function Refresh()
         -- first of all: the sum is that of a preview (the sum line itself
         -- has no room for it in most languages)
         note = L["A preview from the skill seen last, not from your skill now."]
+    elseif #otherSeen > 0 then
+        note = L["A preview: it uses a profession whose skill cannot be read right now."]
     elseif assumed > 0 then
         note = (L["Counted as if you had none of the %d marked ?: the sum may be too high."]):format(assumed)
     elseif plan.notComparable then

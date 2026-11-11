@@ -648,4 +648,6 @@ ns.Locales.itIT = {
     ["A preview from the skill seen last, not from your skill now."] = "Anteprima dall'ultima abilità vista, non da quella attuale.",
     ["Working out the plan ..."] = "Calcolo del piano in corso ...",
     ["Updating the plan ..."] = "Aggiornamento del piano ...",
+    ["Your %s skill cannot be read right now. The plan makes materials with it, going by the skill seen last: until it can be read, this is a preview."] = "Al momento non è possibile leggere la tua abilità in %s. Il piano crea materiali con essa in base all'ultima abilità vista: finché non è leggibile, questa è un'anteprima.",
+    ["A preview: it uses a profession whose skill cannot be read right now."] = "Anteprima: usa una professione la cui abilità al momento non è leggibile.",
 }

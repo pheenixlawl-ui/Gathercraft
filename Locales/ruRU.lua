@@ -648,4 +648,6 @@ ns.Locales.ruRU = {
     ["A preview from the skill seen last, not from your skill now."] = "Предпросмотр с навыка, виденного в прошлый раз, а не с текущего.",
     ["Working out the plan ..."] = "План рассчитывается ...",
     ["Updating the plan ..."] = "План обновляется ...",
+    ["Your %s skill cannot be read right now. The plan makes materials with it, going by the skill seen last: until it can be read, this is a preview."] = "Сейчас ваш навык «%s» прочитать не удаётся. План изготавливает с его помощью материалы, исходя из навыка, который был виден в прошлый раз: пока он не читается, это предпросмотр.",
+    ["A preview: it uses a profession whose skill cannot be read right now."] = "Предпросмотр: используется профессия, навык которой сейчас не читается.",
 }

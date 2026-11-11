@@ -648,4 +648,6 @@ ns.Locales.koKR = {
     ["A preview from the skill seen last, not from your skill now."] = "현재 숙련도가 아니라 마지막으로 본 숙련도 기준의 미리보기입니다.",
     ["Working out the plan ..."] = "계획을 계산하는 중 ...",
     ["Updating the plan ..."] = "계획을 갱신하는 중 ...",
+    ["Your %s skill cannot be read right now. The plan makes materials with it, going by the skill seen last: until it can be read, this is a preview."] = "지금은 %s 숙련도를 읽을 수 없습니다. 계획은 마지막으로 본 숙련도를 기준으로 그 전문 기술로 재료를 만듭니다. 읽을 수 있을 때까지는 미리보기입니다.",
+    ["A preview: it uses a profession whose skill cannot be read right now."] = "미리보기: 지금 숙련도를 읽을 수 없는 전문 기술을 사용합니다.",
 }

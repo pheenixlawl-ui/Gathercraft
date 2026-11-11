@@ -6950,6 +6950,208 @@ step("Skill plan 2.0: what a batch made too much is used by the next need (v0.2 
     x = plan.ledger[11]
     assert(says == "A 30" and x.madeExtra == 3 and x.used == 2 and x.rest == 1, "what is left at the end: " .. says)
 end)
+step("Skill plan 2.0: a profession you no longer have makes nothing, one that cannot be read makes a preview (v0.2 r3 H1)", function()
+    -- Codex round 3, R3-M1: a profession next to the planned one was taken
+    -- from what was remembered of it - its skill and its recipes - also when
+    -- the skill list proved that you do not have it any more. It is read
+    -- like the planned profession now: proof that it is not learned ends
+    -- making with it; a skill that was only seen last makes the plan a
+    -- preview. Through the real reader and the real snapshot.
+    local L, core, d = ns.L, ns.PlanCore, ns.CraftData
+    local saved = { lines = GetNumSkillLines, line = GetSkillLineInfo, secret = issecretvalue, recipes = ns.db.recipes, targets = ns.db.planTargets,
+        compute = core.Compute, have = d.Have, cost = d.ReagentCost }
+    local win
+    local ok, err = pcall(function()
+        ns.db.recipes = {}
+        ns.db.planTargets = nil
+        d.Have = function() return 0 end
+        local SECRET = newproxy(true)
+        issecretvalue = function(v) return rawequal(v, SECRET) end
+        -- the skill list: Tailoring 75 / 150, and what `alchemy` says
+        local alchemy, folded = nil, false -- nil: not in the list; else its skill
+        local function Lines()
+            local list = { { "Professions", true, not folded, 0, 0, 0, 0 }, { "Tailoring", false, true, 75, 0, 0, 150 } }
+            if alchemy ~= nil then list[#list + 1] = { "Alchemy", false, true, alchemy, 0, 0, 300 } end
+            return list
+        end
+        GetNumSkillLines = function() return #Lines() end
+        GetSkillLineInfo = function(i) return unpack(Lines()[i]) end
+        ns.ProfessionRank("Tailoring")
+        local mine
+        for _, char in pairs(ns.db.recipes) do mine = char end
+        assert(mine, "test setup: no record of this character")
+        -- what the Alchemy window left behind, an hour ago: skill 300, one
+        -- recipe - a potion (999001) from one herb (999002)
+        local seenAt = time() - 3600
+        mine.Alchemy = { rank = 300, rankAt = seenAt, list = { Potion = "999001:1:1:1|999002:1" } }
+        -- the plan: one point of Tailoring with a recipe that takes one
+        -- potion. The potion costs 100c, the herb 1c.
+        local function Plan()
+            local input = ns.SkillPlanSnapshot("Tailoring", 75, 76)
+            local seen = { prof = input.professions.Alchemy, recipes = input.recipes.Alchemy }
+            input.recipes.Tailoring = { { prof = "Tailoring", key = "A", name = "A", product = 999003, made = 1, req = 1, yellow = 100, grey = 120, learn = "known",
+                reagents = { { id = 999001, n = 1 } } } }
+            input.stock, input.recipeItemPrices = {}, {}
+            input.prices = { [999001] = { status = "known", copper = 100 }, [999002] = { status = "known", copper = 1 } }
+            local plan = core.Compute(input)
+            assert(core.CheckBalance(plan))
+            return plan, core.Result(plan), seen
+        end
+        local function Made(plan)
+            local n = 0
+            for _, e in ipairs(plan.extras) do n = n + e.times end
+            return n
+        end
+
+        -- ---- Codex' case: the whole list can be read, Alchemy is not in it
+        local state = ns.SkillPlanSkillState("Alchemy")
+        assert(state == "unlearned", "test setup: Alchemy is called " .. tostring(state))
+        local plan, res, seen = Plan()
+        assert(seen.prof == nil and seen.recipes == nil, ("a profession that is proved gone is in the snapshot (skill %s, %d recipes)"):format(
+            tostring(seen.prof and seen.prof.rank), seen.recipes and #seen.recipes or 0))
+        assert(plan.total == 100 and Made(plan) == 0, ("a profession you no longer have makes the potion: %s copper"):format(tostring(plan.total)))
+        assert(res.status == "ok" and res.complete == true and res.reliable == true and #res.lastSeenProfessions == 0, "a plan that only buys is not called reliable")
+        -- what was kept of it is not thrown away
+        assert(mine.Alchemy.rank == 300 and mine.Alchemy.rankAt == seenAt and mine.Alchemy.list.Potion, "what was kept of the profession was changed")
+
+        -- ---- Alchemy is in the list, its skill is hidden: the skill seen
+        -- last is used and said to be that - the plan that makes the potion
+        -- with it is a preview
+        alchemy = SECRET
+        local _, r, _, _, source = ns.SkillPlanSkillState("Alchemy")
+        assert(r == 300 and source == "lastSeen", "test setup: a hidden Alchemy skill")
+        plan, res, seen = Plan()
+        assert(seen.prof and seen.prof.rank == 300 and seen.prof.source == "lastSeen" and seen.prof.seenAt == seenAt and #seen.recipes == 1,
+            "a profession whose skill cannot be read is not passed on as seen last")
+        assert(plan.total == 1 and Made(plan) == 1, "test setup: the potion is not made")
+        assert(plan.status == "preview" and plan.reliable == false and plan.complete == false,
+            ("made with a profession that cannot be read: status %s, reliable %s, complete %s"):format(tostring(plan.status), tostring(plan.reliable), tostring(plan.complete)))
+        assert(#plan.lastSeenProfessions == 1 and plan.lastSeenProfessions[1] == "Alchemy", "the plan does not name the profession it is unsure of")
+        local said
+        for _, diag in ipairs(plan.diagnostics) do if diag.code == "profession_last_seen" and diag.prof == "Alchemy" and diag.seenAt == seenAt then said = true end end
+        assert(said, "the plan does not say why it is not complete")
+        assert(res.status == "preview" and res.reliable == false and res.complete == false and res.lastSeenProfessions[1] == "Alchemy"
+            and res.items[999001].make == true and res.items[999001].makeLastSeen == true, "the result does not pass it on")
+        assert(plan.skillSource == "current", "the planned profession is called seen last")
+        -- the same when the list itself cannot be read (a folded group)
+        alchemy, folded = nil, true
+        plan, res = Plan()
+        assert(plan.total == 1 and res.status == "preview" and res.reliable == false, "a skill list that cannot be read: " .. tostring(res.status))
+        folded = false
+        -- ... but a plan that makes nothing with it rests on nothing unsure:
+        -- the potion at 1c is bought (the herb at 100c)
+        alchemy = SECRET
+        local input = ns.SkillPlanSnapshot("Tailoring", 75, 76)
+        input.recipes.Tailoring = { { prof = "Tailoring", key = "A", name = "A", product = 999003, made = 1, req = 1, yellow = 100, grey = 120, learn = "known",
+            reagents = { { id = 999001, n = 1 } } } }
+        input.stock, input.recipeItemPrices = {}, {}
+        input.prices = { [999001] = { status = "known", copper = 1 }, [999002] = { status = "known", copper = 100 } }
+        plan = core.Compute(input)
+        assert(plan.total == 1 and Made(plan) == 0 and plan.status == "ok" and plan.reliable == true and #plan.lastSeenProfessions == 0,
+            "a plan that makes nothing with the unreadable profession is called a preview")
+
+        -- ---- Alchemy read now: as before
+        alchemy = 300
+        plan, res, seen = Plan()
+        assert(seen.prof and seen.prof.rank == 300 and seen.prof.source == nil, "a profession read now is called seen last")
+        assert(plan.total == 1 and Made(plan) == 1 and res.status == "ok" and res.reliable == true and res.complete == true and res.items[999001].makeLastSeen == false,
+            "a profession read now: " .. tostring(res.status))
+        -- hidden with nothing kept: not used at all
+        mine.Alchemy = { list = { Potion = "999001:1:1:1|999002:1" } }
+        alchemy = SECRET
+        plan, res, seen = Plan()
+        assert(seen.prof == nil and plan.total == 100 and res.reliable == true, "a profession of unknown skill is used")
+
+        -- ---- gone and back: learned anew at skill 1, what was kept of it
+        -- counts again - as far as the skill allows
+        mine.Alchemy = { rank = 300, rankAt = seenAt, list = { Potion = "999001:1:1:1|999002:1", Elixir = "999004:1:1:250|999002:1" } }
+        alchemy = nil
+        plan = Plan()
+        assert(plan.total == 100, "test setup: gone")
+        alchemy = 1
+        plan, res, seen = Plan()
+        assert(seen.prof and seen.prof.rank == 1 and seen.prof.source == nil and #seen.recipes == 2, "learned again: what was kept does not count")
+        assert(plan.total == 1 and Made(plan) == 1 and res.reliable == true, "learned again: the potion is not made")
+        assert(mine.Alchemy.rank == 1, "learned again: the skill read now is not kept")
+
+        -- ---- the window: the plan made with a profession seen last is
+        -- marked, and it is another state than the same plan read live
+        mine.Alchemy = { rank = 300, rankAt = seenAt, list = { Potion = "999001:1:1:1|999002:1" } }
+        -- (the prices and counts come through the snapshot's own readers,
+        -- so a state that has not changed is seen as that)
+        d.ReagentCost = function(id)
+            if id == 999001 then return 100, "AH scan" elseif id == 999002 then return 1, "AH scan" end
+        end
+        core.Compute = function(input, pause)
+            input.recipes.Tailoring = { { prof = "Tailoring", key = "A", name = "Recipe A", product = 999003, made = 1, req = 1, yellow = 100, grey = 120, learn = "known",
+                reagents = { { id = 999001, n = 1 } } } }
+            return saved.compute(input, pause)
+        end
+        local function Rows()
+            local list = {}
+            for _, o in ipairs(allFrames) do
+                if o.left and o.mid and o.right and o:IsShown() then list[#list + 1] = o end
+            end
+            return list
+        end
+        local function Count(text)
+            local n = 0
+            for _, row in ipairs(Rows()) do if row.left:GetText() == text then n = n + 1 end end
+            return n
+        end
+        local function Note()
+            for _, o in ipairs(allFrames) do
+                local at = o.__parent == win and o.__kind == "FontString" and o.__pts and o.__pts.BOTTOMLEFT
+                if at and at[2] == 24 then return o:GetText() end
+            end
+        end
+        local function Header(text)
+            for _, o in ipairs(allFrames) do
+                if o.__kind == "FontString" and o.__parent == win and o:GetText() == text then return o end
+            end
+        end
+        local function Px(t)
+            local px = 0
+            for ch in (t or ""):gmatch("[%z\1-\127\194-\244][\128-\191]*") do px = px + (#ch >= 3 and 11 or 6) end
+            return px
+        end
+        local OTHER = (L["Your %s skill cannot be read right now. The plan makes materials with it, going by the skill seen last: until it can be read, this is a preview."]):format(d.ProfLabel("Alchemy"))
+        local SUM_NOTE = L["A preview: it uses a profession whose skill cannot be read right now."]
+        alchemy = 300
+        ns.ShowSkillPlan("Tailoring") advance(1)
+        win = _G.GathercraftSkillPlan
+        assert(ns.SkillPlanSetTarget(76), "test setup: the target")
+        advance(1)
+        local live = ns.SkillPlanResult()
+        assert(live.status == "ok" and live.reliable == true and live.from == 75 and live.target == 76, "test setup: the plan with Alchemy read live")
+        assert(Count(OTHER) == 0 and Note() ~= SUM_NOTE, "a plan with every skill read now is marked as a preview")
+        ns.RefreshSkillPlan() advance(1)
+        assert(ns.SkillPlanResult().revision == live.revision, "test setup: a state that has not changed gives a new plan")
+        alchemy = SECRET
+        ns.RefreshSkillPlan() advance(1)
+        local res2 = ns.SkillPlanResult()
+        assert(res2.revision > live.revision, "the same skill of the other profession, now only seen last, is not a new state")
+        assert(res2.status == "preview" and res2.reliable == false and res2.lastSeenProfessions[1] == "Alchemy", "the window's result: " .. tostring(res2.status))
+        assert(Count(OTHER) == 1, ("the window names the profession it is unsure of %d times, want once"):format(Count(OTHER)))
+        assert(Note() == SUM_NOTE, "the sum is not marked as that of a preview: " .. tostring(Note()))
+        assert(Px(SUM_NOTE) <= 500, ("%s: the note under the sum needs %d px of 500"):format(LOCALE, Px(SUM_NOTE)))
+        assert(Header((L["Your skill: %d / %d"]):format(75, 150)), "the planned profession's skill is not shown as read now")
+        for _, row in ipairs(Rows()) do
+            assert(not (row.left:GetText() or ""):find(L["Done: you have reached your target (%d)."]:gsub("%%d.*", ""), 1, true), "\"Done\" in a preview")
+        end
+        -- gone for good: no mark, the potion is bought
+        alchemy = nil
+        ns.RefreshSkillPlan() advance(1)
+        local res3 = ns.SkillPlanResult()
+        assert(res3.revision > res2.revision and res3.status == "ok" and res3.reliable == true and res3.items[999001].missing == 1 and res3.items[999001].make == false,
+            "the window still makes the potion with a profession that is gone")
+        assert(Count(OTHER) == 0 and Note() ~= SUM_NOTE, "a plan without the profession is marked as a preview")
+    end)
+    GetNumSkillLines, GetSkillLineInfo, issecretvalue, ns.db.recipes, ns.db.planTargets = saved.lines, saved.line, saved.secret, saved.recipes, saved.targets
+    core.Compute, d.Have, d.ReagentCost = saved.compute, saved.have, saved.cost
+    if win then win:Hide() end
+    if not ok then error(err, 0) end
+end)
 -- (end of the skill plan 2.0 steps, v0.2 building block 1)
 step("Craft log: one entry per finished craft, failures and odd cases marked apart (v0.1.18 S5)", function()
     local data = GathercraftRecipeData

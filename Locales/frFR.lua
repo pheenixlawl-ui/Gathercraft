@@ -648,4 +648,6 @@ ns.Locales.frFR = {
     ["A preview from the skill seen last, not from your skill now."] = "Aperçu à partir de la dernière compétence vue, pas de l'actuelle.",
     ["Working out the plan ..."] = "Calcul du plan en cours ...",
     ["Updating the plan ..."] = "Mise à jour du plan ...",
+    ["Your %s skill cannot be read right now. The plan makes materials with it, going by the skill seen last: until it can be read, this is a preview."] = "Ta compétence en %s ne peut pas être lue pour le moment. Le plan fabrique des composants avec elle d'après la dernière compétence vue : tant qu'elle n'est pas lisible, ceci est un aperçu.",
+    ["A preview: it uses a profession whose skill cannot be read right now."] = "Aperçu : il utilise un métier dont la compétence est illisible pour le moment.",
 }

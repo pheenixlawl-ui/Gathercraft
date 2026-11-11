@@ -648,4 +648,6 @@ ns.Locales.zhTW = {
     ["A preview from the skill seen last, not from your skill now."] = "這是按上次看到的技能做的預覽，不是按你現在的技能。",
     ["Working out the plan ..."] = "正在計算計畫 ...",
     ["Updating the plan ..."] = "正在更新計畫 ...",
+    ["Your %s skill cannot be read right now. The plan makes materials with it, going by the skill seen last: until it can be read, this is a preview."] = "現在無法讀取你的%s技能。計畫按上次看到的技能用它製作材料：在能讀取之前，這只是預覽。",
+    ["A preview: it uses a profession whose skill cannot be read right now."] = "預覽：用到了一個現在無法讀取技能的專業。",
 }

@@ -677,4 +677,6 @@ ns.Locales.deDE = {
     ["A preview from the skill seen last, not from your skill now."] = "Eine Vorschau ab dem zuletzt gesehenen Skill, nicht ab deinem jetzigen.",
     ["Working out the plan ..."] = "Der Plan wird berechnet ...",
     ["Updating the plan ..."] = "Der Plan wird aktualisiert ...",
+    ["Your %s skill cannot be read right now. The plan makes materials with it, going by the skill seen last: until it can be read, this is a preview."] = "Dein Skill in %s lässt sich gerade nicht lesen. Der Plan stellt damit Materialien her und geht vom zuletzt gesehenen Skill aus: Bis er lesbar ist, ist das eine Vorschau.",
+    ["A preview: it uses a profession whose skill cannot be read right now."] = "Eine Vorschau: Sie nutzt einen Beruf, dessen Skill sich gerade nicht lesen lässt.",
 }

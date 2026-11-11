@@ -35,7 +35,12 @@ local ADDON_NAME, ns = ...
 --                req, yellow, grey, reagents = { { id, n }, ... },
 --                learn = "known" | "trainer" | "vendor" | "start" | nil,
 --                fee, recipeItem }
---   professions  [profession] = { rank = skill } for every one you have
+--   professions  [profession] = { rank = skill } for every one you have;
+--            source = "lastSeen" (and seenAt) when that skill is not read
+--            now but was only seen last. A profession you do not have is
+--            not in here, whatever recipes of it are remembered. What the
+--            plan makes with a "lastSeen" profession is not certain: such a
+--            plan is a PREVIEW (Codex round 3, R3-M1).
 --   stock    [item] = how many you have: a number, or { n = number,
 --            bags, reagent, bank, ... } with the parts for the window, or
 --            { unknown = true } when it could not be read. "Could not be
@@ -1365,7 +1370,9 @@ local function Rows(ctx, L)
             covered = haveKnown and have >= L.used[id], missing = missing, cost = copper, costStatus = status,
             price = price, node = input.nodes and input.nodes[id], planned = L.madePlan[id] or 0, made = L.madeExtra[id] or 0,
             outputAssumed = L.varies[id] or nil, missingAssumed = not haveKnown or nil,
-            madeFrom = by and { prof = by.prof, key = by.key, made = math.max(1, by.made or 1), reagents = by.reagents, recipe = by } or nil }
+            madeFrom = by and { prof = by.prof, key = by.key, made = math.max(1, by.made or 1), reagents = by.reagents, recipe = by,
+                lastSeen = (by.prof ~= input.prof and input.professions and input.professions[by.prof]
+                    and input.professions[by.prof].source == "lastSeen") or nil } or nil }
     end
     for id in pairs(L.have) do
         ledger[id] = { start = L.start[id] or 0, bought = L.bought[id] or 0, madePlan = L.madePlan[id] or 0,
@@ -1438,13 +1445,18 @@ end
 --   status       "ok" | "done" (you are there) | "incomplete" (it says so in
 --                diagnostics: stuck, a recipe of unknown chance, a chain that
 --                leads back to itself, a count that could not be read) |
---                "preview" (from the skill seen last, not the one read now:
---                never "done" or "ok", whatever it comes to) |
+--                "preview" (from the skill seen last, not the one read now,
+--                or making something with another profession whose skill
+--                was only seen last: never "done" or "ok", whatever it
+--                comes to) |
 --                "invalid" (nothing to plan from: never shown as a plan)
 --   valid, complete
 --   skillSource  "current" | "lastSeen", skillSeenAt (when, if known),
 --                reliable (false for a preview: nothing in it says what you
 --                need or have reached NOW)
+--   lastSeenProfessions  the professions next to the planned one whose skill
+--                was only seen last AND that the plan makes something with
+--                (their materials: madeFrom.lastSeen)
 --   steps        { recipe, from, to, expected, crafts, low, high (the model's
 --                80 % range of crafts), chanceFrom, chanceTo, forMaterials,
 --                comparable, estimated, learnOpen, priceOpen, outputAssumed
@@ -1485,7 +1497,7 @@ function Core.Compute(input, pause)
     if why then
         return { status = "invalid", valid = false, complete = false, reason = why, steps = {}, training = {}, materials = {}, ledger = {}, extras = {},
             total = 0, crafts = 0, cost = { known = 0, estimated = 0, estimatedItems = {}, unknownItems = {}, assumedItems = {} },
-            estimate = { crafts = false, output = false, skill = false }, reliable = false,
+            estimate = { crafts = false, output = false, skill = false }, reliable = false, lastSeenProfessions = {},
             learn = { fees = 0, feesUnknown = 0, trainer = 0, items = 0, itemCost = 0, itemsUnknown = 0, matsUnknown = 0, list = {} },
             diagnostics = { { code = "invalid", reason = why } } }
     end
@@ -1535,6 +1547,23 @@ function Core.Compute(input, pause)
     -- from a skill that was only seen last: said in the plan, and no plan to rely on
     local lastSeen = input.skillSource == "lastSeen"
     if lastSeen then Note(ctx, "skill_last_seen", input.prof, { seenAt = input.skillSeenAt }) end
+    -- the same for a profession next to the planned one (Codex round 3,
+    -- R3-M1): where the plan MAKES something with a profession whose skill
+    -- was only seen last, that is not certain - named, and no plan to rely on.
+    -- (A plan that makes nothing with it rests on nothing uncertain.)
+    local seenOnly, lastSeenProfessions = {}, {}
+    for _, r in ipairs(L.extraList) do
+        local own = r.prof ~= input.prof and input.professions and input.professions[r.prof]
+        if own and own.source == "lastSeen" and not seenOnly[r.prof] then
+            seenOnly[r.prof] = true
+            lastSeenProfessions[#lastSeenProfessions + 1] = r.prof
+        end
+    end
+    table.sort(lastSeenProfessions)
+    for _, prof in ipairs(lastSeenProfessions) do
+        Note(ctx, "profession_last_seen", prof, { prof = prof, seenAt = input.professions[prof].seenAt })
+    end
+    local preview = lastSeen or #lastSeenProfessions > 0
     if stuck then Note(ctx, "stuck", stuck, { skill = stuck }) end
     if unknownAt then
         -- the plan cannot go on with a number: the recipe is named, not counted
@@ -1544,8 +1573,9 @@ function Core.Compute(input, pause)
     local done = input.skill >= input.target
     local complete = not stuck and #ctx.diagnostics == 0
     return { prof = input.prof, from = input.skill, target = input.target,
-        status = lastSeen and "preview" or done and "done" or complete and "ok" or "incomplete", valid = true, complete = complete,
-        skillSource = lastSeen and "lastSeen" or "current", skillSeenAt = lastSeen and input.skillSeenAt or nil, reliable = not lastSeen,
+        status = preview and "preview" or done and "done" or complete and "ok" or "incomplete", valid = true, complete = complete,
+        skillSource = lastSeen and "lastSeen" or "current", skillSeenAt = lastSeen and input.skillSeenAt or nil, reliable = not preview,
+        lastSeenProfessions = lastSeenProfessions,
         steps = steps, training = training, materials = materials, ledger = ledger, extras = extras, stuck = stuck,
         cost = cost, total = cost.known + cost.estimated, crafts = crafts, notComparable = notComparable,
         openLearn = openLearn, openPrices = openPrices, estimate = estimate,
@@ -1560,20 +1590,26 @@ end
 -- "missing" is a number all the same - counted as if you had none - and is
 -- marked missingAssumed (stockAssumed: how many such items). A plan from the
 -- skill seen last says so: skillSource "lastSeen", skillSeenAt, reliable
--- false, status "preview" - nothing to tick off or to buy by. Made from a
--- finished plan; nothing is calculated here.
+-- false, status "preview" - nothing to tick off or to buy by. The same when
+-- it makes something with another profession whose skill was only seen
+-- last: lastSeenProfessions names them, makeLastSeen marks the items. Made
+-- from a finished plan; nothing is calculated here.
 function Core.Result(plan)
     local items, assumed = {}, 0
     for _, m in ipairs(plan.materials or {}) do
         items[m.id] = { need = m.need, have = m.haveKnown and m.have or nil, haveKnown = m.haveKnown, missing = m.missing,
             covered = m.covered, planned = m.planned, make = m.madeFrom ~= nil, costStatus = m.costStatus,
+            makeLastSeen = m.madeFrom ~= nil and m.madeFrom.lastSeen == true,
             outputAssumed = m.outputAssumed == true, missingAssumed = m.missingAssumed == true }
         if m.missingAssumed then assumed = assumed + 1 end
     end
     local e = plan.estimate or {}
+    local lastSeenProfessions = {}
+    for i, prof in ipairs(plan.lastSeenProfessions or {}) do lastSeenProfessions[i] = prof end
     return { prof = plan.prof, from = plan.from, target = plan.target, status = plan.status, valid = plan.valid == true,
         complete = plan.complete == true, items = items,
         skillSource = plan.skillSource, skillSeenAt = plan.skillSeenAt, reliable = plan.reliable == true,
+        lastSeenProfessions = lastSeenProfessions,
         estimate = { crafts = e.crafts == true, output = e.output == true, skill = e.skill == true },
         stockAssumed = assumed }
 end
