@@ -3871,7 +3871,8 @@ step("Craft log: one entry per finished craft, failures and odd cases marked apa
         local mark = #log
         slash("craftlog")
         local text = table.concat(log, "\n", mark + 1)
-        assert(text:find((ns.L["Craft log: %d crafts (kept on this computer, never shared)."]):format(9), 1, true), "no count in /gcr craftlog: " .. text)
+        -- (7 since 0.1.21, T7: the two failed or interrupted casts are no crafts)
+        assert(text:find((ns.L["Craft log: %d crafts (kept on this computer, never shared)."]):format(7), 1, true), "no count in /gcr craftlog: " .. text)
         assert(text:find((ns.L["  %s: %d crafts, %d skill-ups (%d%%)"]):format("|cffff8040" .. ns.L["orange"] .. "|r", 1, 1, 100), 1, true), "orange line: " .. text)
         assert(text:find((ns.L["  %s points below grey: %d crafts, %d skill-ups (%d%%)"]):format("5-9", 1, 1, 100), 1, true), "distance line: " .. text)
         assert(text:find((ns.L["  Not counted: %d failed or interrupted, %d unreadable, %d overlapping, %d at the rank's maximum; %d gave more than one point."]):format(2, 2, 0, 1, 1), 1, true), "not counted: " .. text)
@@ -4513,10 +4514,10 @@ step("Craft log: the header counts crafts, a block and its casts once (v0.1.20 F
         local text = Header()
         assert(text:find(Says(10), 1, true), "the header does not say 10 crafts: " .. text:sub(1, 120))
         assert(not text:find(Says(11), 1, true), "the header counts the block as a craft")
-        -- a broken series (no block): its casts are crafts all the same
+        -- a failed cast is no craft (since 0.1.21, T7: finished crafts only)
         fire("UNIT_SPELLCAST_START", "player", "Cast-f3-x", spell)
         fire("UNIT_SPELLCAST_FAILED", "player", "Cast-f3-x", spell)
-        assert(Header():find(Says(11), 1, true), "a failed cast is not counted as a craft")
+        assert(Header():find(Says(10), 1, true), "a failed cast is counted as a craft")
         -- a full log that has lost the oldest casts of a block: the block still stands for all of them
         ns.db.craftLog = {
             { t = 3, result = "ok", prof = "Leatherworking", spell = spell, colour = "orange", before = 12, after = 13, gain = 1, overlap = true, inSeries = true },
@@ -7278,6 +7279,253 @@ step("Questing mode: in \"Ring only\" the rings are the thin gold ring, the run 
     player.map, player.x, player.y = keep.map, keep.x, keep.y
     fire("ZONE_CHANGED_NEW_AREA") advance(1)
     ns.NotifyNodesChanged() advance(1)
+    if not ok then error(err, 0) end
+end)
+step("Craft log: Create All ended by an aborted cast keeps its block; the header counts finished crafts (v0.1.21 T7)", function()
+    -- Sven, 11.11.2026 19:05, 0.1.20: 3 crafts alone (quickly: a series, 3/3),
+    -- then Create All, ended by moving after 5 successes - the usual way to
+    -- end it. The log said "1 series, 3 crafts", "1 failed or interrupted",
+    -- 5 overlapping, and the header counted the aborted cast as a craft.
+    local data = GathercraftRecipeData
+    local spell, other = data.spells.Leatherworking["Light Leather"], data.spells.Leatherworking["Light Armor Kit"]
+    local saved = { rank = ns.ProfessionRank, have = ns.CraftData.Have, colors = data.colors[spell], colors2 = data.colors[other],
+        log = ns.db.craftLog, off = ns.db.craftLogOff, multi = ns.db.craftMulti, secret = issecretvalue }
+    local SECRET = newproxy(true)
+    local rank, maxRank = 10, 75
+    ns.ProfessionRank = function(p) if p == "Leatherworking" then return rank, maxRank end end
+    ns.CraftData.Have = function() return 0 end
+    data.colors[spell], data.colors[other] = "25:45", "25:45" -- orange below 25, yellow below 45, grey from 45
+    ns.db.craftLog, ns.db.craftLogOff, ns.db.craftMulti = {}, nil, nil
+    local n = 0
+    local function Guid() n = n + 1 return "Cast-t7-" .. n end
+    local function Start(sp) local g = Guid() fire("UNIT_SPELLCAST_START", "player", g, sp or spell) return g end
+    local function Ok(g, gain, sp) rank = rank + (gain or 0) fire("UNIT_SPELLCAST_SUCCEEDED", "player", g, sp or spell) end
+    local function Abort(g, how, sp) fire(how or "UNIT_SPELLCAST_INTERRUPTED", "player", g, sp or spell) end
+    -- Create All: every cast takes castTime, the next starts the moment the
+    -- last succeeded; returns the cast that is running at the end
+    local function CreateAll(gains, castTime)
+        local g = Start()
+        for _, gain in ipairs(gains) do
+            advance(castTime or 3)
+            Ok(g, gain)
+            g = Start()
+        end
+        return g
+    end
+    local function Blocks()
+        local list = {}
+        for _, e in ipairs(ns.db.craftLog) do if e.kind == "series" then list[#list + 1] = e end end
+        return list
+    end
+    local function Reset(skill) advance(3) ns.db.craftLog, ns.db.craftMulti = {}, nil rank = skill advance(3) end
+    local function Text()
+        local mark = #log
+        slash("craftlog")
+        return table.concat(log, "\n", mark + 1)
+    end
+    local function Says(count) return (ns.L["Craft log: %d crafts (kept on this computer, never shared)."]):format(count) end
+    local function NotCounted(failed, unreadable, overlap, cap, multi)
+        return (ns.L["  Not counted: %d failed or interrupted, %d unreadable, %d overlapping, %d at the rank's maximum; %d gave more than one point."]):format(failed, unreadable, overlap, cap, multi)
+    end
+    local ok, err = pcall(function()
+        advance(3)
+        -- (1) Sven's case: 3 quickly one after the other, then Create All:
+        -- 5 successes, the sixth cast ended by moving
+        for _ = 1, 3 do Ok(Start(), 1) advance(0.3) end
+        advance(3)
+        local g = CreateAll({ 1, 1, 1, 1, 1 })
+        advance(1)
+        Abort(g)
+        advance(3)
+        local blocks = Blocks()
+        assert(#blocks == 2, "Sven's case: " .. #blocks .. " blocks, want the 3 and the 5")
+        local b = blocks[2]
+        assert(b.n == 5 and b.before == 13 and b.after == 18 and b.gain == 5 and b.colour == "orange",
+            ("the block of Create All: n %s, %s -> %s, gain %s, %s"):format(tostring(b.n), tostring(b.before), tostring(b.after), tostring(b.gain), tostring(b.colour)))
+        local byColour, _, others = ns.CraftLogSummary()
+        assert(others.series == 2 and others.seriesTries == 8 and others.seriesUps == 8, "the series line: " .. others.series .. " series, " .. others.seriesTries .. " crafts")
+        assert(others.failed == 1 and others.overlap == 0, ("%d failed, %d overlapping - want 1 and 0"):format(others.failed, others.overlap))
+        assert(byColour.orange.tries == 8 and byColour.orange.ups == 8, "orange: " .. byColour.orange.ups .. "/" .. byColour.orange.tries)
+        local text = Text()
+        assert(text:find(Says(8), 1, true), "the header does not say 8 crafts (the aborted cast is none): " .. text:sub(1, 90))
+        assert(text:find(NotCounted(1, 0, 0, 0, 0), 1, true), "not counted: " .. text)
+        -- the aborted cast is in the log, as it was: outside the block
+        local aborted
+        for _, e in ipairs(ns.db.craftLog) do if e.result == "interrupted" then aborted = e end end
+        assert(aborted and not aborted.inSeries and not aborted.kind, "the aborted cast is not in the log as interrupted")
+
+        -- (2) the abort comes while the last success is still being read
+        -- (within 1.5 s), and the client tells it twice (interrupted, failed)
+        Reset(31) -- (31 -> 34: 14 to 11 below grey, one distance group)
+        g = CreateAll({ 1, 0, 1, 1, 0 })
+        advance(0.4)
+        Abort(g) Abort(g, "UNIT_SPELLCAST_FAILED")
+        advance(3)
+        blocks = Blocks()
+        assert(#blocks == 1 and blocks[1].n == 5 and blocks[1].gain == 3 and blocks[1].before == 31 and blocks[1].after == 34 and blocks[1].colour == "yellow",
+            "an abort 0.4 s after the last success: no block of 5 with 3 points")
+        byColour, _, others = ns.CraftLogSummary()
+        assert(others.failed == 1 and others.overlap == 0 and byColour.yellow.tries == 5 and byColour.yellow.ups == 3, "yellow 3/5 and one failed")
+        assert(Text():find(Says(5), 1, true), "the header after 5 crafts and an abort")
+
+        -- (3) a cast that fails (not interrupted) at the end: the same
+        Reset(10)
+        g = CreateAll({ 1, 1 })
+        advance(2)
+        Abort(g, "UNIT_SPELLCAST_FAILED")
+        advance(3)
+        assert(#Blocks() == 1 and Blocks()[1].n == 2 and select(3, ns.CraftLogSummary()).failed == 1, "a failed cast at the end: no block of 2")
+
+        -- (4) a failure that never started (no START of its own), at the end
+        Reset(10)
+        Ok(Start(), 1) advance(0.3)
+        Ok(Start(), 1) advance(0.3)
+        Ok(Start(), 1) advance(0.3)
+        Abort(Guid(), "UNIT_SPELLCAST_FAILED")
+        advance(3)
+        assert(#Blocks() == 1 and Blocks()[1].n == 3 and Blocks()[1].gain == 3, "a failure without a start at the end: no block of 3")
+        assert(select(3, ns.CraftLogSummary()).failed == 1, "the failure without a start is not in the log")
+
+        -- (5) two aborted attempts after the last success: still the block
+        Reset(10)
+        g = CreateAll({ 1, 1, 1 }, 0.3)
+        Abort(g)
+        advance(0.2)
+        g = Start()
+        advance(0.2)
+        Abort(g)
+        advance(3)
+        assert(#Blocks() == 1 and Blocks()[1].n == 3, "two aborted casts at the end: no block of 3")
+        assert(select(3, ns.CraftLogSummary()).failed == 2, "two aborted casts: not 2 failed")
+
+        -- (6) an abort in the middle - a success of the same series after it:
+        -- everything stays overlapping, as before
+        Reset(10)
+        Ok(Start(), 1) advance(0.3)
+        Ok(Start(), 1) advance(0.3)
+        g = Start() advance(0.2) Abort(g) advance(0.2)
+        Ok(Start(), 1) advance(0.3)
+        Ok(Start(), 1) advance(3)
+        byColour, _, others = ns.CraftLogSummary()
+        assert(#Blocks() == 0 and others.overlap == 4 and others.failed == 1 and not byColour.orange,
+            ("an abort in the middle: %d blocks, %d overlapping, %d failed"):format(#Blocks(), others.overlap, others.failed))
+        assert(Text():find(Says(4), 1, true), "the header: 4 overlapping crafts are crafts, the aborted cast is none")
+        -- a failure without a start in the middle: the same
+        Reset(10)
+        Ok(Start(), 1) advance(0.3)
+        Ok(Start(), 1) advance(0.3)
+        Abort(Guid(), "UNIT_SPELLCAST_FAILED") advance(0.2)
+        Ok(Start(), 1) advance(3)
+        byColour, _, others = ns.CraftLogSummary()
+        assert(#Blocks() == 0 and others.overlap == 3 and others.failed == 1 and not byColour.orange, "a failure without a start in the middle: counted")
+
+        -- (7) an abort as the only cast: only "failed", no craft
+        Reset(10)
+        g = Start() advance(1) Abort(g) advance(3)
+        byColour, _, others = ns.CraftLogSummary()
+        assert(#ns.db.craftLog == 1 and others.failed == 1 and others.overlap == 0 and not next(byColour), "an abort alone")
+        assert(Text():find(Says(0), 1, true), "an abort alone: the header does not say 0 crafts")
+        -- one success and the abort of the next cast: no block of one (a
+        -- block needs two); the craft stays overlapping, as before
+        Reset(10)
+        g = CreateAll({ 1 })
+        advance(1) Abort(g) advance(3)
+        byColour, _, others = ns.CraftLogSummary()
+        assert(#Blocks() == 0 and others.overlap == 1 and others.failed == 1, "one success and an abort")
+        assert(Text():find(Says(1), 1, true), "one success and an abort: the header does not say 1 craft")
+
+        -- (8) the other conditions of a block stay: a colour change (23 -> 27)
+        Reset(23)
+        g = CreateAll({ 1, 1, 1, 1 })
+        advance(1) Abort(g) advance(3)
+        assert(#Blocks() == 0 and select(3, ns.CraftLogSummary()).overlap == 4, "aborted at the end, over a colour change: a block")
+        -- at the rank's maximum
+        Reset(73)
+        g = CreateAll({ 1, 1, 0 })
+        advance(1) Abort(g) advance(3)
+        assert(#Blocks() == 0, "aborted at the end, at the maximum: a block")
+        -- more points than crafts
+        Reset(10)
+        g = CreateAll({ 2, 2 })
+        advance(2) Abort(g) advance(3)
+        assert(#Blocks() == 0, "aborted at the end, more points than crafts: a block")
+        -- a hidden skill inside
+        Reset(10)
+        g = Start() advance(3) Ok(g, 1)
+        issecretvalue = function(v) return rawequal(v, SECRET) end
+        local keepRank = rank
+        rank = SECRET
+        g = Start()
+        rank = keepRank
+        issecretvalue = saved.secret
+        advance(3) Ok(g, 1)
+        g = Start() advance(1) Abort(g) advance(3)
+        assert(#Blocks() == 0, "aborted at the end, a hidden skill inside: a block")
+        -- the note that a craft of this profession gave more than one point
+        Reset(10)
+        ns.db.craftMulti = { Leatherworking = true }
+        g = CreateAll({ 1, 1, 1 })
+        advance(1) Abort(g) advance(3)
+        assert(#Blocks() == 0 and select(3, ns.CraftLogSummary()).overlap == 3, "aborted at the end, with the note of a multi-point craft: a block")
+        -- another recipe started while the last success is being read
+        Reset(10)
+        g = CreateAll({ 1, 1 }, 0.3)
+        Abort(g)
+        Ok(Start(other), 1, other) advance(3)
+        assert(#Blocks() == 0, "aborted, then another recipe inside the last reading: a block")
+
+        -- (9) the switch (a hard break) is as it was: off while the series runs - no block
+        Reset(10)
+        g = CreateAll({ 1, 1, 1 })
+        advance(0.4)
+        ns.db.craftLogOff = true
+        ns.CraftLogBreak()
+        Abort(g)
+        ns.db.craftLogOff = nil
+        ns.CraftLogBreak()
+        advance(3)
+        assert(#Blocks() == 0, "switched off before the abort: a block")
+        -- cleared between the last success and the abort: nothing of it comes back
+        Reset(10)
+        g = CreateAll({ 1, 1, 1 })
+        advance(0.4)
+        slash("craftlog clear")
+        Abort(g)
+        advance(3)
+        assert(#ns.db.craftLog == 0, "cleared before the abort: " .. #ns.db.craftLog .. " entries came back")
+
+        -- (10) after the abort, once everything is read, the next Create All
+        -- is a series of its own
+        Reset(10)
+        g = CreateAll({ 1, 1, 1 })
+        advance(2) Abort(g)
+        g = CreateAll({ 1, 1 })
+        advance(1) Abort(g) advance(3)
+        blocks = Blocks()
+        assert(#blocks == 2 and blocks[1].n == 3 and blocks[1].before == 10 and blocks[1].after == 13 and blocks[2].n == 2 and blocks[2].before == 13 and blocks[2].after == 15,
+            "two Create All, each ended by an abort: not a block of 3 and one of 2")
+        assert(Text():find(Says(5), 1, true), "two aborted Create All: the header does not say 5 crafts")
+
+        -- (11) the header: a failed cast is no craft, a block stands for its
+        -- crafts, old entries count as before
+        ns.db.craftLog = {
+            { t = 1, result = "failed", prof = "Leatherworking", spell = spell, colour = "orange", before = 5 },
+            { t = 2, result = "interrupted", prof = "Leatherworking", spell = spell, colour = "orange", before = 5 },
+            { t = 3, result = "ok", prof = "Leatherworking", spell = spell, colour = "orange", before = 12, after = 13, gain = 1, overlap = true, inSeries = true },
+            { kind = "series", t = 1, result = "ok", prof = "Leatherworking", spell = spell, colour = "orange", n = 7, before = 6, after = 13, gain = 7, yellow = 25, grey = 45, max = 75 },
+            { t = 9, result = "ok", prof = "Leatherworking", spell = spell, colour = "orange", before = 13, after = 14, gain = 1, yellow = 25, grey = 45, max = 75 },
+            { t = 10, result = "ok", prof = "Leatherworking", spell = spell, colour = "unknown", secret = true },
+            { t = 11, result = "ok", prof = "Leatherworking", spell = spell, colour = "orange", before = 14, after = 15, gain = 1, overlap = true },
+        }
+        assert(ns.CraftLogCrafts() == 10, "the header's count: " .. tostring(ns.CraftLogCrafts()) .. ", want 7 + 1 + 1 + 1")
+        text = Text()
+        assert(text:find(Says(10), 1, true) and text:find(NotCounted(2, 1, 1, 0, 0), 1, true), "the header and the line of what is not counted: " .. text)
+    end)
+    ns.ProfessionRank, ns.CraftData.Have, data.colors[spell], data.colors[other] = saved.rank, saved.have, saved.colors, saved.colors2
+    ns.db.craftLogOff, issecretvalue = saved.off, saved.secret
+    advance(3)
+    ns.db.craftLog, ns.db.craftMulti = saved.log, saved.multi
+    advance(3)
     if not ok then error(err, 0) end
 end)
 -- (end of the v0.1.21 steps)

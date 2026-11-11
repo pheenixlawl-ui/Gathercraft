@@ -105,6 +105,19 @@ local generation = 0 -- /gcr craftlog clear: readings started before it are drop
 -- is never in the distance lines). Otherwise all of it stays
 -- "overlapping" as before: nothing is estimated or split.
 --
+-- A series ended by a cast that failed or was aborted (v0.1.21 T7; Sven,
+-- 11.11.2026: Create All is usually ended by moving, and 5 clean crafts
+-- were lost with the sixth cast): that cast is not one of the series'
+-- crafts. It leaves the series - logged as failed or interrupted, as
+-- before - and the block is the successes before it, by all the rules
+-- above. Only when a cast of the same series succeeds after it was the
+-- failure "inside": then nothing of the series counts, as before.
+-- Why the block's end is right: its "after" is read SETTLE after the last
+-- success, and between the first cast's start and that reading nothing
+-- but the series' own successes gave a point - a cast that fails or is
+-- aborted makes nothing and gives none, and any other craft starting or
+-- ending in that time breaks the series (Chain, Overlap).
+--
 -- k points = k crafts that gave a point (Sven 09.11., Codex B2): in WoW:
 -- Forever a craft gives at most ONE skill point (Classic rules), so k
 -- points in n crafts are k successes, also for 0 < k < n. This is an
@@ -152,7 +165,7 @@ local function Chain(c)
         return false
     end
     series.n = series.n + 1
-    c.series = series
+    c.series = series -- (also after a failure in it: only a success after it breaks the series, see Succeeded)
     return true
 end
 
@@ -283,6 +296,9 @@ local function Succeeded(guid, spell)
     Done(guid)
     local e = Entry(c, "ok")
     if c.series then
+        -- a success after a cast of the series failed: that failure was
+        -- inside the series, not its end - no block (T7)
+        if c.series.ended then c.series.broken = true end
         inSeries[e] = c.series
         table.insert(c.series.entries, e)
     else
@@ -335,7 +351,10 @@ local function Failed(guid, spell, result)
     if On() then Add(Entry(c, result)) end
     local s = c.series
     if s then
-        s.broken = true -- a failure inside: no block
+        -- not one of the series' crafts: it leaves the series, which ends
+        -- with the success before it (T7; a success after it breaks it)
+        s.n = s.n - 1
+        s.ended = true
         if not next(reading) and not Pending(s) then
             if series == s then series = nil end
             Finish(s) -- nothing left to read: its entries are marked now
@@ -443,13 +462,15 @@ ns.CraftLogSummary = function() return Summary(DB()) end
 
 -- how many crafts the log knows of (Codex B3): a block stands for its n
 -- casts, and those casts (inSeries) are not counted a second time - also
--- right when the oldest of them have left a full log
+-- right when the oldest of them have left a full log. Finished crafts only
+-- (v0.1.21 T7): a cast that failed or was interrupted made nothing, it
+-- stands under "Not counted" alone.
 local function Crafts(log)
     local n = 0
     for _, e in ipairs(log) do
         if e.kind == "series" then
             n = n + e.n
-        elseif not e.inSeries then
+        elseif e.result == "ok" and not e.inSeries then
             n = n + 1
         end
     end
