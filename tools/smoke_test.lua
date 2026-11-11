@@ -7809,6 +7809,273 @@ step("Craft log: a craft without a reliable \"before\" is no proof of a multi-po
     ns.db.craftLog, ns.db.craftMulti = saved.log, saved.multi
     if not ok then error(err, 0) end
 end)
+step("Gathering help: in the questing mode the Fish key gathers only while a node is marked, else it fishes (v0.1.21 T4)", function()
+    -- Sven, 10.11.2026 20:36, 0.1.19: the option on, the questing mode on, at
+    -- the water - the Fish key did nothing. It was "interact" for as long as
+    -- the mode was on; with no node marked nothing happened, and since no
+    -- cast came about, the mode never went off either.
+    local saved = { get = GetCVar, set = SetCVar, set2 = SetOverrideBinding, clear = ClearOverrideBindings, combat = InCombatLockdown,
+        bind = GetBindingKey, mark = ns.db.gatherMark, key = ns.db.gatherKey, cvars = ns.db.fishingCVars, bobber = ns.db.fishMarkBobber,
+        map = player.map, x = player.x, y = player.y, guid = UnitGUID, secret = issecretvalue, nodes = ns.db.nodes[1412], debug = ns.Debug, modeOff = ns.QuestModeOff }
+    local store = {}
+    local binds = {} -- owner -> key -> command
+    local fighting = false
+    local marked = nil -- what UnitGUID("softinteract") answers
+    local asked = 0
+    -- the look for the mark is the only ticker of 0.2 s: its ticks are counted
+    local realTicker, ticks = C_Timer.NewTicker, 0
+    local SECRET = newproxy(true)
+    local HERB = "GameObject-0-4444-0-55-1618-00001A2B3C"      -- Peacebloom
+    local VEIN = "GameObject-0-4444-0-55-1731-00001A2B3D"      -- Copper Vein
+    local CHEST = "GameObject-0-4444-0-55-2843-00001A2B3E"     -- Battered Chest
+    local MAILBOX = "GameObject-0-4444-0-55-32349-00001A2B3F"  -- a mailbox
+    local NPC = "Creature-0-4444-0-55-1618-00001A2B40"         -- an NPC with the Peacebloom's number
+    local NEW = "GameObject-0-4444-0-55-987654-00001A2B41"     -- an object the spawn data does not know
+    local function Gathers()
+        for _, keys in pairs(binds) do if keys.F == "INTERACTTARGET" then return true end end
+        return false
+    end
+    local function Owners()
+        local n = 0
+        for _, keys in pairs(binds) do if next(keys) then n = n + 1 end end
+        return n
+    end
+    local function Cast() fire("UNIT_SPELLCAST_CHANNEL_START", "player", "t4fish", 7620) end
+    local function Reel() fire("UNIT_SPELLCAST_CHANNEL_STOP", "player", "t4fish", 7620) advance(1) end
+    -- the mark changes; the game does not tell (the look finds it)
+    local function Mark(guid) marked = guid advance(0.5) end
+    local ok, err = pcall(function()
+        GetCVar = function(k) return store[k] or "0" end
+        SetCVar = function(k, v) store[k] = tostring(v) return true end
+        SetOverrideBinding = function(owner, _, key, cmd) binds[owner] = binds[owner] or {} binds[owner][key] = cmd end
+        ClearOverrideBindings = function(owner) binds[owner] = nil end
+        InCombatLockdown = function() return fighting end
+        GetBindingKey = function(cmd) if cmd == ns.FishBinding then return "F" end return saved.bind(cmd) end
+        UnitGUID = function(u)
+            if u == "softinteract" then asked = asked + 1 return marked end
+            return saved.guid(u)
+        end
+        C_Timer.NewTicker = function(s, fn)
+            if s ~= 0.2 then return realTicker(s, fn) end
+            return realTicker(s, function() ticks = ticks + 1 fn() end)
+        end
+        assert(GathercraftQuestieData.kinds.o1618 and GathercraftQuestieData.kinds.o1731 and GathercraftQuestieData.kinds.o2843 and not GathercraftQuestieData.kinds.o32349 and not GathercraftQuestieData.kinds.o987654,
+            "test setup: herb, vein and chest are in the spawn data, the mailbox is not")
+        ns.db.fishingCVars, ns.db.fishMarkBobber = nil, false
+        player.map, player.x, player.y = 1412, 0.45, 0.72
+        ns.SetQuestMode(false)
+        if ns.run then ns.StopRun(true) end
+        ns.db.gatherMark, ns.db.gatherKey = true, true
+        ns.UpdateGatherHelp("test") advance(1)
+        assert(not Gathers(), "test setup: the key gathers with nothing going on")
+
+        -- (1) Sven's case: questing mode and option on, no node marked - the key is the Fish key
+        ns.SetQuestMode(true) advance(1)
+        assert(ns.QuestModeOn(), "test setup: the questing mode is off")
+        assert(not Gathers() and Owners() == 0, "questing mode, nothing marked: the Fish key is overridden (it cannot fish)")
+        assert(ticks >= 3, "questing mode with the option: nobody looks for the mark (" .. ticks .. " looks in a second)")
+        assert(store.SoftTargetInteract == "3", "questing mode: the node in front of you is not marked any more")
+        -- a node gets marked: the key gathers
+        Mark(HERB)
+        assert(Gathers(), "a herb is marked: the key does not gather")
+        -- the mark goes: the Fish key again
+        Mark(nil)
+        assert(not Gathers() and Owners() == 0, "the mark is gone: the key still gathers")
+        -- a vein, a chest
+        Mark(VEIN)
+        assert(Gathers(), "a vein is marked: the key does not gather")
+        Mark(CHEST)
+        assert(Gathers(), "a chest is marked: the key does not gather")
+        -- not a gathering node: an NPC, a mailbox, something unknown - the key fishes
+        Mark(NPC)
+        assert(not Gathers(), "an NPC is marked: the key gathers")
+        Mark(HERB) assert(Gathers(), "test setup")
+        Mark(MAILBOX)
+        assert(not Gathers(), "a mailbox is marked: the key gathers")
+        Mark(NEW)
+        assert(not Gathers(), "an object nobody knows is marked: the key gathers")
+        -- ... until the recorder knows it: a node recorded in this zone
+        ns.db.nodes[1412] = ns.db.nodes[1412] or {}
+        local own = { id = "o987654", name = "Forever Bloom", type = "herb", x = 0.45, y = 0.72, count = 1, last = 1 }
+        table.insert(ns.db.nodes[1412], own)
+        advance(0.5)
+        assert(Gathers(), "a node recorded in this zone is marked: the key does not gather")
+        own.type = "fish" -- a fishing pool is no node to gather with the key
+        advance(0.5)
+        assert(not Gathers(), "a fishing pool is marked: the key gathers (it must cast)")
+        table.remove(ns.db.nodes[1412])
+        -- answers that are no mark at all: no error, the key fishes
+        for _, odd in ipairs({ "", "GameObject", "GameObject-0-1-0-1-abc-1", "Player-4444-00ABCDEF", 42, true }) do
+            Mark(HERB) assert(Gathers(), "test setup")
+            local before = #errors
+            Mark(odd)
+            assert(#errors == before, "an odd answer (" .. tostring(odd) .. ") raised an error: " .. tostring(errors[#errors]))
+            assert(not Gathers(), "an odd answer (" .. tostring(odd) .. "): the key gathers")
+        end
+        Mark(HERB) assert(Gathers(), "test setup")
+        issecretvalue = function(v) return rawequal(v, SECRET) end
+        Mark(SECRET)
+        assert(not Gathers(), "a hidden answer: the key gathers")
+        issecretvalue = saved.secret
+        Mark(HERB) assert(Gathers(), "test setup")
+        UnitGUID = function(u) if u == "softinteract" then error("no such unit") end return saved.guid(u) end
+        local before = #errors
+        advance(0.5)
+        assert(#errors == before and not Gathers(), "a client that does not know the unit: an error, or the key gathers")
+        UnitGUID = nil
+        advance(0.5)
+        assert(#errors == before and not Gathers(), "a client without UnitGUID: an error, or the key gathers")
+        UnitGUID = function(u)
+            if u == "softinteract" then asked = asked + 1 return marked end
+            return saved.guid(u)
+        end
+
+        -- the answers as Sven saw them in the game (11.11.2026, 16001): a Gold
+        -- Vein gathers, the NPC next to it does not; UnitExists is false for
+        -- a game object there and must not be asked
+        local realExists = UnitExists
+        UnitExists = function(u) if u == "softinteract" then error("UnitExists(softinteract) was asked: it is false for game objects") end return realExists(u) end
+        assert(GathercraftQuestieData.kinds.o1734, "test setup: the Gold Vein (1734) is in the spawn data")
+        Mark(nil)
+        marked = "GameObject-0-7094-0-16-1734-8A72C11CCB"
+        local raised = #errors
+        fire("PLAYER_SOFT_INTERACT_CHANGED", "Creature-0-7094-0-16-2251-9E0253AC79", "GameObject-0-7094-0-16-1734-8A72C11CCB")
+        assert(Gathers(), "the Gold Vein as the game told it: the key does not gather")
+        local kind, id = ns.GatherMarkedNode()
+        assert(kind == "ore" and id == 1734, "the Gold Vein as the game told it: read as " .. tostring(kind) .. " " .. tostring(id))
+        marked = nil
+        fire("PLAYER_SOFT_INTERACT_CHANGED", "GameObject-0-7094-0-16-1734-8A72C11CCB", nil)
+        assert(not Gathers(), "the mark gone as the game told it: the key still gathers")
+        marked = "Creature-0-7094-0-16-2389-8DB079F6E9"
+        fire("PLAYER_SOFT_INTERACT_CHANGED", nil, "Creature-0-7094-0-16-2389-8DB079F6E9")
+        advance(0.5)
+        assert(not Gathers(), "the NPC as the game told it: the key gathers")
+        assert(#errors == raised, "UnitExists was asked about the mark: " .. tostring(errors[#errors]))
+        UnitExists = realExists
+        -- (2) the game tells the change itself: at once, without waiting for the look
+        Mark(nil)
+        marked = HERB
+        fire("PLAYER_SOFT_INTERACT_CHANGED", nil, HERB)
+        assert(Gathers(), "the game told the new mark: the key does not gather at once")
+        marked = nil
+        fire("PLAYER_SOFT_INTERACT_CHANGED", HERB, nil)
+        assert(not Gathers(), "the game told the mark is gone: the key still gathers")
+        -- whatever the event carries is not used: only what is marked now
+        fire("PLAYER_SOFT_INTERACT_CHANGED", nil, HERB)
+        assert(not Gathers(), "the event's own values were believed")
+
+        -- (3) in a fight nothing changes; its end catches up
+        fighting = true
+        Mark(HERB)
+        assert(not Gathers(), "the key was changed in combat (a node marked)")
+        fighting = false
+        fire("PLAYER_REGEN_ENABLED") advance(0.1)
+        assert(Gathers(), "after the fight the key does not gather, a node is marked")
+        fighting = true
+        Mark(nil)
+        assert(Gathers(), "the key was changed in combat (the mark gone)")
+        fighting = false
+        fire("PLAYER_REGEN_ENABLED") advance(0.1)
+        assert(not Gathers(), "after the fight the key still gathers, nothing is marked")
+
+        -- (4) casting with the key: the questing mode goes off (as before),
+        -- the line is out - the key reels in; neither binding clears the other
+        Mark(nil)
+        Cast()
+        assert(not ns.QuestModeOn(), "casting did not turn the questing mode off")
+        assert(Gathers(), "the line is out: the key does not reel in")
+        Reel()
+        assert(not Gathers() and Owners() == 0, "the line is in: the key is still overridden")
+        -- a node marked while the line is out (the mode on again): reeling
+        -- in leaves the gathering key, and the mark going leaves the reel key
+        ns.SetQuestMode(true) advance(1)
+        Mark(HERB)
+        assert(Gathers() and Owners() == 1, "test setup: a node marked")
+        ns.QuestModeOff = nil -- (keep the mode on through the cast, to see both bindings at once)
+        Cast()
+        assert(Owners() == 2 and Gathers(), "line out at a marked node: not both bindings")
+        Mark(nil)
+        assert(Gathers() and Owners() == 1, "the mark went while the line is out: the reel key went too")
+        Mark(HERB)
+        Reel()
+        assert(Gathers() and Owners() == 1, "the line is in at a marked node: the gathering key went too")
+        Mark(nil)
+        assert(not Gathers() and Owners() == 0, "after all that a binding is left")
+        ns.QuestModeOff = saved.modeOff
+
+        -- (5) a farm run: as before - the key gathers for as long as the run goes
+        ns.SetQuestMode(false) advance(1)
+        local looks = asked
+        slash("run herb") advance(2)
+        assert(ns.run and Gathers(), "a farm run, nothing marked: the key does not gather")
+        Mark(NPC)
+        assert(Gathers(), "a farm run, an NPC marked: the key does not gather")
+        Mark(nil)
+        local before = ticks
+        advance(3)
+        assert(asked - looks <= 3, "a farm run: the mark is looked for all the time (" .. (asked - looks) .. " times) though it decides nothing")
+        assert(ticks == before, "a farm run: the look for the mark goes on (" .. (ticks - before) .. " looks in 3 s)")
+        slash("stop") advance(1)
+        assert(not Gathers() and Owners() == 0, "after the run the key still gathers")
+
+        -- (6) the option off: never overridden, and nobody looks for the mark
+        ns.db.gatherKey = nil
+        ns.UpdateGatherHelp("test")
+        ns.SetQuestMode(true) advance(1)
+        looks = asked
+        local before = ticks
+        Mark(HERB)
+        advance(3)
+        assert(not Gathers() and Owners() == 0, "the option is off: the key is overridden")
+        assert(asked == looks and ticks == before, "the option is off: the mark is still looked for")
+        fire("PLAYER_SOFT_INTERACT_CHANGED", nil, HERB)
+        assert(not Gathers() and asked == looks, "the option is off: the event is acted on")
+        -- on again with a node marked: at once
+        ns.db.gatherKey = true
+        ns.UpdateGatherHelp("option")
+        assert(Gathers(), "the option on at a marked node: the key does not gather")
+        -- the questing mode off: the Fish key again, and the looking stops
+        ns.SetQuestMode(false) advance(1)
+        looks = asked
+        before = ticks
+        advance(3)
+        assert(not Gathers() and Owners() == 0, "questing mode off: the key still gathers")
+        assert(asked == looks and ticks == before, "questing mode off: the look for the mark goes on (" .. (ticks - before) .. " looks in 3 s)")
+        -- the mode on in a fight at a marked node: after the fight
+        fighting = true
+        ns.SetQuestMode(true) advance(1)
+        assert(not Gathers(), "the key was changed in combat (the mode began)")
+        fighting = false
+        fire("PLAYER_REGEN_ENABLED") advance(0.1)
+        assert(Gathers(), "after the fight, the mode on at a marked node: the key does not gather")
+        ns.SetQuestMode(false) advance(1)
+
+        -- (7) /gcr debug tells every change
+        local lines = {}
+        ns.Debug = function(text) if tostring(text):find("^GATHER key") then lines[#lines + 1] = text end end
+        Mark(nil)
+        ns.SetQuestMode(true) advance(1)
+        Mark(VEIN)
+        Mark(nil)
+        ns.Debug = saved.debug
+        assert(#lines == 2 and lines[1]:find("gathers", 1, true) and lines[1]:find("1731", 1, true) and lines[2]:find("Fish key", 1, true),
+            "the debug lines: " .. table.concat(lines, " | "))
+        ns.SetQuestMode(false) advance(1)
+    end)
+    ns.Debug, ns.QuestModeOff = saved.debug, saved.modeOff
+    C_Timer.NewTicker = realTicker
+    GetBindingKey = saved.bind
+    GetCVar, SetCVar, SetOverrideBinding, ClearOverrideBindings, InCombatLockdown = saved.get, saved.set, saved.set2, saved.clear, saved.combat
+    UnitGUID, issecretvalue = saved.guid, saved.secret
+    if ns.run then ns.StopRun(true) end
+    ns.SetQuestMode(false)
+    ns.db.gatherMark, ns.db.gatherKey, ns.db.fishingCVars, ns.db.fishMarkBobber = saved.mark, saved.key, saved.cvars, saved.bobber
+    ns.db.nodes[1412] = saved.nodes
+    if ns.UpdateGatherHelp then ns.UpdateGatherHelp("test end") end
+    if ns.StopFishing then ns.StopFishing() end
+    player.map, player.x, player.y = saved.map, saved.x, saved.y
+    if not ok then error(err, 0) end
+end)
 -- (end of the v0.1.21 steps)
 step("Gathering help: mark the node you walk towards, put back like fishing (v0.1.19 Q6 A)", function()
     local saved = { get = GetCVar, set = SetCVar, mark = ns.db.gatherMark, bobber = ns.db.fishMarkBobber, loud = ns.db.fishLoudSplash,
@@ -7956,7 +8223,10 @@ end)
 step("Gathering help: the Fish key gathers during a run or the questing mode, never in combat (v0.1.19 Q6 B)", function()
     local saved = { get = GetCVar, set = SetCVar, set2 = SetOverrideBinding, clear = ClearOverrideBindings, combat = InCombatLockdown,
         bind = GetBindingKey, mark = ns.db.gatherMark, key = ns.db.gatherKey, cvars = ns.db.fishingCVars, bobber = ns.db.fishMarkBobber,
-        map = player.map, x = player.x, y = player.y }
+        map = player.map, x = player.x, y = player.y, guid = UnitGUID }
+    -- (since 0.1.21, T4: in the questing mode the key gathers only while a
+    -- node is marked - its own step. Here a Peacebloom is marked throughout.)
+    UnitGUID = function(u) if u == "softinteract" then return "GameObject-0-1-0-1-1618-00001A2B3C" end return saved.guid(u) end
     local store = {}
     local binds = {} -- owner -> key -> command
     local fighting = false
@@ -8086,6 +8356,7 @@ step("Gathering help: the Fish key gathers during a run or the questing mode, ne
     end)
     GetBindingKey = saved.bind
     GetCVar, SetCVar, SetOverrideBinding, ClearOverrideBindings, InCombatLockdown = saved.get, saved.set, saved.set2, saved.clear, saved.combat
+    UnitGUID = saved.guid
     if ns.run then ns.StopRun(true) end
     ns.SetQuestMode(false)
     ns.db.gatherMark, ns.db.gatherKey, ns.db.fishingCVars, ns.db.fishMarkBobber = saved.mark, saved.key, saved.cvars, saved.bobber
@@ -10834,7 +11105,10 @@ step("Crafting: /gcr crafttest marks unknown costs like the list (v0.1.14)", fun
 end)
 step("SoftTarget is not in the release: no event, /gcr softtest only shows the help", function()
     assert(ns.SoftTargetTest == nil and ns.SoftTargetState == nil, "SoftTarget code is still loaded")
-    assert(not next(eventFrames["PLAYER_SOFT_INTERACT_CHANGED"] or {}), "something still listens to PLAYER_SOFT_INTERACT_CHANGED")
+    -- (since 0.1.21, T4: one frame listens - the Fish key's, for the questing mode; nothing of SoftTarget)
+    local listeners = 0
+    for _ in pairs(eventFrames["PLAYER_SOFT_INTERACT_CHANGED"] or {}) do listeners = listeners + 1 end
+    assert(listeners <= 1, "something else still listens to PLAYER_SOFT_INTERACT_CHANGED (" .. listeners .. " frames)")
     local before, mark = #errors, #log
     slash("softtest")
     assert(#errors == before, "/gcr softtest raised an error")

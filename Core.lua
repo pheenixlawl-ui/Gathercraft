@@ -61,6 +61,22 @@ local function KnownObjectType(objectID)
     return kind and KIND_TYPES[kind[1]]
 end
 
+-- Is this object a gathering node the recorder knows (v0.1.21 T4, the Fish
+-- key in the questing mode)? "herb" / "ore" / "chest" from the spawn data,
+-- else from a node recorded in the zone you are in (a node new in Forever);
+-- nil for anything else - a mailbox, a fishing pool, a door.
+ns.GatherObjectType = function(objectID)
+    if type(objectID) ~= "number" then return nil end
+    local known = KnownObjectType(objectID)
+    if known then return known end
+    local mapID = ns.PlayerMap and ns.PlayerMap()
+    local id = "o" .. objectID
+    for _, n in ipairs(mapID and ns.db and ns.db.nodes and ns.db.nodes[mapID] or {}) do
+        if n.id == id and (n.type == "herb" or n.type == "ore" or n.type == "chest") then return n.type end
+    end
+    return nil
+end
+
 -- The name of a known herb or vein (by object, else by the item it gave) in
 -- the chosen language
 local function KindNameFor(objectID, itemID)

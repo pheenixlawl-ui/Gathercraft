@@ -299,6 +299,30 @@ end
 --     changed in combat (it waits for the end of the fight)
 -- Nothing happens without a key press: the game only marks, the key only
 -- does what you press it for.
+--
+-- v0.1.21 (T4; Sven, 10.11.2026: the option on, the questing mode on, at
+-- the water - the Fish key did nothing. The key was "interact" for as long
+-- as the mode was on, and the mode is often on for hours):
+--   * a farm run: as before, the key gathers for as long as the run goes
+--   * the questing mode: the key gathers only while the game marks a
+--     gathering node (its soft target for interacting is a herb, a vein or
+--     a chest the recorder knows); with nothing marked, or a mailbox, an
+--     NPC or a fishing pool, it is the Fish key
+--   * what is marked is asked from the game: UnitGUID("softinteract"), a
+--     look every MARK_LOOK seconds while it matters, and at once when the
+--     game tells a change (PLAYER_SOFT_INTERACT_CHANGED).
+--     Seen in the client (Sven, 11.11.2026, interface 16001, a Gold Vein
+--     and an NPC): the event comes at every change, with the old and the
+--     new GUID (nil when the mark goes); UnitGUID("softinteract") gives
+--     "GameObject-0-...-<object ID>-<spawn>" for the vein and
+--     "Creature-..." for the NPC. UnitExists("softinteract") is false for
+--     a game object: not used. Not seen yet: herbs, chests, a mailbox, a
+--     fight, several nodes side by side.
+--     A client that answers nothing leaves the key the Fish key in the
+--     questing mode - never worse than not gathering there.
+--   * in a fight nothing changes; its end catches up. While the line is
+--     out the reel binding holds the key (another owner, the same command):
+--     neither clears the other.
 ---------------------------------------------------------------------------
 local gathering = false -- our settings are claimed for gathering
 local gatherOwner = CreateFrame("Frame") -- holds the gathering key
@@ -308,7 +332,32 @@ local function GatherTime()
     return ns.run ~= nil or (ns.QuestModeOn and ns.QuestModeOn()) or false
 end
 local function MarkWanted() return ns.db and (ns.db.gatherMark or ns.db.gatherKey) and GatherTime() end
-local function KeyWanted() return ns.db and ns.db.gatherKey and GatherTime() and true or false end
+
+-- What the game marks for interacting right now, if it is a gathering node
+-- the recorder knows: its kind and object ID. Else nil (nothing marked, not
+-- a game object, not a node, a client without the unit, a hidden value).
+local function MarkedNode()
+    local ok, guid = pcall(UnitGUID, "softinteract") -- (no such function, no such unit: an error, caught)
+    if not ok or guid == nil or ns.AnySecret("gathering key", guid) or type(guid) ~= "string" then return nil end
+    local unitType, _, _, _, _, id = strsplit("-", guid)
+    if unitType ~= "GameObject" then return nil end
+    id = tonumber(id)
+    local kind = id and ns.GatherObjectType and ns.GatherObjectType(id)
+    if kind then return kind, id end
+    return nil
+end
+ns.GatherMarkedNode = MarkedNode -- (/gcr debug, the tests)
+
+-- in the questing mode (no run) with the option on: the mark decides
+local function MarkDecides()
+    return ns.db and ns.db.gatherKey and ns.run == nil and ns.QuestModeOn and ns.QuestModeOn() and true or false
+end
+local function KeyWanted()
+    if not (ns.db and ns.db.gatherKey) then return false end
+    if ns.run ~= nil then return true end -- a farm run: as before
+    if MarkDecides() then return MarkedNode() ~= nil end
+    return false
+end
 
 -- the keys bound to Fish right now (none when you removed the binding)
 local function FishKeys()
@@ -335,7 +384,31 @@ local function SetGatherKey(on)
         SetOverrideBinding(gatherOwner, true, key, "INTERACTTARGET")
     end
     gatherKeys = want
+    if ns.Debug then
+        local kind, id = MarkedNode()
+        ns.Debug(("GATHER key: %s (%s)"):format(next(want) and "gathers" or "the Fish key again",
+            ns.run ~= nil and "farm run" or kind and (kind .. " " .. id .. " marked") or "no node marked"))
+    end
 end
+
+-- the look for the mark: only while it decides (questing mode, option on)
+local MARK_LOOK = 0.2
+local markTicker
+local function WatchMark()
+    local watch = MarkDecides()
+    if watch and not markTicker then
+        markTicker = C_Timer.NewTicker(MARK_LOOK, function() SetGatherKey(KeyWanted()) end)
+    elseif not watch and markTicker then
+        markTicker:Cancel()
+        markTicker = nil
+    end
+end
+-- the game tells a change of its interact mark (if this client has the
+-- event: asked for, never relied on)
+pcall(gatherOwner.RegisterEvent, gatherOwner, "PLAYER_SOFT_INTERACT_CHANGED")
+gatherOwner:SetScript("OnEvent", function()
+    if ns.db and MarkDecides() then SetGatherKey(KeyWanted()) end
+end)
 
 local function UpdateGatherHelp(event)
     if not ns.db then return end
@@ -350,6 +423,7 @@ local function UpdateGatherHelp(event)
         RestoreInteract(event, "gather")
     end
     SetGatherKey(KeyWanted())
+    WatchMark()
 end
 ns.UpdateGatherHelp = UpdateGatherHelp
 
