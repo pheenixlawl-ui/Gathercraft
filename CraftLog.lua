@@ -120,6 +120,21 @@ local generation = 0 -- /gcr craftlog clear: readings started before it are drop
 -- Nothing is estimated: the crafts after it in the same Create All stay
 -- overlapping as well (each start falls into the reading of the one
 -- before), until a craft starts with nothing left to settle.
+--
+-- A success that cannot be told apart (v0.1.21 R1; Codex 11.11.2026, M1 -
+-- a guess about the client, closed all the same): a success of the player
+-- that comes without a cast ID, or whose spell the client hides while the
+-- cast is not one the log is following. It may have been a craft. Whether
+-- the client ever sends one like that is not known, and the log does not
+-- depend on it: such a success is treated as a craft the log does not
+-- read - what starts within SETTLE of it is blind, what is being read
+-- right now shares its reading - and nothing else: no entry, no recipe, no
+-- point, no craft counted. What it is NOT: a success whose spell can be
+-- read and is no recipe is no craft, whatever its cast ID. There is no
+-- further guess at "was a profession window open": a wrong "no" would
+-- open the gap again, and the price of leaving it out is one craft (and
+-- the Create All it begins) that starts within 1.5 s of a spell the client
+-- hid.
 ---------------------------------------------------------------------------
 local unread = GetTime and GetTime() or nil -- when the last craft the log does not read succeeded
 local function Unread() unread = GetTime() end
@@ -422,6 +437,16 @@ local function UnreadCraft(event, spell)
     if ns.AnySecret("craft log unread", spell) or Recipe(spell) then Unread() end
 end
 
+-- the same for a success that cannot be told apart while recording is on
+-- (R1): what is being read now shares its reading with it, too
+local function UntoldSuccess(event, spell)
+    if event ~= "UNIT_SPELLCAST_SUCCEEDED" then return end
+    if ns.AnySecret("craft log untold", spell) or Recipe(spell) then
+        Overlap()
+        Unread()
+    end
+end
+
 local watch = CreateFrame("Frame")
 for _, e in ipairs({ "UNIT_SPELLCAST_START", "UNIT_SPELLCAST_SUCCEEDED", "UNIT_SPELLCAST_FAILED", "UNIT_SPELLCAST_INTERRUPTED" }) do
     if watch.RegisterUnitEvent then pcall(watch.RegisterUnitEvent, watch, e, "player") else pcall(watch.RegisterEvent, watch, e) end
@@ -448,7 +473,13 @@ watch:SetScript("OnEvent", function(_, event, unit, guid, spell)
         -- be read and is a recipe (a hidden spell is no craft at all; Codex
         -- M2); its events repeat without an ID to tell them apart: one
         -- success of a recipe within HIDDEN_REPEAT is the same craft
-        if event ~= "UNIT_SPELLCAST_SUCCEEDED" or ns.AnySecret("craft log " .. event, spell) then return end
+        if event ~= "UNIT_SPELLCAST_SUCCEEDED" then return end
+        if ns.AnySecret("craft log " .. event, spell) then
+            -- neither the cast nor the spell can be read: no craft is
+            -- logged, but it may have been one (R1)
+            UntoldSuccess(event, spell)
+            return
+        end
         local r = Recipe(spell)
         if not r then return end
         local now = GetTime()
@@ -461,12 +492,25 @@ watch:SetScript("OnEvent", function(_, event, unit, guid, spell)
         Unread() -- its own point is read by nobody (T8)
         return
     end
-    if not guid then return end
+    if not guid then
+        -- no cast ID at all: nothing to follow or to log; a success of a
+        -- recipe or of a hidden spell is a craft the log does not read (R1)
+        UntoldSuccess(event, spell)
+        return
+    end
     if done[guid] then
         -- over for the log. Never logged (begun while off, open at a hard
         -- break): its success now is a craft the log does not read (T8).
         -- Logged already: a repeated event, nothing new.
-        if done[guid] == "ignored" then UnreadCraft(event, spell) end
+        if done[guid] == "ignored" then UntoldSuccess(event, spell) end
+        return
+    end
+    if not casts[guid] and ns.AnySecret("craft log " .. event, spell) then
+        -- a cast the log is not following, and its spell is hidden: nothing
+        -- to log. It is over for the log; its success - now or later - is one
+        -- that cannot be told apart (R1)
+        Done(guid, true)
+        UntoldSuccess(event, spell)
         return
     end
     if event == "UNIT_SPELLCAST_START" then

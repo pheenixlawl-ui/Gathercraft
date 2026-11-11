@@ -8076,6 +8076,204 @@ step("Gathering help: in the questing mode the Fish key gathers only while a nod
     player.map, player.x, player.y = saved.map, saved.x, saved.y
     if not ok then error(err, 0) end
 end)
+step("Craft log: a success that cannot be told apart protects the next reading, and invents nothing (v0.1.21 R1)", function()
+    -- Codex, 11.11.2026, round 1 on 0.1.21 (M1, a guess about the client, shown
+    -- in the mock): a success of the player that comes without a cast ID, or
+    -- with cast ID and spell both hidden, was passed over without a trace. If
+    -- it was a craft, its point arrives a moment later - inside the reading of
+    -- the craft that starts next: +2, "a craft gave more than one point".
+    -- Whether the client ever sends such a success is not known; the log no
+    -- longer depends on it.
+    local data = GathercraftRecipeData
+    local spell = data.spells.Leatherworking["Light Leather"]
+    local saved = { rank = ns.ProfessionRank, have = ns.CraftData.Have, colors = data.colors[spell],
+        log = ns.db.craftLog, off = ns.db.craftLogOff, multi = ns.db.craftMulti, secret = issecretvalue }
+    local HIDDEN = newproxy(true)
+    local rank, maxRank = 10, 75
+    ns.ProfessionRank = function(p) if p == "Leatherworking" then return rank, maxRank end end
+    ns.CraftData.Have = function() return 0 end
+    data.colors[spell] = "25:45" -- orange below 25
+    ns.db.craftLog, ns.db.craftLogOff, ns.db.craftMulti = {}, nil, nil
+    local n = 0
+    local function Guid() n = n + 1 return "Cast-r1-" .. n end
+    local function Start(sp) local g = Guid() fire("UNIT_SPELLCAST_START", "player", g, sp or spell) return g end
+    -- the point of a craft arrives LAG seconds after its success
+    local LAG = 0.5
+    local function Point() C_Timer.After(LAG, function() rank = rank + 1 end) end
+    local function Ok(g) fire("UNIT_SPELLCAST_SUCCEEDED", "player", g, spell) Point() end
+    -- a success as the client might tell it: with the given cast ID and spell
+    -- (HIDDEN: a value the client hides)
+    local function Success(guid, sp, craft)
+        issecretvalue = function(v) return rawequal(v, HIDDEN) end
+        fire("UNIT_SPELLCAST_SUCCEEDED", "player", guid, sp)
+        issecretvalue = saved.secret
+        if craft then Point() end
+    end
+    local function Reset() advance(3) ns.CraftLogBreak() ns.db.craftLog, ns.db.craftMulti = {}, nil rank = 10 advance(3) end
+    local function Blocks()
+        local list = {}
+        for _, e in ipairs(ns.db.craftLog) do if e.kind == "series" then list[#list + 1] = e end end
+        return list
+    end
+    -- after the success `first`, one fully seen craft: START at once (or
+    -- after `wait` s), 3 s, success, its point
+    local function Next(wait)
+        if wait then advance(wait) end
+        local g = Start() advance(3) Ok(g) advance(3)
+    end
+    local ok, err = pcall(function()
+        advance(3)
+        -- (A) Codex: no cast ID, the recipe's spell readable - a craft for sure
+        Reset()
+        Success(nil, spell, true)
+        Next()
+        assert(rank == 12, "test setup: two crafts, two points")
+        assert(not ns.db.craftMulti, "a success without a cast ID, then a craft: the note \"a craft gave more than one point\" is set")
+        assert(#ns.db.craftLog == 1, "a success without a cast ID: " .. #ns.db.craftLog .. " entries, want the second craft alone (nothing made up for the first)")
+        local e = ns.db.craftLog[1]
+        assert(e.overlap and e.blind == "settle" and e.result == "ok", "the craft after a success without a cast ID is not overlapping")
+        local byColour, _, others = ns.CraftLogSummary()
+        assert(not next(byColour) and others.multi == 0 and others.overlap == 1, "the craft after a success without a cast ID is in a rate")
+        assert(ns.CraftLogCrafts() == 1, "the header counts " .. ns.CraftLogCrafts() .. " crafts: the success without a cast ID was counted")
+        -- (B) Codex: cast ID and spell both hidden - it may have been a craft
+        Reset()
+        Success(HIDDEN, HIDDEN, true)
+        Next()
+        assert(not ns.db.craftMulti, "a success with cast ID and spell hidden, then a craft: the note is set")
+        assert(#ns.db.craftLog == 1 and ns.db.craftLog[1].overlap and ns.db.craftLog[1].blind == "settle", "the craft after a wholly hidden success is not overlapping")
+        assert(ns.CraftLogCrafts() == 1, "the wholly hidden success was counted as a craft")
+        -- the same, the other ways a success can be beyond telling
+        Reset()
+        Success(nil, HIDDEN, true) -- no cast ID, the spell hidden
+        Next()
+        assert(not ns.db.craftMulti and #ns.db.craftLog == 1 and ns.db.craftLog[1].overlap, "no cast ID and a hidden spell: the next craft is not overlapping")
+        Reset()
+        Success(Guid(), HIDDEN, true) -- a cast ID never seen before, the spell hidden
+        Next()
+        assert(not ns.db.craftMulti and #ns.db.craftLog == 1 and ns.db.craftLog[1].overlap, "a new cast ID and a hidden spell: the next craft is not overlapping")
+        -- a cast whose start came with a hidden spell: over for the log; its
+        -- success protects the next reading
+        Reset()
+        local g = Guid()
+        issecretvalue = function(v) return rawequal(v, HIDDEN) end
+        local before = #errors
+        fire("UNIT_SPELLCAST_START", "player", g, HIDDEN)
+        issecretvalue = saved.secret
+        assert(#errors == before, "a start with a hidden spell raised an error: " .. tostring(errors[#errors]))
+        advance(3)
+        Success(g, HIDDEN, true)
+        Next()
+        assert(not ns.db.craftMulti and #ns.db.craftLog == 1 and ns.db.craftLog[1].overlap, "a cast begun with a hidden spell: the next craft is not overlapping")
+        -- the control (as before, T8): the cast ID hidden, the recipe's spell
+        -- readable - a craft, logged as unreadable, and the next one blind
+        Reset()
+        Success(HIDDEN, spell, true)
+        Next()
+        assert(not ns.db.craftMulti and #ns.db.craftLog == 2, "the control, cast ID hidden and recipe readable: " .. #ns.db.craftLog .. " entries")
+        assert(ns.db.craftLog[1].secret and ns.db.craftLog[1].recipe == "Light Leather" and ns.db.craftLog[2].overlap, "the control: not the unreadable craft and the overlapping one")
+        byColour, _, others = ns.CraftLogSummary()
+        assert(others.secret == 1 and others.overlap == 1 and not next(byColour), "the control's counts changed")
+
+        -- 1.5 s later nothing is left to settle: the next craft counts
+        for _, form in ipairs({ { nil, spell }, { HIDDEN, HIDDEN }, { nil, HIDDEN } }) do
+            Reset()
+            Success(form[1], form[2], true)
+            Next(1.6)
+            assert(#ns.db.craftLog == 1 and not ns.db.craftLog[1].overlap and not ns.db.craftLog[1].blind and ns.db.craftLog[1].gain == 1,
+                "a craft 1.6 s after a success beyond telling does not count")
+        end
+        -- one second later it is still inside
+        Reset()
+        Success(HIDDEN, HIDDEN, true)
+        Next(1)
+        assert(ns.db.craftLog[1].overlap and not ns.db.craftMulti, "a craft 1 s after a wholly hidden success counts")
+
+        -- what is no craft for sure makes nothing blind: a readable spell that
+        -- is no recipe - with a cast ID, without one, with the cast ID hidden
+        for _, guid in ipairs({ "Cast-r1-hearth", false, HIDDEN }) do
+            Reset()
+            Success(guid or nil, 8690, false)
+            Next()
+            assert(#ns.db.craftLog == 1 and not ns.db.craftLog[1].overlap and not ns.db.craftLog[1].blind and ns.db.craftLog[1].gain == 1,
+                "a spell that is no recipe (cast ID " .. (guid == HIDDEN and "hidden" or tostring(guid)) .. ") made the next craft blind")
+        end
+        -- a failure or a start beyond telling makes nothing blind either
+        Reset()
+        issecretvalue = function(v) return rawequal(v, HIDDEN) end
+        fire("UNIT_SPELLCAST_FAILED", "player", HIDDEN, HIDDEN)
+        fire("UNIT_SPELLCAST_INTERRUPTED", "player", nil, HIDDEN)
+        fire("UNIT_SPELLCAST_START", "player", HIDDEN, HIDDEN)
+        fire("UNIT_SPELLCAST_START", "player", nil, spell)
+        issecretvalue = saved.secret
+        Next()
+        assert(#ns.db.craftLog == 1 and not ns.db.craftLog[1].overlap and ns.db.craftLog[1].gain == 1, "a failure or a start beyond telling made the next craft blind")
+
+        -- in the middle of Create All: the series is not a block (the hidden
+        -- success may have been a craft whose point lands in it)
+        -- (1 s into the second cast the first craft is still being read: it
+        -- shares its reading; 2 s into it the next start follows within 1.5 s)
+        for _, into in ipairs({ 1, 2 }) do
+            Reset()
+            g = Start() advance(3) Ok(g)
+            g = Start() advance(into)
+            Success(HIDDEN, HIDDEN, false)
+            advance(3 - into) Ok(g)
+            g = Start() advance(3) Ok(g)
+            g = Start() advance(1) fire("UNIT_SPELLCAST_INTERRUPTED", "player", g, spell)
+            advance(3)
+            assert(#Blocks() == 0 and not ns.db.craftMulti, "a wholly hidden success " .. into .. " s into a cast of a series: a block, or the note")
+            for _, x in ipairs(ns.db.craftLog) do
+                assert(x.result ~= "ok" or x.overlap, "a wholly hidden success " .. into .. " s into a cast: a craft of the series counts alone")
+            end
+        end
+        -- a single craft still being read when such a success comes shares its reading
+        Reset()
+        g = Start() advance(3) Ok(g)
+        advance(0.5)
+        Success(nil, HIDDEN, true)
+        advance(3)
+        assert(rank == 12 and not ns.db.craftMulti, "a success beyond telling inside a reading: the note is set")
+        assert(#ns.db.craftLog == 1 and ns.db.craftLog[1].overlap, "a craft being read when a success beyond telling came is not overlapping")
+        Reset()
+        g = Start() advance(3) Ok(g)
+        Success(HIDDEN, HIDDEN, true)   -- together with the first craft's success
+        g = Start() advance(3) Ok(g)    -- the next cast of Create All starts at once
+        g = Start() advance(3) Ok(g)
+        g = Start() advance(1) fire("UNIT_SPELLCAST_INTERRUPTED", "player", g, spell)
+        advance(3)
+        assert(#Blocks() == 0 and not ns.db.craftMulti, "a hidden success right before the next start of a series: a block (" .. #Blocks() .. "), or the note")
+        for _, x in ipairs(ns.db.craftLog) do
+            assert(x.result ~= "ok" or x.overlap, "a craft of the series after the hidden success counts alone")
+        end
+
+        -- recording off: nothing is recorded, and after switching on the next
+        -- reading is protected as well
+        Reset()
+        ns.db.craftLogOff = true
+        ns.CraftLogBreak()
+        Success(nil, HIDDEN, true)
+        ns.db.craftLogOff = nil
+        ns.CraftLogBreak()
+        Next()
+        assert(not ns.db.craftMulti and #ns.db.craftLog == 1 and ns.db.craftLog[1].overlap, "a success beyond telling while off: the next craft is not overlapping")
+        -- a real single craft with two points, its start seen, nothing
+        -- unsettled: the note as before
+        Reset()
+        g = Start() advance(3)
+        fire("UNIT_SPELLCAST_SUCCEEDED", "player", g, spell)
+        C_Timer.After(LAG, function() rank = rank + 2 end)
+        advance(3)
+        assert(ns.db.craftMulti and ns.db.craftMulti.Leatherworking, "a clear single craft with two points: no note")
+    end)
+    issecretvalue = saved.secret
+    advance(3)
+    ns.ProfessionRank, ns.CraftData.Have, data.colors[spell] = saved.rank, saved.have, saved.colors
+    ns.db.craftLogOff = saved.off
+    if ns.CraftLogBreak then ns.CraftLogBreak() end
+    advance(3)
+    ns.db.craftLog, ns.db.craftMulti = saved.log, saved.multi
+    if not ok then error(err, 0) end
+end)
 -- (end of the v0.1.21 steps)
 step("Gathering help: mark the node you walk towards, put back like fishing (v0.1.19 Q6 A)", function()
     local saved = { get = GetCVar, set = SetCVar, mark = ns.db.gatherMark, bobber = ns.db.fishMarkBobber, loud = ns.db.fishLoudSplash,
