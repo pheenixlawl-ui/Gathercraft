@@ -61,10 +61,13 @@ local function KnownObjectType(objectID)
     return kind and KIND_TYPES[kind[1]]
 end
 
--- Is this object a gathering node the recorder knows (v0.1.21 T4, the Fish
--- key in the questing mode)? "herb" / "ore" / "chest" from the spawn data,
--- else from a node recorded in the zone you are in (a node new in Forever);
--- nil for anything else - a mailbox, a fishing pool, a door.
+-- Is this object a gathering node Gathercraft knows (v0.1.21 T4, the Fish
+-- key in the questing mode)? "herb" / "ore" / "chest" when its object ID is
+-- in the spawn data, else when the zone you are in has a known entry of
+-- that ID - one you found yourself or one that came in by sharing (a node
+-- new in Forever). Every entry of the zone counts, whatever its source: an
+-- entry from sharing with a wrong kind would be believed here as it is on
+-- the map. nil for anything else - a mailbox, a fishing pool, a door.
 ns.GatherObjectType = function(objectID)
     if type(objectID) ~= "number" then return nil end
     local known = KnownObjectType(objectID)

@@ -306,7 +306,9 @@ end
 --   * a farm run: as before, the key gathers for as long as the run goes
 --   * the questing mode: the key gathers only while the game marks a
 --     gathering node (its soft target for interacting is a herb, a vein or
---     a chest the recorder knows); with nothing marked, or a mailbox, an
+--     a chest: its object ID is in the spawn data, or the zone you are in
+--     has a known entry of that ID - also one that came in by sharing);
+--     with nothing marked, or a mailbox, an
 --     NPC or a fishing pool, it is the Fish key
 --   * what is marked is asked from the game: UnitGUID("softinteract"), a
 --     look every MARK_LOOK seconds while it matters, and at once when the

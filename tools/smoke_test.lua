@@ -8274,6 +8274,39 @@ step("Craft log: a success that cannot be told apart protects the next reading, 
     ns.db.craftLog, ns.db.craftMulti = saved.log, saved.multi
     if not ok then error(err, 0) end
 end)
+step("Gathering help: which objects count as a node for the Fish key - spawn data, or a known entry of the zone, shared ones too (v0.1.21 R2)", function()
+    -- Codex, 11.11.2026 (N1): the report said "nodes you recorded yourself".
+    -- The code takes every entry of the zone you are in, also one that came
+    -- in by sharing and was never harvested by you. That stays; this step
+    -- says so (no behaviour changed with it).
+    local here, other = player.map, 1413
+    local keep = { nodes = ns.db.nodes[here], others = ns.db.nodes[other] }
+    local ok, err = pcall(function()
+        assert(here and here ~= other, "test setup: the zone you are in")
+        assert(not GathercraftQuestieData.kinds.o987654 and not GathercraftQuestieData.kinds.o987655, "test setup: object IDs the spawn data does not know")
+        ns.db.nodes[here], ns.db.nodes[other] = {}, {}
+        -- the spawn data: whatever the zone holds
+        assert(ns.GatherObjectType(1618) == "herb" and ns.GatherObjectType(1731) == "ore" and ns.GatherObjectType(2843) == "chest", "herb, vein and chest of the spawn data")
+        assert(ns.GatherObjectType(987654) == nil, "an object nobody knows counts as a node")
+        -- an entry that came in by sharing, never harvested here (Codex' probe)
+        table.insert(ns.db.nodes[here], { id = "o987654", type = "herb", source = "sync", hits = 0, x = 0.5, y = 0.5 })
+        assert(ns.GatherObjectType(987654) == "herb", "an entry of this zone that came in by sharing does not count")
+        -- an entry of your own
+        table.insert(ns.db.nodes[here], { id = "o987655", type = "ore", count = 3, last = 1, x = 0.4, y = 0.5 })
+        assert(ns.GatherObjectType(987655) == "ore", "an entry of this zone you found yourself does not count")
+        -- another zone's entry does not
+        ns.db.nodes[here] = {}
+        table.insert(ns.db.nodes[other], { id = "o987654", type = "herb", source = "sync", hits = 0, x = 0.5, y = 0.5 })
+        assert(ns.GatherObjectType(987654) == nil, "an entry of another zone counts here")
+        -- a fishing pool, a rare, anything that is no herb, vein or chest: no
+        ns.db.nodes[here] = { { id = "o987654", type = "fish", x = 0.5, y = 0.5 }, { id = "o987655", type = "rare", x = 0.5, y = 0.5 } }
+        assert(ns.GatherObjectType(987654) == nil and ns.GatherObjectType(987655) == nil, "a fishing pool or something else counts as a node to gather")
+        -- not a number: nil, no error
+        assert(ns.GatherObjectType(nil) == nil and ns.GatherObjectType("1618") == nil and ns.GatherObjectType({}) == nil, "an answer for something that is no object ID")
+    end)
+    ns.db.nodes[here], ns.db.nodes[other] = keep.nodes, keep.others
+    if not ok then error(err, 0) end
+end)
 -- (end of the v0.1.21 steps)
 step("Gathering help: mark the node you walk towards, put back like fishing (v0.1.19 Q6 A)", function()
     local saved = { get = GetCVar, set = SetCVar, mark = ns.db.gatherMark, bobber = ns.db.fishMarkBobber, loud = ns.db.fishLoudSplash,
