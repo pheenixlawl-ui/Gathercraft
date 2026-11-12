@@ -422,6 +422,18 @@ local function step(name, fn)
     io.write(("%-38s %s\n"):format(name, (#errors == before) and "ok" or ("FAIL -> " .. errors[#errors])))
 end
 local function slash(cmd) SlashCmdList.GATHERCRAFT(cmd) end
+-- Two steps play hours of a farm run in small ticks and take 65 % of a whole
+-- run (measured 12.11.2026: 225 s and 95 s of 491 s). They check route
+-- logic - arriving, the empty check, self-healing - on a node of their own
+-- and compare numbers and one debug line that is not translated: nothing
+-- in them depends on the language. So they run in English and German only
+-- (Sven, 12.11.2026); in every other language the log says that they were
+-- skipped - never silently. GC_LONG_STEPS=all runs them everywhere.
+local LONG_STEP_LOCALES = { enUS = true, deDE = true }
+local function longStep(name, fn)
+    if LONG_STEP_LOCALES[LOCALE] or os.getenv("GC_LONG_STEPS") == "all" then return step(name, fn) end
+    io.write(("%-38s %s\n"):format(name, "skipped: runs in enUS and deDE (GC_LONG_STEPS=all runs it here)"))
+end
 
 -- ---------------------------------------------------------------- scenario
 step("ADDON_LOADED (fresh, old WoWFFarm data)", function()
@@ -3059,7 +3071,7 @@ step("Run: spots from other players are taken in together, ones the run can't us
     player.map, player.x, player.y = 1412, 0.45, 0.72
     advance(1)
 end)
-step("Self-healing: one empty visit per stay at a spot, not one per check (v0.1.14)", function()
+longStep("Self-healing: one empty visit per stay at a spot, not one per check (v0.1.14)", function()
     local Z = 1471
     local saved = { arrive = ns.db.arriveDist }
     ns.db.arriveDist = 25 -- gone from the spot = more than 2 x max(25, 30) = 60 yd
@@ -3130,7 +3142,7 @@ step("Self-healing: one empty visit per stay at a spot, not one per check (v0.1.
     player.map, player.x, player.y = 1412, 0.45, 0.72
     advance(1)
 end)
-step("Experiment O1: a point learns 'empty' once per stay, the checks and rests go on", function()
+longStep("Experiment O1: a point learns 'empty' once per stay, the checks and rests go on", function()
     local Z = 1471
     local saved = { arrive = ns.db.arriveDist, debug = ns.db.debug }
     ns.db.arriveDist, ns.db.debug = 25, true -- gone from the spot = more than 60 yd
