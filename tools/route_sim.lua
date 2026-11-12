@@ -9,7 +9,7 @@
 --   mode=herb        herb | ore | both
 --   minutes=60       length of the run
 --   speed=11.2       yards per second (7 = running, 11.2 = 60% mount, 14 = 100% mount)
---   active=0.35      share of the spawn points that have a node at a time
+--   active=0.35      share of the places that have a node at a time
 --   respawn=600      seconds until a gathered node grows again (somewhere of its kind)
 --   see=40           yards: a node in front of you is visible from here
 --   track=0          yards: minimap tracking (Find Herbs / Minerals); you ride to nodes it shows
@@ -31,8 +31,13 @@
 --   oracle=1         ignore the addon, always ride to the nearest node that is up
 --                    (nobody can know that: the best any route could ever do)
 --
--- Model: every spawn point of a kind (e.g. Peacebloom) can hold a node; about
--- `active` of them do at any time. A gathered node comes back after `respawn`
+-- Model: every spawn point of a kind (e.g. Peacebloom) can hold a node. The
+-- data holds one entry for every sort a spot can grow (Copper, Tin and Silver
+-- Vein at one spot are three entries): entries of one type (herb / ore)
+-- within 10 yards are one place, and a place holds one node at a time - the
+-- rule of the questing mode's rings. About `active` of the places hold a
+-- node at any time; each sort gets its share of them (an entry at a place
+-- of three entries stands for a third of it). A gathered node comes back after `respawn`
 -- seconds at a random free spawn point of the same kind (that's how Classic
 -- spreads nodes). You ride straight lines (no mountains, no mobs), gather
 -- every node you see within `see` yards, 5 seconds per node. Gold uses the
@@ -51,14 +56,22 @@ end
 
 local GATHER_TIME = 5
 local DT = 0.5
--- Zone sizes in yards (Classic maps), so distances are real
+-- Zone sizes in yards, so distances are real: width and height of each map
+-- as the Forever client has them (the map bounds in conversion.json of
+-- QuestieDB's data/Forever, the file tools/import_questie.py reads; right
+-- to 2 yards). Until 12.11.2026 eight zones stood here with other sizes:
+-- Tirisfal Glades, Hillsbrad Foothills, Dun Morogh and Elwynn Forest about
+-- half as large again as they are, Westfall twice as large, Burning Steppes
+-- 8 % too large; Mulgore a sixth and Eastern Plaguelands 6 % too small
+-- (their Forever maps are larger than Classic's). Every distance there, and
+-- with it every number per hour, was off by that much.
 local SIZES = {
-    [1411] = { 5287, 3525 }, [1412] = { 5137, 3425 }, [1413] = { 10133, 6756 }, [1416] = { 2800, 1866 },
-    [1417] = { 3600, 2400 }, [1418] = { 2487, 1658 }, [1419] = { 3350, 2233 }, [1420] = { 6879, 4587 },
-    [1421] = { 4200, 2800 }, [1422] = { 4300, 2866 }, [1423] = { 4031, 2687 }, [1424] = { 4850, 3233 },
-    [1425] = { 3850, 2566 }, [1426] = { 7500, 5000 }, [1427] = { 2231, 1487 }, [1428] = { 3152, 2100 },
-    [1429] = { 4925, 3283 }, [1430] = { 2500, 1666 }, [1431] = { 2700, 1800 }, [1432] = { 2758, 1839 },
-    [1433] = { 2170, 1447 }, [1434] = { 6381, 4254 }, [1435] = { 2293, 1529 }, [1436] = { 7000, 4667 },
+    [1411] = { 5287, 3525 }, [1412] = { 6154, 4102 }, [1413] = { 10133, 6756 }, [1416] = { 2800, 1866 },
+    [1417] = { 3600, 2400 }, [1418] = { 2487, 1658 }, [1419] = { 3350, 2233 }, [1420] = { 4519, 3012 },
+    [1421] = { 4200, 2800 }, [1422] = { 4300, 2866 }, [1423] = { 4302, 2867 }, [1424] = { 3200, 2133 },
+    [1425] = { 3850, 2566 }, [1426] = { 4925, 3283 }, [1427] = { 2231, 1487 }, [1428] = { 2929, 1952 },
+    [1429] = { 3471, 2315 }, [1430] = { 2500, 1666 }, [1431] = { 2700, 1800 }, [1432] = { 2758, 1839 },
+    [1433] = { 2170, 1447 }, [1434] = { 6381, 4254 }, [1435] = { 2293, 1529 }, [1436] = { 3500, 2333 },
     [1437] = { 4135, 2756 }, [1438] = { 5091, 3393 }, [1439] = { 6550, 4367 }, [1440] = { 5767, 3844 },
     [1441] = { 4400, 2933 }, [1442] = { 4883, 3255 }, [1443] = { 4496, 2998 }, [1444] = { 6950, 4633 },
     [1445] = { 5250, 3500 }, [1446] = { 6900, 4600 }, [1447] = { 5070, 3380 }, [1448] = { 5750, 3833 },
@@ -155,6 +168,24 @@ local function RunOnce(seed)
         end
     end
     assert(#points > 0, "no " .. opts.mode .. " spawn points in zone " .. opts.zone)
+    -- places: entries of one type no further apart than SAME_PLACE yards from
+    -- the first entry there (as Quest.lua counts them). One node per place.
+    local SAME_PLACE = 10
+    local places = {}
+    for _, p in ipairs(points) do
+        local place
+        for _, s in ipairs(places) do
+            if s.type == p.type and (s.wx - p.wx) ^ 2 + (s.wy - p.wy) ^ 2 <= SAME_PLACE * SAME_PLACE then place = s break end
+        end
+        if not place then
+            place = { type = p.type, wx = p.wx, wy = p.wy, up = 0, n = 0 }
+            places[#places + 1] = place
+        end
+        p.place = place
+        place.n = place.n + 1 -- entries here
+    end
+    local function Up(p) p.up = true p.place.up = p.place.up + 1 end
+    local function Down(p) p.up = false p.place.up = p.place.up - 1 end
     -- how often each spawn point gets a node (dead points never)
     local function Normal()
         return math.sqrt(-2 * math.log(1 - math.random())) * math.cos(2 * math.pi * math.random())
@@ -164,11 +195,11 @@ local function RunOnce(seed)
     end
     local function PickFree(list)
         local total = 0
-        for _, p in ipairs(list) do if not p.up then total = total + p.weight end end
+        for _, p in ipairs(list) do if not p.up and p.place.up == 0 then total = total + p.weight end end
         if total <= 0 then return end
         local r = math.random() * total
         for _, p in ipairs(list) do
-            if not p.up then
+            if not p.up and p.place.up == 0 then
                 r = r - p.weight
                 if r <= 0 then return p end
             end
@@ -179,15 +210,28 @@ local function RunOnce(seed)
     local kindIds = {}
     for id in pairs(byKind) do kindIds[#kindIds + 1] = id end
     table.sort(kindIds)
+    -- (one node per kind in turn, so that no sort takes the shared places
+    -- before the others get any)
+    local want, any = {}, true
     for _, id in ipairs(kindIds) do
         local list = byKind[id]
         local live = 0
         for _, p in ipairs(list) do if p.weight > 0 then live = live + 1 end end
-        local want = math.floor(#list * opts.active + 0.5)
-        if live > 0 then want = math.max(1, math.min(want, live)) end
-        for _ = 1, want do
-            local p = PickFree(list)
-            if p then p.up = true end
+        -- (its share of the places: `active` of the entries would fill every
+        -- place where three sorts share one)
+        local share = 0
+        for _, p in ipairs(list) do share = share + 1 / p.place.n end
+        want[id] = math.floor(share * opts.active + 0.5)
+        if live > 0 then want[id] = math.max(1, math.min(want[id], live)) end
+    end
+    while any do
+        any = false
+        for _, id in ipairs(kindIds) do
+            if want[id] > 0 then
+                want[id] = want[id] - 1
+                local p = PickFree(byKind[id])
+                if p then Up(p) any = true end
+            end
         end
     end
     local respawns = {} -- { at, kind }
@@ -196,9 +240,12 @@ local function RunOnce(seed)
         for i = #respawns, 1, -1 do
             local r = respawns[i]
             if now >= r.at then
-                table.remove(respawns, i)
+                -- (no free place of its kind right now: it waits for one)
                 local p = PickFree(byKind[r.kind])
-                if p then p.up = true end
+                if p then
+                    Up(p)
+                    table.remove(respawns, i)
+                end
             end
         end
     end
@@ -224,7 +271,7 @@ local function RunOnce(seed)
         h.setLoot({ { guid = ("GameObject-0-1-1-1-%d-SIM%06d"):format(p.id, spawnSeq), item = p.item, qty = 2 } })
         h.fire("LOOT_READY")
         h.setLoot({})
-        p.up = false
+        Down(p)
         respawns[#respawns + 1] = { at = now + opts.respawn, kind = tostring(p.id) }
     end
 
@@ -246,7 +293,7 @@ local function RunOnce(seed)
                     end
                 end
                 if best and bd <= opts.see then
-                    best.up = false
+                    Down(best)
                     respawns[#respawns + 1] = { at = now + opts.respawn, kind = tostring(best.id) }
                     rivalTaken = rivalTaken + 1
                     r.x, r.y, r.busy = best.wx, best.wy, now + GATHER_TIME + bd / opts.speed
@@ -382,6 +429,7 @@ local function RunOnce(seed)
     local minutes = (h.now() - start) / 60
     stats.perHour = stats.gathered / minutes * 60
     stats.points = #points
+    stats.places = #places
     stats.rounds = ns.run and ns.run.round or 0
     -- arrivals at spawn points that turned out empty (the addon marks them)
     stats.emptyArrivals = emptyCount
@@ -397,14 +445,14 @@ local function RunOnce(seed)
     return stats
 end
 
-out(("Route simulator: zone %s, %s, %d min, speed %.1f yd/s, %d%% of spawn points up, respawn %ds, see %d yd, tracking %s, next node at %d yd\n")
+out(("Route simulator: zone %s, %s, %d min, speed %.1f yd/s, %d%% of the places up, respawn %ds, see %d yd, tracking %s, next node at %d yd\n")
     :format(opts.zone, opts.mode, opts.minutes, opts.speed, opts.active * 100, opts.respawn, opts.see,
         opts.track > 0 and (opts.track .. " yd") or "off", opts.arrive))
 local sum = {}
 for r = 0, opts.runs - 1 do
     local s = RunOnce(opts.seed + r)
-    out(("  seed %d: %d nodes (%.0f/h), %.0f skill-ups/h (skill %d at the end), %.1fg/h, %.0f yd ridden, %.0f s idle, %d empty arrivals, %d spawn points, %d target changes\n")
-        :format(opts.seed + r, s.gathered, s.perHour, s.skillUpsPerHour, s.skillEnd, s.goldPerHour, s.distance, s.idle, s.emptyArrivals, s.points,
+    out(("  seed %d: %d nodes (%.0f/h), %.0f skill-ups/h (skill %d at the end), %.1fg/h, %.0f yd ridden, %.0f s idle, %d empty arrivals, %d spawn points in %d places, %d target changes\n")
+        :format(opts.seed + r, s.gathered, s.perHour, s.skillUpsPerHour, s.skillEnd, s.goldPerHour, s.distance, s.idle, s.emptyArrivals, s.points, s.places,
             s.targetChanges))
     out(("    shown route: %.2f crossings, %.0f yd per point (first %d points, every %d s)\n"):format(s.crossPerCheck, s.yardsPerPoint, 30, 30))
     for k, v in pairs(s) do sum[k] = (sum[k] or 0) + v end
