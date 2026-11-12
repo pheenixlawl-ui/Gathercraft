@@ -1,4 +1,4 @@
-## v0.1.21
+## v0.1.21 – 2026-11-12
 
 ### Fixed
 - **Questing mode, a gold ring on a vein that is gone:** the starter data holds one entry for every sort a spot can grow – Copper, Tin and Silver Vein at the same spot are three entries. After you mined the tin, the other two still got a ring. Entries of one kind (herb, ore, chest) within 10 yards now count as one spot: it gets one ring, and none while any entry there rests (just harvested, found empty, or parked). Nothing in your recorded nodes changes.
