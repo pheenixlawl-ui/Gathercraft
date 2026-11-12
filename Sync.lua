@@ -301,12 +301,16 @@ local function DisplayName(id, item, nodeType)
     return name or (nodeType == "herb" and L["Unknown Herb"] or L["Unknown Ore"])
 end
 
--- So you see that sharing works: now and then one line in chat with what
--- other players' spots added (never more than one line every few minutes)
+-- For those who want to see that sharing works: now and then one line in
+-- chat with what other players' spots added (never more than one line every
+-- few minutes). Off unless you turn it on (since 0.1.21, T9: the line was on
+-- by default and read as chat spam). The choice is kept as announceOn = true;
+-- the old announceOff (0.1.20 and before: true = turned off, nil = never
+-- touched) is not asked any more - both mean "off" now.
 local ANNOUNCE_DELAY, ANNOUNCE_GAP = 20, 180
 local announce = { zones = {}, total = 0, lastAt = 0, pending = false }
 local function AnnounceImport(mapID)
-    if DB().announceOff then return end
+    if DB().announceOn ~= true then return end
     announce.zones[mapID] = (announce.zones[mapID] or 0) + 1
     announce.total = announce.total + 1
     if announce.pending then return end

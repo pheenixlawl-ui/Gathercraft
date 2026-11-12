@@ -1021,8 +1021,13 @@ local function Build()
             if ns.db.sync.public ~= on then ns.SyncCommand("public") end
         end)
     AddCheck("Tell me in chat when spots of other players arrive",
-        function() return not (ns.db.sync and ns.db.sync.announceOff) end,
-        function(on) ns.db.sync.announceOff = not on or nil end)
+        function() return (ns.db.sync and ns.db.sync.announceOn) == true end,
+        function(on)
+            -- off by default (0.1.21, T9); the old "turned off" mark goes
+            -- with the first choice made here
+            ns.db.sync.announceOn = on or nil
+            ns.db.sync.announceOff = nil
+        end)
     -- what sharing did so far, kept up to date while the section is open
     nextY = nextY - 10
     AddHeader("Right now")

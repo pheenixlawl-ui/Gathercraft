@@ -4955,6 +4955,9 @@ step("Sharing shows what it does; chests can be hidden", function()
         for _, l in ipairs(log) do if l:find(text, 1, true) then return true end end
     end
     -- a friend's (guild) spot arrives: one line in chat a little later
+    -- (for those who turned the line on - since 0.1.21, T9, it is off by default)
+    local keepOn, keepOff = ns.db.sync.announceOn, ns.db.sync.announceOff
+    ns.db.sync.announceOn, ns.db.sync.announceOff = true, nil
     for i, l in ipairs(log) do if l:find(ns.GetZoneName(1412), 1, true) then log[i] = "" end end
     fire("CHAT_MSG_ADDON", "Gathercraft", "N:1412;o1620,h,6111,2222,785", "GUILD", "Guildie Three")
     advance(200) -- at most one note every 3 minutes (an earlier step may just have had one)
@@ -4962,12 +4965,12 @@ step("Sharing shows what it does; chests can be hidden", function()
     local peers, received = ns.SyncSummary()
     assert(received >= 1, "summary without the received spot")
     -- the note can be turned off
-    ns.db.sync.announceOff = true
+    ns.db.sync.announceOn = nil
     for i, l in ipairs(log) do if l:find(ns.GetZoneName(1412), 1, true) then log[i] = "" end end
     fire("CHAT_MSG_ADDON", "Gathercraft", "N:1412;o1619,h,3555,4666,2449", "GUILD", "Guildie Three")
     advance(240)
     assert(not said(ns.GetZoneName(1412)), "note shown although turned off")
-    ns.db.sync.announceOff = nil
+    ns.db.sync.announceOn, ns.db.sync.announceOff = keepOn, keepOff
     -- chests: off in the options = no pins
     ns.db.nodes[1450] = { { id = "o2843", name = "Battered Chest", type = "chest", x = 0.5, y = 0.5, count = 1, last = 1 } }
     HBD_ADDS["Gathercraft"] = { world = 0, mini = 0 }
@@ -8403,6 +8406,97 @@ step("Craft log: a success that cannot be told apart also marks the craft that i
     if ns.CraftLogBreak then ns.CraftLogBreak() end
     advance(3)
     ns.db.craftLog, ns.db.craftMulti = saved.log, saved.multi
+    if not ok then error(err, 0) end
+end)
+step("Sharing: the chat line about spots of other players is off until you turn it on (v0.1.21 T9)", function()
+    -- Sven, 12.11.2026 (a player asked how to stop the "chat spam"): off by
+    -- default, also for everyone who never touched the option. The choice
+    -- "on" is kept as sync.announceOn = true; the old sync.announceOff
+    -- (true = turned off, nil = never touched) means "off" either way.
+    local db = ns.db.sync
+    local saved = { on = db.announceOn, off = db.announceOff, enabled = db.enabled }
+    slash("sync on")
+    local zone = ns.GetZoneName(1412)
+    local function IsLine(l) -- the line in the language of this run, for 1 to 9 spots of this zone
+        for k = 1, 9 do
+            if l:find((ns.L["%d spots shared by other players added (%s)."]):format(k, zone), 1, true) then return true end
+        end
+    end
+    local function Lines()
+        local n = 0
+        for _, l in ipairs(log) do if IsLine(l) then n = n + 1 end end
+        return n
+    end
+    local spot = 0
+    local function Arrive() -- a new spot from the guild, another place each time
+        spot = spot + 1
+        local before = select(2, ns.SyncSummary())
+        fire("CHAT_MSG_ADDON", "Gathercraft", ("N:1412;o1620,h,%d,%d,785"):format(7100 + spot * 37, 1300 + spot * 41), "GUILD", "Guildie Nine")
+        assert(select(2, ns.SyncSummary()) > before, "test setup: the spot was not taken")
+    end
+    local win = _G.GathercraftOptions
+    local wasOpen = win:IsShown()
+    local ok, err = pcall(function()
+        if not wasOpen then ns.ToggleOptions() end
+        ns.ShowOptionsSection("sync")
+        local label
+        for _, f in ipairs(allFrames) do
+            if f.__kind == "FontString" and f.__text == ns.L["Tell me in chat when spots of other players arrive"] then label = f end
+        end
+        local box = label and ((label.__pts.TOPLEFT and label.__pts.TOPLEFT[1]) or (label.__pts.LEFT and label.__pts.LEFT[1]))
+        assert(box and box.__kind == "CheckButton" and box.get and box.__scripts.OnClick, "test setup: the option's switch")
+        advance(400) -- whatever an earlier step left: said and over
+        -- 1. a new installation: nothing stored - no line, the box is empty
+        db.announceOn, db.announceOff = nil, nil
+        local n0 = Lines()
+        assert(box.get() == false, "new installation: the box is ticked")
+        Arrive() advance(400)
+        assert(Lines() == n0, "new installation: the line came without being asked for")
+        -- 2. 0.1.20 and before, turned off by hand: stays off
+        db.announceOn, db.announceOff = nil, true
+        assert(box.get() == false, "turned off in 0.1.20: the box is ticked")
+        Arrive() advance(400)
+        assert(Lines() == n0, "turned off in 0.1.20: the line came")
+        assert(db.announceOff == true, "the old mark was changed without a choice")
+        -- 3. tick the box: the line comes, and what arrived while it was off is not in it
+        box:SetChecked(true) box.__scripts.OnClick(box)
+        assert(db.announceOn == true and db.announceOff == nil, "ticked: announceOn " .. tostring(db.announceOn) .. ", announceOff " .. tostring(db.announceOff))
+        assert(box.get() == true, "ticked: the box does not show it")
+        advance(30)
+        assert(Lines() == n0, "ticking the box alone said something")
+        Arrive()
+        advance(19)
+        assert(Lines() == n0, "the line came before its 20 s")
+        advance(2)
+        assert(Lines() == n0 + 1, "ticked: no line after 20 s")
+        local said
+        for _, l in ipairs(log) do if IsLine(l) then said = l end end
+        assert(said:find((ns.L["%d spots shared by other players added (%s)."]):format(1, zone), 1, true), "the line counts what came while it was off: " .. said)
+        -- the pace is as before: at most one line every 180 s
+        Arrive()
+        advance(170)
+        assert(Lines() == n0 + 1, "a second line within 180 s")
+        advance(15)
+        assert(Lines() == n0 + 2, "no second line after 180 s")
+        -- 4. what is saved is the choice itself (SavedVariables: GathercraftDB)
+        assert(GathercraftDB == ns.db and GathercraftDB.sync.announceOn == true, "the choice is not in the saved table")
+        fire("PLAYER_LOGIN") advance(5) -- the login of the next session reads the same table
+        assert(ns.db.sync.announceOn == true and box.get() == true, "the choice is gone after the next login")
+        -- 5. untick: quiet again, nothing stored
+        box:SetChecked(false) box.__scripts.OnClick(box)
+        assert(db.announceOn == nil and db.announceOff == nil, "unticked: announceOn " .. tostring(db.announceOn) .. ", announceOff " .. tostring(db.announceOff))
+        advance(400)
+        local n1 = Lines()
+        Arrive() advance(400)
+        assert(Lines() == n1, "unticked: the line came")
+        -- 6. anything but true is "off" (a broken or foreign value)
+        db.announceOn = false
+        Arrive() advance(400)
+        assert(Lines() == n1 and box.get() == false, "announceOn = false counts as on")
+    end)
+    db.announceOn, db.announceOff, db.enabled = saved.on, saved.off, saved.enabled
+    if not wasOpen then ns.ToggleOptions() end
+    advance(400)
     if not ok then error(err, 0) end
 end)
 -- (end of the v0.1.21 steps)
