@@ -437,12 +437,28 @@ local function UnreadCraft(event, spell)
     if ns.AnySecret("craft log unread", spell) or Recipe(spell) then Unread() end
 end
 
+-- A craft the log does not read has succeeded while another cast is
+-- running (Codex 12.11.2026, round 2, V1). That cast has read its "before"
+-- at its start already and will read its "after" once it succeeds - the
+-- other craft's point lies in between. It is overlapping from here on
+-- (blind = "during"), its series is broken. The same rule as for what
+-- starts next and for what is being read; no new time window.
+local function OverlapRunning()
+    for _, c in pairs(casts) do
+        c.overlap = true
+        c.blind = c.blind or "during"
+        if c.series then c.series.broken = true end
+    end
+end
+
 -- the same for a success that cannot be told apart while recording is on
--- (R1): what is being read now shares its reading with it, too
+-- (R1): what is being read now shares its reading with it, too - and what
+-- is being cast (V1)
 local function UntoldSuccess(event, spell)
     if event ~= "UNIT_SPELLCAST_SUCCEEDED" then return end
     if ns.AnySecret("craft log untold", spell) or Recipe(spell) then
         Overlap()
+        OverlapRunning()
         Unread()
     end
 end
@@ -488,6 +504,7 @@ watch:SetScript("OnEvent", function(_, event, unit, guid, spell)
         local e = { t = time(), prof = r.prof, spell = spell, recipe = r.key, result = "ok", secret = true, colour = "unknown" }
         -- a craft all the same: one still being read shares its readings (Codex B1)
         Overlap(e)
+        OverlapRunning() -- (and one being cast, V1)
         Add(e)
         Unread() -- its own point is read by nobody (T8)
         return

@@ -8307,6 +8307,104 @@ step("Gathering help: which objects count as a node for the Fish key - spawn dat
     ns.db.nodes[here], ns.db.nodes[other] = keep.nodes, keep.others
     if not ok then error(err, 0) end
 end)
+step("Craft log: a success that cannot be told apart also marks the craft that is being cast (v0.1.21 V1)", function()
+    -- Codex, 12.11.2026, round 2 on 0.1.21 (R2-V1, a guess about the client,
+    -- shown in the mock): a craft reads its "before" at its START, but is
+    -- "being read" only from its success on. A success beyond telling in
+    -- between protected later starts and running readings - not the craft
+    -- that was already being cast: +2 for it, the note.
+    local data = GathercraftRecipeData
+    local spell = data.spells.Leatherworking["Light Leather"]
+    local saved = { rank = ns.ProfessionRank, have = ns.CraftData.Have, colors = data.colors[spell],
+        log = ns.db.craftLog, off = ns.db.craftLogOff, multi = ns.db.craftMulti, secret = issecretvalue }
+    local HIDDEN = newproxy(true)
+    local rank = 10
+    ns.ProfessionRank = function(p) if p == "Leatherworking" then return rank, 75 end end
+    ns.CraftData.Have = function() return 0 end
+    data.colors[spell] = "25:45"
+    ns.db.craftLog, ns.db.craftLogOff, ns.db.craftMulti = {}, nil, nil
+    local n = 0
+    local function Start() n = n + 1 local g = "Cast-v1-" .. n fire("UNIT_SPELLCAST_START", "player", g, spell) return g end
+    local function Point(delta) C_Timer.After(0.5, function() rank = rank + (delta or 1) end) end
+    local function Ok(g) fire("UNIT_SPELLCAST_SUCCEEDED", "player", g, spell) Point() end
+    local function Unknown(guid, sp, delta)
+        issecretvalue = function(v) return rawequal(v, HIDDEN) end
+        fire("UNIT_SPELLCAST_SUCCEEDED", "player", guid, sp)
+        issecretvalue = saved.secret
+        if delta then Point(delta) end
+    end
+    local function Reset() advance(3) ns.CraftLogBreak() ns.db.craftLog, ns.db.craftMulti = {}, nil rank = 10 advance(3) end
+    local function Blocks()
+        local c = 0
+        for _, e in ipairs(ns.db.craftLog) do if e.kind == "series" then c = c + 1 end end
+        return c
+    end
+    local ok, err = pcall(function()
+        advance(3)
+        -- Codex' probe (extra.lua): START A, 1 s later a wholly hidden success
+        -- with a point, A succeeds after 3 s. No further start.
+        for _, form in ipairs({ { HIDDEN, HIDDEN }, { false, HIDDEN }, { false, spell }, { "Cast-v1-new", HIDDEN }, { HIDDEN, spell } }) do
+            Reset()
+            local g = Start()
+            advance(1)
+            Unknown(form[1] or nil, form[2], 1)
+            advance(2)
+            Ok(g)
+            advance(3)
+            local what = (form[1] == HIDDEN and "hidden" or tostring(form[1])) .. " / " .. (form[2] == HIDDEN and "hidden" or "recipe")
+            assert(rank == 12, "test setup: two points")
+            assert(not ns.db.craftMulti, "a success beyond telling (" .. what .. ") during a cast: the note \"a craft gave more than one point\" is set")
+            local mine
+            for _, e in ipairs(ns.db.craftLog) do if not e.secret or e.before then mine = e end end
+            assert(mine and mine.overlap and mine.blind == "during", "the craft that was being cast (" .. what .. ") is not overlapping: blind " .. tostring(mine and mine.blind))
+            local byColour, _, others = ns.CraftLogSummary()
+            assert(not next(byColour) and others.multi == 0, "the craft that was being cast (" .. what .. ") is in a rate")
+        end
+        -- the same in a series: the cast that was running, and with it the series
+        -- (the first craft gives no point: two crafts and two points would
+        -- pass for a block of 2 / 2 - one of the points is the other craft's)
+        Reset()
+        local g = Start() advance(3) fire("UNIT_SPELLCAST_SUCCEEDED", "player", g, spell)
+        g = Start() advance(2)          -- (the first is read by now: nothing is "being read")
+        Unknown(HIDDEN, HIDDEN, 1)
+        advance(1) Ok(g) advance(3)
+        assert(rank == 12, "test setup: the first craft none, the second and the unknown one a point each")
+        assert(Blocks() == 0 and not ns.db.craftMulti, "a success beyond telling during the second cast of a series: a block of 2 with 2 points, or the note")
+        local byColour = ns.CraftLogSummary()
+        assert(not next(byColour), "a success beyond telling during the second cast of a series: its crafts are in a rate")
+        -- what must stay: a spell that is no recipe, readable, during a cast - nothing
+        Reset()
+        g = Start() advance(1)
+        Unknown(HIDDEN, 8690) Unknown(nil, 8690) Unknown("Cast-v1-hearth", 8690)
+        advance(2) Ok(g) advance(3)
+        assert(#ns.db.craftLog == 1 and not ns.db.craftLog[1].overlap and not ns.db.craftLog[1].blind and ns.db.craftLog[1].gain == 1, "a spell that is no recipe during a cast made the craft overlapping")
+        -- a failure or a start beyond telling during a cast - nothing
+        Reset()
+        g = Start() advance(1)
+        issecretvalue = function(v) return rawequal(v, HIDDEN) end
+        fire("UNIT_SPELLCAST_FAILED", "player", HIDDEN, HIDDEN)
+        fire("UNIT_SPELLCAST_START", "player", HIDDEN, HIDDEN)
+        issecretvalue = saved.secret
+        advance(2) Ok(g) advance(3)
+        assert(#ns.db.craftLog == 1 and not ns.db.craftLog[1].overlap and ns.db.craftLog[1].gain == 1, "a failure beyond telling during a cast made the craft overlapping")
+        -- a finished block stays as it is (Codex' own control), a later series counts
+        Reset()
+        g = Start() advance(3) Ok(g) g = Start() advance(3) Ok(g) advance(1.6)
+        assert(Blocks() == 1, "test setup: a block")
+        Unknown(HIDDEN, HIDDEN) advance(2)
+        assert(Blocks() == 1 and not ns.db.craftMulti, "a finished block changed")
+        g = Start() advance(3) Ok(g) g = Start() advance(3) Ok(g) advance(3)
+        assert(Blocks() == 2, "a later clean series does not count")
+    end)
+    issecretvalue = saved.secret
+    advance(3)
+    ns.ProfessionRank, ns.CraftData.Have, data.colors[spell] = saved.rank, saved.have, saved.colors
+    ns.db.craftLogOff = saved.off
+    if ns.CraftLogBreak then ns.CraftLogBreak() end
+    advance(3)
+    ns.db.craftLog, ns.db.craftMulti = saved.log, saved.multi
+    if not ok then error(err, 0) end
+end)
 -- (end of the v0.1.21 steps)
 step("Gathering help: mark the node you walk towards, put back like fishing (v0.1.19 Q6 A)", function()
     local saved = { get = GetCVar, set = SetCVar, mark = ns.db.gatherMark, bobber = ns.db.fishMarkBobber, loud = ns.db.fishLoudSplash,
