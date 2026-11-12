@@ -12,3 +12,4 @@
 ### Changed
 - **Questing mode, minimap style "Ring only":** the rings are the thin gold ring now, at the same size. The next node of a farm run keeps the broad ring.
 - **Craft log, header:** "crafts" counts finished crafts only. Failed and interrupted casts stand under "Not counted".
+- **Sharing, the chat line "… spots shared by other players added":** it is off by default now, also if you never touched the option. To get it back: Options › Sharing › "Tell me in chat when spots of other players arrive". Sharing itself is unchanged.

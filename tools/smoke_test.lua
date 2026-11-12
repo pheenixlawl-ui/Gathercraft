@@ -10462,7 +10462,7 @@ step("What's new: 0.1.21 after an update, in this language and all translations"
     local cf = assert(io.open(ROOT .. "/CHANGELOG.md"))
     local changelog = cf:read("*a") cf:close()
     assert(changelog:find("^## v0%.1%.21") and not changelog:find("## v0.1.20", 1, true), "CHANGELOG: not 0.1.21 only")
-    for _, said in ipairs({ "one spot", "once per look", "Ellesmere UI", "Fish key gathers the marked node", "Minimap shape", "Create All ended by moving", "gave more than one point", "Ring only", "hides the identity of", "your own or a shared one", "being cast at that moment" }) do
+    for _, said in ipairs({ "one spot", "once per look", "Ellesmere UI", "Fish key gathers the marked node", "Minimap shape", "Create All ended by moving", "gave more than one point", "Ring only", "hides the identity of", "your own or a shared one", "being cast at that moment", "off by default now, also if you never touched the option", "Tell me in chat when spots of other players arrive" }) do
         assert(changelog:find(said, 1, true), "CHANGELOG: nothing about \"" .. said .. "\"")
     end
     -- the date comes with the release itself (0.1.20 carried the day it was
