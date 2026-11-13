@@ -33,6 +33,11 @@ local KNOWN_BOX = 0.01   -- share of the map checked before the distance is work
 local ZONES_PER_STEP = 2 -- Questie zones read per frame step
 local STEP = 0.05        -- seconds between steps
 local SETTLE = 3         -- seconds after the last node change before the own part is counted again
+local COMBAT_WAIT = 1    -- seconds until a waiting step looks again: in combat nothing is counted
+
+local function Fighting()
+    return InCombatLockdown and InCombatLockdown() and true or false
+end
 
 local users = {}         -- who wants the counts (name -> true)
 local state = "off"      -- "off", "building", "ready"
@@ -140,6 +145,10 @@ local function Recount(myRun)
     local i, changed = 0, {}
     local function Step()
         if myRun ~= run then return end
+        if Fighting() then
+            C_Timer.After(COMBAT_WAIT, Step)
+            return
+        end
         local t0 = debugprofilestop()
         i = i + 1
         local mapID = zones[i]
@@ -203,6 +212,10 @@ local function Build(myRun)
     local i = 0
     local function Step()
         if myRun ~= run then return end
+        if Fighting() then
+            C_Timer.After(COMBAT_WAIT, Step)
+            return
+        end
         local t0 = debugprofilestop()
         for _ = 1, ZONES_PER_STEP do
             i = i + 1

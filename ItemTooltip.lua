@@ -49,6 +49,14 @@ local function Enabled()
     return not (ns.db and ns.db.tooltipPrices == false)
 end
 
+-- In combat nothing is worked out: what the caches hold is shown as it is,
+-- what they don't hold is left out until the fight is over, and the
+-- indexes wait (concept 6, "Secret/Kampf")
+local function Fighting()
+    return InCombatLockdown and InCombatLockdown() and true or false
+end
+local COMBAT_WAIT = 1 -- seconds until a waiting build step looks again
+
 ---------------------------------------------------------------------------
 -- The indexes: which items get the block, which professions use an item
 ---------------------------------------------------------------------------
@@ -72,6 +80,10 @@ local function Build(myRun)
     buildMs = buildMs + (debugprofilestop() - t0)
     local function Step()
         if myRun ~= run then return end
+        if Fighting() then
+            C_Timer.After(COMBAT_WAIT, Step)
+            return
+        end
         local s0 = debugprofilestop()
         local budget = RECIPES_PER_STEP
         while budget > 0 do
@@ -185,6 +197,7 @@ end
 -- The last 14 days of an item, worked out once per price revision and UTC
 -- day: { days, usual, text14, text7 }
 local hist, histRev, histDay, histLang = {}, nil, nil, nil
+local PENDING = { pending = true, days = 0 } -- not worked out yet (in combat): no line
 local function History(itemID)
     local rev, day = ns.PriceRev(), floor(time() / 86400)
     if rev ~= histRev or day ~= histDay or langRev ~= histLang then
@@ -192,6 +205,7 @@ local function History(itemID)
     end
     local h = hist[itemID]
     if h then return h end
+    if Fighting() then return PENDING end
     h = { days = 0 }
     local list = ns.PriceHistoryWindow(itemID, day)
     h.days = #list
@@ -226,6 +240,7 @@ local function ZoneLine(itemID)
     end
     local text = zoneText[itemID]
     if text ~= nil then return text or nil end
+    if Fighting() then return end
     local list = ns.SpawnCounts(itemID)
     if not list then return end -- being counted: no line, and nothing kept
     local best
@@ -257,6 +272,7 @@ local function UsedLine(itemID)
     if usedKey ~= usedBuild or usedLang ~= langRev then usedText, usedKey, usedLang = {}, usedBuild, langRev end
     local text = usedText[itemID]
     if text then return text end
+    if Fighting() then return end
     local d = ns.CraftData
     local profs = {}
     for prof, n in pairs(u) do
@@ -310,12 +326,14 @@ local function BlockSection(tooltip, itemID, ctx)
     local uses = UsesText(info)
     if uses then tooltip:AddLine("      " .. uses, 0.7, 0.7, 0.7) end
     local h = History(itemID)
-    local days = h.text14
-    if not days then
-        days = GREY .. ((ns.PriceTracksHistory and not ns.PriceTracksHistory(itemID)) and L["unknown (only trade goods are tracked)"]
-            or L["unknown (no price in the last 14 days)"]) .. CLOSE
+    if not h.pending then
+        local days = h.text14
+        if not days then
+            days = GREY .. ((ns.PriceTracksHistory and not ns.PriceTracksHistory(itemID)) and L["unknown (only trade goods are tracked)"]
+                or L["unknown (no price in the last 14 days)"]) .. CLOSE
+        end
+        tooltip:AddDoubleLine(Label(L["14 days"]), days, 0.8, 0.8, 0.8, 1, 1, 1)
     end
-    tooltip:AddDoubleLine(Label(L["14 days"]), days, 0.8, 0.8, 0.8, 1, 1, 1)
     if not ctx.shift then return true end
     if h.text7 then
         tooltip:AddDoubleLine(Label(L["Last 7 days"]), h.text7, 0.8, 0.8, 0.8, 1, 1, 1)

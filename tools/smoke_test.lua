@@ -21411,6 +21411,101 @@ step("Waypoints: a client without one of the waypoint functions gets no Lua erro
     USER_WP, WP_SETS, WP_CLEARS = saved.wp, saved.sets, saved.clears
     if not ok then error(err, 0) end
 end)
+step("Item tooltip in combat: the lines stay as they are, nothing is worked out or built until the fight is over (v0.2 B2 C7)", function()
+    -- Concept item tooltip 6, "Secret/Kampf": under InCombatLockdown the
+    -- lines stay the same; with an empty cache nothing is built.
+    ns.GetPrice(785)
+    local p = ns.db.prices[next(ns.db.prices)]
+    local L = ns.L
+    local HERB = 2447
+    local saved = { option = ns.db.tooltipPrices, shift = IsShiftKeyDown, combat = InCombatLockdown, gmatch = string.gmatch, sort = table.sort,
+        price = { p.items[HERB], p.qty[HERB], p.seen[HERB], p.kind[HERB], p.qtyOk[HERB], p.history[HERB] }, zones = ns.db.disabledZones }
+    local before = #errors
+    local ok, err = pcall(function()
+        ns.db.tooltipPrices = true
+        IsShiftKeyDown = function() return true end
+        local day = math.floor(time() / 86400)
+        p.items[HERB], p.seen[HERB], p.kind[HERB], p.qty[HERB], p.qtyOk[HERB] = 295, time() - 3600, "market", 240, true
+        p.history[HERB] = ("%d:300;%d:200;%d:100;%d:295"):format(day - 3, day - 2, day - 1, day)
+        ns.SpawnCountsStart("test")
+        local fx = TT.Load("tdp", true)
+        fx.Event("PLAYER_LOGIN") advance(10)
+        assert(fx.State() == "ready" and ns.SpawnCountsState() == "ready", "test setup: " .. fx.State())
+        local tip = fx.game
+        local function Text() return table.concat(fx.Hover(tip, HERB), "\n") end
+        local calm = Text()
+        for _, label in ipairs({ "AH price", "14 days", "Last 7 days", "Most spawn points", "Used in" }) do
+            assert(calm:find(L[label], 1, true), "test setup: no line \"" .. label .. "\" out of combat")
+        end
+
+        -- ---- in combat with everything worked out before: the same lines
+        InCombatLockdown = function() return true end
+        assert(Text() == calm, "the lines changed in combat:\n" .. Text() .. "\n--- out of combat:\n" .. calm)
+
+        -- ---- in combat with nothing worked out: the price (it is asked for anew anyway), nothing else - and no parsing, no sorting
+        fx.ns.languageListeners[1]() -- (every text has to be made anew)
+        local parsed, sorted = 0, 0
+        string.gmatch = function(...) parsed = parsed + 1 return saved.gmatch(...) end
+        table.sort = function(...) sorted = sorted + 1 return saved.sort(...) end
+        local fight = Text()
+        string.gmatch, table.sort = saved.gmatch, saved.sort
+        assert(parsed == 0 and sorted == 0, ("in combat with empty caches: parsed %d times, sorted %d times"):format(parsed, sorted))
+        assert(fight:find(L["AH price"], 1, true) and fight:find(L["own scan"], 1, true), "in combat: the price line is gone:\n" .. fight)
+        for _, label in ipairs({ "14 days", "Last 7 days", "Most spawn points", "Used in" }) do
+            assert(not fight:find("  " .. L[label] .. " = ", 1, true), "in combat with empty caches: the line \"" .. label .. "\" was worked out:\n" .. fight)
+        end
+        -- the fight is over: everything again
+        InCombatLockdown = function() return false end
+        assert(Text() == calm, "after the fight:\n" .. Text())
+
+        -- ---- the indexes are not built in combat: they wait, and go on after it
+        InCombatLockdown = function() return true end
+        fx.ns.ItemTooltipSetEnabled(false)
+        fx.ns.ItemTooltipSetEnabled(true)
+        advance(20)
+        local st = fx.ns.ItemTooltipState()
+        assert(st.state == "building" and st.builds == 1, "the recipe index was built in combat: " .. st.state .. ", " .. st.builds .. " builds")
+        ns.SpawnCountsStop("test")
+        if ns.ItemTooltipSetEnabled then ns.ItemTooltipSetEnabled(false) end -- (the game's own copy uses the counts too)
+        ns.db.tooltipPrices = true -- (the switch itself stays on for the copy of this step)
+        assert(ns.SpawnCountsState() == "off", "test setup: the spawn counts are still in use")
+        ns.SpawnCountsStart("test")
+        advance(20)
+        assert(ns.SpawnCountsState() == "building" and ns.SpawnCounts(HERB) == nil, "the spawn points were counted in combat: " .. tostring(ns.SpawnCountsState()))
+        InCombatLockdown = function() return false end
+        advance(15)
+        assert(fx.State() == "ready" and fx.ns.ItemTooltipState().builds == 2, "after the fight the recipe index is not built: " .. fx.State())
+        assert(ns.SpawnCountsState() == "ready" and ns.SpawnCounts(HERB), "after the fight the spawn points are not counted")
+        -- a recount after a node change waits too
+        InCombatLockdown = function() return true end
+        ns.NotifyNodesChanged()
+        advance(20)
+        assert(ns.SpawnCounts(HERB) == nil, "a recount ran in combat")
+        InCombatLockdown = function() return false end
+        advance(15)
+        assert(ns.SpawnCounts(HERB), "after the fight the recount did not finish")
+        assert(Text() == calm, "after all that:\n" .. Text())
+
+        -- ---- zones you switched off for farming do not change the line: it shows what is known, not where you farm
+        local zoneLine = TT.Line(fx.Hover(tip, HERB), L["Most spawn points"])
+        local best = ns.SpawnCounts(HERB)[1].mapID
+        ns.db.disabledZones = setmetatable({ [best] = true }, { __index = function() return true end })
+        ns.NotifyNodesChanged()
+        advance(15)
+        assert(TT.Line(fx.Hover(tip, HERB), L["Most spawn points"]) == zoneLine, "switched-off zones changed the zone line")
+        assert(#errors == before, "an error: " .. tostring(errors[#errors]))
+    end)
+    string.gmatch, table.sort = saved.gmatch, saved.sort
+    IsShiftKeyDown, InCombatLockdown = saved.shift, saved.combat
+    ns.db.disabledZones = saved.zones
+    ns.db.tooltipPrices = saved.option
+    p.items[HERB], p.qty[HERB], p.seen[HERB], p.kind[HERB], p.qtyOk[HERB], p.history[HERB] = saved.price[1], saved.price[2], saved.price[3], saved.price[4], saved.price[5], saved.price[6]
+    ns.SpawnCountsStop("test")
+    if ns.ItemTooltipSetEnabled then ns.ItemTooltipSetEnabled(saved.option ~= false) end
+    ns.NotifyNodesChanged()
+    advance(15)
+    if not ok then error(err, 0) end
+end)
 -- (end of the item tooltip steps, v0.2 building block 2)
 step("Long run (10 min) for leaks", function() slash("run herb") advance(600) slash("stop") end)
 step("Test mock: OnUpdate runs for the same frames in the same order as going over every frame (tools only)", function()
