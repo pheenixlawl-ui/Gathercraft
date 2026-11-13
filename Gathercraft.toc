@@ -58,3 +58,4 @@ Data\RecipeSources.lua
 Data\AreaMaps.lua
 Starter.lua
 SpawnCounts.lua
+ItemTooltip.lua

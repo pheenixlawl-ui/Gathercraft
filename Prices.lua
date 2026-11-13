@@ -911,61 +911,8 @@ ahEvents:SetScript("OnEvent", function(_, event, arg)
     end
 end)
 
----------------------------------------------------------------------------
--- Auction price in every item tooltip (bags, loot, links, ...)
---   Only items that were on the auction house at our last scan: trade
---   goods and every bind-on-equip green, blue or epic. Items with random
---   bonuses ("of the Bear") share one price.
----------------------------------------------------------------------------
-local function AddTooltipPrice(tooltip, itemID)
-    itemID = ns.Readable(itemID, "item tooltip")
-    if not (tooltip and itemID) or (ns.db and ns.db.tooltipPrices == false) then return end
-    local p = PriceDB()
-    local price = p and p.items[itemID]
-    if not price then return end
-    local secs = PriceAge(p, itemID)
-    local mins = math.floor(secs / 60)
-    local age = mins < 1 and L["just now"] or mins < 60 and (mins .. L[" min ago"])
-        or mins < 2880 and (math.floor(mins / 60) .. L[" h ago"]) or (math.floor(mins / 1440) .. L[" days ago"])
-    local extra = (L["%d listed, %s"]):format(p.qty[itemID] or 0, age)
-    local color = secs >= FRESH_PRICE and "|cffff8040" or "|cff999999" -- old prices stand out
-    tooltip:AddDoubleLine(L["|cffffd060Gathercraft|r AH"], Money(price) .. "  " .. color .. "(" .. extra .. ")|r", 1, 1, 1, 1, 1, 1)
-    local used, from = GetPrice(itemID)
-    if used and from ~= "AH scan" then
-        tooltip:AddDoubleLine(L["    used instead"], Money(used) .. "  |cff999999(" .. from .. ")|r", 0.7, 0.7, 0.7, 1, 1, 1)
-    end
-    local usual = ns.UsualPrice and ns.UsualPrice(itemID)
-    if usual and usual > 0 then
-        local ratio = price / usual
-        if ratio >= 1.2 or ratio <= 0.8 then
-            local color = ratio > 1 and "|cff55ff55" or "|cffff7070"
-            tooltip:AddDoubleLine(L["    usually"], ("%s  %s%+d%%|r"):format(Money(usual), color, math.floor((ratio - 1) * 100 + 0.5)),
-                0.7, 0.7, 0.7, 1, 1, 1)
-        end
-    end
-    return true
-end
-
-local function ItemIDFromLink(link)
-    link = ns.Readable(link, "item link")
-    return link and tonumber(link:match("item:(%d+)"))
-end
-
-if TooltipDataProcessor and TooltipDataProcessor.AddTooltipPostCall and Enum and Enum.TooltipDataType then
-    TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Item, function(tooltip, data)
-        AddTooltipPrice(tooltip, data and data.id)
-    end)
-else
-    for _, name in ipairs({ "GameTooltip", "ItemRefTooltip" }) do
-        local tt = _G[name]
-        if tt and tt.HookScript then
-            tt:HookScript("OnTooltipSetItem", function(self)
-                local _, link = self:GetItem()
-                if AddTooltipPrice(self, ItemIDFromLink(link)) then self:Show() end
-            end)
-        end
-    end
-end
+-- (The price line in item tooltips lives in ItemTooltip.lua since 0.2: one
+-- hook for everything Gathercraft shows there.)
 
 -- Price history of an item: { {day, price}, ... } oldest first
 local function PriceHistory(itemID)
@@ -1158,6 +1105,8 @@ end
 ns.PriceInfo = PriceInfo
 ns.PriceRev = function() return priceRev end
 ns.PriceHistoryWindow = PriceHistoryWindow
+-- is a history kept for this item? (only for trade goods)
+ns.PriceTracksHistory = IsTradeGood
 
 -- how old the price GetPrice gives is, in seconds (nil: not known). Read
 -- only, for the skill plan's price status; the choice of the price is

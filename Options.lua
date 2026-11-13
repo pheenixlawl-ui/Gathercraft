@@ -1073,9 +1073,14 @@ local function Build()
     AddCheck("Price alerts in chat (hot items you gather)",
         function() return ns.db.priceAlerts ~= false end,
         function(on) ns.db.priceAlerts = on end)
-    AddCheck("Auction prices in item tooltips",
+    AddCheck("Gathercraft info in item tooltips",
         function() return ns.db.tooltipPrices ~= false end,
-        function(on) ns.db.tooltipPrices = on end)
+        function(on)
+            ns.db.tooltipPrices = on
+            -- off: nothing is shown and nothing is built for it; on: built again
+            if ns.ItemTooltipSetEnabled then ns.ItemTooltipSetEnabled(on) end
+        end)
+    AddHint("Prices, the last 14 days, spawn points and recipes. Hold Shift for more.")
     -- (v0.1.23 P5) Prices.lua: at most once in the server's 15 minutes
     AddCheck("Scan the auction house automatically when I open it",
         function() return not ns.db.autoScanOff end,

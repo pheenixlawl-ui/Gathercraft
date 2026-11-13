@@ -8964,16 +8964,19 @@ step("Prices: fresh before own, and the label says which (v0.1.16)", function()
     Own(24 * 8)
     Check(select(2, ns.GetPrice(ID)) ~= "AH scan", "alone, 8 days: still our own")
 
-    -- tooltip: old is marked, what is used instead is named
+    -- tooltip: old is marked, what is used instead is named - by its name,
+    -- not with a second number (0.2 B2: Auctionator shows its own line)
     local lines
+    local keepLine = GameTooltip.AddLine
     GameTooltip.AddDoubleLine = function(_, l, r) lines[#lines + 1] = l .. " = " .. r end
+    GameTooltip.AddLine = function(_, l) lines[#lines + 1] = l end
     GameTooltip.GetItem = function() return "Tin Ore", "|Hitem:" .. ID .. "::|h" end
     local function Tooltip()
         lines = {}
         GameTooltip.__scripts.OnTooltipSetItem(GameTooltip)
         return table.concat(lines, " / ")
     end
-    local used = ns.L["    used instead"]
+    local used = ns.L["uses Auctionator price (%s)"]:format(ns.L["age unknown"])
     Atr(187)
     Own(5)
     local text = Tooltip()
@@ -8982,11 +8985,12 @@ step("Prices: fresh before own, and the label says which (v0.1.16)", function()
     Own(21)
     text = Tooltip()
     Check(text:find("|cffff8040(", 1, true), "tooltip, 21 h: not marked old")
-    Check(text:find(used, 1, true) and text:find("(Auctionator)", 1, true) and text:find(ns.Money(187), 1, true), "tooltip, 21 h: Auctionator not named")
+    Check(text:find(used, 1, true) and not text:find(ns.Money(187), 1, true), "tooltip, 21 h: Auctionator not named, or its price repeated: " .. text)
     Atr(nil)
     text = Tooltip()
     Check(text:find("|cffff8040(", 1, true) and not text:find(used, 1, true), "tooltip, old and alone")
     Auctionator = nil
+    GameTooltip.AddLine = keepLine
 
     -- the labels: "prices: ..." and the source of a mix
     p.seen, p.scanned = { [ID] = clock - 7 * 3600 }, clock - 7 * 3600
@@ -20449,6 +20453,800 @@ step("Spawn points of an item per zone: places are counted once, your own only w
     ns.NotifyNodesChanged()
     advance(5)
     if ns.ItemTooltipSetEnabled then ns.ItemTooltipSetEnabled(saved.tooltip ~= false) end
+    if not ok then error(err, 0) end
+end)
+-- The item tooltip in a fixture of its own (0.2 B2 C4): ItemTooltip.lua
+-- loaded into its own namespace with the tooltip APIs a test names, before
+-- its first load - the copy the whole run loaded once says nothing about
+-- how often something registers (Codex's answer 4).
+local TT = {}
+-- a tooltip like the client's: lines, scripts, a count of its lines;
+-- with canClear it has OnTooltipCleared
+function TT.Tip(canClear)
+    local tip = { lines = {}, scripts = {}, shows = 0, hooks = 0 }
+    function tip:AddLine(t) self.lines[#self.lines + 1] = t end
+    function tip:AddDoubleLine(l, r) self.lines[#self.lines + 1] = l .. " = " .. r end
+    function tip:NumLines() return #self.lines end
+    function tip:HasScript(name) return name == "OnTooltipSetItem" or (canClear and name == "OnTooltipCleared") or false end
+    function tip:HookScript(name, fn)
+        assert(self:HasScript(name), "HookScript for a script this tooltip does not have: " .. tostring(name))
+        local old = self.scripts[name]
+        self.scripts[name] = function(...) if old then old(...) end fn(...) end
+        self.hooks = self.hooks + 1
+    end
+    function tip:GetItem() return "Item", self.link end
+    function tip:Show() self.shows = self.shows + 1 end
+    function tip:Clear()
+        self.lines = {}
+        if self.scripts.OnTooltipCleared then self.scripts.OnTooltipCleared(self) end
+    end
+    return tip
+end
+-- way: "tdp" (the client's tooltip data) or "script" (OnTooltipSetItem).
+-- ns2: load into this namespace again (the same file loaded twice).
+function TT.Load(way, canClear, ns2)
+    local fx = { posts = {}, game = TT.Tip(canClear), ref = TT.Tip(canClear), way = way }
+    local keep = { tdp = TooltipDataProcessor, enum = Enum, game = GameTooltip, ref = ItemRefTooltip }
+    if way == "tdp" then
+        TooltipDataProcessor = { AddTooltipPostCall = function(kind, fn)
+            assert(kind == 7, "a post call for another kind of tooltip: " .. tostring(kind))
+            fx.posts[#fx.posts + 1] = fn
+        end }
+        Enum = setmetatable({ TooltipDataType = { Item = 7 } }, { __index = keep.enum })
+    else
+        TooltipDataProcessor = nil
+    end
+    GameTooltip, ItemRefTooltip = fx.game, fx.ref
+    fx.ns = ns2 or setmetatable({ itemTooltipHooked = false, languageListeners = {},
+        SpawnCountsStart = function() fx.spawnStarts = (fx.spawnStarts or 0) + 1 end, SpawnCountsStop = function() fx.spawnStops = (fx.spawnStops or 0) + 1 end }, { __index = ns })
+    local before = #allFrames
+    local ok, err = pcall(assert(loadfile(ROOT .. "/ItemTooltip.lua")), "Gathercraft", fx.ns)
+    TooltipDataProcessor, Enum, GameTooltip, ItemRefTooltip = keep.tdp, keep.enum, keep.game, keep.ref
+    for i = before + 1, #allFrames do
+        local f = allFrames[i]
+        if eventFrames.PLAYER_LOGIN and eventFrames.PLAYER_LOGIN[f] then fx.frame = f end
+        for _, list in pairs(eventFrames) do list[f] = nil end
+    end
+    assert(ok, "loading ItemTooltip.lua: " .. tostring(err))
+    -- one build of a tooltip, as the client does it: cleared, its own lines,
+    -- then `calls` rounds of the item hook. keepLines: no new build, only more rounds.
+    function fx.Hover(tip, itemID, calls, keepLines)
+        if not keepLines then
+            tip:Clear()
+            tip.lines = { "Item" .. tostring(itemID), "Item Level 1" }
+        end
+        tip.link = type(itemID) == "number" and ("|Hitem:" .. itemID .. "::|h") or itemID
+        for _ = 1, calls or 1 do
+            if way == "tdp" then
+                for _, fn in ipairs(fx.posts) do fn(tip, { id = itemID, lines = {} }) end
+            elseif tip.scripts.OnTooltipSetItem then
+                tip.scripts.OnTooltipSetItem(tip)
+            end
+        end
+        return tip.lines
+    end
+    function fx.Event(event) fx.frame.__scripts.OnEvent(fx.frame, event) end
+    function fx.State() return fx.ns.ItemTooltipState().state end
+    return fx
+end
+function TT.Count(lines, text)
+    local n = 0
+    for _, l in ipairs(lines) do if l:find(text, 1, true) then n = n + 1 end end
+    return n
+end
+function TT.Line(lines, text)
+    for _, l in ipairs(lines) do if l:find(text, 1, true) then return l end end
+end
+-- text as the player reads it: without colour codes
+function TT.Plain(text) return (text:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")) end
+
+step("Item tooltip: one hook, and our lines once for every build of a tooltip - both hook ways (v0.2 B2 C4)", function()
+    -- Concept item tooltip 4.7, 5.4, 6 (Codex M8, answer 4).
+    ns.GetPrice(785)
+    local p = ns.db.prices[next(ns.db.prices)]
+    local HERB, GEAR = 785, 9003
+    local saved = { option = ns.db.tooltipPrices, shift = IsShiftKeyDown, secret = issecretvalue, time = time }
+    local function Forget(id) p.items[id], p.qty[id], p.seen[id], p.kind[id], p.qtyOk[id], p.history[id] = nil, nil, nil, nil, nil, nil end
+    local touched = 0
+    local SECRET = setmetatable({}, { __index = function() touched = touched + 1 error("a secret value was read") end })
+    local clock = saved.time()
+    time = function() return clock end
+    local before = #errors
+    local ok, err = pcall(function()
+        ns.db.tooltipPrices = true
+        Forget(HERB) Forget(GEAR)
+        p.items[HERB], p.seen[HERB], p.kind[HERB], p.qty[HERB], p.qtyOk[HERB] = 295, clock - 3600, "market", 240, true
+        p.items[GEAR], p.seen[GEAR], p.kind[GEAR], p.qty[GEAR], p.qtyOk[GEAR] = 77700, clock - 3600, "lowest", 3, true
+        local OURS = "Gathercraft"
+        for _, way in ipairs({ "tdp", "script" }) do
+            for _, canClear in ipairs({ true, false }) do
+                local what = way .. (canClear and ", OnTooltipCleared" or ", no OnTooltipCleared") .. ": "
+                local fx = TT.Load(way, canClear)
+                -- ---- registered one way only
+                if way == "tdp" then
+                    assert(#fx.posts == 1 and fx.game.hooks == 0 and fx.ref.hooks == 0, what .. #fx.posts .. " post calls, " .. fx.game.hooks .. " script hooks")
+                else
+                    assert(#fx.posts == 0 and fx.game.hooks == 1 and fx.ref.hooks == 1, what .. fx.game.hooks .. " + " .. fx.ref.hooks .. " script hooks")
+                end
+                assert(fx.ns.ItemTooltipState().way == (way == "tdp" and "TooltipDataProcessor" or "OnTooltipSetItem"), what .. "the way named: " .. fx.ns.ItemTooltipState().way)
+                -- ---- the file loaded a second time registers nothing, and a build still has our lines once
+                do
+                    local first = TT.Load(way, canClear)
+                    local again = TT.Load(way, canClear, first.ns)
+                    assert(#again.posts == 0 and again.game.hooks == 0 and again.ref.hooks == 0, what .. "a second load registered again")
+                    local twice = first.Hover(first.game, GEAR, 2)
+                    assert(TT.Count(twice, OURS) == 1 and #twice == 3, what .. "loaded twice: " .. table.concat(twice, " / "))
+                end
+                -- ---- nothing is built before the login, and nothing while the file loads
+                assert(fx.State() == "off" and not fx.spawnStarts, what .. "built before the login")
+                fx.Event("PLAYER_LOGIN")
+                assert(fx.State() == "off", what .. "built in the login event itself")
+                advance(5)
+                assert(fx.State() == "ready" and fx.spawnStarts == 1, what .. "not ready 5 s after the login: " .. fx.State())
+                local tip = fx.game
+                -- ---- a normal build: one block
+                local lines = fx.Hover(tip, HERB)
+                assert(TT.Count(lines, OURS) == 1 and #lines == 5, what .. "a build: " .. TT.Count(lines, OURS) .. " blocks, " .. #lines .. " lines")
+                assert(TT.Line(lines, ns.Money(295)), what .. "the price is not in the block")
+                -- ---- the hook called again for the same build: nothing more
+                fx.Hover(tip, HERB, 3, true)
+                assert(#tip.lines == 5, what .. "more rounds for one build: " .. #tip.lines .. " lines, want 5")
+                -- ---- the same item built anew: its block again, once
+                lines = fx.Hover(tip, HERB, 2)
+                assert(TT.Count(lines, OURS) == 1 and #lines == 5, what .. "built anew: " .. TT.Count(lines, OURS) .. " blocks, " .. #lines .. " lines")
+                -- ---- another item: its line, nothing of the one before
+                lines = fx.Hover(tip, GEAR, 2)
+                assert(TT.Count(lines, OURS) == 1 and #lines == 3 and TT.Line(lines, ns.Money(77700)) and not TT.Line(lines, ns.Money(295)),
+                    what .. "another item: " .. table.concat(lines, " / "))
+                -- ---- Shift: built anew by the client - one block with the details, not two
+                IsShiftKeyDown = function() return true end
+                lines = fx.Hover(tip, HERB, 2)
+                assert(TT.Count(lines, OURS) == 1 and TT.Count(lines, ns.L["AH price"]) == 1 and TT.Count(lines, ns.L["14 days"]) == 1,
+                    what .. "with Shift: " .. table.concat(lines, " / "))
+                assert(TT.Line(lines, ns.L["Used in"]), what .. "with Shift: no details")
+                local withShift = #lines
+                IsShiftKeyDown = function() return false end
+                lines = fx.Hover(tip, HERB, 2)
+                assert(#lines == 5 and TT.Count(lines, OURS) == 1, what .. "Shift let go: " .. #lines .. " lines")
+                assert(withShift > 5, what .. "Shift showed nothing more")
+                -- ---- the other tooltip (a chat link) has its own state
+                lines = fx.Hover(fx.ref, HERB, 2)
+                assert(TT.Count(lines, OURS) == 1 and #lines == 5 and #tip.lines == 5, what .. "the second tooltip: " .. #lines .. " lines")
+                -- ---- other addons' lines: ours once, theirs untouched - whoever is called how often
+                tip:Clear()
+                tip.lines = { "Item", "Auctionator  12s" }
+                fx.Hover(tip, HERB, 1, true)
+                table.insert(tip.lines, "TSM  13s")
+                fx.Hover(tip, HERB, 2, true)
+                assert(TT.Count(tip.lines, OURS) == 1 and #tip.lines == 6 and tip.lines[1] == "Item" and tip.lines[2] == "Auctionator  12s" and tip.lines[6] == "TSM  13s",
+                    what .. "with other addons' lines: " .. table.concat(tip.lines, " / "))
+                -- ---- OnTooltipSetItem: the tooltip is told to lay itself out again when lines came, the other way needs none
+                if way == "script" then assert(tip.shows > 0, what .. "Show() not called after adding lines") else assert(tip.shows == 0, what .. "Show() called") end
+                -- ---- a hidden item ID or link: no line, nothing read
+                issecretvalue = function(v) return rawequal(v, SECRET) end
+                local n = #fx.Hover(tip, SECRET, 2)
+                assert(n == 2 and touched == 0, what .. "a hidden item: " .. n .. " lines, read " .. touched .. " times")
+                if way == "tdp" then
+                    fx.posts[1](tip, SECRET)
+                    fx.posts[1](SECRET, { id = HERB })
+                    fx.posts[1](tip, nil)
+                    fx.posts[1](tip, { id = "785" })
+                    assert(#tip.lines == 2 and touched == 0, what .. "hidden tooltip data: " .. #tip.lines .. " lines, read " .. touched .. " times")
+                end
+                issecretvalue = saved.secret
+                -- ---- the option off: no line, the indexes gone; on again: built again
+                fx.ns.ItemTooltipSetEnabled(false)
+                assert(fx.State() == "off" and fx.spawnStops == 1, what .. "off: " .. fx.State())
+                assert(#fx.Hover(tip, HERB, 2) == 2, what .. "off: lines")
+                advance(5)
+                assert(fx.State() == "off", what .. "off: built all the same")
+                fx.ns.ItemTooltipSetEnabled(true)
+                assert(fx.State() == "building" and fx.spawnStarts == 2, what .. "on again: " .. fx.State())
+                -- hovering while the recipes are read: the lines that are done, "used in" not yet, no error
+                IsShiftKeyDown = function() return true end
+                lines = fx.Hover(tip, HERB, 2)
+                IsShiftKeyDown = function() return false end
+                assert(TT.Count(lines, OURS) == 1 and TT.Line(lines, ns.Money(295)) and not TT.Line(lines, ns.L["Used in"]), what .. "while building: " .. table.concat(lines, " / "))
+                -- off in the middle of the build: it ends, no error
+                advance(0.11)
+                assert(fx.State() == "building", what .. "test setup: built within 0.11 s")
+                fx.ns.ItemTooltipSetEnabled(false)
+                advance(5)
+                assert(fx.State() == "off" and #errors == before, what .. "off while building: " .. fx.State() .. ", " .. tostring(errors[#errors]))
+                fx.ns.ItemTooltipSetEnabled(true)
+                advance(5)
+                lines = fx.Hover(tip, HERB)
+                assert(fx.State() == "ready" and #lines == 5, what .. "on again: " .. fx.State() .. ", " .. #lines .. " lines")
+                assert(#errors == before, what .. "an error: " .. tostring(errors[#errors]))
+            end
+        end
+        -- ---- loaded before the data files: no look at them, no error (they come later in the TOC)
+        local keepQ, keepR = GathercraftQuestieData, GathercraftRecipeData
+        GathercraftQuestieData, GathercraftRecipeData = nil, nil
+        local early = TT.Load("tdp", true)
+        GathercraftQuestieData, GathercraftRecipeData = keepQ, keepR
+        assert(early.State() == "off", "loaded before the data: " .. early.State())
+        local toc = assert(io.open(ROOT .. "/Gathercraft.toc")):read("*a")
+        assert(toc:find("\nItemTooltip.lua", 1, true), "ItemTooltip.lua is not in the TOC")
+        -- ---- the old price line is gone from Prices.lua: one module shows, not two
+        local src = assert(io.open(ROOT .. "/Prices.lua")):read("*a")
+        assert(not src:find("TooltipDataProcessor", 1, true) and not src:find("OnTooltipSetItem", 1, true), "Prices.lua still hooks the item tooltip")
+    end)
+    IsShiftKeyDown, issecretvalue, time = saved.shift, saved.secret, saved.time
+    ns.db.tooltipPrices = saved.option
+    Forget(HERB) Forget(GEAR)
+    if not ok then error(err, 0) end
+end)
+step("Item tooltip: the price line says what kind of price, how old, how many - and what is not known (v0.2 B2 C4)", function()
+    -- Concept item tooltip 3, 4.1-4.3, 5.1, 5.2, 5.9; Sven's decisions 3, 5
+    -- and S3. The price is asked for with every hover, so the borders and
+    -- a change in Auctionator show without a scan.
+    ns.GetPrice(785)
+    local p = ns.db.prices[next(ns.db.prices)]
+    local L = ns.L
+    local HERB, GEAR, GOOD, ROCK = 785, 9003, 9005, 3340 -- a herb; gear; a trade good nobody gathers or crafts with; a mineral that is no trade good here
+    local saved = { option = ns.db.tooltipPrices, time = time, atr = Auctionator, tsm = TSM_API, buyout = GetAuctionBuyout, info = GetItemInfo,
+        instant = C_Item.GetItemInfoInstant, shift = IsShiftKeyDown }
+    local function Forget(id) p.items[id], p.qty[id], p.seen[id], p.kind[id], p.qtyOk[id], p.history[id] = nil, nil, nil, nil, nil, nil end
+    local clock = saved.time()
+    time = function() return clock end
+    local fails = {}
+    local function Check(ok, text) if not ok then fails[#fails + 1] = text end end
+    local ok, err = pcall(function()
+        ns.db.tooltipPrices = true
+        Auctionator, TSM_API, GetAuctionBuyout = nil, nil, nil
+        C_Item.GetItemInfoInstant = function(id)
+            if id == GOOD then return id, nil, nil, nil, nil, 7, 9 end
+            return saved.instant(id)
+        end
+        for _, id in ipairs({ HERB, GEAR, GOOD, ROCK }) do Forget(id) end
+        local fx = TT.Load("tdp", true)
+        fx.Event("PLAYER_LOGIN") advance(5)
+        assert(fx.State() == "ready", "test setup: " .. fx.State())
+        local tip = fx.game
+        local function Own(id, hours, kind, qty)
+            p.items[id], p.seen[id], p.kind[id] = 295, clock - hours * 3600, kind
+            if qty == nil then p.qtyOk[id] = nil else p.qty[id], p.qtyOk[id] = qty, true end
+        end
+        local function Atr(price, hasAge, days, breaks)
+            local api = { GetAuctionPriceByItemID = function(_, id) return id == HERB and price or nil end }
+            if hasAge then api.GetAuctionAgeByItemID = function() if breaks then error("broken") end return days end end
+            Auctionator = { API = { v1 = api } }
+        end
+        -- the AH line and the line under it ("uses ..."), without colours; and the colour of the bracket
+        local function Tip(id)
+            local lines = fx.Hover(tip, id)
+            local ah, uses, orange
+            for i, l in ipairs(lines) do
+                if l:find("  " .. L["AH price"] .. " = ", 1, true) or l:find(L["|cffffd060Gathercraft|r AH"], 1, true) then
+                    ah, orange = TT.Plain(l), l:find("|cffff8040(", 1, true) ~= nil
+                    if lines[i + 1] and lines[i + 1]:find("^%s%s%s%s") then uses = TT.Plain(lines[i + 1]):gsub("^%s+", "") end
+                end
+            end
+            -- every look: the tooltip names the price GetPrice gives
+            local _, source = ns.GetPrice(id)
+            Check(ns.PriceInfo(id).source == source, "PriceInfo and GetPrice differ for " .. id)
+            return ah or "", uses, orange, lines
+        end
+        local function Has(text, part) return text:find(part, 1, true) ~= nil end
+        local UNKNOWN = L["unknown – scan at the auction house"]
+        local AGELESS = L["age unknown"]
+
+        -- ---- nothing known at all
+        GetItemInfo = function() return "Item" end
+        local ah, uses = Tip(HERB)
+        Check(Has(ah, UNKNOWN) and uses == nil, "nothing known: " .. ah .. " / " .. tostring(uses))
+        -- ---- no own price, another source: named; a number only where no line of the other addon shows one (S3)
+        GetItemInfo = saved.info
+        ah, uses = Tip(HERB)
+        Check(Has(ah, UNKNOWN) and uses == TT.Plain(L["uses vendor price: %s"]:format(ns.Money(10))), "vendor only: " .. ah .. " / " .. tostring(uses))
+        GetAuctionBuyout = function() return 333 end
+        ah, uses = Tip(HERB)
+        Check(Has(ah, UNKNOWN) and uses == TT.Plain(L["uses auction addon price: %s (age unknown)"]:format(ns.Money(333))), "auction addon: " .. tostring(uses))
+        TSM_API = { GetCustomPriceValue = function() return 444 end }
+        ah, uses = Tip(HERB)
+        Check(uses == L["uses TSM DBMarket price (external, age unknown)"], "TSM: " .. tostring(uses))
+        Check(not Has(ah .. uses, TT.Plain(ns.Money(444))), "TSM: its price repeated")
+        TSM_API = { GetCustomPriceValue = function() error("broken") end }
+        ah, uses = Tip(HERB)
+        Check(Has(uses or "", TT.Plain(ns.Money(333))), "TSM breaks: " .. tostring(uses))
+        TSM_API = { GetCustomPriceValue = function() return 0 end }
+        ah, uses = Tip(HERB)
+        Check(Has(uses or "", TT.Plain(ns.Money(333))), "TSM says 0: " .. tostring(uses))
+        TSM_API, GetAuctionBuyout = nil, nil
+        Atr(187, true, 2)
+        ah, uses = Tip(HERB)
+        Check(Has(ah, UNKNOWN) and uses == L["uses Auctionator price (%s)"]:format(L["%d days"]:format(2)), "Auctionator only: " .. tostring(uses))
+        Check(not Has(ah .. uses, TT.Plain(ns.Money(187))), "Auctionator: its price repeated")
+        Auctionator = nil
+
+        -- ---- our own price: the kind, the age, the quantity
+        local orange
+        Own(HERB, 3, "market", 240)
+        ah, uses, orange = Tip(HERB)
+        Check(Has(ah, TT.Plain(ns.Money(295))) and Has(ah, "(" .. L["own scan"] .. ", 3" .. L[" h ago"] .. ", " .. L["%s listed"]:format("240") .. ")") and not uses and not orange,
+            "own scan: " .. ah .. " / " .. tostring(uses))
+        Own(HERB, 3, "lowest", 240)
+        ah = Tip(HERB)
+        Check(Has(ah, "(" .. L["lowest offer"] .. ", ") and not Has(ah, L["own scan"]), "lowest offer: " .. ah)
+        Own(HERB, 3, nil, 240)
+        ah = Tip(HERB)
+        Check(Has(ah, "(" .. L["own data"] .. ", ") and not Has(ah, L["own scan"]), "an entry from before: " .. ah)
+        -- a quantity that is not this price's: "?", never 0 and never the old number
+        p.qty[HERB] = 240
+        Own(HERB, 3, "market", nil)
+        ah = Tip(HERB)
+        Check(Has(ah, L["%s listed"]:format("?")) and not Has(ah, "240") and not Has(ah, L["%s listed"]:format("0")), "unknown quantity: " .. ah)
+        Own(HERB, 3, "market", 0)
+        ah = Tip(HERB)
+        Check(Has(ah, L["%s listed"]:format("0")), "0 listed, told by the game: " .. ah)
+
+        -- ---- the borders: 5 h 59 min, 6 h, 6 days 23 h, 7 days
+        local TOO_OLD = L["too old, not used"]
+        Own(HERB, 5 + 59 / 60, "market", 240)
+        ah, uses, orange = Tip(HERB)
+        Check(not orange and not uses and not Has(ah, TOO_OLD), "5 h 59 min: " .. ah)
+        Own(HERB, 6, "market", 240)
+        ah, uses, orange = Tip(HERB)
+        Check(orange and not uses and not Has(ah, TOO_OLD), "6 h: " .. ah)
+        Own(HERB, 6 * 24 + 23, "market", 240)
+        ah, uses, orange = Tip(HERB)
+        Check(orange and not uses and not Has(ah, TOO_OLD), "6 days 23 h: " .. ah .. " / " .. tostring(uses))
+        Own(HERB, 7 * 24, "market", 240)
+        ah, uses, orange = Tip(HERB)
+        Check(orange and Has(ah, TOO_OLD) and Has(ah, TT.Plain(ns.Money(295))) and not Has(ah, L["%s listed"]:format("240"))
+            and uses == TT.Plain(L["uses vendor price: %s"]:format(ns.Money(10))), "7 days: " .. ah .. " / " .. tostring(uses))
+        -- ---- the same tooltip over the borders, no scan in between: only the clock moves
+        local rev = ns.PriceRev()
+        Own(HERB, 5 + 59 / 60, "market", 240)
+        ah, uses, orange = Tip(HERB)
+        Check(not orange, "before the 6 hours: orange")
+        clock = clock + 120
+        ah, uses, orange = Tip(HERB)
+        Check(orange and not uses, "past the 6 hours without a scan: not marked old")
+        Own(HERB, 6 * 24 + 23 + 59 / 60, "market", 240)
+        ah, uses = Tip(HERB)
+        Check(not Has(ah, TOO_OLD) and not uses, "before the 7 days: " .. ah)
+        clock = clock + 120
+        ah, uses = Tip(HERB)
+        Check(Has(ah, TOO_OLD) and uses ~= nil, "past the 7 days without a scan: " .. ah .. " / " .. tostring(uses))
+        Check(ns.PriceRev() == rev, "test setup: a price was stored in between")
+
+        -- ---- Auctionator changes, we scan nothing: the next hover shows it
+        Own(HERB, 21, "market", 240)
+        ah, uses = Tip(HERB)
+        Check(not uses, "old and alone: " .. tostring(uses))
+        local function Uses(age) return L["uses Auctionator price (%s)"]:format(age) end
+        Atr(187)
+        ah, uses = Tip(HERB)
+        Check(uses == Uses(AGELESS), "Auctionator without an age function: " .. tostring(uses))
+        Atr(187, true, nil, true)
+        ah, uses = Tip(HERB)
+        Check(uses == Uses(AGELESS), "Auctionator's age function breaks: " .. tostring(uses))
+        Atr(187, true, 0)
+        ah, uses = Tip(HERB)
+        Check(uses == Uses(L["today"]), "Auctionator, seen today: " .. tostring(uses))
+        Own(HERB, 2 * 24, "market", 240)
+        Atr(187, true, 1)
+        ah, uses = Tip(HERB)
+        Check(uses == Uses(L["1 day"]), "Auctionator, 1 day: " .. tostring(uses))
+        Own(HERB, 4 * 24, "market", 240)
+        Atr(187, true, 3)
+        ah, uses = Tip(HERB)
+        Check(uses == Uses(L["%d days"]:format(3)), "Auctionator, 3 days: " .. tostring(uses))
+        Own(HERB, 8 * 24, "market", 240)
+        Atr(187, true, "old")
+        ah, uses = Tip(HERB)
+        Check(uses == Uses(AGELESS) and Has(ah, TOO_OLD), "Auctionator, an age that is no number: " .. tostring(uses))
+        Check(not Has(ah .. (uses or ""), TT.Plain(ns.Money(187))), "Auctionator's price repeated")
+        -- our own is fresher than Auctionator's: ours is used, no line under it
+        Own(HERB, 24, "market", 240)
+        Atr(187, true, 3)
+        ah, uses = Tip(HERB)
+        Check(not uses, "our own is fresher: " .. tostring(uses))
+        Auctionator = nil
+
+        -- ---- every other item: one line, and only with a price of our own
+        local lines
+        ah, uses, orange, lines = Tip(GEAR)
+        Check(#lines == 2, "gear without a price of ours: " .. (#lines - 2) .. " lines of ours (the vendor price alone is no reason)")
+        Own(GEAR, 3, "lowest", nil)
+        ah, uses, orange, lines = Tip(GEAR)
+        Check(#lines == 3 and Has(ah, TT.Plain(L["|cffffd060Gathercraft|r AH"])) and Has(ah, "(" .. L["lowest offer"] .. ", 3" .. L[" h ago"] .. ", " .. L["%s listed"]:format("?") .. ")"), "gear: " .. ah)
+        Own(GEAR, 8 * 24, "market", 5)
+        ah, uses, orange, lines = Tip(GEAR)
+        Check(#lines == 4 and Has(ah, TOO_OLD) and uses == TT.Plain(L["uses vendor price: %s"]:format(ns.Money(10))), "gear, too old: " .. ah .. " / " .. tostring(uses))
+        -- no block for it, also not with Shift
+        IsShiftKeyDown = function() return true end
+        ah, uses, orange, lines = Tip(GEAR)
+        Check(#lines == 4 and not TT.Line(lines, L["14 days"]) and not TT.Line(lines, L["Most spawn points"]), "gear with Shift: " .. table.concat(lines, " / "))
+        IsShiftKeyDown = function() return false end
+
+        -- ---- "usually" for such an item: from the days inside the window only
+        local day = math.floor(clock / 86400)
+        local USUALLY = L["    usually"]
+        local function Usually(history)
+            Own(GOOD, 1, "market", 5)
+            p.items[GOOD], p.history[GOOD] = 150, history
+            fx.ns.languageListeners[1]() -- (the texts are made anew, as after a scan)
+            local _, _, _, l = Tip(GOOD)
+            return TT.Plain(TT.Line(l, USUALLY) or "")
+        end
+        local usually = Usually(("%d:100;%d:100;%d:100;%d:150"):format(day - 3, day - 2, day - 1, day))
+        Check(Has(usually, "+50%") and Has(usually, TT.Plain(ns.Money(100))), "usually: " .. usually)
+        usually = Usually(("%d:100;%d:100;%d:100;%d:150"):format(day - 30, day - 29, day - 28, day))
+        Check(usually == "", "usually from days outside the window: " .. usually)
+        usually = Usually(("%d:140;%d:150;%d:160;%d:150"):format(day - 3, day - 2, day - 1, day))
+        Check(usually == "", "usually although the price is as usual: " .. usually)
+        usually = Usually(("%d:300;%d:300;%d:300;%d:150"):format(day - 3, day - 2, day - 1, day))
+        Check(Has(usually, "-50%"), "usually, cheaper than usual: " .. usually)
+
+        -- ---- the 14 days of the block
+        local function Days(id)
+            fx.ns.languageListeners[1]()
+            local l = fx.Hover(tip, id)
+            return TT.Plain(TT.Line(l, L["14 days"]) or ""), TT.Plain(TT.Line(l, L["Last 7 days"]) or ""), l
+        end
+        local function Stats(low, usual, high, days)
+            return TT.Plain(L["low %s · usual %s · high %s"]:format(ns.Money(low), usual and ns.Money(usual) or "?", ns.Money(high)))
+                .. "  (" .. (days == 1 and L["1 day with data"] or L["%d days with data"]:format(days)) .. ")"
+        end
+        IsShiftKeyDown = function() return true end
+        Own(HERB, 1, "market", 240)
+        p.history[HERB] = nil
+        local d14, d7 = Days(HERB)
+        Check(Has(d14, L["unknown (no price in the last 14 days)"]) and d7 == "", "no day: " .. d14 .. " / " .. d7)
+        d14 = Days(ROCK)
+        Check(Has(d14, L["unknown (only trade goods are tracked)"]), "no trade good: " .. d14)
+        p.history[HERB] = day .. ":295"
+        d14, d7 = Days(HERB)
+        Check(Has(d14, Stats(295, nil, 295, 1)), "one day: " .. d14)
+        Check(Has(d7, "– · – · – · – · – · – · " .. TT.Plain(ns.Money(295, true))), "one day, the last 7: " .. d7)
+        p.history[HERB] = ("%d:200;%d:295"):format(day - 1, day)
+        d14 = Days(HERB)
+        Check(Has(d14, Stats(200, nil, 295, 2)), "two days: " .. d14)
+        p.history[HERB] = ("%d:200;%d:100;%d:295"):format(day - 2, day - 1, day)
+        d14 = Days(HERB)
+        Check(Has(d14, Stats(100, nil, 295, 3)), "three days (two before today): " .. d14)
+        p.history[HERB] = ("%d:300;%d:200;%d:100;%d:295"):format(day - 3, day - 2, day - 1, day)
+        d14, d7 = Days(HERB)
+        Check(Has(d14, Stats(100, 200, 300, 4)), "four days (three before today): " .. d14)
+        Check(Has(d7, ("– · – · – · %s · %s · %s · %s"):format(TT.Plain(ns.Money(300, true)), TT.Plain(ns.Money(200, true)), TT.Plain(ns.Money(100, true)),
+            TT.Plain(ns.Money(295, true)))), "four days, the last 7: " .. d7)
+        -- gaps
+        p.history[HERB] = ("%d:400;%d:300;%d:100;%d:295"):format(day - 12, day - 5, day - 2, day)
+        d14, d7 = Days(HERB)
+        Check(Has(d14, Stats(100, 300, 400, 4)), "gaps: " .. d14)
+        Check(Has(d7, ("– · %s · – · – · %s · – · %s"):format(TT.Plain(ns.Money(300, true)), TT.Plain(ns.Money(100, true)), TT.Plain(ns.Money(295, true)))), "gaps, the last 7: " .. d7)
+        -- all 14 days
+        local all = {}
+        for d = 13, 0, -1 do all[#all + 1] = (day - d) .. ":" .. (100 + d) end
+        p.history[HERB] = table.concat(all, ";")
+        d14 = Days(HERB)
+        Check(Has(d14, Stats(100, 107, 113, 14)), "14 days: " .. d14)
+        -- a history of 30 days ago, nothing since: nothing of it shows
+        local old = {}
+        for d = 34, 20, -1 do old[#old + 1] = (day - d) .. ":900" end
+        p.history[HERB] = table.concat(old, ";")
+        d14, d7 = Days(HERB)
+        Check(Has(d14, L["unknown (no price in the last 14 days)"]) and d7 == "" and not Has(d14, "9"), "a history of long ago: " .. d14 .. " / " .. d7)
+        p.history[HERB] = table.concat(old, ";") .. (";%d:200;%d:295"):format(day - 13, day)
+        d14 = Days(HERB)
+        Check(Has(d14, Stats(200, nil, 295, 2)), "long ago plus two days in the window: " .. d14)
+        -- over midnight (UTC) with the game open and no scan: the window moves on by itself
+        clock = (day + 1) * 86400 + 60
+        local l = fx.Hover(tip, HERB)
+        d14, d7 = TT.Plain(TT.Line(l, L["14 days"]) or ""), TT.Plain(TT.Line(l, L["Last 7 days"]) or "")
+        Check(Has(d14, Stats(295, nil, 295, 1)), "the day after, no scan: " .. d14)
+        Check(Has(d7, "– · – · – · – · – · " .. TT.Plain(ns.Money(295, true)) .. " · –"), "the day after, the last 7: " .. d7)
+        -- where the history is from stands under the row
+        Check(TT.Line(l, L["UTC days; own data, scans and lowest offers"]), "the last 7 days do not say where they are from")
+    end)
+    time, Auctionator, TSM_API, GetAuctionBuyout, GetItemInfo, IsShiftKeyDown = saved.time, saved.atr, saved.tsm, saved.buyout, saved.info, saved.shift
+    C_Item.GetItemInfoInstant = saved.instant
+    ns.db.tooltipPrices = saved.option
+    for _, id in ipairs({ HERB, GEAR, GOOD, ROCK }) do Forget(id) end
+    if not ok then error(err, 0) end
+    assert(#fails == 0, #fails .. " wrong: " .. table.concat(fails, " | "))
+end)
+step("Item tooltip with Shift: the zone with the most known spawn points, and the professions that use the item (v0.2 B2 C4)", function()
+    -- Concept item tooltip 4.4, 4.5, 5.9, 5.10; Sven's decisions 6, 7, S1, S2.
+    local L = ns.L
+    local data = GathercraftQuestieData
+    local ZONE = 99998 -- a zone of this test
+    local saved = { option = ns.db.tooltipPrices, shift = IsShiftKeyDown, map = player.map, recipeDB = ns.db.recipeDB, pending = ns.db.recipePending,
+        nodes = ns.db.nodes[ZONE], language = ns.db.language, names = {} }
+    for k, v in pairs(ns.db.itemNames or {}) do saved.names[k] = v end
+    local before = #errors
+    local ok, err = pcall(function()
+        ns.db.tooltipPrices = true
+        ns.db.recipeDB = {} -- the shipped recipes alone first
+        IsShiftKeyDown = function() return true end
+        ns.SpawnCountsStart("test")
+        local fx = TT.Load("tdp", true)
+        fx.Event("PLAYER_LOGIN") advance(10)
+        assert(fx.State() == "ready" and ns.SpawnCountsState() == "ready", "test setup: " .. fx.State() .. ", " .. tostring(ns.SpawnCountsState()))
+        local tip = fx.game
+        local function Zone(id) return TT.Plain(TT.Line(fx.Hover(tip, id), L["Most spawn points"]) or "") end
+        local function Used(id) return TT.Plain(TT.Line(fx.Hover(tip, id), L["Used in"]) or "") end
+        local function Has(text, part) return text:find(part, 1, true) ~= nil end
+
+        -- ---- the shipped data: 2262 recipes, 570 different reagents (counted by the index itself)
+        local st = fx.ns.ItemTooltipState()
+        assert(st.recipes == 2262 and st.reagents == 570, ("the index read %d recipes with %d reagents; the shipped data has 2262 and 570"):format(st.recipes, st.reagents))
+        -- Peacebloom: ten alchemy recipes, one for cooking, one for first aid
+        local d = ns.CraftData
+        local want = ("%s 10 · %s 1 · %s 1  (%s)"):format(d.ProfLabel("Alchemy"), d.ProfLabel("Cooking"), d.ProfLabel("First Aid"), L["recipe data"])
+        if d.ProfLabel("Cooking") > d.ProfLabel("First Aid") then -- (the same number: by name, in the client's language)
+            want = ("%s 10 · %s 1 · %s 1  (%s)"):format(d.ProfLabel("Alchemy"), d.ProfLabel("First Aid"), d.ProfLabel("Cooking"), L["recipe data"])
+        end
+        assert(Has(Used(2447), want), "Peacebloom: " .. Used(2447) .. " - want " .. want)
+        if LOCALE == "enUS" then assert(Has(Used(2447), "Alchemy 10 · Cooking 1 · First Aid 1  (recipe data)"), "Peacebloom in English: " .. Used(2447)) end
+        -- ore is smelted: "Smelting", also in the English client (where the profession is called Mining)
+        local ore = Used(2770)
+        assert(Has(ore, L["Smelting"] .. " 1") and not Has(ore, "Mining"), "copper ore: " .. ore)
+        -- an item no recipe needs has no such line - also no "not used"
+        assert(Used(3340) == "" and Zone(3340) ~= "", "Incendicite: " .. Used(3340))
+
+        -- ---- the zone line: places counted once, where they are from always named
+        local incendicite = Zone(3340)
+        assert(Has(incendicite, L["%s (%d known: Questie data)"]:format(ns.GetZoneName(1437), 29)), "Incendicite: " .. incendicite .. " - want 29 in " .. ns.GetZoneName(1437))
+        -- a reagent nobody gathers from a node
+        local linen = Zone(2589)
+        assert(Has(linen, L["unknown (not a gathered item)"]), "linen cloth: " .. linen)
+        assert(Used(2589) ~= "", "linen cloth is in no recipe?")
+
+        -- ---- your continent first: the zone with the most places there, else the most anywhere
+        local here = ns.GetContinent(player.map)
+        local function Best(itemID, continent)
+            local list = ns.SpawnCounts(itemID)
+            for _, z in ipairs(list) do if ns.GetContinent(z.mapID) == continent then return z end end
+            return list[1]
+        end
+        -- an item whose best zone is on another continent than its best zone here
+        local ITEM, there
+        for itemID in pairs({ [765] = 1, [2447] = 1, [785] = 1, [2449] = 1, [2770] = 1, [2771] = 1, [2772] = 1, [3356] = 1, [3355] = 1, [2450] = 1 }) do
+            local list = ns.SpawnCounts(itemID)
+            if list and list[1] then
+                local other = ns.GetContinent(list[1].mapID) == here and nil or ns.GetContinent(list[1].mapID)
+                if not other then
+                    for _, z in ipairs(list) do if ns.GetContinent(z.mapID) ~= here then other = ns.GetContinent(z.mapID) break end end
+                end
+                if other and Best(itemID, here).mapID ~= Best(itemID, other).mapID then ITEM, there = itemID, other break end
+            end
+        end
+        assert(ITEM, "test setup: no item with zones on two continents")
+        local function Text(z)
+            if z.own > 0 and z.questie > 0 then return L["%s (%d known: Questie data, %d yours)"]:format(ns.GetZoneName(z.mapID), z.total, z.own) end
+            if z.own > 0 then return L["%s (%d known: yours)"]:format(ns.GetZoneName(z.mapID), z.total) end
+            return L["%s (%d known: Questie data)"]:format(ns.GetZoneName(z.mapID), z.total)
+        end
+        assert(Has(Zone(ITEM), Text(Best(ITEM, here))), "on your continent: " .. Zone(ITEM) .. " - want " .. Text(Best(ITEM, here)))
+        -- you travel to the other continent: the line is chosen anew
+        local elsewhere
+        for mapID in pairs(data.zones) do if ns.GetContinent(mapID) == there then elsewhere = mapID break end end
+        player.map = elsewhere
+        fx.Event("ZONE_CHANGED_NEW_AREA")
+        assert(Has(Zone(ITEM), Text(Best(ITEM, there))), "on the other continent: " .. Zone(ITEM) .. " - want " .. Text(Best(ITEM, there)))
+        assert(Text(Best(ITEM, here)) ~= Text(Best(ITEM, there)), "test setup: the same zone on both")
+        player.map = saved.map
+        fx.Event("ZONE_CHANGED_NEW_AREA")
+        assert(Has(Zone(ITEM), Text(Best(ITEM, here))), "back again: " .. Zone(ITEM))
+
+        -- ---- your own points: named; until they are counted there is no line - never an old number
+        local kindID
+        for id, kind in pairs(data.kinds) do if kind[2] == 3340 and kind[1] == "o" then kindID = id break end end
+        local mine = {}
+        for i = 1, 40 do mine[i] = { id = kindID, name = "Incendicite Mineral Vein", type = "ore", x = 0.1 + i * 0.01, y = 0.5, count = 1, last = time() } end
+        ns.db.nodes[ZONE] = mine
+        ns.NotifyNodesChanged("add", ZONE, mine[1])
+        assert(Zone(3340) == "", "an old number right after a node changed: " .. Zone(3340))
+        assert(Zone(ITEM) ~= "", "another item lost its line through one node")
+        advance(6)
+        assert(Has(Zone(3340), L["%s (%d known: yours)"]:format(ns.GetZoneName(ZONE), 40)), "40 own points in a zone without spawn data: " .. Zone(3340))
+        -- some of them from sync: not counted - the zone with 29 Questie places leads again
+        for i = 1, 20 do mine[i].source = "sync" end
+        ns.NotifyNodesChanged()
+        assert(Zone(3340) == "" and Zone(ITEM) == "", "an old number after a change without a name")
+        advance(12)
+        assert(Has(Zone(3340), L["%s (%d known: Questie data)"]:format(ns.GetZoneName(1437), 29)), "20 own, 20 from sync: " .. Zone(3340))
+        ns.db.nodes[ZONE] = nil
+        ns.NotifyNodesChanged()
+        advance(12)
+
+        -- ---- a recipe learned: the index is built anew, meanwhile no line; then the new count
+        local dust = Used(10940)
+        local n0 = tonumber(dust:match(d.ProfLabel("Enchanting") .. " (%d+)"))
+        assert(n0 and n0 > 0, "strange dust: " .. dust)
+        ns.NoteItemName("Strange Dust", 10940)
+        ns.NoteItemName("Tooltip Test Shard", 990020)
+        local rev = ns.RecipeRev()
+        ns.RememberRecipe("Enchanting", 20, "Enchant Chest - Tooltip Test", { { "Strange Dust", 2 }, { "Strange Dust", 1 }, { "Tooltip Test Shard", 1 } })
+        assert(ns.RecipeRev() > rev, "test setup: the recipe was not learned (" .. tostring(ns.db.recipeDB.Enchanting and ns.db.recipeDB.Enchanting["Enchant Chest - Tooltip Test"]) .. ")")
+        assert(Used(10940) == "", "an old number while the recipes are read again: " .. Used(10940))
+        assert(fx.State() == "building", "the index is not built anew: " .. fx.State())
+        advance(5)
+        dust = Used(10940)
+        assert(tonumber(dust:match(d.ProfLabel("Enchanting") .. " (%d+)")) == n0 + 1, "strange dust after the new recipe: " .. dust .. " (was " .. n0 .. ")")
+        -- an item only your own recipe book knows gets the block too
+        local shard = fx.Hover(tip, 990020)
+        assert(TT.Line(shard, L["AH price"]) and Has(TT.Plain(TT.Line(shard, L["Used in"]) or ""), d.ProfLabel("Enchanting") .. " 1"), "an item only in your own recipe book: " .. table.concat(shard, " / "))
+        assert(Has(TT.Plain(TT.Line(shard, L["Most spawn points"]) or ""), L["unknown (not a gathered item)"]), "its zone line: " .. table.concat(shard, " / "))
+        assert(fx.ns.ItemTooltipState().recipes == 2263, "recipes after one more: " .. fx.ns.ItemTooltipState().recipes)
+
+        -- ---- another language: the texts are made anew
+        local english = fx.Hover(tip, 2447)
+        local other = LOCALE == "deDE" and "frFR" or "deDE"
+        ns.db.language = other
+        ns.ApplyLanguage()
+        fx.ns.languageListeners[1]()
+        advance(12) -- (node names change with the language: the spawn counts are counted again)
+        local translated = fx.Hover(tip, 2447)
+        local label = ns.Locales[other]["Used in"]
+        assert(TT.Line(translated, label) and TT.Line(translated, ns.Locales[other]["recipe data"]) and TT.Line(translated, ns.Locales[other]["14 days"]),
+            "after the change to " .. other .. ": " .. table.concat(translated, " / "))
+        assert(#translated == #english, "the change of language changed the number of lines")
+        ns.db.language = saved.language
+        ns.ApplyLanguage()
+        fx.ns.languageListeners[1]()
+        advance(12)
+        assert(TT.Line(fx.Hover(tip, 2447), L["Used in"]), "back to the language before")
+        assert(#errors == before, "an error: " .. tostring(errors[#errors]))
+    end)
+    IsShiftKeyDown, player.map = saved.shift, saved.map
+    ns.db.tooltipPrices, ns.db.recipeDB, ns.db.recipePending, ns.db.nodes[ZONE], ns.db.language, ns.db.itemNames = saved.option, saved.recipeDB, saved.pending, saved.nodes, saved.language, saved.names
+    ns.ApplyLanguage()
+    ns.SpawnCountsStop("test")
+    ns.NotifyNodesChanged()
+    advance(12)
+    if not ok then error(err, 0) end
+end)
+step("Item tooltip: cheap while hovering, nothing built while it is off, every text fits (v0.2 B2 C4)", function()
+    -- Concept item tooltip 4.6, 5.7, 5.8, 5.12, 6 ("many hovers", languages).
+    ns.GetPrice(785)
+    local p = ns.db.prices[next(ns.db.prices)]
+    local L = ns.L
+    local saved = { option = ns.db.tooltipPrices, shift = IsShiftKeyDown, gmatch = string.gmatch, sort = table.sort, atr = Auctionator, language = ns.db.language }
+    local ids, was = {}, {}
+    local before = #errors
+    local ok, err = pcall(function()
+        Auctionator = nil
+        -- ---- off before the login: no index, no counts, no line - and the saved switch is all it takes
+        ns.db.tooltipPrices = false
+        local off = TT.Load("tdp", true)
+        off.Event("PLAYER_LOGIN") advance(5)
+        assert(off.State() == "off" and not off.spawnStarts, "built although the option is off: " .. off.State() .. ", counts started " .. tostring(off.spawnStarts))
+        assert(#off.Hover(off.game, 2447, 2) == 2, "lines although the option is off")
+        local st = off.ns.ItemTooltipState()
+        assert(st.builds == 0 and st.recipes == 0, "off: " .. st.builds .. " builds, " .. st.recipes .. " recipes read")
+        -- the options page switches it: the setter tells the module
+        local src = assert(io.open(ROOT .. "/Options.lua")):read("*a")
+        assert(src:find("ns.db.tooltipPrices = on", 1, true) and src:find("ns.ItemTooltipSetEnabled(on)", 1, true), "the option does not tell the tooltip module")
+
+        -- ---- on: 50 items, hovered 1000 times
+        ns.db.tooltipPrices = true
+        local fx = TT.Load("tdp", true)
+        fx.Event("PLAYER_LOGIN") advance(10)
+        assert(fx.State() == "ready", "test setup: " .. fx.State())
+        local day, now = math.floor(time() / 86400), time()
+        local kinds = {}
+        for _, kind in pairs(GathercraftQuestieData.kinds) do if (kind[1] == "h" or kind[1] == "o") and kind[2] > 0 then kinds[#kinds + 1] = kind[2] end end
+        table.sort(kinds)
+        for i = 1, 50 do
+            local id = i <= 30 and kinds[i] or (990100 + i) -- 30 gathered items, 20 others
+            assert(id, "test setup: fewer than 30 gathered items")
+            ids[i] = id
+            was[id] = { p.items[id], p.qty[id], p.seen[id], p.kind[id], p.qtyOk[id], p.history[id] }
+            p.items[id], p.qty[id], p.seen[id], p.kind[id], p.qtyOk[id], p.history[id] = nil, nil, nil, nil, nil, nil
+            if i % 5 ~= 0 then
+                p.items[id], p.seen[id], p.kind[id], p.qty[id], p.qtyOk[id] = 100 + i, now - i * 600, "market", i, true
+                p.history[id] = ("%d:%d;%d:%d;%d:%d;%d:%d"):format(day - 3, 90 + i, day - 2, 95 + i, day - 1, 99 + i, day, 100 + i)
+            end
+        end
+        local tip = fx.game
+        IsShiftKeyDown = function() return true end
+        -- a few times around: the caches fill, the game's string table grows to
+        -- its size (measured 13.11.2026: the first 1000 hovers leave 20-30 KB
+        -- once, the next 4000 together 2-6 KB)
+        for _ = 1, 21 do
+            for _, id in ipairs(ids) do fx.Hover(tip, id) end
+        end
+        -- from now on a hover parses nothing and sorts nothing
+        local parsed, sorted = 0, 0
+        string.gmatch = function(...) parsed = parsed + 1 return saved.gmatch(...) end
+        table.sort = function(...) sorted = sorted + 1 return saved.sort(...) end
+        collectgarbage("collect") collectgarbage("collect")
+        local kb0, t0 = collectgarbage("count"), os.clock()
+        local lines = 0
+        for round = 1, 20 do
+            for _, id in ipairs(ids) do lines = lines + #fx.Hover(tip, id, 2) end
+        end
+        local ms = (os.clock() - t0) * 1000
+        string.gmatch, table.sort = saved.gmatch, saved.sort
+        collectgarbage("collect") collectgarbage("collect")
+        local kb1 = collectgarbage("count")
+        note(("item tooltip: 1000 hovers of 50 items with Shift, %d lines: %.0f ms (%.3f ms a hover), memory %+.1f KB"):format(lines, ms, ms / 1000, kb1 - kb0))
+        assert(parsed == 0 and sorted == 0, ("a warm hover parsed %d times and sorted %d times"):format(parsed, sorted))
+        assert(kb1 - kb0 < 32, ("1000 hovers left %.1f KB behind"):format(kb1 - kb0))
+        assert(ms < 2000, ("1000 hovers took %.0f ms"):format(ms))
+        assert(lines > 1000 * 4, "test setup: the hovers showed little (" .. lines .. " lines)")
+        local hook = fx.ns.ItemTooltipState()
+        assert(hook.tooltips == 2050 and hook.calls == 3050, "the counters of /gcr tooltiptest: " .. hook.tooltips .. " builds, " .. hook.calls .. " calls (want 2050, 3050)")
+        assert(#errors == before, "an error: " .. tostring(errors[#errors]))
+
+        -- ---- every text, in every language: a key, a translation, the same placeholders, and it fits
+        -- (a tooltip line has no fixed width; what we keep to is 80 characters
+        -- for label and value together, with the longest values there are:
+        -- from 100 gold on a price is shown without silver)
+        local money = "99g 99s"
+        local zone = "Stranglethorn Vale" -- 18 characters: a long zone name
+        local function Width(text) -- characters as the player sees them; East Asian ones are twice as wide
+            local n = 0
+            for ch in saved.gmatch(text, "[%z\1-\127\194-\244][\128-\191]*") do n = n + ((#ch >= 3) and 2 or 1) end
+            return n
+        end
+        local KEYS = { "Gathercraft info in item tooltips", "Prices, the last 14 days, spawn points and recipes. Hold Shift for more.", "AH price", "14 days", "Last 7 days",
+            "Most spawn points", "Used in", "own scan", "lowest offer", "own data", "%s listed", "too old, not used", "unknown – scan at the auction house",
+            "uses Auctionator price (%s)", "age unknown", "today", "1 day", "%d days", "uses TSM DBMarket price (external, age unknown)",
+            "uses auction addon price: %s (age unknown)", "uses vendor price: %s", "low %s · usual %s · high %s", "1 day with data", "%d days with data",
+            "unknown (only trade goods are tracked)", "unknown (no price in the last 14 days)", "UTC days; own data, scans and lowest offers",
+            "%s (%d known: Questie data, %d yours)", "%s (%d known: yours)", "%s (%d known: Questie data)", "unknown (not a gathered item)", "recipe data" }
+        local code = assert(io.open(ROOT .. "/ItemTooltip.lua")):read("*a") .. assert(io.open(ROOT .. "/Options.lua")):read("*a")
+        local function Placeholders(s) local t = {} for ph in saved.gmatch(s, "%%[%-+ 0#]*%d*%.?%d*[a-zA-Z]") do t[#t + 1] = ph end return table.concat(t, " ") end
+        local tooWide = {}
+        for _, lang in ipairs({ "enUS", "deDE", "esES", "frFR", "itIT", "koKR", "ptBR", "ruRU", "zhCN", "zhTW" }) do
+            local T = {}
+            for _, key in ipairs(KEYS) do
+                assert(code:find(key, 1, true), "the text is not in the code: " .. key)
+                local tr = lang == "enUS" and key or ns.Locales[lang][key]
+                assert(type(tr) == "string" and tr ~= "" and (lang == "enUS" or tr ~= key), ("no %s translation of %q"):format(lang, key))
+                assert(Placeholders(tr) == Placeholders(key), ("%s: other placeholders in %q: %s"):format(lang, key, tr))
+                T[key] = tr
+            end
+            local days = T["%d days"]:format(13)
+            local rows = {
+                T["AH price"] .. "  " .. money .. "  (" .. T["lowest offer"] .. ", 23" .. (lang == "enUS" and " h ago" or ns.Locales[lang][" h ago"]) .. ", " .. T["%s listed"]:format("99999") .. ")",
+                T["AH price"] .. "  " .. money .. "  (" .. T["lowest offer"] .. ", 13" .. (lang == "enUS" and " days ago" or ns.Locales[lang][" days ago"]) .. " – " .. T["too old, not used"] .. ")",
+                T["AH price"] .. "  " .. T["unknown – scan at the auction house"],
+                "      " .. T["uses Auctionator price (%s)"]:format(T["age unknown"]),
+                "      " .. T["uses Auctionator price (%s)"]:format(days),
+                "      " .. T["uses TSM DBMarket price (external, age unknown)"],
+                "      " .. T["uses auction addon price: %s (age unknown)"]:format(money),
+                "      " .. T["uses vendor price: %s"]:format(money),
+                T["14 days"] .. "  " .. T["low %s · usual %s · high %s"]:format(money, money, money) .. "  (" .. T["%d days with data"]:format(14) .. ")",
+                T["14 days"] .. "  " .. T["unknown (only trade goods are tracked)"],
+                T["14 days"] .. "  " .. T["unknown (no price in the last 14 days)"],
+                T["Last 7 days"] .. "  " .. ("999g · 999g · 999g · 999g · 999g · 999g · 999g"),
+                "      " .. T["UTC days; own data, scans and lowest offers"],
+                T["Most spawn points"] .. "  " .. T["%s (%d known: Questie data, %d yours)"]:format(zone, 999, 99),
+                T["Most spawn points"] .. "  " .. T["unknown (not a gathered item)"],
+            }
+            for i, row in ipairs(rows) do
+                if Width(row) > 80 then tooWide[#tooWide + 1] = ("%s row %d: %d: %s"):format(lang, i, Width(row), row) end
+            end
+        end
+        assert(#tooWide == 0, #tooWide .. " lines wider than 80 characters: " .. table.concat(tooWide, " | "))
+        -- nothing English built in: every word of a line comes from a key above (the money and the numbers aside)
+        ns.db.language = "deDE"
+        ns.ApplyLanguage()
+        fx.ns.languageListeners[1]()
+        for _, id in ipairs({ ids[1], ids[5], ids[31], ids[35] }) do
+            for _, line in ipairs(fx.Hover(tip, id)) do
+                local plain = TT.Plain(line)
+                for _, word in ipairs({ "listed", "ago", "known", "yours", "unknown", "uses ", "usual", "days", "recipe" }) do
+                    assert(not plain:find(word, 1, true), "English in a German tooltip: " .. plain)
+                end
+            end
+        end
+    end)
+    string.gmatch, table.sort = saved.gmatch, saved.sort
+    IsShiftKeyDown, Auctionator = saved.shift, saved.atr
+    ns.db.tooltipPrices, ns.db.language = saved.option, saved.language
+    ns.ApplyLanguage()
+    for _, id in ipairs(ids) do
+        local w = was[id] or {}
+        p.items[id], p.qty[id], p.seen[id], p.kind[id], p.qtyOk[id], p.history[id] = w[1], w[2], w[3], w[4], w[5], w[6]
+    end
     if not ok then error(err, 0) end
 end)
 -- (end of the item tooltip steps, v0.2 building block 2)
