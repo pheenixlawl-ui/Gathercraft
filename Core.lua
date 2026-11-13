@@ -1468,6 +1468,8 @@ SlashCmdList.GATHERCRAFT = function(msg)
         if ns.PriceTest then ns.PriceTest() end
     elseif cmd == "recipetest" then
         if ns.RecipeTest then ns.RecipeTest() end
+    elseif cmd == "tooltiptest" then
+        if ns.TooltipTest then ns.TooltipTest() end
     elseif cmd == "trainertest" then
         if ns.TrainerTest then ns.TrainerTest() end
     elseif cmd == "crafttest" then

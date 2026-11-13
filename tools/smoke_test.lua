@@ -21249,6 +21249,86 @@ step("Item tooltip: cheap while hovering, nothing built while it is off, every t
     end
     if not ok then error(err, 0) end
 end)
+step("/gcr tooltiptest: what the client offers for item tooltips and how our lines are doing - it only prints (v0.2 B2 C5)", function()
+    -- Concept item tooltip 7: what cannot be known outside the game is
+    -- asked there, with one command whose output Sven copies.
+    local saved = { option = ns.db.tooltipPrices, atr = Auctionator, tsm = TSM_API, instant = C_Item.GetItemInfoInstant, size = C_Map.GetMapWorldSize,
+        secret = issecretvalue, game = GameTooltip, ref = ItemRefTooltip, tip = C_TooltipInfo }
+    local before = #errors
+    local function Output(fn)
+        local mark = #log
+        fn()
+        local out = {}
+        for i = mark + 1, #log do out[#out + 1] = log[i] end
+        return table.concat(out, "\n"), #out
+    end
+    local function Has(text, part) return text:find(part, 1, true) ~= nil end
+    local ok, err = pcall(function()
+        ns.db.tooltipPrices = true
+        Auctionator, TSM_API = nil, nil
+        -- ---- the command of the game's copy: there, prints, changes nothing
+        local s0 = ns.ItemTooltipState()
+        local calls, state = s0.calls, s0.state
+        local text, n = Output(function() slash("tooltiptest") end)
+        assert(n >= 14, "/gcr tooltiptest printed " .. n .. " lines")
+        assert(Has(text, "Item tooltip check") and Has(text, "Hook in use: OnTooltipSetItem"), "no heading or no hook named: " .. text)
+        assert(Has(text, "Auctionator.GetAuctionAgeByItemID: not there"), "without Auctionator: " .. text)
+        local s1 = ns.ItemTooltipState()
+        assert(s1.calls == calls and s1.state == state and #errors == before, "the command changed something")
+
+        -- ---- a copy with the client's tooltip data, a few hovers, then the command
+        local fx = TT.Load("tdp", true)
+        fx.Event("PLAYER_LOGIN") advance(10)
+        fx.Hover(fx.game, 2447, 2) fx.Hover(fx.game, 2770, 3) fx.Hover(fx.ref, 2447, 1)
+        Auctionator = { API = { v1 = { GetAuctionPriceByItemID = function() return 5 end, GetAuctionAgeByItemID = function(_, id) return id == 2447 and 3 or nil end } } }
+        TSM_API = { GetCustomPriceValue = function() return 7 end }
+        GameTooltip, ItemRefTooltip = fx.game, nil
+        text = Output(fx.ns.TooltipTest)
+        GameTooltip, ItemRefTooltip = saved.game, saved.ref
+        for _, want in ipairs({
+            "Option \"Gathercraft info in item tooltips\": on",
+            "Hook in use: TooltipDataProcessor",
+            "GameTooltip: OnTooltipSetItem yes, OnTooltipCleared yes",
+            "ItemRefTooltip: OnTooltipSetItem no such tooltip",
+            "Auctionator.GetAuctionAgeByItemID(Peacebloom): number 3",
+            "Item class of Peacebloom (2447): 7 / 9",
+            "Item class of Copper Ore (2770): 7 / 9",
+            "C_Map.GetMapWorldSize(" .. player.map .. "): 5000 x 3333",
+            "Index of gathered items and recipes: ready, built 1 times",
+            "Spawn point counts: ready",
+            "Hook calls: 6 for 3 tooltip builds",
+            "Calls per build, the last 3: 2 3 1",
+            "(3 builds, ",
+        }) do
+            assert(Has(text, want), "not in the output: " .. want .. "\n" .. text)
+        end
+        assert(text:find("%d+ recipes, %d+ different reagents") and text:find("Cost of our lines: %d+%.%d%d%d ms a build on average"), "numbers missing: " .. text)
+        -- it printed only: no call counted, nothing built
+        local s2 = fx.ns.ItemTooltipState()
+        assert(s2.calls == 6 and s2.tooltips == 3 and s2.builds == 1, "the command counted itself or built something")
+
+        -- ---- a client that has little of all that: no error, said plainly
+        Auctionator = { API = { v1 = { GetAuctionAgeByItemID = function() error("no such item") end } } }
+        C_Item.GetItemInfoInstant, C_Map.GetMapWorldSize = nil, nil
+        GameTooltip, ItemRefTooltip = {}, nil
+        fx.ns.ItemTooltipSetEnabled(false)
+        text = Output(fx.ns.TooltipTest)
+        GameTooltip, ItemRefTooltip = saved.game, saved.ref
+        for _, want in ipairs({ "\": off", "GameTooltip: OnTooltipSetItem no such tooltip", "GetAuctionAgeByItemID(Peacebloom): error:", "no C_Item.GetItemInfoInstant",
+            "C_Map.GetMapWorldSize: no zone or no function", "Index of gathered items and recipes: off" }) do
+            assert(Has(text, want), "a poor client, not in the output: " .. want .. "\n" .. text)
+        end
+        assert(fx.State() == "off" and #errors == before, "the command built something while the option is off, or an error: " .. tostring(errors[#errors]))
+        -- the command is English in every language: it is copied and sent to us
+        local src = assert(io.open(ROOT .. "/ItemTooltip.lua")):read("*a")
+        local body = src:sub(src:find("ns.TooltipTest = function()", 1, true))
+        assert(not body:find('L%["'), "/gcr tooltiptest uses translated texts")
+    end)
+    Auctionator, TSM_API, C_Item.GetItemInfoInstant, C_Map.GetMapWorldSize, issecretvalue = saved.atr, saved.tsm, saved.instant, saved.size, saved.secret
+    GameTooltip, ItemRefTooltip, C_TooltipInfo = saved.game, saved.ref, saved.tip
+    ns.db.tooltipPrices = saved.option
+    if not ok then error(err, 0) end
+end)
 -- (end of the item tooltip steps, v0.2 building block 2)
 step("Long run (10 min) for leaks", function() slash("run herb") advance(600) slash("stop") end)
 step("Test mock: OnUpdate runs for the same frames in the same order as going over every frame (tools only)", function()

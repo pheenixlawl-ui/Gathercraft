@@ -490,3 +490,65 @@ ns.ItemTooltipState = function()
     return { state = state, buildMs = buildMs, builds = buildCount, recipes = recipeCount, reagents = reagentCount, way = stats.way,
         calls = stats.calls, tooltips = stats.builds, renders = stats.renders, ms = stats.ms, recent = stats.recent, continent = continent }
 end
+
+---------------------------------------------------------------------------
+-- /gcr tooltiptest : what this client offers for item tooltips, and how our
+-- lines are doing. It only prints (English, to be copied and sent).
+---------------------------------------------------------------------------
+local function Has(value) return value and "|cff00ff00yes|r" or "|cffff5555no|r" end
+
+local function Script(tooltip, name)
+    if not (tooltip and tooltip.HasScript) then return "no such tooltip" end
+    local ok, has = pcall(tooltip.HasScript, tooltip, name)
+    return (ok and has == true) and "yes" or "no"
+end
+
+ns.TooltipTest = function()
+    ns.Print("Item tooltip check")
+    print(("  Option \"Gathercraft info in item tooltips\": %s"):format(Enabled() and "on" or "off"))
+    print(("  TooltipDataProcessor.AddTooltipPostCall: %s  Enum.TooltipDataType.Item: %s  C_TooltipInfo: %s"):format(
+        Has(TooltipDataProcessor and TooltipDataProcessor.AddTooltipPostCall), Has(Enum and Enum.TooltipDataType and Enum.TooltipDataType.Item), Has(C_TooltipInfo)))
+    print(("  Hook in use: %s"):format(stats.way))
+    for _, name in ipairs({ "GameTooltip", "ItemRefTooltip" }) do
+        print(("  %s: OnTooltipSetItem %s, OnTooltipCleared %s"):format(name, Script(_G[name], "OnTooltipSetItem"), Script(_G[name], "OnTooltipCleared")))
+    end
+    print(("  issecretvalue: %s"):format(Has(issecretvalue)))
+    -- other price addons, and what Auctionator says about the age of a price
+    local api = Auctionator and Auctionator.API and Auctionator.API.v1
+    print(("  Auctionator: %s  TSM: %s"):format(Has(api), Has(TSM_API)))
+    if api and api.GetAuctionAgeByItemID then
+        local ok, age = pcall(api.GetAuctionAgeByItemID, ADDON_NAME, 2447)
+        print(("  Auctionator.GetAuctionAgeByItemID(Peacebloom): %s"):format(ok and (type(age) .. " " .. tostring(age)) or ("error: " .. tostring(age))))
+    else
+        print("  Auctionator.GetAuctionAgeByItemID: not there")
+    end
+    -- the history is kept for item class 7 (trade goods) only
+    for _, sample in ipairs({ { 2447, "Peacebloom" }, { 2770, "Copper Ore" } }) do
+        local class = "no C_Item.GetItemInfoInstant"
+        if C_Item and C_Item.GetItemInfoInstant then
+            local ok, a, b, c, d, e, classID, subID = pcall(C_Item.GetItemInfoInstant, sample[1])
+            class = ok and ("%s / %s"):format(tostring(classID), tostring(subID)) or "error"
+        end
+        print(("  Item class of %s (%d): %s"):format(sample[2], sample[1], class))
+    end
+    -- the 15 yards between an own point and a Questie place need the zone's size
+    local mapID = C_Map and C_Map.GetBestMapForUnit and ns.Readable(C_Map.GetBestMapForUnit("player"), "item tooltip")
+    if type(mapID) == "number" and C_Map.GetMapWorldSize then
+        local ok, w, h = pcall(C_Map.GetMapWorldSize, mapID)
+        print(("  C_Map.GetMapWorldSize(%d): %s"):format(mapID, ok and (tostring(w) .. " x " .. tostring(h)) or "error"))
+    else
+        print("  C_Map.GetMapWorldSize: no zone or no function")
+    end
+    -- our indexes
+    print(("  Index of gathered items and recipes: %s, built %d times, %.1f ms the last time, %d recipes, %d different reagents"):format(
+        state, buildCount, buildMs, recipeCount, reagentCount))
+    if ns.SpawnCountsState then
+        local spawnState, spawnMs = ns.SpawnCountsState()
+        print(("  Spawn point counts: %s, %.1f ms"):format(tostring(spawnState), spawnMs or 0))
+    end
+    -- the hook: how often the client called it per build of a tooltip, and what a hover costs
+    print(("  Hook calls: %d for %d tooltip builds"):format(stats.calls, stats.builds))
+    print(("  Calls per build, the last %d: %s"):format(#stats.recent, #stats.recent > 0 and table.concat(stats.recent, " ") or "none yet - hover an item"))
+    print(("  Cost of our lines: %.3f ms a build on average (%d builds, %.1f ms together)"):format(
+        stats.renders > 0 and stats.ms / stats.renders or 0, stats.renders, stats.ms))
+end
