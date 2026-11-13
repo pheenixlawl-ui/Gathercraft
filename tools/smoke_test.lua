@@ -20160,6 +20160,112 @@ step("Prices: every price carries its kind and whether the quantity is its own; 
     if not ok then error(err, 0) end
     assert(#fails == 0, #fails .. " wrong: " .. table.concat(fails, " | "))
 end)
+step("Crafting: a hidden tooltip line is left out and no recipe is learned from it; the recipe book counts its changes (v0.2 B2 C2)", function()
+    -- Concept item tooltip 4.5 and 4.8 (Codex's answer 3). The two places
+    -- that read tooltip lines to learn recipes looked at every text with
+    -- "or" before any check. Now the list and every text are checked first;
+    -- a tooltip with a hole teaches nothing. And the "used in" index of the
+    -- item tooltip needs to know when the recipe book changed.
+    assert(type(ns.RecipeRev) == "function", "no ns.RecipeRev")
+    local saved = { secret = issecretvalue, tip = C_TooltipInfo, name = C_Item.GetItemNameByID, num = GetMerchantNumItems, info = GetMerchantItemInfo,
+        link = GetMerchantItemLink, debug = ns.db.debug, pending = ns.db.recipePending }
+    -- a hidden value: whoever looks into it is counted
+    local touched = 0
+    local SECRET = setmetatable({}, { __index = function() touched = touched + 1 error("a secret value was read") end,
+        __concat = function() touched = touched + 1 error("a secret value was joined") end })
+    local function Lines(name, dust, hide)
+        local lines = {}
+        for i, x in ipairs({ "Formula: " .. name, "Use: Teaches you how to permanently enchant a piece of chest armor.",
+            "Strange Dust (" .. dust .. ")", "Requires Enchanting (20)", "Sells for 1 silver" }) do
+            lines[#lines + 1] = { leftText = x }
+            if hide == i then lines[i].leftText = SECRET end
+            if hide == -i then lines[i] = SECRET end
+        end
+        return { lines = lines }
+    end
+    local function Book(name) return ns.db.recipeDB and ns.db.recipeDB.Enchanting and ns.db.recipeDB.Enchanting[name] end
+    local function Pending(name) return ns.db.recipePending and ns.db.recipePending.Enchanting and ns.db.recipePending.Enchanting[name] end
+    local ok, err = pcall(function()
+        issecretvalue = function(v) return rawequal(v, SECRET) end
+        ns.db.debug = true
+        ns.NoteItemName("Strange Dust", 10940)
+        local before = #errors
+
+        -- ---- hovering an item (the client's tooltip data): Crafting.lua with the hook
+        local hook
+        local ns2 = ReloadCrafting(function() return true end, {
+            TooltipDataProcessor = { AddTooltipPostCall = function(kind, fn) assert(kind == 7, "hook for another kind of tooltip") hook = fn end },
+            Enum = { TooltipDataType = { Item = 7 } } })
+        assert(hook, "test setup: no tooltip hook registered")
+        local tip = {}
+        hook(tip, nil)
+        hook(tip, {})
+        hook(tip, { lines = SECRET })
+        hook(tip, SECRET)
+        assert(touched == 0 and #errors == before, "a hidden tooltip or list was looked into (" .. touched .. ")")
+        -- every single line hidden once, as text and as a whole: nothing learned, nothing waits
+        for i = 1, 5 do
+            for _, hide in ipairs({ i, -i }) do
+                local name = "Enchant Chest - Test " .. i .. (hide < 0 and "b" or "a")
+                hook(tip, Lines(name, 2, hide))
+                assert(touched == 0, "line " .. i .. " hidden: it was read (" .. touched .. ")")
+                assert(not Book(name) and not Pending(name), "line " .. i .. " hidden: a recipe was learned from the rest")
+            end
+        end
+        assert(#errors == before, "an error: " .. tostring(errors[#errors]))
+        local told
+        for _, l in ipairs(log) do if l:find("secret value skipped in recipe tooltip", 1, true) then told = true end end
+        assert(told, "/gcr debug does not tell that a hidden value was skipped")
+        -- all lines readable: learned as before
+        local rev = ns2.RecipeRev()
+        hook(tip, Lines("Enchant Chest - Test Whole", 2))
+        assert(Book("Enchant Chest - Test Whole") == "0:1:1:20|10940:2", "a readable tooltip: " .. tostring(Book("Enchant Chest - Test Whole")))
+        assert(ns2.RecipeRev() == rev + 1, "a new recipe did not count the revision up: " .. rev .. " -> " .. ns2.RecipeRev())
+        -- the same again changes nothing, a changed one counts
+        hook(tip, Lines("Enchant Chest - Test Whole", 2))
+        assert(ns2.RecipeRev() == rev + 1, "the same recipe again counted the revision up")
+
+        -- ---- a recipe at a vendor (read by item ID): the same two rules
+        local shown
+        C_TooltipInfo = { GetItemByID = function(id) return id == 6343 and shown or nil end }
+        GetMerchantNumItems = function() return 1 end
+        GetMerchantItemInfo = function() return "Formula: Enchant Chest - Test Vendor", 134400, 300, 1, 1, true, false, nil end
+        GetMerchantItemLink = function() return "|Hitem:6343::|h" end
+        for _, hide in ipairs({ 1, 3, -4, 5 }) do
+            shown = Lines("Enchant Chest - Test Vendor", 3, hide)
+            fire("MERCHANT_SHOW") advance(2)
+            assert(touched == 0 and #errors == before, "vendor, line " .. hide .. " hidden: read or an error (" .. tostring(errors[#errors]) .. ")")
+            assert(not Book("Enchant Chest - Test Vendor") and not Pending("Enchant Chest - Test Vendor"), "vendor, line " .. hide .. " hidden: learned")
+        end
+        shown = { lines = SECRET }
+        fire("MERCHANT_SHOW") advance(2)
+        shown = SECRET
+        fire("MERCHANT_SHOW") advance(2)
+        assert(touched == 0 and #errors == before, "vendor, the whole tooltip hidden: read or an error")
+        rev = ns.RecipeRev()
+        shown = Lines("Enchant Chest - Test Vendor", 3)
+        fire("MERCHANT_SHOW") advance(2)
+        assert(Book("Enchant Chest - Test Vendor") == "0:1:1:20|10940:3", "vendor, readable: " .. tostring(Book("Enchant Chest - Test Vendor")))
+        assert(ns.RecipeRev() == rev + 1, "vendor: the revision " .. rev .. " -> " .. ns.RecipeRev())
+        fire("MERCHANT_SHOW") advance(2)
+        assert(ns.RecipeRev() == rev + 1, "vendor: the same recipe again counted")
+
+        -- ---- old saved data moved under the English names counts too (once a session)
+        local ns3 = ReloadCrafting(function() return true end)
+        local r3 = ns3.RecipeRev()
+        ns3.CraftAdvice("Enchanting")
+        assert(ns3.RecipeRev() == r3 + 1, "sorting the saved recipe book did not count: " .. r3 .. " -> " .. ns3.RecipeRev())
+        ns3.CraftAdvice("Enchanting")
+        assert(ns3.RecipeRev() == r3 + 1, "sorting counted twice")
+    end)
+    issecretvalue, C_TooltipInfo, C_Item.GetItemNameByID = saved.secret, saved.tip, saved.name
+    GetMerchantNumItems, GetMerchantItemInfo, GetMerchantItemLink = saved.num, saved.info, saved.link
+    ns.db.debug, ns.db.recipePending = saved.debug, saved.pending
+    for name in pairs(ns.db.recipeDB and ns.db.recipeDB.Enchanting or {}) do
+        if name:find("Enchant Chest - Test", 1, true) then ns.db.recipeDB.Enchanting[name] = nil end
+    end
+    if not ok then error(err, 0) end
+end)
 -- (end of the item tooltip steps, v0.2 building block 2)
 step("Long run (10 min) for leaks", function() slash("run herb") advance(600) slash("stop") end)
 step("Test mock: OnUpdate runs for the same frames in the same order as going over every frame (tools only)", function()

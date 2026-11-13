@@ -189,6 +189,12 @@ local function RecipeDB()
     return ns.db.recipeDB
 end
 
+-- Counts up when the account's recipe book changes (0.2 B2): what was worked
+-- out from all recipes - which professions use an item - is good for one
+-- revision
+local recipeRev = 0
+ns.RecipeRev = function() return recipeRev end
+
 -- Keep the best we know: amounts from the profession window, the required
 -- skill from the trainer
 local function MergeRecipe(prof, name, product, nMin, nMax, req, reagentText)
@@ -202,7 +208,11 @@ local function MergeRecipe(prof, name, product, nMin, nMax, req, reagentText)
         if not req or req == 0 then req = tonumber(oReq) end
         if not nMin then nMin, nMax = tonumber(oMin), tonumber(oMax) end
     end
-    db[prof][name] = ("%d:%d:%d:%d|%s"):format(product, nMin or 1, nMax or nMin or 1, req or 0, reagentText)
+    local packed = ("%d:%d:%d:%d|%s"):format(product, nMin or 1, nMax or nMin or 1, req or 0, reagentText)
+    if db[prof][name] ~= packed then
+        db[prof][name] = packed
+        recipeRev = recipeRev + 1
+    end
 end
 
 -- Saved data from older versions or other client languages: move it under
@@ -211,6 +221,7 @@ local normalized = false
 local function Normalize()
     if normalized or not ns.db then return end
     normalized = true
+    recipeRev = recipeRev + 1
     local function ProductOf(packed) return tonumber(packed:match("^(%d+)")) end
     -- account recipe book: prof -> name -> packed
     local db = ns.db.recipeDB or {}
@@ -884,18 +895,46 @@ local function ResolvePending()
 end
 ns.ResolvePending = ResolvePending
 
+-- The left texts of a tooltip's lines, and whether every line could be
+-- read. In dungeons and combat the client may hide a tooltip's values
+-- ("secret values"): looking at one - also with "or" - is an error. So the
+-- list and every text go through the check first; a line that cannot be
+-- read is left out, and the caller learns no recipe from a tooltip with a
+-- hole in it (0.2 B2 C2, Codex's answer 3; whether a text can be secret in
+-- this client at all only the game can tell).
+-- (A table can only be told from a hidden value by the client's own
+-- issecretvalue: the check for clients without it compares, and a table
+-- cannot be compared either.)
+local function ReadableTable(v, where)
+    if issecretvalue then v = ns.Readable(v, where) end
+    if type(v) == "table" then return v end
+end
+local function ReadableLines(data, where)
+    data = ReadableTable(data, where)
+    local list = data and ReadableTable(data.lines, where)
+    if not list then return end
+    local lines, complete = {}, true
+    for _, line in ipairs(list) do
+        line = ReadableTable(line, where)
+        if not line or ns.AnySecret(where, line.leftText) then
+            complete = false
+        else
+            lines[#lines + 1] = line.leftText or ""
+        end
+    end
+    return lines, complete
+end
+
 local function TooltipLines(itemID)
     if not (C_TooltipInfo and C_TooltipInfo.GetItemByID) then return end
     local ok, data = pcall(C_TooltipInfo.GetItemByID, itemID)
-    if not ok or not data or not data.lines then return end
-    local lines = {}
-    for _, line in ipairs(data.lines) do lines[#lines + 1] = line.leftText or "" end
-    return lines
+    if not ok then return end
+    return ReadableLines(data, "recipe item")
 end
 
 local function ReadRecipeItem(itemID)
-    local lines = TooltipLines(itemID)
-    if not lines then return end
+    local lines, complete = TooltipLines(itemID)
+    if not (lines and complete) then return end
     local prof, req, product, reagents = ParseRecipeLines(lines)
     if prof then RememberRecipe(prof, req, product, reagents) end
 end
@@ -931,10 +970,10 @@ local function OnTooltipLines(lines)
 end
 if TooltipDataProcessor and TooltipDataProcessor.AddTooltipPostCall and Enum and Enum.TooltipDataType then
     TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Item, function(tooltip, data)
-        if not (ns.db and data and data.lines) then return end
-        local lines = {}
-        for _, line in ipairs(data.lines) do lines[#lines + 1] = line.leftText or "" end
-        pcall(OnTooltipLines, lines)
+        if not ns.db then return end
+        local lines, complete = ReadableLines(data, "recipe tooltip")
+        if not (lines and complete) then return end
+        pcall(OnTooltipLines, lines) -- (a safety net only: the check above comes first)
     end)
 end
 
