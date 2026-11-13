@@ -49,14 +49,20 @@ local function PriceDB()
         ns.db.prices[key] = p
     end
     p.seen = p.seen or {} -- itemID -> when its price was last updated
-    -- what kind of price it is ("market": a scan or a search, with stock
-    -- behind it; "lowest": the cheapest offer of a browse list) and whether
-    -- p.qty belongs to this very price (0.2 B2). Entries from before have
-    -- neither: their kind is not known, their quantity is not shown.
-    p.kind = p.kind or {}
-    p.qtyOk = p.qtyOk or {}
+    -- what kind of price it is and whether p.qty belongs to this very price
+    -- (0.2 B2), one number an item - see MARKET and LOWEST below. Entries
+    -- from before have none: their kind is not known, their quantity is not
+    -- shown.
+    p.meta = p.meta or {}
     return p
 end
+
+-- p.meta: 1 = market price (a scan or a search, with stock behind it) with
+-- its quantity, 2 = market price without, 3 = lowest offer (the cheapest of
+-- a browse list) with its quantity, 4 = lowest offer without
+local MARKET, LOWEST, NO_QTY = 1, 3, 1
+local META_KIND = { "market", "market", "lowest", "lowest" }
+local META_QTY = { true, false, true, false }
 
 local function PriceAge(p, itemID)
     return time() - (p.seen[itemID] or p.scanned or 0)
@@ -374,22 +380,18 @@ local function ValidQty(qty)
     return type(qty) == "number" and qty >= 0 and qty < math.huge
 end
 
--- One item's price from a search or browse result. Price, kind, time and
--- the state of the quantity are set in one go: a price without a quantity
--- of its own (qty = nil) has none - the number of the price before may stay
--- in p.qty, but it is not this price's and is never shown with it. (No
--- comparing of times: two looks in the same second are two looks.)
+-- One item's price from a search or browse result (kind: MARKET or LOWEST).
+-- Price, time and the number that says what kind of price it is and whether
+-- it has a quantity are set in one go: a price without a quantity of its own
+-- (qty = nil) has none - the number of the price before may stay in p.qty,
+-- but it is not this price's and is never shown with it. (No comparing of
+-- times: two looks in the same second are two looks.)
 local function StorePrice(itemID, price, qty, kind)
     local p = PriceDB()
     if not (p and itemID and price and price > 0) then return end
-    p.items[itemID] = math.floor(price + 0.5)
-    p.kind[itemID] = kind
-    if ValidQty(qty) then
-        p.qty[itemID], p.qtyOk[itemID] = qty, true
-    else
-        p.qtyOk[itemID] = nil
-    end
-    p.seen[itemID] = time()
+    local has = ValidQty(qty)
+    if has then p.qty[itemID] = qty end
+    p.items[itemID], p.seen[itemID], p.meta[itemID] = math.floor(price + 0.5), time(), has and kind or kind + NO_QTY
     AddHistory(p, itemID, p.items[itemID])
     priceRev = priceRev + 1
 end
@@ -499,8 +501,7 @@ FinishScan = function()
         -- The prices read are real and replace the old ones of their items;
         -- every other price stays, and it does not count as a full scan.
         for itemID, price in pairs(items) do
-            p.items[itemID], p.qty[itemID], p.seen[itemID] = price, qty[itemID], now
-            p.kind[itemID], p.qtyOk[itemID] = "market", true
+            p.items[itemID], p.qty[itemID], p.seen[itemID], p.meta[itemID] = price, qty[itemID], now, MARKET
         end
         ns.Print((L["Scan incomplete: %d auctions could not be read, old prices kept (%d updated)."]):format(scan.readErrors, count))
         FlushIgnored()
@@ -510,10 +511,9 @@ FinishScan = function()
         return
     end
     -- a full scan shows everything: items no longer listed have no price now
-    local kind, qtyOk = {}, {}
-    for itemID in pairs(items) do kind[itemID], qtyOk[itemID] = "market", true end
-    p.items, p.qty, p.seen, p.scanned = items, qty, seen, now
-    p.kind, p.qtyOk = kind, qtyOk
+    local meta = {}
+    for itemID in pairs(items) do meta[itemID] = MARKET end
+    p.items, p.qty, p.seen, p.meta, p.scanned = items, qty, seen, meta, now
     ns.Print((L["Auction house scanned: %d auctions, prices for %d items."]):format(scan.total, count))
     FlushIgnored()
     scan = nil
@@ -794,7 +794,7 @@ local function OnCommodityResults(itemID)
     end
     local price, total = MarketPrice(list)
     local full = AH.HasFullCommoditySearchResults and AH.HasFullCommoditySearchResults(itemID)
-    StorePrice(itemID, price, full and total or nil, "market")
+    StorePrice(itemID, price, full and total or nil, MARKET)
     ns.Debug(("AH commodity search %d: %d results, stored %d (%d listed, %s)"):format(itemID, #list / 2, price, total, full and "all" or "not all yet"))
     Learned()
 end
@@ -819,7 +819,7 @@ local function OnItemResults(itemKey)
         return
     end
     local price, total = MarketPrice(list)
-    StorePrice(itemKey.itemID, price, total, "market")
+    StorePrice(itemKey.itemID, price, total, MARKET)
     ns.Debug(("AH item search %d: %d results, stored %d (%d listed)"):format(itemKey.itemID, #list / 2, price, total))
     Learned()
 end
@@ -854,7 +854,7 @@ local function OnBrowseResults(event)
     for id, price in pairs(lowest) do
         -- lowest price only: don't overwrite a fresh market price from a search
         if not p.items[id] or PriceAge(p, id) > BROWSE_TRUST then
-            StorePrice(id, price, not unknown[id] and quantity[id] or nil, "lowest")
+            StorePrice(id, price, not unknown[id] and quantity[id] or nil, LOWEST)
             stored = stored + 1
         else
             kept = kept + 1
@@ -1089,8 +1089,9 @@ local function PriceInfo(itemID)
     info.own, info.ownAge, info.kind, info.qty, info.old, info.tooOld = own, nil, nil, nil, nil, nil
     if own then
         local age = PriceAge(p, itemID)
-        info.ownAge, info.kind = age, p.kind[itemID]
-        if p.qtyOk[itemID] then info.qty = p.qty[itemID] end
+        local meta = p.meta[itemID]
+        info.ownAge, info.kind = age, META_KIND[meta]
+        if META_QTY[meta] then info.qty = p.qty[itemID] end
         info.old, info.tooOld = age >= FRESH_PRICE, age >= MAX_PRICE_AGE
     end
     local used, source = GetPrice(itemID)

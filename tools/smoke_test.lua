@@ -19933,7 +19933,7 @@ step("Professions: every place of the game's list is asked whether it is hidden 
     GetProfessions, GetProfessionInfo, issecretvalue = keep.gp, keep.gi, keep.secret
     assert(ok, err)
 end)
-step("Prices: every price carries its kind and whether the quantity is its own; history and alerts only see 14 days (v0.2 B2 C1)", function()
+step("Prices: every price carries its kind and whether the quantity is its own, as one number an item; history and alerts only see 14 days (v0.2 B2 C1)", function()
     -- Concept item tooltip 4.1-4.3 (Codex M5, R2-M1; Sven S4, 12.11.2026).
     -- What is shown about a price later must be true: which kind of price
     -- it is, a quantity only when it was seen with this very price, and
@@ -19945,13 +19945,13 @@ step("Prices: every price carries its kind and whether the quantity is its own; 
     local keep = { time = time, atr = Auctionator, tsm = TSM_API, buyout = GetAuctionBuyout, info = GetItemInfo, alerts = ns.db.priceAlerts, alerted = ns.db.alerted,
         browse = AHX.GetBrowseResults, num = AHX.GetNumCommoditySearchResults, row = AHX.GetCommoditySearchResultInfo, full = AHX.HasFullCommoditySearchResults,
         numRep = AHX.GetNumReplicateItems, rep = AHX.GetReplicateItemInfo, replicate = AHX.ReplicateItems,
-        items = p.items, qty = p.qty, seen = p.seen, kind = p.kind, qtyOk = p.qtyOk, scanned = p.scanned, lastScanStart = p.lastScanStart, history = p.history[ID] }
+        items = p.items, qty = p.qty, seen = p.seen, meta = p.meta, scanned = p.scanned, lastScanStart = p.lastScanStart, history = p.history[ID] }
     local clock = keep.time()
     time = function() return clock end
     local fails = {}
     local function Check(ok, text) if not ok then fails[#fails + 1] = text end end
     local function Forget(id)
-        p.items[id], p.qty[id], p.seen[id], p.kind[id], p.qtyOk[id], p.history[id] = nil, nil, nil, nil, nil, nil
+        p.items[id], p.qty[id], p.seen[id], p.meta[id], p.history[id] = nil, nil, nil, nil, nil
     end
     local function Commodity(price, total, full)
         AHX.GetNumCommoditySearchResults = function() return 1 end
@@ -19965,7 +19965,11 @@ step("Prices: every price carries its kind and whether the quantity is its own; 
     end
     local ok, err = pcall(function()
         assert(type(ns.PriceInfo) == "function" and type(ns.PriceRev) == "function" and type(ns.PriceHistoryWindow) == "function", "no PriceInfo / PriceRev / PriceHistoryWindow")
-        assert(type(p.kind) == "table" and type(p.qtyOk) == "table", "the price data has no kind / qtyOk")
+        -- one number an item (Sven, 13.11.): 1 = market with its quantity,
+        -- 2 = market without, 3 = lowest offer with, 4 = lowest offer
+        -- without; none = an entry from before, not known
+        assert(type(p.meta) == "table", "the price data has no meta table")
+        assert(p.kind == nil and p.qtyOk == nil, "the price data still has the two tables kind / qtyOk")
         Auctionator, TSM_API, GetAuctionBuyout = nil, nil, nil
         fire("AUCTION_HOUSE_SHOW") advance(1)
 
@@ -19979,46 +19983,59 @@ step("Prices: every price carries its kind and whether the quantity is its own; 
         local rev = ns.PriceRev()
         Commodity(500, 240, true)
         i = ns.PriceInfo(ID)
-        Check(i.own == 500 and i.kind == "market" and i.qty == 240 and p.qtyOk[ID] == true, "full search: " .. tostring(i.kind) .. " " .. tostring(i.qty))
+        Check(i.own == 500 and i.kind == "market" and i.qty == 240 and p.meta[ID] == 1, "full search: " .. tostring(i.kind) .. " " .. tostring(i.qty) .. ", meta " .. tostring(p.meta[ID]))
         Check(ns.PriceRev() > rev, "a stored price did not count the revision up")
         -- ---- the same second, a search without all results: the price is new, the 240 are not its own
         Commodity(510, 3, false)
         i = ns.PriceInfo(ID)
-        Check(i.own == 510 and i.qty == nil and p.qtyOk[ID] == nil, "same second, then a price without a quantity: qty " .. tostring(i.qty))
+        Check(i.own == 510 and i.qty == nil and i.kind == "market" and p.meta[ID] == 2, "same second, then a price without a quantity: qty " .. tostring(i.qty) .. ", meta " .. tostring(p.meta[ID]))
         Check(p.seen[ID] == clock, "test setup: not the same second")
         -- ---- and the other way round: the new quantity shows
         Commodity(520, 77, true)
         i = ns.PriceInfo(ID)
-        Check(i.own == 520 and i.qty == 77, "same second, then a price with a quantity: qty " .. tostring(i.qty))
+        Check(i.own == 520 and i.qty == 77 and p.meta[ID] == 1, "same second, then a price with a quantity: qty " .. tostring(i.qty) .. ", meta " .. tostring(p.meta[ID]))
         -- an hour later, again without all results
         clock = clock + 3600
         Commodity(530, 5, false)
-        Check(ns.PriceInfo(ID).qty == nil, "a quantity of an older look shown with a newer price")
+        Check(ns.PriceInfo(ID).qty == nil and p.meta[ID] == 2, "a quantity of an older look shown with a newer price")
 
         -- ---- browse: the lowest offer; without totalQuantity the quantity is unknown, not 0
         Forget(ID)
         Browse({ { itemKey = { itemID = ID }, minPrice = 187 } })
         i = ns.PriceInfo(ID)
         Check(i.own == 187 and i.kind == "lowest", "browse: kind " .. tostring(i.kind))
-        Check(i.qty == nil and p.qty[ID] == nil and p.qtyOk[ID] == nil, "browse without totalQuantity: stored qty " .. tostring(p.qty[ID]) .. ", ok " .. tostring(p.qtyOk[ID]))
+        Check(i.qty == nil and p.qty[ID] == nil and p.meta[ID] == 4, "browse without totalQuantity: stored qty " .. tostring(p.qty[ID]) .. ", meta " .. tostring(p.meta[ID]))
         -- one of two entries without it: unknown for the item
         Forget(ID)
         Browse({ { itemKey = { itemID = ID }, minPrice = 187, totalQuantity = 40 }, { itemKey = { itemID = ID }, minPrice = 190 } })
-        Check(ns.PriceInfo(ID).qty == nil and p.qtyOk[ID] == nil, "browse, one entry without totalQuantity: qty " .. tostring(ns.PriceInfo(ID).qty))
+        Check(ns.PriceInfo(ID).qty == nil and p.meta[ID] == 4, "browse, one entry without totalQuantity: qty " .. tostring(ns.PriceInfo(ID).qty) .. ", meta " .. tostring(p.meta[ID]))
         Forget(ID)
         Browse({ { itemKey = { itemID = ID }, minPrice = 187, totalQuantity = "many" } })
         Check(ns.PriceInfo(ID).qty == nil and p.qty[ID] == nil, "browse, totalQuantity is no number: qty " .. tostring(p.qty[ID]))
         Forget(ID)
         Browse({ { itemKey = { itemID = ID }, minPrice = 187, totalQuantity = 40 }, { itemKey = { itemID = ID }, minPrice = 190, totalQuantity = 2 } })
         i = ns.PriceInfo(ID)
-        Check(i.qty == 42 and i.kind == "lowest" and i.own == 187, "browse with quantities: " .. tostring(i.qty))
+        Check(i.qty == 42 and i.kind == "lowest" and i.own == 187 and p.meta[ID] == 3, "browse with quantities: " .. tostring(i.qty) .. ", meta " .. tostring(p.meta[ID]))
         -- a real 0 is a number
         Forget(ID)
         Browse({ { itemKey = { itemID = ID }, minPrice = 187, totalQuantity = 0 } })
         Check(ns.PriceInfo(ID).qty == 0, "browse, 0 listed told by the game: " .. tostring(ns.PriceInfo(ID).qty))
 
+        -- ---- what each number means, and what is no number of ours: not known, no quantity
+        for _, c in ipairs({ { 1, "market", 9 }, { 2, "market" }, { 3, "lowest", 9 }, { 4, "lowest" }, { 0 }, { 5 }, { 1.5 }, { "market" }, { true } }) do
+            Forget(ID)
+            p.items[ID], p.qty[ID], p.seen[ID], p.meta[ID] = 187, 9, clock, c[1]
+            i = ns.PriceInfo(ID)
+            Check(i.own == 187 and i.kind == c[2] and i.qty == c[3], "meta " .. tostring(c[1]) .. ": kind " .. tostring(i.kind) .. ", qty " .. tostring(i.qty))
+        end
+        -- price, time and the number are one step: after a look none of the three is the one before
+        Forget(ID)
+        p.items[ID], p.qty[ID], p.seen[ID], p.meta[ID] = 187, 9, clock - 50, 3
+        Commodity(500, 240, false)
+        Check(p.items[ID] == 500 and p.seen[ID] == clock and p.meta[ID] == 2, "a look: price " .. tostring(p.items[ID]) .. ", seen " .. tostring(p.seen[ID] == clock) .. ", meta " .. tostring(p.meta[ID]))
+
         -- ---- a full scan: market, quantity there again, and the tables replaced
-        p.kind[GEAR], p.qtyOk[GEAR], p.items[GEAR], p.seen[GEAR] = "lowest", true, 5, clock
+        p.meta[GEAR], p.items[GEAR], p.seen[GEAR] = 3, 5, clock
         Forget(ID)
         Browse({ { itemKey = { itemID = ID }, minPrice = 187 } })
         Check(ns.PriceInfo(ID).qty == nil, "test setup: browse without quantity")
@@ -20039,22 +20056,23 @@ step("Prices: every price carries its kind and whether the quantity is its own; 
         rev = ns.PriceRev()
         Scan({ { id = ID, count = 20, buyout = 20 * 300 }, { id = ID, count = 10, buyout = 10 * 310 } })
         i = ns.PriceInfo(ID)
-        Check(i.kind == "market" and i.qty == 30 and i.own == 300, "full scan: " .. tostring(i.kind) .. " " .. tostring(i.qty) .. " " .. tostring(i.own))
-        Check(p.kind[GEAR] == nil and p.qtyOk[GEAR] == nil and p.items[GEAR] == nil, "full scan: an item no longer listed kept its kind or quantity state")
+        Check(i.kind == "market" and i.qty == 30 and i.own == 300 and p.meta[ID] == 1, "full scan: " .. tostring(i.kind) .. " " .. tostring(i.qty) .. " " .. tostring(i.own) .. ", meta " .. tostring(p.meta[ID]))
+        Check(p.meta[GEAR] == nil and p.items[GEAR] == nil, "full scan: an item no longer listed kept its kind or quantity state")
         Check(ns.PriceRev() > rev, "a scan did not count the revision up")
         -- a scan with unreadable auctions: what was read is market with its quantity, the rest stays
         clock = clock + 1000
-        p.items[GEAR], p.seen[GEAR], p.kind[GEAR], p.qtyOk[GEAR], p.qty[GEAR] = 5, clock, "lowest", true, 9
-        p.kind[ID], p.qtyOk[ID] = nil, nil
+        p.items[GEAR], p.seen[GEAR], p.meta[GEAR], p.qty[GEAR] = 5, clock, 3, 9
+        p.meta[ID] = nil
         Scan({ { id = ID, count = 50, buyout = 50 * 320 }, { id = 2447, count = 1, buyout = 30 } }, 2)
         i = ns.PriceInfo(ID)
-        Check(i.kind == "market" and i.qty == 50 and i.own == 320, "incomplete scan: " .. tostring(i.kind) .. " " .. tostring(i.qty) .. " " .. tostring(i.own))
-        Check(p.kind[GEAR] == "lowest" and p.qtyOk[GEAR] == true and p.items[GEAR] == 5, "incomplete scan: took another item's state away")
+        Check(i.kind == "market" and i.qty == 50 and i.own == 320 and p.meta[ID] == 1, "incomplete scan: " .. tostring(i.kind) .. " " .. tostring(i.qty) .. " " .. tostring(i.own) .. ", meta " .. tostring(p.meta[ID]))
+        Check(p.meta[GEAR] == 3 and p.items[GEAR] == 5, "incomplete scan: took another item's state away")
+        Check(p.kind == nil and p.qtyOk == nil, "looks and scans made the two tables kind / qtyOk again")
         Forget(GEAR)
 
         -- ---- PriceInfo names the source GetPrice names, in every state; an unknown age stays unknown
         local function Own(hours)
-            p.items[ID], p.qty[ID], p.seen[ID], p.kind[ID], p.qtyOk[ID] = 295, 1143, clock - hours * 3600, "market", true
+            p.items[ID], p.qty[ID], p.seen[ID], p.meta[ID] = 295, 1143, clock - hours * 3600, 1
         end
         local function Atr(price, hasAge, days, breaks)
             local api = { GetAuctionPriceByItemID = function(_, id) return id == ID and price or nil end }
@@ -20159,7 +20177,7 @@ step("Prices: every price carries its kind and whether the quantity is its own; 
     ns.db.priceAlerts, ns.db.alerted = keep.alerts, keep.alerted
     AHX.GetBrowseResults, AHX.GetNumCommoditySearchResults, AHX.GetCommoditySearchResultInfo, AHX.HasFullCommoditySearchResults = keep.browse, keep.num, keep.row, keep.full
     AHX.GetNumReplicateItems, AHX.GetReplicateItemInfo, AHX.ReplicateItems = keep.numRep, keep.rep, keep.replicate
-    p.items, p.qty, p.seen, p.kind, p.qtyOk, p.scanned, p.lastScanStart = keep.items, keep.qty, keep.seen, keep.kind, keep.qtyOk, keep.scanned, keep.lastScanStart
+    p.items, p.qty, p.seen, p.meta, p.scanned, p.lastScanStart = keep.items, keep.qty, keep.seen, keep.meta, keep.scanned, keep.lastScanStart
     Forget(ID)
     p.history[ID] = keep.history
     advance(5)
@@ -20548,7 +20566,7 @@ step("Item tooltip: one hook, and our lines once for every build of a tooltip - 
     local p = ns.db.prices[next(ns.db.prices)]
     local HERB, GEAR = 785, 9003
     local saved = { option = ns.db.tooltipPrices, shift = IsShiftKeyDown, secret = issecretvalue, time = time }
-    local function Forget(id) p.items[id], p.qty[id], p.seen[id], p.kind[id], p.qtyOk[id], p.history[id] = nil, nil, nil, nil, nil, nil end
+    local function Forget(id) p.items[id], p.qty[id], p.seen[id], p.meta[id], p.history[id] = nil, nil, nil, nil, nil end
     local touched = 0
     local SECRET = setmetatable({}, { __index = function() touched = touched + 1 error("a secret value was read") end })
     local clock = saved.time()
@@ -20557,8 +20575,8 @@ step("Item tooltip: one hook, and our lines once for every build of a tooltip - 
     local ok, err = pcall(function()
         ns.db.tooltipPrices = true
         Forget(HERB) Forget(GEAR)
-        p.items[HERB], p.seen[HERB], p.kind[HERB], p.qty[HERB], p.qtyOk[HERB] = 295, clock - 3600, "market", 240, true
-        p.items[GEAR], p.seen[GEAR], p.kind[GEAR], p.qty[GEAR], p.qtyOk[GEAR] = 77700, clock - 3600, "lowest", 3, true
+        p.items[HERB], p.seen[HERB], p.meta[HERB], p.qty[HERB] = 295, clock - 3600, 1, 240
+        p.items[GEAR], p.seen[GEAR], p.meta[GEAR], p.qty[GEAR] = 77700, clock - 3600, 3, 3
         local OURS = "Gathercraft"
         for _, way in ipairs({ "tdp", "script" }) do
             for _, canClear in ipairs({ true, false }) do
@@ -20703,7 +20721,7 @@ step("Item tooltip: the price line says what kind of price, how old, how many - 
     local HERB, GEAR, GOOD, ROCK = 785, 9003, 9005, 3340 -- a herb; gear; a trade good nobody gathers or crafts with; a mineral that is no trade good here
     local saved = { option = ns.db.tooltipPrices, time = time, atr = Auctionator, tsm = TSM_API, buyout = GetAuctionBuyout, info = GetItemInfo,
         instant = C_Item.GetItemInfoInstant, shift = IsShiftKeyDown }
-    local function Forget(id) p.items[id], p.qty[id], p.seen[id], p.kind[id], p.qtyOk[id], p.history[id] = nil, nil, nil, nil, nil, nil end
+    local function Forget(id) p.items[id], p.qty[id], p.seen[id], p.meta[id], p.history[id] = nil, nil, nil, nil, nil end
     local clock = saved.time()
     time = function() return clock end
     local fails = {}
@@ -20721,8 +20739,9 @@ step("Item tooltip: the price line says what kind of price, how old, how many - 
         assert(fx.State() == "ready", "test setup: " .. fx.State())
         local tip = fx.game
         local function Own(id, hours, kind, qty)
-            p.items[id], p.seen[id], p.kind[id] = 295, clock - hours * 3600, kind
-            if qty == nil then p.qtyOk[id] = nil else p.qty[id], p.qtyOk[id] = qty, true end
+            p.items[id], p.seen[id] = 295, clock - hours * 3600
+            p.meta[id] = kind and (kind == "market" and 1 or 3) + (qty == nil and 1 or 0) or nil
+            if qty ~= nil then p.qty[id] = qty end
         end
         local function Atr(price, hasAge, days, breaks)
             local api = { GetAuctionPriceByItemID = function(_, id) return id == HERB and price or nil end }
@@ -21170,10 +21189,10 @@ step("Item tooltip: cheap while hovering, nothing built while it is off, every t
             local id = i <= 30 and kinds[i] or (990100 + i) -- 30 gathered items, 20 others
             assert(id, "test setup: fewer than 30 gathered items")
             ids[i] = id
-            was[id] = { p.items[id], p.qty[id], p.seen[id], p.kind[id], p.qtyOk[id], p.history[id] }
-            p.items[id], p.qty[id], p.seen[id], p.kind[id], p.qtyOk[id], p.history[id] = nil, nil, nil, nil, nil, nil
+            was[id] = { p.items[id], p.qty[id], p.seen[id], p.meta[id], p.history[id] }
+            p.items[id], p.qty[id], p.seen[id], p.meta[id], p.history[id] = nil, nil, nil, nil, nil
             if i % 5 ~= 0 then
-                p.items[id], p.seen[id], p.kind[id], p.qty[id], p.qtyOk[id] = 100 + i, now - i * 600, "market", i, true
+                p.items[id], p.seen[id], p.meta[id], p.qty[id] = 100 + i, now - i * 600, 1, i
                 p.history[id] = ("%d:%d;%d:%d;%d:%d;%d:%d"):format(day - 3, 90 + i, day - 2, 95 + i, day - 1, 99 + i, day, 100 + i)
             end
         end
@@ -21279,7 +21298,7 @@ step("Item tooltip: cheap while hovering, nothing built while it is off, every t
     ns.ApplyLanguage()
     for _, id in ipairs(ids) do
         local w = was[id] or {}
-        p.items[id], p.qty[id], p.seen[id], p.kind[id], p.qtyOk[id], p.history[id] = w[1], w[2], w[3], w[4], w[5], w[6]
+        p.items[id], p.qty[id], p.seen[id], p.meta[id], p.history[id] = w[1], w[2], w[3], w[4], w[5]
     end
     if not ok then error(err, 0) end
 end)
@@ -21451,13 +21470,13 @@ step("Item tooltip in combat: the lines stay as they are, nothing is worked out 
     local L = ns.L
     local HERB = 2447
     local saved = { option = ns.db.tooltipPrices, shift = IsShiftKeyDown, combat = InCombatLockdown, gmatch = string.gmatch, sort = table.sort,
-        price = { p.items[HERB], p.qty[HERB], p.seen[HERB], p.kind[HERB], p.qtyOk[HERB], p.history[HERB] }, zones = ns.db.disabledZones }
+        price = { p.items[HERB], p.qty[HERB], p.seen[HERB], p.meta[HERB], p.history[HERB] }, zones = ns.db.disabledZones }
     local before = #errors
     local ok, err = pcall(function()
         ns.db.tooltipPrices = true
         IsShiftKeyDown = function() return true end
         local day = math.floor(time() / 86400)
-        p.items[HERB], p.seen[HERB], p.kind[HERB], p.qty[HERB], p.qtyOk[HERB] = 295, time() - 3600, "market", 240, true
+        p.items[HERB], p.seen[HERB], p.meta[HERB], p.qty[HERB] = 295, time() - 3600, 1, 240
         p.history[HERB] = ("%d:300;%d:200;%d:100;%d:295"):format(day - 3, day - 2, day - 1, day)
         ns.SpawnCountsStart("test")
         local fx = TT.Load("tdp", true)
@@ -21531,7 +21550,7 @@ step("Item tooltip in combat: the lines stay as they are, nothing is worked out 
     IsShiftKeyDown, InCombatLockdown = saved.shift, saved.combat
     ns.db.disabledZones = saved.zones
     ns.db.tooltipPrices = saved.option
-    p.items[HERB], p.qty[HERB], p.seen[HERB], p.kind[HERB], p.qtyOk[HERB], p.history[HERB] = saved.price[1], saved.price[2], saved.price[3], saved.price[4], saved.price[5], saved.price[6]
+    p.items[HERB], p.qty[HERB], p.seen[HERB], p.meta[HERB], p.history[HERB] = saved.price[1], saved.price[2], saved.price[3], saved.price[4], saved.price[5]
     ns.SpawnCountsStop("test")
     if ns.ItemTooltipSetEnabled then ns.ItemTooltipSetEnabled(saved.option ~= false) end
     ns.NotifyNodesChanged()
