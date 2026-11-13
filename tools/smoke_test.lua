@@ -20581,6 +20581,8 @@ step("Item tooltip: one hook, and our lines once for every build of a tooltip - 
                 end
                 -- ---- nothing is built before the login, and nothing while the file loads
                 assert(fx.State() == "off" and not fx.spawnStarts, what .. "built before the login")
+                fx.ns.ItemTooltipSetEnabled(true) -- (the saved switch is on anyway; saying so again starts nothing before the login)
+                assert(fx.State() == "off" and not fx.spawnStarts, what .. "switching the option on built before the login")
                 fx.Event("PLAYER_LOGIN")
                 assert(fx.State() == "off", what .. "built in the login event itself")
                 advance(5)
@@ -20622,12 +20624,24 @@ step("Item tooltip: one hook, and our lines once for every build of a tooltip - 
                 fx.Hover(tip, HERB, 2, true)
                 assert(TT.Count(tip.lines, OURS) == 1 and #tip.lines == 6 and tip.lines[1] == "Item" and tip.lines[2] == "Auctionator  12s" and tip.lines[6] == "TSM  13s",
                     what .. "with other addons' lines: " .. table.concat(tip.lines, " / "))
+                -- ---- another item whose own tooltip is as long as the one before with our lines: it gets its line all the same
+                -- (matters where a cleared tooltip cannot tell us: the mark is the item, not the length alone)
+                fx.Hover(tip, HERB)
+                tip:Clear()
+                tip.lines = { "Item" .. GEAR, "Item Level 1", "Binds when equipped", "Chest", "12 Armor", "Durability 60 / 60" }
+                fx.Hover(tip, GEAR, 2, true)
+                assert(TT.Count(tip.lines, OURS) == 1 and #tip.lines == 7 and TT.Line(tip.lines, ns.Money(77700)), what .. "a longer tooltip of another item: " .. table.concat(tip.lines, " / "))
                 -- ---- OnTooltipSetItem: the tooltip is told to lay itself out again when lines came, the other way needs none
                 if way == "script" then assert(tip.shows > 0, what .. "Show() not called after adding lines") else assert(tip.shows == 0, what .. "Show() called") end
                 -- ---- a hidden item ID or link: no line, nothing read
                 issecretvalue = function(v) return rawequal(v, SECRET) end
                 local n = #fx.Hover(tip, SECRET, 2)
                 assert(n == 2 and touched == 0, what .. "a hidden item: " .. n .. " lines, read " .. touched .. " times")
+                -- (a hidden value can look like any other: a number, a text - only issecretvalue tells)
+                issecretvalue = function(v) return v == GEAR or v == "|Hitem:" .. GEAR .. "::|h" end
+                n = #fx.Hover(tip, GEAR, 2)
+                assert(n == 2, what .. "a hidden item ID that looks like a number: " .. (n - 2) .. " lines of ours")
+                issecretvalue = function(v) return rawequal(v, SECRET) end
                 if way == "tdp" then
                     fx.posts[1](tip, SECRET)
                     fx.posts[1](SECRET, { id = HERB })
@@ -20882,6 +20896,11 @@ step("Item tooltip: the price line says what kind of price, how old, how many - 
         Check(usually == "", "usually although the price is as usual: " .. usually)
         usually = Usually(("%d:300;%d:300;%d:300;%d:150"):format(day - 3, day - 2, day - 1, day))
         Check(Has(usually, "-50%"), "usually, cheaper than usual: " .. usually)
+        -- a price too old to be used is not held against the usual one
+        p.seen[GOOD] = clock - 8 * 86400
+        fx.ns.languageListeners[1]()
+        ah, uses, orange, lines = Tip(GOOD)
+        Check(Has(ah, TOO_OLD) and not TT.Line(lines, USUALLY), "too old, yet compared with the usual price: " .. table.concat(lines, " / "))
 
         -- ---- the 14 days of the block
         local function Days(id)
@@ -20943,6 +20962,19 @@ step("Item tooltip: the price line says what kind of price, how old, how many - 
         Check(Has(d7, "– · – · – · – · – · " .. TT.Plain(ns.Money(295, true)) .. " · –"), "the day after, the last 7: " .. d7)
         -- where the history is from stands under the row
         Check(TT.Line(l, L["UTC days; own data, scans and lowest offers"]), "the last 7 days do not say where they are from")
+        -- a price is stored (a search at the auction house): the same tooltip shows the new numbers at once
+        local AHX = C_AuctionHouse
+        local keepAH = { AHX.GetNumCommoditySearchResults, AHX.GetCommoditySearchResultInfo, AHX.HasFullCommoditySearchResults }
+        AHX.GetNumCommoditySearchResults = function() return 1 end
+        AHX.GetCommoditySearchResultInfo = function() return { unitPrice = 777, quantity = 12 } end
+        AHX.HasFullCommoditySearchResults = function() return true end
+        fire("COMMODITY_SEARCH_RESULTS_UPDATED", HERB)
+        AHX.GetNumCommoditySearchResults, AHX.GetCommoditySearchResultInfo, AHX.HasFullCommoditySearchResults = keepAH[1], keepAH[2], keepAH[3]
+        advance(3)
+        l = fx.Hover(tip, HERB)
+        d14 = TT.Plain(TT.Line(l, L["14 days"]) or "")
+        Check(Has(d14, Stats(295, nil, 777, 2)), "after a search stored a price: " .. d14)
+        Check(Has(TT.Plain(TT.Line(l, "  " .. L["AH price"] .. " = ") or ""), L["%s listed"]:format("12")), "after a search: the AH line")
     end)
     time, Auctionator, TSM_API, GetAuctionBuyout, GetItemInfo, IsShiftKeyDown = saved.time, saved.atr, saved.tsm, saved.buyout, saved.info, saved.shift
     C_Item.GetItemInfoInstant = saved.instant
