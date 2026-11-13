@@ -216,27 +216,31 @@ local function MergeRecipe(prof, name, product, nMin, nMax, req, reagentText)
 end
 
 -- Saved data from older versions or other client languages: move it under
--- the English names (once per session)
+-- the English names (once per session). The recipe book counts as changed
+-- only when a profession or a recipe really moved: saved data that is in
+-- order already - every login after the first - is the same book as before.
 local normalized = false
 local function Normalize()
     if normalized or not ns.db then return end
     normalized = true
-    recipeRev = recipeRev + 1
     local function ProductOf(packed) return tonumber(packed:match("^(%d+)")) end
     -- account recipe book: prof -> name -> packed
     local db = ns.db.recipeDB or {}
-    local profs = {}
+    local profs, moved = {}, false
     for prof in pairs(db) do profs[#profs + 1] = prof end
     for _, prof in ipairs(profs) do
         local key, list = ProfKey(prof), db[prof]
         local fixed = (key ~= prof and db[key]) or {}
+        if key ~= prof then moved = true end
         for name, packed in pairs(list) do
             local new = Canon(key, name, ProductOf(packed))
+            if new ~= name then moved = true end
             fixed[new] = fixed[new] or packed
         end
         db[prof] = nil
         db[key] = fixed
     end
+    if moved then recipeRev = recipeRev + 1 end
     -- each character: prof -> { list = name -> packed }
     for _, char in pairs(ns.db.recipes or {}) do
         local cprofs = {}

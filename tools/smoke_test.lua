@@ -20274,14 +20274,48 @@ step("Crafting: a hidden tooltip line is left out and no recipe is learned from 
         fire("MERCHANT_SHOW") advance(2)
         assert(ns.RecipeRev() == rev + 1, "vendor: the same recipe again counted")
 
-        -- ---- old saved data moved under the English names counts too (once a session)
+        -- ---- the saved recipe book is looked through once a session. Data in
+        -- order - every login but the first after an old version - is the same
+        -- book: no count, so the "used in" index is not built a second time
+        ReloadCrafting(function() return true end).CraftAdvice("Enchanting") -- (in order from here on)
+        local function Shape()
+            local parts = {}
+            for prof, list in pairs(ns.db.recipeDB) do
+                for name, packed in pairs(list) do parts[#parts + 1] = prof .. "/" .. name .. "=" .. packed end
+            end
+            table.sort(parts)
+            return table.concat(parts, "\n")
+        end
+        local shape = Shape()
         local ns3 = ReloadCrafting(function() return true end)
         local r3 = ns3.RecipeRev()
         ns3.CraftAdvice("Enchanting")
-        assert(ns3.RecipeRev() == r3 + 1, "sorting the saved recipe book did not count: " .. r3 .. " -> " .. ns3.RecipeRev())
-        ns3.CraftAdvice("Enchanting")
-        assert(ns3.RecipeRev() == r3 + 1, "sorting counted twice")
+        assert(Shape() == shape, "test setup: the recipe book was not in order")
+        assert(ns3.RecipeRev() == r3, "looking through a recipe book in order counted as a change: " .. r3 .. " -> " .. ns3.RecipeRev())
+        -- a profession saved under another spelling is moved: that is a change, once
+        ns.db.recipeDB.enchanting = { ["Enchant Chest - Test Moved"] = "0:1:1:20|10940:2" }
+        local ns4 = ReloadCrafting(function() return true end)
+        local r4 = ns4.RecipeRev()
+        ns4.CraftAdvice("Enchanting")
+        assert(ns.db.recipeDB.enchanting == nil and Book("Enchant Chest - Test Moved") == "0:1:1:20|10940:2", "the profession under another spelling was not moved")
+        assert(ns4.RecipeRev() == r4 + 1, "moving saved recipes did not count: " .. r4 .. " -> " .. ns4.RecipeRev())
+        ns4.CraftAdvice("Enchanting")
+        assert(ns4.RecipeRev() == r4 + 1, "moving counted twice")
+        -- a shipped recipe saved under another spelling of its name: moved, a change
+        local shippedName
+        for name in pairs(GathercraftRecipeData.professions.Enchanting) do
+            if not Book(name) and name:lower() ~= name and (not shippedName or name < shippedName) then shippedName = name end
+        end
+        assert(shippedName, "test setup: no shipped Enchanting recipe free")
+        ns.db.recipeDB.Enchanting[shippedName:lower()] = GathercraftRecipeData.professions.Enchanting[shippedName]
+        local ns5 = ReloadCrafting(function() return true end)
+        local r5 = ns5.RecipeRev()
+        ns5.CraftAdvice("Enchanting")
+        assert(Book(shippedName) and not Book(shippedName:lower()), "the recipe under another spelling was not moved")
+        assert(ns5.RecipeRev() == r5 + 1, "moving one recipe did not count: " .. r5 .. " -> " .. ns5.RecipeRev())
+        ns.db.recipeDB.Enchanting[shippedName] = nil
     end)
+    if ns.db.recipeDB then ns.db.recipeDB.enchanting = nil end
     issecretvalue, C_TooltipInfo, C_Item.GetItemNameByID = saved.secret, saved.tip, saved.name
     GetMerchantNumItems, GetMerchantItemInfo, GetMerchantItemLink = saved.num, saved.info, saved.link
     ns.db.debug, ns.db.recipePending = saved.debug, saved.pending
