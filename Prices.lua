@@ -49,6 +49,12 @@ local function PriceDB()
         ns.db.prices[key] = p
     end
     p.seen = p.seen or {} -- itemID -> when its price was last updated
+    -- what kind of price it is ("market": a scan or a search, with stock
+    -- behind it; "lowest": the cheapest offer of a browse list) and whether
+    -- p.qty belongs to this very price (0.2 B2). Entries from before have
+    -- neither: their kind is not known, their quantity is not shown.
+    p.kind = p.kind or {}
+    p.qtyOk = p.qtyOk or {}
     return p
 end
 
@@ -359,14 +365,33 @@ end
 
 local CheckAlerts -- price alerts, further down
 
--- One item's price from a search or browse result
-local function StorePrice(itemID, price, qty)
+-- Counts up with every price written (wherever AddHistory runs): what was
+-- worked out from prices and their history is good for one revision
+local priceRev = 0
+
+-- A quantity that can be shown: a number, not negative, not endless
+local function ValidQty(qty)
+    return type(qty) == "number" and qty >= 0 and qty < math.huge
+end
+
+-- One item's price from a search or browse result. Price, kind, time and
+-- the state of the quantity are set in one go: a price without a quantity
+-- of its own (qty = nil) has none - the number of the price before may stay
+-- in p.qty, but it is not this price's and is never shown with it. (No
+-- comparing of times: two looks in the same second are two looks.)
+local function StorePrice(itemID, price, qty, kind)
     local p = PriceDB()
     if not (p and itemID and price and price > 0) then return end
     p.items[itemID] = math.floor(price + 0.5)
-    if qty then p.qty[itemID] = qty end
+    p.kind[itemID] = kind
+    if ValidQty(qty) then
+        p.qty[itemID], p.qtyOk[itemID] = qty, true
+    else
+        p.qtyOk[itemID] = nil
+    end
     p.seen[itemID] = time()
     AddHistory(p, itemID, p.items[itemID])
+    priceRev = priceRev + 1
 end
 
 -- "left out" comes for every list update the game sends: over a hundred
@@ -468,12 +493,14 @@ FinishScan = function()
         return
     end
     for itemID, text in pairs(scan.hist) do p.history[itemID] = text or nil end
+    priceRev = priceRev + 1
     if scan.readErrors > 0 then
         -- some auctions could not be read (R4-B2): this is no full picture.
         -- The prices read are real and replace the old ones of their items;
         -- every other price stays, and it does not count as a full scan.
         for itemID, price in pairs(items) do
             p.items[itemID], p.qty[itemID], p.seen[itemID] = price, qty[itemID], now
+            p.kind[itemID], p.qtyOk[itemID] = "market", true
         end
         ns.Print((L["Scan incomplete: %d auctions could not be read, old prices kept (%d updated)."]):format(scan.readErrors, count))
         FlushIgnored()
@@ -483,7 +510,10 @@ FinishScan = function()
         return
     end
     -- a full scan shows everything: items no longer listed have no price now
+    local kind, qtyOk = {}, {}
+    for itemID in pairs(items) do kind[itemID], qtyOk[itemID] = "market", true end
     p.items, p.qty, p.seen, p.scanned = items, qty, seen, now
+    p.kind, p.qtyOk = kind, qtyOk
     ns.Print((L["Auction house scanned: %d auctions, prices for %d items."]):format(scan.total, count))
     FlushIgnored()
     scan = nil
@@ -764,7 +794,7 @@ local function OnCommodityResults(itemID)
     end
     local price, total = MarketPrice(list)
     local full = AH.HasFullCommoditySearchResults and AH.HasFullCommoditySearchResults(itemID)
-    StorePrice(itemID, price, full and total or nil)
+    StorePrice(itemID, price, full and total or nil, "market")
     ns.Debug(("AH commodity search %d: %d results, stored %d (%d listed, %s)"):format(itemID, #list / 2, price, total, full and "all" or "not all yet"))
     Learned()
 end
@@ -789,7 +819,7 @@ local function OnItemResults(itemKey)
         return
     end
     local price, total = MarketPrice(list)
-    StorePrice(itemKey.itemID, price, total)
+    StorePrice(itemKey.itemID, price, total, "market")
     ns.Debug(("AH item search %d: %d results, stored %d (%d listed)"):format(itemKey.itemID, #list / 2, price, total))
     Learned()
 end
@@ -805,12 +835,18 @@ local function OnBrowseResults(event)
         return
     end
     -- one item can stand here several times (gear with different bonuses)
-    local lowest, quantity = {}, {}
+    -- (the quantity is the sum over them; when one of them tells none, the
+    -- item's quantity is not known - never 0)
+    local lowest, quantity, unknown = {}, {}, {}
     for _, r in ipairs(results) do
         local id = r.itemKey and r.itemKey.itemID
         if id and r.minPrice and r.minPrice > 0 then
             lowest[id] = math.min(lowest[id] or r.minPrice, r.minPrice)
-            quantity[id] = (quantity[id] or 0) + (r.totalQuantity or 0)
+            if ValidQty(r.totalQuantity) then
+                quantity[id] = (quantity[id] or 0) + r.totalQuantity
+            else
+                unknown[id] = true
+            end
         end
     end
     local p = PriceDB()
@@ -818,7 +854,7 @@ local function OnBrowseResults(event)
     for id, price in pairs(lowest) do
         -- lowest price only: don't overwrite a fresh market price from a search
         if not p.items[id] or PriceAge(p, id) > BROWSE_TRUST then
-            StorePrice(id, price, quantity[id])
+            StorePrice(id, price, not unknown[id] and quantity[id] or nil, "lowest")
             stored = stored + 1
         else
             kept = kept + 1
@@ -941,16 +977,33 @@ local function PriceHistory(itemID)
     return out
 end
 
+-- The same, but only the days that count today: today and the 13 days
+-- before it (UTC days, as the history is written). The history is only
+-- thinned out when a price is written - without a scan for weeks it still
+-- holds days long gone, and those are not "the last 14 days" (0.2 B2).
+local function PriceHistoryWindow(itemID, today)
+    today = today or math.floor(time() / 86400)
+    local p = PriceDB()
+    local out = {}
+    for d, v in ((p and p.history[itemID]) or ""):gmatch("(%d+):(%d+)") do
+        d = tonumber(d)
+        if d <= today and d > today - HISTORY_DAYS then out[#out + 1] = { d, tonumber(v) } end
+    end
+    return out
+end
+
 ---------------------------------------------------------------------------
 -- Price alerts
 --   "Usual" price = median of the last days (not today). When something you
 --   can gather sells for clearly more than usual, you hear about it once a
 --   day: in chat after a scan or search, and on the Farm Spots page.
+--   Only days inside the 14-day window count (Sven, 12.11.2026): a price of
+--   five weeks ago is not what is usual now.
 ---------------------------------------------------------------------------
 local function UsualPrice(itemID)
     local day = math.floor(time() / 86400)
     local values = {}
-    for _, h in ipairs(PriceHistory(itemID)) do
+    for _, h in ipairs(PriceHistoryWindow(itemID, day)) do
         if h[1] < day then values[#values + 1] = h[2] end
     end
     if #values < ALERT_MIN_DAYS then return end
@@ -1070,13 +1123,47 @@ local function PriceTest()
 end
 
 ns.GetPrice = GetPrice
+
+-- Everything about one item's price in one go (0.2 B2), for what shows a
+-- price with where it is from. The choice of the price is GetPrice's alone:
+-- this calls it and only adds what is known about the result.
+--   own, ownAge   our own price (also one too old to be used) and its age in seconds
+--   kind          "market", "lowest" or nil (an entry from before: not known)
+--   qty           how many were listed - only when the number belongs to this price
+--   old, tooOld   the own price is 6 hours old or more / 7 days or more (not used)
+--   used, source  what GetPrice gives
+--   age           how old the price used is, in seconds: nil = not known,
+--                 math.huge = Auctionator has it but cannot say (older than it counts)
+-- The table is the same one every time: read it, don't keep it.
+local info = {}
+local function PriceInfo(itemID)
+    local p = PriceDB()
+    local own = p and itemID and p.items[itemID] or nil
+    info.own, info.ownAge, info.kind, info.qty, info.old, info.tooOld = own, nil, nil, nil, nil, nil
+    if own then
+        local age = PriceAge(p, itemID)
+        info.ownAge, info.kind = age, p.kind[itemID]
+        if p.qtyOk[itemID] then info.qty = p.qty[itemID] end
+        info.old, info.tooOld = age >= FRESH_PRICE, age >= MAX_PRICE_AGE
+    end
+    local used, source = GetPrice(itemID)
+    info.used, info.source, info.age = used, source, nil
+    if source == "AH scan" then
+        info.age = info.ownAge
+    elseif source == "Auctionator" then
+        info.age = AuctionatorAge(itemID)
+    end
+    return info
+end
+ns.PriceInfo = PriceInfo
+ns.PriceRev = function() return priceRev end
+ns.PriceHistoryWindow = PriceHistoryWindow
+
 -- how old the price GetPrice gives is, in seconds (nil: not known). Read
 -- only, for the skill plan's price status; the choice of the price is
--- GetPrice's alone.
+-- GetPrice's alone. (Built on PriceInfo: the two cannot say different things.)
 ns.PriceAgeOf = function(itemID)
-    local _, source = GetPrice(itemID)
-    if source == "AH scan" then return PriceAge(PriceDB(), itemID) end
-    if source == "Auctionator" then return AuctionatorAge(itemID) end
+    return PriceInfo(itemID).age
 end
 ns.BetterPriceSource = BetterSource
 ns.Money = Money

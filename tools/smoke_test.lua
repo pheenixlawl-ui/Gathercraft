@@ -19927,6 +19927,240 @@ step("Professions: every place of the game's list is asked whether it is hidden 
     GetProfessions, GetProfessionInfo, issecretvalue = keep.gp, keep.gi, keep.secret
     assert(ok, err)
 end)
+step("Prices: every price carries its kind and whether the quantity is its own; history and alerts only see 14 days (v0.2 B2 C1)", function()
+    -- Concept item tooltip 4.1-4.3 (Codex M5, R2-M1; Sven S4, 12.11.2026).
+    -- What is shown about a price later must be true: which kind of price
+    -- it is, a quantity only when it was seen with this very price, and
+    -- "the last 14 days" also when nothing was scanned for weeks.
+    ns.GetPrice(785) -- (the price data of this realm is made with the first look)
+    local p = ns.db.prices[next(ns.db.prices)]
+    local AHX = C_AuctionHouse
+    local ID, GEAR = 785, 9002 -- Mageroyal (a trade good, a herb), and an item that is none
+    local keep = { time = time, atr = Auctionator, tsm = TSM_API, buyout = GetAuctionBuyout, info = GetItemInfo, alerts = ns.db.priceAlerts, alerted = ns.db.alerted,
+        browse = AHX.GetBrowseResults, num = AHX.GetNumCommoditySearchResults, row = AHX.GetCommoditySearchResultInfo, full = AHX.HasFullCommoditySearchResults,
+        numRep = AHX.GetNumReplicateItems, rep = AHX.GetReplicateItemInfo, replicate = AHX.ReplicateItems,
+        items = p.items, qty = p.qty, seen = p.seen, kind = p.kind, qtyOk = p.qtyOk, scanned = p.scanned, lastScanStart = p.lastScanStart, history = p.history[ID] }
+    local clock = keep.time()
+    time = function() return clock end
+    local fails = {}
+    local function Check(ok, text) if not ok then fails[#fails + 1] = text end end
+    local function Forget(id)
+        p.items[id], p.qty[id], p.seen[id], p.kind[id], p.qtyOk[id], p.history[id] = nil, nil, nil, nil, nil, nil
+    end
+    local function Commodity(price, total, full)
+        AHX.GetNumCommoditySearchResults = function() return 1 end
+        AHX.GetCommoditySearchResultInfo = function() return { unitPrice = price, quantity = total } end
+        AHX.HasFullCommoditySearchResults = function() return full end
+        fire("COMMODITY_SEARCH_RESULTS_UPDATED", ID)
+    end
+    local function Browse(rows)
+        AHX.GetBrowseResults = function() return rows end
+        fire("AUCTION_HOUSE_BROWSE_RESULTS_UPDATED")
+    end
+    local ok, err = pcall(function()
+        assert(type(ns.PriceInfo) == "function" and type(ns.PriceRev) == "function" and type(ns.PriceHistoryWindow) == "function", "no PriceInfo / PriceRev / PriceHistoryWindow")
+        assert(type(p.kind) == "table" and type(p.qtyOk) == "table", "the price data has no kind / qtyOk")
+        Auctionator, TSM_API, GetAuctionBuyout = nil, nil, nil
+        fire("AUCTION_HOUSE_SHOW") advance(1)
+
+        -- ---- an entry from before: kind not known, quantity not shown
+        Forget(ID)
+        p.items[ID], p.qty[ID], p.seen[ID] = 295, 1143, clock - 3600
+        local i = ns.PriceInfo(ID)
+        Check(i.own == 295 and i.kind == nil and i.qty == nil and i.ownAge == 3600, "old entry: kind " .. tostring(i.kind) .. ", qty " .. tostring(i.qty))
+
+        -- ---- a search with all results: market price, its quantity
+        local rev = ns.PriceRev()
+        Commodity(500, 240, true)
+        i = ns.PriceInfo(ID)
+        Check(i.own == 500 and i.kind == "market" and i.qty == 240 and p.qtyOk[ID] == true, "full search: " .. tostring(i.kind) .. " " .. tostring(i.qty))
+        Check(ns.PriceRev() > rev, "a stored price did not count the revision up")
+        -- ---- the same second, a search without all results: the price is new, the 240 are not its own
+        Commodity(510, 3, false)
+        i = ns.PriceInfo(ID)
+        Check(i.own == 510 and i.qty == nil and p.qtyOk[ID] == nil, "same second, then a price without a quantity: qty " .. tostring(i.qty))
+        Check(p.seen[ID] == clock, "test setup: not the same second")
+        -- ---- and the other way round: the new quantity shows
+        Commodity(520, 77, true)
+        i = ns.PriceInfo(ID)
+        Check(i.own == 520 and i.qty == 77, "same second, then a price with a quantity: qty " .. tostring(i.qty))
+        -- an hour later, again without all results
+        clock = clock + 3600
+        Commodity(530, 5, false)
+        Check(ns.PriceInfo(ID).qty == nil, "a quantity of an older look shown with a newer price")
+
+        -- ---- browse: the lowest offer; without totalQuantity the quantity is unknown, not 0
+        Forget(ID)
+        Browse({ { itemKey = { itemID = ID }, minPrice = 187 } })
+        i = ns.PriceInfo(ID)
+        Check(i.own == 187 and i.kind == "lowest", "browse: kind " .. tostring(i.kind))
+        Check(i.qty == nil and p.qty[ID] == nil and p.qtyOk[ID] == nil, "browse without totalQuantity: stored qty " .. tostring(p.qty[ID]) .. ", ok " .. tostring(p.qtyOk[ID]))
+        -- one of two entries without it: unknown for the item
+        Forget(ID)
+        Browse({ { itemKey = { itemID = ID }, minPrice = 187, totalQuantity = 40 }, { itemKey = { itemID = ID }, minPrice = 190 } })
+        Check(ns.PriceInfo(ID).qty == nil and p.qtyOk[ID] == nil, "browse, one entry without totalQuantity: qty " .. tostring(ns.PriceInfo(ID).qty))
+        Forget(ID)
+        Browse({ { itemKey = { itemID = ID }, minPrice = 187, totalQuantity = "many" } })
+        Check(ns.PriceInfo(ID).qty == nil and p.qty[ID] == nil, "browse, totalQuantity is no number: qty " .. tostring(p.qty[ID]))
+        Forget(ID)
+        Browse({ { itemKey = { itemID = ID }, minPrice = 187, totalQuantity = 40 }, { itemKey = { itemID = ID }, minPrice = 190, totalQuantity = 2 } })
+        i = ns.PriceInfo(ID)
+        Check(i.qty == 42 and i.kind == "lowest" and i.own == 187, "browse with quantities: " .. tostring(i.qty))
+        -- a real 0 is a number
+        Forget(ID)
+        Browse({ { itemKey = { itemID = ID }, minPrice = 187, totalQuantity = 0 } })
+        Check(ns.PriceInfo(ID).qty == 0, "browse, 0 listed told by the game: " .. tostring(ns.PriceInfo(ID).qty))
+
+        -- ---- a full scan: market, quantity there again, and the tables replaced
+        p.kind[GEAR], p.qtyOk[GEAR], p.items[GEAR], p.seen[GEAR] = "lowest", true, 5, clock
+        Forget(ID)
+        Browse({ { itemKey = { itemID = ID }, minPrice = 187 } })
+        Check(ns.PriceInfo(ID).qty == nil, "test setup: browse without quantity")
+        local function Scan(list, broken)
+            fire("AUCTION_HOUSE_CLOSED") fire("AUCTION_HOUSE_SHOW") advance(1)
+            p.lastScanStart = nil
+            AHX.ReplicateItems = function() end
+            AHX.GetNumReplicateItems = function() return #list end
+            AHX.GetReplicateItemInfo = function(n)
+                local a = list[n + 1]
+                if not a then return nil end
+                if broken and n + 1 == broken then error("unreadable") end
+                return "Item", 1, a.count, 1, true, 1, 0, 0, 0, a.buyout, 0, false, nil, "Seller", nil, 0, a.id, true
+            end
+            slash("scan") advance(1)
+            fire("REPLICATE_ITEM_LIST_UPDATE") advance(2)
+        end
+        rev = ns.PriceRev()
+        Scan({ { id = ID, count = 20, buyout = 20 * 300 }, { id = ID, count = 10, buyout = 10 * 310 } })
+        i = ns.PriceInfo(ID)
+        Check(i.kind == "market" and i.qty == 30 and i.own == 300, "full scan: " .. tostring(i.kind) .. " " .. tostring(i.qty) .. " " .. tostring(i.own))
+        Check(p.kind[GEAR] == nil and p.qtyOk[GEAR] == nil and p.items[GEAR] == nil, "full scan: an item no longer listed kept its kind or quantity state")
+        Check(ns.PriceRev() > rev, "a scan did not count the revision up")
+        -- a scan with unreadable auctions: what was read is market with its quantity, the rest stays
+        clock = clock + 1000
+        p.items[GEAR], p.seen[GEAR], p.kind[GEAR], p.qtyOk[GEAR], p.qty[GEAR] = 5, clock, "lowest", true, 9
+        p.kind[ID], p.qtyOk[ID] = nil, nil
+        Scan({ { id = ID, count = 50, buyout = 50 * 320 }, { id = 2447, count = 1, buyout = 30 } }, 2)
+        i = ns.PriceInfo(ID)
+        Check(i.kind == "market" and i.qty == 50 and i.own == 320, "incomplete scan: " .. tostring(i.kind) .. " " .. tostring(i.qty) .. " " .. tostring(i.own))
+        Check(p.kind[GEAR] == "lowest" and p.qtyOk[GEAR] == true and p.items[GEAR] == 5, "incomplete scan: took another item's state away")
+        Forget(GEAR)
+
+        -- ---- PriceInfo names the source GetPrice names, in every state; an unknown age stays unknown
+        local function Own(hours)
+            p.items[ID], p.qty[ID], p.seen[ID], p.kind[ID], p.qtyOk[ID] = 295, 1143, clock - hours * 3600, "market", true
+        end
+        local function Atr(price, hasAge, days, breaks)
+            local api = { GetAuctionPriceByItemID = function(_, id) return id == ID and price or nil end }
+            if hasAge then api.GetAuctionAgeByItemID = function() if breaks then error("broken") end return days end end
+            Auctionator = { API = { v1 = api } }
+        end
+        local states = 0
+        local function Same(what, wantSource, wantAge)
+            local price, source = ns.GetPrice(ID)
+            local info = ns.PriceInfo(ID)
+            states = states + 1
+            Check(info.source == source and info.used == price, ("%s: PriceInfo %s %s, GetPrice %s %s"):format(what, tostring(info.used), tostring(info.source), tostring(price), tostring(source)))
+            if wantSource then Check(source == wantSource, what .. ": source " .. tostring(source) .. ", want " .. wantSource) end
+            if wantAge ~= false then Check(info.age == wantAge, what .. ": age " .. tostring(info.age) .. ", want " .. tostring(wantAge)) end
+            Check(ns.PriceAgeOf(ID) == info.age, what .. ": PriceAgeOf says " .. tostring(ns.PriceAgeOf(ID)) .. ", PriceInfo " .. tostring(info.age))
+        end
+        Auctionator = nil
+        Own(5) Same("own, 5 h", "AH scan", 5 * 3600)
+        Check(not ns.PriceInfo(ID).old and not ns.PriceInfo(ID).tooOld, "5 h: old")
+        -- the borders: 5 h 59 min, 6 h, 6 days 23 h, 7 days
+        Own(5 + 59 / 60) i = ns.PriceInfo(ID) Check(not i.old and not i.tooOld, "5 h 59 min: old")
+        Own(6) i = ns.PriceInfo(ID) Check(i.old and not i.tooOld, "6 h: not old")
+        Own(6 * 24 + 23) i = ns.PriceInfo(ID) Check(i.old and not i.tooOld and i.source == "AH scan", "6 days 23 h: " .. tostring(i.source))
+        Own(7 * 24) i = ns.PriceInfo(ID)
+        Check(i.old and i.tooOld and i.own == 295 and i.source == "vendor" and i.used == 10 and i.age == nil, "7 days: " .. tostring(i.source) .. " " .. tostring(i.used))
+        Same("own, 7 days, alone", "vendor", nil)
+        -- Auctionator's age: nil (no function / it breaks), math.huge (no number), 0, 3
+        Own(21)
+        Atr(187) Same("Auctionator, no age function", "Auctionator", nil)
+        Atr(187, true, nil, true) Same("Auctionator, the age function breaks", "Auctionator", nil)
+        Atr(187, true, 0) Same("Auctionator, today", "Auctionator", 0)
+        Own(24 * 4)
+        Atr(187, true, 3) Same("Auctionator, 3 days", "Auctionator", 3 * 86400)
+        Own(24 * 8)
+        Atr(187, true, "old") Same("Auctionator, age no number", "Auctionator", math.huge)
+        Own(24)
+        Atr(187, true, 3) Same("Auctionator older than our own", "AH scan", 24 * 3600)
+        Atr(nil) Same("Auctionator without a price", "AH scan", 24 * 3600)
+        -- nothing of our own: Auctionator, TSM (missing / breaks / 0 / there), another addon, the vendor, nothing
+        Forget(ID)
+        Atr(187, true, 2) Same("no own price, Auctionator", "Auctionator", 2 * 86400)
+        Auctionator = nil
+        TSM_API = { GetCustomPriceValue = function() error("broken") end } Same("TSM breaks", "vendor", nil)
+        TSM_API = { GetCustomPriceValue = function() return 0 end } Same("TSM says 0", "vendor", nil)
+        TSM_API = { GetCustomPriceValue = function(what, item) return what == "dbmarket" and item == "i:" .. ID and 444 or nil end } Same("TSM", "TSM", nil)
+        TSM_API = nil
+        GetAuctionBuyout = function() return 333 end Same("another auction addon", "auction", nil)
+        GetAuctionBuyout = nil
+        Same("the vendor", "vendor", nil)
+        GetItemInfo = function() return "Item" end
+        Same("nothing at all", nil, nil)
+        Check(ns.PriceInfo(ID).used == nil and ns.PriceInfo(ID).own == nil, "nothing at all: a price")
+        GetItemInfo = keep.info
+        Check(states >= 16, "only " .. states .. " states compared")
+        -- no item: nothing, no error
+        Check(ns.PriceInfo(nil).used == nil and ns.PriceAgeOf(nil) == nil, "no item: a price")
+
+        -- ---- the history: only today and the 13 days before, whatever is stored
+        local day = math.floor(clock / 86400)
+        local function Days(list) local t = {} for _, h in ipairs(list) do t[#t + 1] = h[1] - day .. ":" .. h[2] end return table.concat(t, " ") end
+        local function Usual() local u = ns.UsualPrice(ID) return u end
+        p.history[ID] = ("%d:90;%d:95;%d:100;%d:110;%d:120"):format(day - 30, day - 14, day - 13, day - 1, day)
+        Check(Days(ns.PriceHistoryWindow(ID)) == "-13:100 -1:110 0:120", "window: " .. Days(ns.PriceHistoryWindow(ID)))
+        Check(#ns.PriceHistory(ID) == 5, "PriceHistory changed for the others: " .. #ns.PriceHistory(ID))
+        Check(Days(ns.PriceHistoryWindow(ID, day + 1)) == "-1:110 0:120", "window, a day later: " .. Days(ns.PriceHistoryWindow(ID, day + 1)))
+        Check(#ns.PriceHistoryWindow(GEAR) == 0 and #ns.PriceHistoryWindow(ID, day + 14) == 0, "window: empty cases")
+        -- a history of 30 days ago and no scan since: nothing usual, no alert
+        local old = {}
+        for d = 34, 30, -1 do old[#old + 1] = (day - d) .. ":100" end
+        p.history[ID] = table.concat(old, ";") .. ";" .. day .. ":500"
+        p.items[ID], p.seen[ID] = 500, clock
+        Check(Usual() == nil, "usual price from days outside the window: " .. tostring(Usual()))
+        local function Hot() for _, h in ipairs(ns.HotItems()) do if h.id == ID then return h end end end
+        Check(not Hot(), "hot item from days outside the window")
+        ns.db.priceAlerts, ns.db.alerted = true, {}
+        local function Alerted()
+            local mark = #log
+            Commodity(500, 10, true)
+            advance(3)
+            for n = mark + 1, #log do if log[n]:find("Item" .. ID, 1, true) and log[n]:find("PRINT", 1, true) then return true end end
+        end
+        p.history[ID] = table.concat(old, ";")
+        Check(not Alerted(), "a price alert from days outside the window")
+        -- two days inside the window: still not; three: usual again, and the alert
+        p.history[ID] = table.concat(old, ";") .. (";%d:100;%d:100;%d:500"):format(day - 2, day - 1, day)
+        Check(Usual() == nil and not Hot(), "usual price from two days: " .. tostring(Usual()))
+        p.history[ID] = table.concat(old, ";") .. (";%d:100;%d:110;%d:90;%d:500"):format(day - 13, day - 2, day - 1, day)
+        Check(Usual() == 100, "usual price from three days in the window: " .. tostring(Usual()))
+        Check(Hot() and Hot().usual == 100, "no hot item with three days in the window")
+        ns.db.alerted = {}
+        p.history[ID] = table.concat(old, ";") .. (";%d:100;%d:110;%d:90"):format(day - 13, day - 2, day - 1)
+        Check(Alerted(), "no price alert with three days in the window")
+        -- over midnight (UTC) without a scan: the oldest day falls out, the three are two
+        p.history[ID] = ("%d:100;%d:110;%d:120"):format(day - 12, day - 11, day - 10)
+        clock = (day + 1) * 86400 + 60
+        Check(Usual() == 110, "the day after: " .. tostring(Usual()))
+        clock = (day + 2) * 86400 + 60
+        Check(Usual() == nil, "two days later, no scan: still a usual price " .. tostring(Usual()))
+    end)
+    fire("AUCTION_HOUSE_CLOSED")
+    time, Auctionator, TSM_API, GetAuctionBuyout, GetItemInfo = keep.time, keep.atr, keep.tsm, keep.buyout, keep.info
+    ns.db.priceAlerts, ns.db.alerted = keep.alerts, keep.alerted
+    AHX.GetBrowseResults, AHX.GetNumCommoditySearchResults, AHX.GetCommoditySearchResultInfo, AHX.HasFullCommoditySearchResults = keep.browse, keep.num, keep.row, keep.full
+    AHX.GetNumReplicateItems, AHX.GetReplicateItemInfo, AHX.ReplicateItems = keep.numRep, keep.rep, keep.replicate
+    p.items, p.qty, p.seen, p.kind, p.qtyOk, p.scanned, p.lastScanStart = keep.items, keep.qty, keep.seen, keep.kind, keep.qtyOk, keep.scanned, keep.lastScanStart
+    Forget(ID)
+    p.history[ID] = keep.history
+    advance(5)
+    if not ok then error(err, 0) end
+    assert(#fails == 0, #fails .. " wrong: " .. table.concat(fails, " | "))
+end)
+-- (end of the item tooltip steps, v0.2 building block 2)
 step("Long run (10 min) for leaks", function() slash("run herb") advance(600) slash("stop") end)
 step("Test mock: OnUpdate runs for the same frames in the same order as going over every frame (tools only)", function()
     -- The mock's advance() goes over the frames that have an OnUpdate only
