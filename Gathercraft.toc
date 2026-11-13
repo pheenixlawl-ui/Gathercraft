@@ -57,3 +57,4 @@ Data\RecipeData.lua
 Data\RecipeSources.lua
 Data\AreaMaps.lua
 Starter.lua
+SpawnCounts.lua

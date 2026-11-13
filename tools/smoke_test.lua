@@ -20266,6 +20266,191 @@ step("Crafting: a hidden tooltip line is left out and no recipe is learned from 
     end
     if not ok then error(err, 0) end
 end)
+step("Spawn points of an item per zone: places are counted once, your own only where Questie has none (v0.2 B2 C3)", function()
+    -- Concept item tooltip 4.4 (Codex M4), Sven S2 of 12.11.2026. The same
+    -- place stands under several object IDs of one item: a sum counts it
+    -- twice. Own points count only when they are no Questie place of the
+    -- item; sync, starter data and minimap sightings never.
+    assert(type(ns.SpawnCounts) == "function" and type(ns.SpawnCountsStart) == "function" and type(ns.SpawnCountsStop) == "function"
+        and type(ns.SpawnCountsState) == "function", "no ns.SpawnCounts / Start / Stop / State")
+    local data = GathercraftQuestieData
+    local ZONE = 99999 -- a zone of this test, with places of this test
+    local saved = { zone = data.zones[ZONE], nodes = ns.db.nodes[ZONE], tooltip = ns.db.tooltipPrices }
+    local toc = assert(io.open(ROOT .. "/Gathercraft.toc")):read("*a")
+    assert(toc:find("\nSpawnCounts.lua", 1, true), "SpawnCounts.lua is not in the TOC")
+    -- (the item tooltip uses the counts too: it is off while this step counts)
+    if ns.ItemTooltipSetEnabled then ns.ItemTooltipSetEnabled(false) end
+    local function Zone(itemID, mapID)
+        local list = ns.SpawnCounts(itemID)
+        for _, z in ipairs(list or {}) do if z.mapID == mapID then return z end end
+    end
+    local function Total(itemID, mapID) local z = Zone(itemID, mapID) return z and z.total or (ns.SpawnCounts(itemID) and 0 or nil) end
+    local ok, err = pcall(function()
+        assert(ns.SpawnCountsState() == "off", "the counts are built although nobody uses them: " .. tostring(ns.SpawnCountsState()))
+        assert(ns.SpawnCounts(765) == nil, "numbers without a build")
+
+        -- ---- loaded before the data files: no look at them, no error
+        local keepData = GathercraftQuestieData
+        GathercraftQuestieData = nil
+        local ns2 = setmetatable({ nodeListeners = {} }, { __index = ns })
+        local chunkOk, chunkErr = pcall(assert(loadfile(ROOT .. "/SpawnCounts.lua")), "Gathercraft", ns2)
+        GathercraftQuestieData = keepData
+        assert(chunkOk, "loading SpawnCounts.lua without the data: " .. tostring(chunkErr))
+        assert(ns2.SpawnCountsState() == "off" and #ns2.nodeListeners == 1, "the copy built something or does not listen")
+
+        -- ---- the places of this test: two object IDs of one item
+        local ids = {}
+        for id, kind in pairs(data.kinds) do
+            if kind[2] == 3340 and (kind[1] == "o" or kind[1] == "h") then ids[#ids + 1] = tonumber(id:sub(2)) end
+        end
+        table.sort(ids)
+        assert(#ids >= 2, "test setup: Incendicite has " .. #ids .. " node kinds, want two or more")
+        local A, B = ids[1], ids[2]
+        local ITEM, OTHER = 3340, 765
+        local CHEST
+        for id, kind in pairs(data.kinds) do if kind[1] == "c" then CHEST = id break end end
+        assert(CHEST, "test setup: no chest kind in the data")
+        -- (the map of the harness is 5000 x 3333 yards: 0.0010 of its width is 5 yards)
+        data.zones[ZONE] = table.concat({
+            A .. ",1000,5000", B .. ",1000,5000",      -- one place under both IDs
+            A .. ",1010,5000",                          -- 5 yards beside it: another place
+            A .. ",3000,5000",                          -- a place only A has
+            B .. ",6000,5000",                          -- a place only B has
+        }, ",")
+        local function Own(x, extra)
+            local n = { id = "o" .. A, name = "Incendicite Mineral Vein", type = "ore", x = x, y = 0.5, count = 1, last = time() }
+            for k, v in pairs(extra or {}) do n[k] = v end
+            return n
+        end
+        local sync = Own(0.8000, { source = "sync" })
+        ns.db.nodes[ZONE] = {
+            Own(0.3020),                              -- 10 yards beside A's own place: that place
+            Own(0.6020),                              -- 10 yards beside a place only the OTHER ID has: that place
+            Own(0.3040, { id = "o" .. B }),           -- 20 yards beside: a point of your own
+            Own(0.4000), Own(0.4024),                 -- two neighbours 12 yards apart, far from every place: two
+            sync,                                     -- from sync
+            Own(0.8200, { source = "starter" }),      -- starter data
+            Own(0.8400, { seenOnly = true }),         -- only seen on the minimap
+            Own(0.8600, { source = "questie" }),      -- the spawn data itself
+            Own(0.8800, { id = "o999999" }),          -- a kind the spawn data does not know
+            { id = CHEST, type = "chest", x = 0.9, y = 0.5 }, -- not a herb or an ore
+        }
+
+        -- ---- built in steps after Start, nothing before it is done
+        ns.SpawnCountsStart("test")
+        assert(ns.SpawnCountsState() == "building" and ns.SpawnCounts(ITEM) == nil, "numbers while building")
+        advance(10)
+        assert(ns.SpawnCountsState() == "ready", "not ready 10 s after the start: " .. tostring(ns.SpawnCountsState()))
+
+        -- ---- Questie: the union. Codex's three numbers, counted here again
+        local function Entries(itemID, mapID)
+            local n, places, seen = 0, 0, {}
+            for id, x, y in data.zones[mapID]:gmatch("(%d+),(%d+),(%d+)") do
+                local kind = data.kinds["o" .. id]
+                if kind and kind[2] == itemID and (kind[1] == "o" or kind[1] == "h") then
+                    n = n + 1
+                    if not seen[x .. ":" .. y] then seen[x .. ":" .. y] = true places = places + 1 end
+                end
+            end
+            return n, places
+        end
+        local e1, p1 = Entries(3340, 1437)
+        assert(e1 == 58 and p1 == 29, ("Incendicite in 1437: the data has %d entries at %d places (Codex: 58, 29)"):format(e1, p1))
+        assert(Zone(3340, 1437) and Zone(3340, 1437).questie == 29, "Incendicite in 1437: " .. tostring(Zone(3340, 1437) and Zone(3340, 1437).questie) .. ", want 29 (58 would be the sum)")
+        local e2, p2 = Entries(10620, 1423)
+        assert(e2 == 174 and p2 == 87 and Zone(10620, 1423).questie == 87, ("Thorium in 1423: %d entries, %d places, counted %s"):format(e2, p2, tostring(Zone(10620, 1423).questie)))
+        local e3, p3 = Entries(765, 1413)
+        assert(e3 == 118 and p3 == 104 and Zone(765, 1413).questie == 104, ("Silverleaf in 1413: %d entries, %d places, counted %s"):format(e3, p3, tostring(Zone(765, 1413).questie)))
+        -- every item and zone of the data against this second count
+        local checked = 0
+        for itemID in pairs({ [3340] = 1, [10620] = 1, [765] = 1, [2447] = 1, [2770] = 1, [2771] = 1, [785] = 1, [3356] = 1 }) do
+            for mapID in pairs(data.zones) do
+                if mapID ~= ZONE then
+                    local _, places = Entries(itemID, mapID)
+                    local z = Zone(itemID, mapID)
+                    assert((z and z.questie or 0) == places, ("item %d in %d: counted %s, the data has %d places"):format(itemID, mapID, tostring(z and z.questie), places))
+                    checked = checked + 1
+                end
+            end
+        end
+        assert(checked > 200, "only " .. checked .. " item-zone pairs checked")
+        -- close places stay apart: (1000) under both IDs is one, (1010) another, (3000), (6000)
+        local z = Zone(ITEM, ZONE)
+        assert(z and z.questie == 4, "the test zone: " .. tostring(z and z.questie) .. " Questie places, want 4")
+
+        -- ---- your own points
+        assert(z.own == 3 and z.total == 7, ("own points: %d (total %d), want 3: one 20 yards beside a place, two neighbours"):format(z.own, z.total))
+        -- most places first, the same order every time
+        local list = ns.SpawnCounts(ITEM)
+        for i = 2, #list do
+            assert(list[i - 1].total > list[i].total or (list[i - 1].total == list[i].total and list[i - 1].mapID < list[i].mapID), "the zones are not in order at " .. i)
+        end
+        -- an item nobody gathers from a node: an empty list, not "not ready"
+        assert(type(ns.SpawnCounts(2589)) == "table" and #ns.SpawnCounts(2589) == 0, "linen cloth: " .. tostring(ns.SpawnCounts(2589)))
+
+        -- ---- a synced node you gathered yourself is yours; until the recount there is no number
+        sync.source = nil
+        ns.NotifyNodesChanged("update", ZONE, sync)
+        assert(ns.SpawnCounts(ITEM) == nil, "an old number right after a node changed")
+        assert(ns.SpawnCounts(OTHER) ~= nil, "another item lost its numbers through one node")
+        advance(1)
+        assert(ns.SpawnCounts(ITEM) == nil, "counted again at once, not bundled")
+        advance(5)
+        assert(Total(ITEM, ZONE) == 8, "after the recount: " .. tostring(Total(ITEM, ZONE)) .. ", want 8")
+        -- a new own node far from everything
+        local new = Own(0.7000)
+        table.insert(ns.db.nodes[ZONE], new)
+        ns.NotifyNodesChanged("add", ZONE, new)
+        advance(5)
+        assert(Total(ITEM, ZONE) == 9, "a new node of your own: " .. tostring(Total(ITEM, ZONE)) .. ", want 9")
+        -- a chest changes no count and takes no number away
+        ns.NotifyNodesChanged("update", ZONE, ns.db.nodes[ZONE][11])
+        assert(ns.SpawnCounts(ITEM) ~= nil, "a chest took the numbers away")
+        -- a change nobody names (delete, import): everything waits, every zone is counted again
+        table.remove(ns.db.nodes[ZONE]) -- the new node
+        ns.NotifyNodesChanged()
+        assert(ns.SpawnCounts(ITEM) == nil and ns.SpawnCounts(OTHER) == nil, "an old number after a change without a name")
+        advance(10)
+        assert(Total(ITEM, ZONE) == 8, "after the full recount: " .. tostring(Total(ITEM, ZONE)) .. ", want 8")
+        -- the last own points of a zone gone: the zone keeps its Questie places
+        ns.db.nodes[ZONE] = nil
+        ns.NotifyNodesChanged()
+        advance(10)
+        assert(Total(ITEM, ZONE) == 4 and Zone(ITEM, ZONE).own == 0, "without own points: " .. tostring(Total(ITEM, ZONE)))
+        -- a zone without spawn data: only your own points of known kinds
+        ns.db.nodes[ZONE + 1] = { Own(0.5), Own(0.6, { id = "o999999" }) }
+        ns.NotifyNodesChanged("add", ZONE + 1, ns.db.nodes[ZONE + 1][1])
+        advance(5)
+        z = Zone(ITEM, ZONE + 1)
+        assert(z and z.questie == 0 and z.own == 1 and z.total == 1, "a zone without spawn data: " .. tostring(z and z.total))
+        ns.db.nodes[ZONE + 1] = nil
+
+        -- ---- users: the counts stay while one of them wants them
+        ns.SpawnCountsStart("second")
+        ns.SpawnCountsStop("test")
+        assert(ns.SpawnCountsState() == "ready" and ns.SpawnCounts(OTHER), "stopped although a user is left")
+        ns.SpawnCountsStop("second")
+        assert(ns.SpawnCountsState() == "off" and ns.SpawnCounts(OTHER) == nil, "numbers without a user")
+        -- stopped in the middle of the build: it ends, no error, nothing built
+        local before = #errors
+        ns.SpawnCountsStart("test")
+        advance(0.1)
+        assert(ns.SpawnCountsState() == "building", "test setup: the build was done after 0.1 s")
+        ns.SpawnCountsStop("test")
+        advance(10)
+        assert(ns.SpawnCountsState() == "off" and ns.SpawnCounts(OTHER) == nil and #errors == before, "a build went on after the stop")
+        -- node changes while nobody uses the counts cost nothing and break nothing
+        ns.NotifyNodesChanged()
+        advance(5)
+        assert(ns.SpawnCountsState() == "off" and #errors == before, "a node change woke the counts")
+    end)
+    ns.SpawnCountsStop("test") ns.SpawnCountsStop("second")
+    data.zones[ZONE], ns.db.nodes[ZONE], ns.db.nodes[ZONE + 1] = saved.zone, saved.nodes, nil
+    ns.NotifyNodesChanged()
+    advance(5)
+    if ns.ItemTooltipSetEnabled then ns.ItemTooltipSetEnabled(saved.tooltip ~= false) end
+    if not ok then error(err, 0) end
+end)
 -- (end of the item tooltip steps, v0.2 building block 2)
 step("Long run (10 min) for leaks", function() slash("run herb") advance(600) slash("stop") end)
 step("Test mock: OnUpdate runs for the same frames in the same order as going over every frame (tools only)", function()
