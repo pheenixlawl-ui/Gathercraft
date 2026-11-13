@@ -709,4 +709,5 @@ ns.Locales.deDE = {
     ["%s (%d known: Questie data)"] = "%s (%d bekannt: Questie-Daten)",
     ["unknown (not a gathered item)"] = "unbekannt (kein Sammelgut)",
     ["recipe data"] = "Rezeptdaten",
+    ["Waypoints are not available in this client."] = "Wegpunkte gibt es in diesem Client nicht.",
 }

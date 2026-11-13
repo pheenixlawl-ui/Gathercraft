@@ -680,4 +680,5 @@ ns.Locales.ruRU = {
     ["%s (%d known: Questie data)"] = "%s (известно %d: данные Questie)",
     ["unknown (not a gathered item)"] = "неизвестно (не собирается)",
     ["recipe data"] = "данные рецептов",
+    ["Waypoints are not available in this client."] = "В этом клиенте нет путевых точек.",
 }

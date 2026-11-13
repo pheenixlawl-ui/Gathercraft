@@ -295,13 +295,42 @@ local function GetZoneName(mapID)
     return info and info.name or (L["Map "] .. mapID)
 end
 
+-- The game's own waypoint needs these functions of the client. A client
+-- without one of them has no waypoints: said once a session, never a Lua
+-- error (static check of 12.11.2026, question 1).
+local toldNoWaypoints = false
+local function NoWaypoints()
+    if not toldNoWaypoints then
+        toldNoWaypoints = true
+        Print(L["Waypoints are not available in this client."])
+    end
+end
+local function CanSetWaypoints()
+    return C_Map.CanSetUserWaypointOnMap and C_Map.SetUserWaypoint and UiMapPoint and UiMapPoint.CreateFromCoordinates
+        and C_SuperTrack and C_SuperTrack.SetSuperTrackedUserWaypoint and true or false
+end
+
 local function SetWaypoint(mapID, x, y)
+    if not CanSetWaypoints() then
+        NoWaypoints()
+        return false
+    end
     if not C_Map.CanSetUserWaypointOnMap(mapID) then
         Print(L["Waypoints are not allowed on this map."])
         return false
     end
     C_Map.SetUserWaypoint(UiMapPoint.CreateFromCoordinates(mapID, x, y))
     C_SuperTrack.SetSuperTrackedUserWaypoint(true)
+    return true
+end
+
+-- Takes the game's waypoint away. false where the client cannot.
+local function ClearWaypoint()
+    if not C_Map.ClearUserWaypoint then
+        NoWaypoints()
+        return false
+    end
+    C_Map.ClearUserWaypoint()
     return true
 end
 
@@ -1432,8 +1461,7 @@ SlashCmdList.GATHERCRAFT = function(msg)
         WipeNodes(rest:lower())
     elseif cmd == "clear" then
         ns.StopRun(true)
-        C_Map.ClearUserWaypoint()
-        Print(L["Waypoint cleared."])
+        if ClearWaypoint() then Print(L["Waypoint cleared."]) end
     elseif cmd == "pintest" then
         if ns.PinTest then ns.PinTest() end
     elseif cmd == "stats" then
@@ -2156,3 +2184,4 @@ ns.NotifyNodesChanged = NodesChanged
 ns.FindNode = FindNode
 ns.KnownName = KnownName
 ns.SetWaypoint = SetWaypoint
+ns.ClearWaypoint = ClearWaypoint

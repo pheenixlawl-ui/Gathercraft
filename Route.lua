@@ -1242,7 +1242,7 @@ local function IsOurWaypoint()
 end
 
 local function ClearOurWaypoint()
-    if IsOurWaypoint() then C_Map.ClearUserWaypoint() end
+    if IsOurWaypoint() then ns.ClearWaypoint() end
     ourWaypoint = nil
 end
 

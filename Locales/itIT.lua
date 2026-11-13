@@ -680,4 +680,5 @@ ns.Locales.itIT = {
     ["%s (%d known: Questie data)"] = "%s (%d noti: dati Questie)",
     ["unknown (not a gathered item)"] = "sconosciuto (non è un oggetto da raccolta)",
     ["recipe data"] = "dati delle ricette",
+    ["Waypoints are not available in this client."] = "I punti di riferimento non sono disponibili in questo client.",
 }

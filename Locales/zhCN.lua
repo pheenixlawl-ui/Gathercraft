@@ -680,4 +680,5 @@ ns.Locales.zhCN = {
     ["%s (%d known: Questie data)"] = "%s（已知 %d：Questie 数据）",
     ["unknown (not a gathered item)"] = "未知（不是采集物品）",
     ["recipe data"] = "配方数据",
+    ["Waypoints are not available in this client."] = "此客户端不支持路径点。",
 }

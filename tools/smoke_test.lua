@@ -21329,6 +21329,86 @@ step("/gcr tooltiptest: what the client offers for item tooltips and how our lin
     ns.db.tooltipPrices = saved.option
     if not ok then error(err, 0) end
 end)
+step("Waypoints: a client without one of the waypoint functions gets no Lua error, and is told once (v0.2 B2 Z1)", function()
+    -- Static check of 12.11.2026, question 1: six calls for the game's
+    -- waypoint were made without asking whether the client has them.
+    local L = ns.L
+    local saved = { can = C_Map.CanSetUserWaypointOnMap, set = C_Map.SetUserWaypoint, clear = C_Map.ClearUserWaypoint, point = UiMapPoint, track = C_SuperTrack,
+        wp = USER_WP, sets = WP_SETS, clears = WP_CLEARS, arrow = ns.db.arrowHidden }
+    local MISSING = L["Waypoints are not available in this client."]
+    local function Restore()
+        C_Map.CanSetUserWaypointOnMap, C_Map.SetUserWaypoint, C_Map.ClearUserWaypoint, UiMapPoint, C_SuperTrack = saved.can, saved.set, saved.clear, saved.point, saved.track
+    end
+    local function Told(mark, text)
+        local n = 0
+        for i = mark + 1, #log do if log[i]:find(text, 1, true) then n = n + 1 end end
+        return n
+    end
+    local before = #errors
+    local ok, err = pcall(function()
+        assert(type(ns.ClearWaypoint) == "function", "no ns.ClearWaypoint")
+        assert(UiMapPoint and UiMapPoint.CreateFromCoordinates and C_SuperTrack and C_SuperTrack.SetSuperTrackedUserWaypoint, "test setup: the harness has no waypoint functions")
+        -- ---- everything there: as before
+        USER_WP, WP_SETS, WP_CLEARS = nil, 0, 0
+        local mark = #log
+        assert(ns.SetWaypoint(1412, 0.5, 0.5) == true and WP_SETS == 1 and USER_WP, "with all functions: no waypoint set")
+        assert(ns.ClearWaypoint() == true and WP_CLEARS == 1 and USER_WP == nil, "with all functions: not cleared")
+        slash("clear")
+        assert(WP_CLEARS == 2 and Told(mark, L["Waypoint cleared."]) == 1, "/gcr clear with all functions")
+        assert(Told(mark, MISSING) == 0, "told that there are no waypoints although there are")
+
+        -- ---- one function missing at a time: no Lua error, no waypoint, "set" is not claimed -
+        -- and in the whole session the player is told once
+        local cases = {
+            { "C_Map.CanSetUserWaypointOnMap", function() C_Map.CanSetUserWaypointOnMap = nil end },
+            { "C_Map.SetUserWaypoint", function() C_Map.SetUserWaypoint = nil end },
+            { "UiMapPoint", function() UiMapPoint = nil end },
+            { "UiMapPoint.CreateFromCoordinates", function() UiMapPoint = {} end },
+            { "C_SuperTrack", function() C_SuperTrack = nil end },
+            { "C_SuperTrack.SetSuperTrackedUserWaypoint", function() C_SuperTrack = {} end },
+        }
+        mark = #log
+        for i, case in ipairs(cases) do
+            case[2]()
+            USER_WP, WP_SETS, WP_CLEARS = nil, 0, 0
+            local okSet, set1 = pcall(ns.SetWaypoint, 1412, 0.5, 0.5)
+            local okSet2, set2 = pcall(ns.SetWaypoint, 1412, 0.6, 0.6)
+            Restore()
+            assert(okSet and okSet2, "without " .. case[1] .. ": a Lua error: " .. tostring(set1) .. " " .. tostring(set2))
+            assert(set1 == false and set2 == false and WP_SETS == 0 and USER_WP == nil, "without " .. case[1] .. ": a waypoint was set, or success claimed")
+            assert(Told(mark, MISSING) == 1, "without " .. case[1] .. " (case " .. i .. "): told " .. Told(mark, MISSING) .. " times this session, want once")
+        end
+        -- ---- no ClearUserWaypoint: /gcr clear and the end of a run make no error, and "cleared" is not claimed
+        C_Map.ClearUserWaypoint = nil
+        local mark2 = #log
+        local okClear, cleared = pcall(ns.ClearWaypoint)
+        local okSlash, whySlash = pcall(slash, "clear")
+        -- a farm run with the game's waypoint (our arrow off) that ends: Route.lua clears the same way
+        ns.db.arrowHidden = true
+        local okRun, whyRun = pcall(function() slash("run herb") advance(2) slash("stop") advance(1) end)
+        ns.db.arrowHidden = saved.arrow
+        Restore()
+        assert(okClear and cleared == false, "without ClearUserWaypoint: " .. tostring(cleared))
+        assert(okSlash and okRun, "without ClearUserWaypoint: " .. tostring(whySlash) .. " / " .. tostring(whyRun))
+        assert(Told(mark2, L["Waypoint cleared."]) == 0, "without ClearUserWaypoint: \"cleared\" claimed")
+        assert(Told(mark, MISSING) == 1, "told " .. Told(mark, MISSING) .. " times in one session, want once")
+        -- the route's own clearing goes the same way (Route.lua)
+        local src = assert(io.open(ROOT .. "/Route.lua")):read("*a")
+        assert(not src:find("C_Map.ClearUserWaypoint()", 1, true) and src:find("ns.ClearWaypoint()", 1, true), "Route.lua still calls C_Map.ClearUserWaypoint itself")
+        src = assert(io.open(ROOT .. "/Core.lua")):read("*a")
+        local _, direct = src:gsub("C_Map%.ClearUserWaypoint%(%)", "")
+        assert(direct == 1, "Core.lua calls C_Map.ClearUserWaypoint in " .. direct .. " places, want the one guarded place")
+        -- the text in every language
+        for _, code in ipairs({ "deDE", "esES", "frFR", "itIT", "koKR", "ptBR", "ruRU", "zhCN", "zhTW" }) do
+            local tr = ns.Locales[code]["Waypoints are not available in this client."]
+            assert(type(tr) == "string" and tr ~= "" and tr ~= "Waypoints are not available in this client.", "no " .. code .. " translation")
+        end
+        assert(#errors == before, "an error: " .. tostring(errors[#errors]))
+    end)
+    Restore()
+    USER_WP, WP_SETS, WP_CLEARS = saved.wp, saved.sets, saved.clears
+    if not ok then error(err, 0) end
+end)
 -- (end of the item tooltip steps, v0.2 building block 2)
 step("Long run (10 min) for leaks", function() slash("run herb") advance(600) slash("stop") end)
 step("Test mock: OnUpdate runs for the same frames in the same order as going over every frame (tools only)", function()
