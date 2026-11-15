@@ -15298,6 +15298,165 @@ step("Sync: the lookup by exact place stays right when nodes and reports change 
     advance(70)
     assert(ok, err)
 end)
+step("Options: a page of its own for fishing - four switches with a line each, the same saved values (v0.1.23 P4)", function()
+    -- A player on Discord did not find "Hide the fishing window": the four
+    -- fishing switches stood at the end of General, under "Other". They have
+    -- a page now, each with a line that says what it does.
+    local opts = _G.GathercraftOptions
+    local LABELS = {
+        "Fish key applies a lure when the pole has none",
+        "Hide the fishing window",
+        "Mark my bobber",
+        "Louder bobber splash while fishing",
+    }
+    local HINTS = {
+        "One press puts a lure from your bags on the pole, the next one casts.",
+        "The small window with your catch and gold per hour while you fish. The catch is counted all the same.",
+        "The game's own icon above your bobber while your line is out. Afterwards your setting is back.",
+        "Sound effects at full volume, music and ambience quiet, while your line is out. Afterwards your volumes are back.",
+    }
+    local DESC = "The fish key, the fishing window and your bobber."
+    local function Find(key)
+        local found
+        for _, f in ipairs(allFrames) do
+            if f.__kind == "FontString" and f.__text == ns.L[key] then
+                local p = f.__parent
+                while p and not p.key do p = p.__parent end
+                if p then found = f end
+            end
+        end
+        return found
+    end
+    local function PageOf(f)
+        local p = f and f.__parent
+        while p and not p.key do p = p.__parent end
+        return p and p.key
+    end
+    local saved = { lang = ns.db.language, section = ns.db.optionsSection, lure = ns.db.fishLure, panel = ns.db.fishPanelHidden,
+        mark = ns.db.fishMarkBobber, loud = ns.db.fishLoudSplash, height = methods.GetStringHeight }
+    local ok, err = pcall(function()
+        -- the page, its switches and their lines
+        local page
+        for i, label in ipairs(LABELS) do
+            local fs = Find(label)
+            assert(fs, "no switch '" .. label .. "'")
+            assert(PageOf(fs) == "fishing", ("'%s' is on the page %s"):format(label, tostring(PageOf(fs))))
+            page = page or fs.__parent
+            local hint = Find(HINTS[i])
+            assert(hint and PageOf(hint) == "fishing", ("no line under '%s' on the fishing page"):format(label))
+        end
+        assert(Find(DESC) and PageOf(Find(DESC)) == "fishing", "the page does not say what it is about")
+        -- (General has them no more. The mock logs in many times, and each
+        -- login builds the pages: so every copy is looked at.)
+        for _, label in ipairs(LABELS) do
+            for _, f in ipairs(allFrames) do
+                if f.__kind == "FontString" and f.__text == ns.L[label] and PageOf(f) then
+                    assert(PageOf(f) == "fishing", ("'%s' is also on the page %s"):format(label, PageOf(f)))
+                end
+            end
+        end
+        -- the list on the left has it, and choosing it shows the page and is remembered
+        ns.ShowOptionsSection("fishing")
+        assert(page.__shown and ns.db.optionsSection == "fishing", "choosing Fishing does not show its page")
+        local navText
+        for _, f in ipairs(allFrames) do
+            if f.__kind == "FontString" and f.__text == ns.L["Fishing"] and f.__parent and f.__parent.__scripts and f.__parent.__scripts.OnClick and f.__parent.icon then navText = f end
+        end
+        assert(navText, "no entry 'Fishing' in the list of pages")
+        ns.ShowOptionsSection("general")
+        assert(not page.__shown, "the fishing page stays over General")
+        navText.__parent.__scripts.OnClick(navText.__parent)
+        assert(page.__shown, "a click on Fishing does not show its page")
+
+        -- the same saved values as before, switch by switch
+        local function Box(label)
+            local box = Find(label).__pts.TOPLEFT[1]
+            assert(box and box.__kind == "CheckButton", "'" .. label .. "' has no box")
+            return box
+        end
+        local function Click(label, on)
+            local box = Box(label)
+            box:SetChecked(on)
+            box.__scripts.OnClick(box)
+        end
+        ns.db.fishLure, ns.db.fishPanelHidden, ns.db.fishMarkBobber, ns.db.fishLoudSplash = nil, nil, nil, nil
+        opts:Refresh()
+        assert(Box(LABELS[1]):GetChecked() and not Box(LABELS[2]):GetChecked() and Box(LABELS[3]):GetChecked() and not Box(LABELS[4]):GetChecked(),
+            "never touched: lure and mark are on, hide and louder are off")
+        Click(LABELS[1], false) assert(ns.db.fishLure == false, "lure off is saved as " .. tostring(ns.db.fishLure))
+        Click(LABELS[1], true) assert(ns.db.fishLure == true, "lure on is saved as " .. tostring(ns.db.fishLure))
+        Click(LABELS[2], true) assert(ns.db.fishPanelHidden == true, "hide on is saved as " .. tostring(ns.db.fishPanelHidden))
+        Click(LABELS[2], false) assert(ns.db.fishPanelHidden == nil, "hide off is saved as " .. tostring(ns.db.fishPanelHidden))
+        Click(LABELS[3], false) assert(ns.db.fishMarkBobber == false, "mark off is saved as " .. tostring(ns.db.fishMarkBobber))
+        Click(LABELS[3], true) assert(ns.db.fishMarkBobber == true, "mark on is saved as " .. tostring(ns.db.fishMarkBobber))
+        Click(LABELS[4], true) assert(ns.db.fishLoudSplash == true, "louder on is saved as " .. tostring(ns.db.fishLoudSplash))
+        Click(LABELS[4], false) assert(ns.db.fishLoudSplash == nil, "louder off is saved as " .. tostring(ns.db.fishLoudSplash))
+
+        -- every language has the new texts
+        for lang, d in pairs(ns.Locales) do
+            for _, text in ipairs({ DESC, HINTS[1], HINTS[2], HINTS[3], HINTS[4] }) do
+                assert(d[text] and d[text] ~= text, lang .. ": not translated: " .. text)
+            end
+        end
+
+        -- nothing is cut, in every language: the rows wrap and stay above the
+        -- footer, the name fits the list. Mock text layout: 6 px a Latin
+        -- letter, 11 px a CJK sign, 12 px a line - no real font metrics.
+        local function Px(text)
+            local px = 0
+            for ch in (text or ""):gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""):gmatch("[%z\1-\127\194-\244][\128-\191]*") do px = px + (#ch >= 3 and 11 or 6) end
+            return px
+        end
+        local WIDTH = 470
+        methods.GetStringHeight = function(self)
+            local w = (self.__parent and self.__parent.__w or WIDTH) - 34
+            return 12 * math.max(1, math.ceil(Px(self.__text) / w))
+        end
+        page.__w = WIDTH
+        local ROOM = 640 - 112 - 18 - 4 - 66
+        local wrapped = 0
+        for _, lang in ipairs(ns.LANGUAGES) do
+            if lang.code ~= "auto" then
+                ns.db.language = lang.code ns.ApplyLanguage() opts:Refresh()
+                ns.ShowOptionsSection("fishing")
+                local y, bottom = nil, 0
+                for i, label in ipairs(LABELS) do
+                    local fs, hint = Find(label), Find(HINTS[i])
+                    assert(fs and hint, lang.code .. ": '" .. label .. "' or its line is not there")
+                    local box = fs.__pts.TOPLEFT[1]
+                    local top = box.__pts.TOPLEFT[2]
+                    assert(not y or top <= y, ("%s: '%s' starts at %s, the row above ends at %s"):format(lang.code, label, top, tostring(y)))
+                    local labelEnd = top - 5 - fs:GetStringHeight()
+                    local hintTop = hint.__pts.TOPLEFT[2]
+                    assert(hintTop <= labelEnd + 2, ("%s: the line under '%s' starts at %s, the label ends at %s"):format(lang.code, label, hintTop, labelEnd))
+                    y = hintTop - hint:GetStringHeight()
+                    bottom = -y
+                    if hint:GetStringHeight() > 12 then wrapped = wrapped + 1 end
+                    assert(fs.__pts.RIGHT and fs.__pts.RIGHT[1] == page and hint.__pts.RIGHT and hint.__pts.RIGHT[1] == page, lang.code .. ": a text is not held to the page width")
+                end
+                assert(bottom <= ROOM, ("%s: the fishing page goes down to %d px of %d"):format(lang.code, bottom, ROOM))
+                assert(Px(ns.L["Fishing"]) <= 160 - 8 - 18 - 7 - 4, ("%s: '%s' is too wide for the list of pages"):format(lang.code, ns.L["Fishing"]))
+            end
+        end
+        assert(wrapped > 0, "test setup: no line wrapped in any language")
+        methods.GetStringHeight = saved.height
+        page.__w = nil
+        ns.db.language = saved.lang ns.ApplyLanguage() opts:Refresh()
+
+        -- General has its rows back, and every page that does not flow still ends above the footer
+        local used = ns.OptionsUsedHeight()
+        assert(used.general <= ROOM - 4 * 26, ("General still goes down to %d px"):format(used.general))
+        for key, h in pairs(used) do
+            if key ~= "level" and key ~= "fishing" then assert(h <= ROOM, ("Options %s: %d px of %d"):format(key, h, ROOM)) end
+        end
+    end)
+    methods.GetStringHeight = saved.height
+    ns.db.fishLure, ns.db.fishPanelHidden, ns.db.fishMarkBobber, ns.db.fishLoudSplash = saved.lure, saved.panel, saved.mark, saved.loud
+    ns.db.language = saved.lang ns.ApplyLanguage()
+    ns.ShowOptionsSection(saved.section)
+    opts:Refresh()
+    assert(ok, err)
+end)
 step("Long run (10 min) for leaks", function() slash("run herb") advance(600) slash("stop") end)
 
 io.write("\n--- errors: " .. #errors .. "\n")

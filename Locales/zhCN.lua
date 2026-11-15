@@ -580,4 +580,9 @@ ns.Locales.zhCN = {
     ["New: Gathercraft notes which ways you ride, as small pieces per map square - only on this computer, nothing is sent. Later routes can go around obstacles with it. Switch: Options, %s. What it holds: /gcr paths"] = "新功能：Gathercraft 会按地图方格以小段的形式记下你走过的路——仅保存在这台电脑上，不会发送任何内容。以后路线可以借此绕开障碍。开关：选项，%s。查看已保存内容：/gcr paths",
     ["  /gcr paths        - the ways you ride, noted on this computer"] = "  /gcr paths        - 你走过的路径，记录在这台电脑上",
     ["Sharing: Gathercraft answers a question about a zone only when it knows clearly more. Long answers come from at most three players (up to six where some players get their own messages back late); very short answers can still come from a few more. New: it notes which ways you ride - only on this computer, nothing is sent; routes will use it later (Options, Sharing: Record the paths I ride; /gcr paths)."] = "共享：只有在明显知道得更多时，Gathercraft 才会回答关于某个区域的询问。较长的回答最多来自三名玩家（若有些玩家较晚收到自己发出的消息，最多六名）；很短的回答仍可能来自更多玩家。新功能：它会记下你走过的路——仅保存在这台电脑上，不会发送任何内容；以后路线会用到它（选项，共享：记录我走过的路径；/gcr paths）。",
+    ["The fish key, the fishing window and your bobber."] = "钓鱼键、钓鱼窗口和你的鱼漂。",
+    ["One press puts a lure from your bags on the pole, the next one casts."] = "按一次把背包里的鱼饵装到鱼竿上，再按一次抛竿。",
+    ["The small window with your catch and gold per hour while you fish. The catch is counted all the same."] = "钓鱼时显示渔获和每小时金币的小窗口。隐藏后渔获照样计数。",
+    ["The game's own icon above your bobber while your line is out. Afterwards your setting is back."] = "抛竿期间在你的鱼漂上方显示游戏自带的图标。结束后恢复你的设置。",
+    ["Sound effects at full volume, music and ambience quiet, while your line is out. Afterwards your volumes are back."] = "抛竿期间音效开到最大，音乐和环境音调低。结束后恢复你的音量。",
 }

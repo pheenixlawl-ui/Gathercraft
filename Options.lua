@@ -58,6 +58,8 @@ local GOLD = { 1, 0.82, 0.30 }
 local EMBER = { 0.42, 0.10, 0.04 }
 local NAV_W, NAV_H, NAV_GAP = 160, 30, 4
 local FOOTER_H = 60
+-- A page more: one line here, and a Section("key") block where the pages
+-- are filled (the list on the left follows this order).
 local SECTIONS = {
     { key = "map", name = "Map & minimap", icon = "Interface\\Icons\\INV_Misc_Spyglass_02",
       desc = "How Gathercraft shows nodes on the world map and the minimap." },
@@ -69,6 +71,9 @@ local SECTIONS = {
       desc = "Share the spots you find with other Gathercraft players – and get theirs." },
     { key = "alerts", name = "Rares & prices", icon = "Interface\\Icons\\Ability_Warrior_BattleShout",
       desc = "Warnings for rare mobs, and auction prices where you need them." },
+    -- (v0.1.23 P4: the four fishing switches stood at the end of General and were not found there)
+    { key = "fishing", name = "Fishing", icon = "Interface\\Icons\\Trade_Fishing",
+      desc = "The fish key, the fishing window and your bobber." },
     { key = "general", name = "General", icon = "Interface\\Icons\\INV_Misc_Gear_01",
       desc = "Language, minimap button and the rest." },
 }
@@ -156,9 +161,12 @@ local colX, nextY = 0, 0
 
 local usedHeight = {} -- section key -> how far its controls go down (px)
 ns.OptionsUsedHeight = function() return usedHeight end
-local function Section(index, flow)
+local function Section(key, flow)
     if page and page.key then usedHeight[page.key] = -nextY end
-    local info = SECTIONS[index]
+    local index, info
+    for i, section in ipairs(SECTIONS) do
+        if section.key == key then index, info = i, section end
+    end
     page = CreateFrame("Frame", nil, content)
     page.key = info.key
     page:SetAllPoints(content)
@@ -889,7 +897,7 @@ UpdateSyncStatus = function()
 end
 
 local function Build()
-    Section(1) -- Map & minimap
+    Section("map")
     AddCheck("Show nodes on the world map",
         function() return not ns.db.worldPinsHidden end,
         function(on)
@@ -941,7 +949,7 @@ local function Build()
             if ns.UpdateArrow then ns.UpdateArrow() end
         end)
 
-    Section(2) -- Farm runs
+    Section("runs")
     AddRouteMode()
     AddRouteGoal()
     nextY = nextY - 4
@@ -990,7 +998,7 @@ local function Build()
     nextY = nextY - 4
     AddRouteLineLook()
 
-    Section(3, true) -- Leveling (long translations: rows flow)
+    Section("level", true) -- (long translations: rows flow)
     AddCheck("Color pins by skill-up chance",
         function() return not ns.db.skillColorsOff end,
         function(on)
@@ -1010,7 +1018,7 @@ local function Build()
         function() return not ns.db.trainerRemindOff end,
         function(on) ns.db.trainerRemindOff = not on end)
 
-    Section(4) -- Sharing
+    Section("sync")
     AddCheck("Share nodes with other players",
         function() return ns.db.sync and ns.db.sync.enabled end,
         function(on) ns.SyncCommand(on and "on" or "off") end)
@@ -1049,7 +1057,7 @@ local function Build()
         UpdateSyncStatus()
     end)
 
-    Section(5) -- Rares & prices
+    Section("alerts")
     AddHeader("Rares")
     AddCheck("Alert when a rare shows up (sound + warning)",
         function() return ns.db.rareAlert ~= false end,
@@ -1069,7 +1077,25 @@ local function Build()
         function() return ns.db.tooltipPrices ~= false end,
         function(on) ns.db.tooltipPrices = on end)
 
-    Section(6) -- General
+    Section("fishing", true) -- (a line under each switch: rows flow)
+    AddCheck("Fish key applies a lure when the pole has none",
+        function() return ns.db.fishLure ~= false end,
+        function(on) ns.db.fishLure = on end)
+    AddHint("One press puts a lure from your bags on the pole, the next one casts.")
+    AddCheck("Hide the fishing window",
+        function() return ns.db.fishPanelHidden end,
+        function(on) ns.db.fishPanelHidden = on or nil end)
+    AddHint("The small window with your catch and gold per hour while you fish. The catch is counted all the same.")
+    AddCheck("Mark my bobber",
+        function() return ns.db.fishMarkBobber ~= false end,
+        function(on) ns.db.fishMarkBobber = on end)
+    AddHint("The game's own icon above your bobber while your line is out. Afterwards your setting is back.")
+    AddCheck("Louder bobber splash while fishing",
+        function() return ns.db.fishLoudSplash end,
+        function(on) ns.db.fishLoudSplash = on or nil end)
+    AddHint("Sound effects at full volume, music and ambience quiet, while your line is out. Afterwards your volumes are back.")
+
+    Section("general")
     AddHeader("Language")
     AddLanguage()
     AddHeader("Other") -- (no gap above since 0.1.19: room for the skinning log)
@@ -1142,18 +1168,6 @@ local function Build()
         macro:SetScript("OnLeave", GameTooltip_Hide)
         nextY = nextY - 28
     end
-    AddCheck("Fish key applies a lure when the pole has none",
-        function() return ns.db.fishLure ~= false end,
-        function(on) ns.db.fishLure = on end)
-    AddCheck("Hide the fishing window",
-        function() return ns.db.fishPanelHidden end,
-        function(on) ns.db.fishPanelHidden = on or nil end)
-    AddCheck("Mark my bobber",
-        function() return ns.db.fishMarkBobber ~= false end,
-        function(on) ns.db.fishMarkBobber = on end)
-    AddCheck("Louder bobber splash while fishing",
-        function() return ns.db.fishLoudSplash end,
-        function(on) ns.db.fishLoudSplash = on or nil end)
     AddCheck("Record crafting skill-ups (helps improve the skill plan)",
         function() return not ns.db.craftLogOff end,
         function(on)
