@@ -100,12 +100,37 @@ GetSkillLineInfo = function() end
 
 -- ---------------------------------------------------------------- frames
 local allFrames, eventFrames = {}, {}
+-- The frames that ever had an OnUpdate script, in the order they were made.
+-- advance() goes over these only, not over every frame ever made: the same
+-- calls in the same order as going over allFrames and skipping the ones
+-- without OnUpdate, only without asking thousands of frames for nothing.
+-- A frame's scripts table notes when OnUpdate is set (SetScript, HookScript,
+-- or set right in __scripts); step() checks after every step that no frame
+-- with an OnUpdate is missing.
+local updFrames, scriptsOwner = {}, setmetatable({}, { __mode = "k" })
+local updAt -- while advance() goes over updFrames: the place it is at
+local function NoteOnUpdate(f)
+    if f.__upd then return end
+    f.__upd = true
+    local i = #updFrames
+    while i > 0 and updFrames[i].__idx > f.__idx do i = i - 1 end
+    table.insert(updFrames, i + 1, f)
+    -- an older frame set in the middle of a round: as before, it comes from
+    -- the next round on, and the frame being called is not called twice
+    if updAt and i + 1 <= updAt then updAt = updAt + 1 end
+end
+local ScriptsMT = { __newindex = function(t, k, v)
+    rawset(t, k, v)
+    if k == "OnUpdate" and v ~= nil then NoteOnUpdate(scriptsOwner[t]) end
+end }
 local FrameMT = {}
 local function newObject(kind, name, parent)
-    local o = { __kind = kind, __scripts = {}, __shown = (kind ~= "Frame" and kind ~= "Button" and kind ~= "CheckButton" and kind ~= "ScrollFrame" and kind ~= "StatusBar") or true, __parent = parent, __points = 0, __text = nil }
+    local o = { __kind = kind, __scripts = setmetatable({}, ScriptsMT), __shown = (kind ~= "Frame" and kind ~= "Button" and kind ~= "CheckButton" and kind ~= "ScrollFrame" and kind ~= "StatusBar") or true, __parent = parent, __points = 0, __text = nil }
     setmetatable(o, FrameMT)
     if name then _G[name] = o end
     allFrames[#allFrames + 1] = o
+    o.__idx = #allFrames
+    scriptsOwner[o.__scripts] = o
     return o
 end
 local methods = {}
@@ -224,14 +249,19 @@ local function advance(seconds)
             if not ok then errors[#errors + 1] = "timer: " .. tostring(err) end
             if t.every then t.at = NOW + t.every timers[#timers + 1] = t end
         end
-        -- OnUpdate of visible frames
-        for _, f in ipairs(allFrames) do
+        -- OnUpdate of visible frames (see updFrames)
+        local outer = updAt
+        updAt = 1
+        while updFrames[updAt] do
+            local f = updFrames[updAt]
             local fn = f.__scripts.OnUpdate
             if fn and f:IsVisible() then
                 local ok, err = pcall(fn, f, 0.25)
                 if not ok then errors[#errors + 1] = "OnUpdate: " .. tostring(err) end
             end
+            updAt = updAt + 1
         end
+        updAt = outer
     end
     NOW = target
 end
@@ -362,10 +392,27 @@ if HARNESS_ONLY then
     }
 end
 
+-- the test mock itself: every frame with an OnUpdate is in updFrames, in the
+-- order the frames were made (else advance() would skip it)
+local function CheckMock()
+    for _, f in ipairs(allFrames) do
+        if getmetatable(f.__scripts) ~= ScriptsMT or scriptsOwner[f.__scripts] ~= f then
+            return "test mock: a frame's scripts table was replaced - clear it in place, or advance() would not see its OnUpdate"
+        end
+        if rawget(f.__scripts, "OnUpdate") ~= nil and not f.__upd then
+            return "test mock: a frame with an OnUpdate script is missing from the list advance() goes over"
+        end
+    end
+    for i = 2, #updFrames do
+        if updFrames[i - 1].__idx >= updFrames[i].__idx then return "test mock: the OnUpdate frames are out of the order they were made" end
+    end
+end
 local function step(name, fn)
     local before = #errors
     local ok, err = pcall(fn)
     if not ok then errors[#errors + 1] = name .. ": " .. tostring(err) end
+    local mock = CheckMock()
+    if mock then errors[#errors + 1] = name .. ": " .. mock end
     io.write(("%-38s %s\n"):format(name, (#errors == before) and "ok" or ("FAIL -> " .. errors[#errors])))
 end
 local function slash(cmd) SlashCmdList.GATHERCRAFT(cmd) end
@@ -11504,7 +11551,7 @@ step("Fishing: your interact settings come back (end, abort, /reload, login, own
     for i = first, first + made - 1 do
         local f = allFrames[i]
         for _, list in pairs(eventFrames) do list[f] = nil end
-        f.__scripts = {}
+        for k in pairs(f.__scripts) do f.__scripts[k] = nil end
     end
     assert(eventFrames["UNIT_SPELLCAST_CHANNEL_STOP"][old] == nil, "test setup: the old fishing frame is still there")
     local new = next(eventFrames["UNIT_SPELLCAST_CHANNEL_STOP"])
@@ -16391,6 +16438,60 @@ step("Professions: every place of the game's list is asked whether it is hidden 
     assert(ok, err)
 end)
 step("Long run (10 min) for leaks", function() slash("run herb") advance(600) slash("stop") end)
+step("Test mock: OnUpdate runs for the same frames in the same order as going over every frame (tools only)", function()
+    -- The mock's advance() goes over the frames that have an OnUpdate only
+    -- (see updFrames). It must call what going over all frames made so far
+    -- called: in the order the frames were made, a frame made in the middle
+    -- of a round still in that round, an older frame that gets its OnUpdate
+    -- in the middle of a round from the next round on, nobody twice. (Last of
+    -- all steps, so the steps before it see the same OnUpdate calls as before.)
+    local seen = {}
+    local function Rec(tag) return function() seen[#seen + 1] = tag end end
+    local function Rounds()
+        seen = {}
+        for i = 1, 3 do C_Timer.After(i / 10, function() end) end
+        advance(0.35)
+        return table.concat(seen)
+    end
+    local function Repeats(s, unit)
+        return #s >= #unit * 3 and s:gsub(unit, "") == ""
+    end
+    local A, B, C = CreateFrame("Frame"), CreateFrame("Frame"), CreateFrame("Frame")
+    local D
+    C:SetScript("OnUpdate", function()
+        seen[#seen + 1] = "C"
+        if not D then
+            B:SetScript("OnUpdate", Rec("B"))                  -- older than C: from the next round on
+            D = CreateFrame("Frame")
+            D:SetScript("OnUpdate", Rec("D"))                  -- made now: in this round, after C
+        end
+    end)
+    A:SetScript("OnUpdate", Rec("A"))                          -- set after C, made before it: called before it
+    local s = Rounds()
+    assert(s:sub(1, 3) == "ACD", "the first round: " .. s:sub(1, 8) .. " (want A C D: B from the next round on, D in this one)")
+    assert(Repeats(s:sub(4), "ABCD"), "the rounds after it: " .. s:sub(4, 20) .. " (want A B C D each)")
+    B:Hide()
+    s = Rounds()
+    assert(Repeats(s, "ACD"), "a hidden frame: " .. s:sub(1, 12))
+    A:SetScript("OnUpdate", nil)
+    s = Rounds()
+    assert(Repeats(s, "CD"), "a removed OnUpdate: " .. s:sub(1, 12))
+    A:SetScript("OnUpdate", Rec("A"))
+    s = Rounds()
+    assert(Repeats(s, "ACD"), "an OnUpdate set again: " .. s:sub(1, 12))
+    local E = CreateFrame("Frame")
+    E.__scripts.OnUpdate = Rec("E")                            -- a new frame, set right in the table (as a few steps do)
+    s = Rounds()
+    assert(Repeats(s, "ACDE"), "an OnUpdate set right in __scripts: " .. s:sub(1, 16))
+    local F = CreateFrame("Frame")
+    F:HookScript("OnUpdate", Rec("F"))                         -- a new frame, only hooked
+    D:HookScript("OnUpdate", Rec("d"))
+    s = Rounds()
+    assert(Repeats(s, "ACDdEF"), "a hooked OnUpdate: " .. s:sub(1, 18))
+    for _, f in ipairs({ A, B, C, D, E, F }) do f:SetScript("OnUpdate", nil) end
+    s = Rounds()
+    assert(s == "", "after all are removed: " .. s:sub(1, 12))
+end)
 
 io.write("\n--- errors: " .. #errors .. "\n")
 for _, e in ipairs(errors) do io.write("  " .. e .. "\n") end
