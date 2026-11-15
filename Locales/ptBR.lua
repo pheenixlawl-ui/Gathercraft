@@ -586,4 +586,5 @@ ns.Locales.ptBR = {
     ["The game's own icon above your bobber while your line is out. Afterwards your setting is back."] = "O ícone do próprio jogo sobre a sua boia enquanto a linha está na água. Depois, sua configuração volta.",
     ["Sound effects at full volume, music and ambience quiet, while your line is out. Afterwards your volumes are back."] = "Efeitos sonoros no máximo, música e ambiente baixos, enquanto a linha está na água. Depois, seus volumes voltam.",
     ["Ping when I reach a route point"] = "Ping ao chegar a um ponto da rota",
+    ["Scan the auction house automatically when I open it"] = "Escanear a casa de leilões automaticamente ao abri-la",
 }

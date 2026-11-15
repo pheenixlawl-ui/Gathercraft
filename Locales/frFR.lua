@@ -586,4 +586,5 @@ ns.Locales.frFR = {
     ["The game's own icon above your bobber while your line is out. Afterwards your setting is back."] = "L'icône du jeu au-dessus de ton bouchon tant que la ligne est à l'eau. Ensuite, ton réglage revient.",
     ["Sound effects at full volume, music and ambience quiet, while your line is out. Afterwards your volumes are back."] = "Effets sonores au maximum, musique et ambiance faibles, tant que la ligne est à l'eau. Ensuite, tes volumes reviennent.",
     ["Ping when I reach a route point"] = "Ping quand j'atteins un point de la route",
+    ["Scan the auction house automatically when I open it"] = "Scanner l'hôtel des ventes automatiquement à l'ouverture",
 }

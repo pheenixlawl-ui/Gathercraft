@@ -615,4 +615,5 @@ ns.Locales.deDE = {
     ["The game's own icon above your bobber while your line is out. Afterwards your setting is back."] = "Das spieleigene Symbol über deinem Schwimmer, solange die Leine draußen ist. Danach gilt wieder deine Einstellung.",
     ["Sound effects at full volume, music and ambience quiet, while your line is out. Afterwards your volumes are back."] = "Soundeffekte auf voller Lautstärke, Musik und Umgebung leise, solange die Leine draußen ist. Danach gelten wieder deine Lautstärken.",
     ["Ping when I reach a route point"] = "Ping, wenn ich einen Routenpunkt erreiche",
+    ["Scan the auction house automatically when I open it"] = "Auktionshaus automatisch scannen, wenn ich es öffne",
 }

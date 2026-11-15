@@ -586,4 +586,5 @@ ns.Locales.itIT = {
     ["The game's own icon above your bobber while your line is out. Afterwards your setting is back."] = "L'icona del gioco sopra il tuo galleggiante finché la lenza è in acqua. Poi torna la tua impostazione.",
     ["Sound effects at full volume, music and ambience quiet, while your line is out. Afterwards your volumes are back."] = "Effetti sonori al massimo, musica e ambiente bassi, finché la lenza è in acqua. Poi tornano i tuoi volumi.",
     ["Ping when I reach a route point"] = "Ping quando raggiungo un punto del percorso",
+    ["Scan the auction house automatically when I open it"] = "Scansiona automaticamente la casa d'aste quando la apro",
 }

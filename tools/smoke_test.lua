@@ -5300,6 +5300,10 @@ step("Auction house: \"left out\" once per scan, the rest as one count (v0.1.17)
     local keepNum, keepInfo = AHX.GetNumReplicateItems, AHX.GetReplicateItemInfo
     local wasDebug = ns.db.debug
     ns.db.debug = true
+    -- (since 0.1.23 opening the window starts our own scan: this step is
+    -- about updates that are not ours, so the option is off for it)
+    local wasAuto = ns.db.autoScanOff
+    ns.db.autoScanOff = true
     local function Count(text, from)
         local n = 0
         for i = from + 1, #log do if log[i]:find(text, 1, true) then n = n + 1 end end
@@ -5334,7 +5338,7 @@ step("Auction house: \"left out\" once per scan, the rest as one count (v0.1.17)
     p = ns.db.prices[next(ns.db.prices)]
     p.items, p.qty, p.seen, p.scanned = keep.items, keep.qty, keep.seen, keep.scanned
     p.lastScanStart = nil
-    ns.db.debug = wasDebug
+    ns.db.debug, ns.db.autoScanOff = wasDebug, wasAuto
 end)
 step("Market price: the cheapest offer with stock behind it (v0.1.16)", function()
     local p = ns.db.prices[next(ns.db.prices)]
@@ -15526,6 +15530,253 @@ step("Run: the ping at a route point has a switch, on unless you turn it off (v0
     player.map, player.x, player.y = keep.map, keep.x, keep.y
     ns.NotifyNodesChanged() advance(1)
     GathercraftOptions:Refresh()
+    assert(ok, err)
+end)
+step("Auction house: opening it starts the scan by itself - quiet when it cannot, with a switch (v0.1.23 P5)", function()
+    -- Sven, 14.11.2026: the scan is to start when the auction house opens -
+    -- opening it is what the player does. The server's 15 minutes count as
+    -- before. Live (21:37): ReplicateItems can be called from a timer, the
+    -- answer had 313,401 auctions.
+    local LABEL = "Scan the auction house automatically when I open it"
+    local AHX = C_AuctionHouse
+    ns.GetPrice(2447) -- (the price store of this realm is made when it is first asked)
+    local p = ns.db.prices[next(ns.db.prices)]
+    local keep = { rep = AHX.ReplicateItems, num = AHX.GetNumReplicateItems, info = AHX.GetReplicateItemInfo, off = ns.db.autoScanOff,
+        last = p.lastScanStart, scanned = p.scanned, items = p.items, qty = p.qty, seen = p.seen, history = p.history, debug = ns.db.debug,
+        after = C_Timer.After }
+    keep.history = {}
+    for id, text in pairs(p.history) do keep.history[id] = text end -- (the scans below write into it)
+    local calls, auctions = 0, {}
+    for i = 1, 400 do auctions[i] = { id = ({ 2447, 765, 2449, 2770 })[i % 4 + 1], count = i % 5 + 1, unit = 100 + i % 7 } end
+    local function Mock()
+        AHX.ReplicateItems = function() calls = calls + 1 end
+        AHX.GetNumReplicateItems = function() return #auctions end
+        AHX.GetReplicateItemInfo = function(i)
+            local a = auctions[i + 1]
+            if not a then return nil end
+            return "Item", 1, a.count, 1, true, 1, 0, 0, 0, a.unit * a.count, 0, false, nil, "Seller", nil, 0, a.id, true
+        end
+    end
+    -- what was said in chat since the mark (debug lines are not chat lines of the addon)
+    local function Said(mark)
+        local out = {}
+        for i = mark + 1, #log do if log[i]:find("^PRINT") then out[#out + 1] = log[i] end end
+        return out
+    end
+    local function Free() p.lastScanStart = 0 end -- the 15 minutes are over
+    local function Close() fire("AUCTION_HOUSE_CLOSED") advance(1) end
+    local ok, err = pcall(function()
+        Mock()
+        AuctionHouseFrame = AuctionHouseFrame or CreateFrame("Frame", "AuctionHouseFrame", UIParent)
+        ns.db.autoScanOff, ns.db.debug = nil, nil
+        Close()
+
+        -- 1. never touched: the scan starts a moment after the window opened, and its result is said once
+        Free()
+        calls = 0
+        local mark = #log
+        fire("AUCTION_HOUSE_SHOW")
+        advance(0.2)
+        assert(calls == 0, "the scan started before the button was built")
+        advance(0.3)
+        assert(calls == 1, ("the window is open: %d scans started"):format(calls))
+        assert(#Said(mark) == 0, "a scan that started by itself says so in chat: " .. tostring(Said(mark)[1]))
+        p.scanned = 0
+        fire("REPLICATE_ITEM_LIST_UPDATE") advance(2)
+        assert(p.scanned and p.scanned > 0 and p.items[2447], "the answer was not read")
+        local said = Said(mark)
+        assert(#said == 1 and said[1]:find((ns.L["Auction house scanned: %d auctions, prices for %d items."]):format(400, 4), 1, true),
+            ("after the scan chat has %d lines: %s"):format(#said, tostring(said[1])))
+
+        -- 2. again within the 15 minutes: nothing starts, nothing is said
+        Close()
+        mark = #log
+        fire("AUCTION_HOUSE_SHOW") advance(2)
+        assert(calls == 1, "opened again within 15 minutes: a scan started")
+        assert(#Said(mark) == 0, "opened again within 15 minutes: " .. tostring(Said(mark)[1]))
+        -- ... the button still says it: a click names the wait, as before
+        mark = #log
+        slash("scan")
+        assert(#Said(mark) == 1 and Said(mark)[1]:find("15", 1, true), "a click within the 15 minutes says nothing")
+        Close()
+
+        -- 3. no answer (another addon used up the server's scan): quiet, and a late answer is still read
+        Free()
+        mark = #log
+        fire("AUCTION_HOUSE_SHOW") advance(1)
+        assert(calls == 2, "the 15 minutes are over: no scan started")
+        advance(120)
+        assert(#Said(mark) == 0, "no answer to a scan that started by itself: " .. tostring(Said(mark)[1]))
+        p.scanned = 0
+        fire("REPLICATE_ITEM_LIST_UPDATE") advance(2)
+        assert(p.scanned > 0, "the late answer was not read")
+        Close()
+
+        -- 4. the window closed while the scan waits: quiet
+        Free()
+        mark = #log
+        fire("AUCTION_HOUSE_SHOW") advance(1)
+        assert(calls == 3, "test setup: no scan")
+        fire("AUCTION_HOUSE_CLOSED") advance(1)
+        assert(#Said(mark) == 0, "closed during a scan that started by itself: " .. tostring(Said(mark)[1]))
+
+        -- 5. closed again before the moment is over: nothing starts
+        Free()
+        fire("AUCTION_HOUSE_SHOW") fire("AUCTION_HOUSE_CLOSED") advance(2)
+        assert(calls == 3, "opened and closed at once: a scan started")
+
+        -- 6. a click while it runs says "already running" (the click's own words stay)
+        Free()
+        fire("AUCTION_HOUSE_SHOW") advance(1)
+        assert(calls == 4, "test setup: no scan")
+        mark = #log
+        slash("scan")
+        assert(#Said(mark) == 1 and Said(mark)[1]:find(ns.L["Scan is already running..."], 1, true), "a click during the scan: " .. tostring(Said(mark)[1]))
+        fire("REPLICATE_ITEM_LIST_UPDATE") advance(2)
+        Close()
+        -- ... and a scan you click yourself says what it always said
+        Free()
+        ns.db.autoScanOff = true
+        fire("AUCTION_HOUSE_SHOW") advance(1)
+        mark = #log
+        slash("scan")
+        assert(calls == 5 and Said(mark)[1] and Said(mark)[1]:find(ns.L["Scanning the auction house... (this takes a few seconds)"], 1, true), "a clicked scan does not say that it scans")
+        advance(120)
+        local late = Said(mark)
+        assert(#late == 3 and late[2]:find(ns.L["The auction house didn't answer. Try again later."], 1, true), "a clicked scan without an answer: " .. #late .. " lines")
+        Close()
+
+        -- 7. the switch: off, nothing starts by itself
+        Free()
+        fire("AUCTION_HOUSE_SHOW") advance(2)
+        assert(calls == 5, "the option is off: a scan started")
+        Close()
+        local label
+        for _, f in ipairs(allFrames) do if f.__kind == "FontString" and f.__text == ns.L[LABEL] then label = f end end
+        assert(label, "no switch '" .. LABEL .. "' in the options")
+        local box = (label.__pts.TOPLEFT and label.__pts.TOPLEFT[1]) or (label.__pts.LEFT and label.__pts.LEFT[1])
+        assert(box and box.__kind == "CheckButton" and box.get, "test setup: the switch has no box")
+        local page = label.__parent
+        while page and not page.key do page = page.__parent end
+        assert(page and page.key == "alerts", "the switch is on the page " .. tostring(page and page.key))
+        assert(box.get() == false, "off, and the box is ticked")
+        box:SetChecked(true) box.__scripts.OnClick(box)
+        assert(ns.db.autoScanOff == nil and box.get() == true, "ticked is saved as " .. tostring(ns.db.autoScanOff))
+        box:SetChecked(false) box.__scripts.OnClick(box)
+        assert(ns.db.autoScanOff == true, "unticked is saved as " .. tostring(ns.db.autoScanOff))
+        ns.db.autoScanOff = nil
+        for lang, d in pairs(ns.Locales) do assert(d[LABEL] and d[LABEL] ~= LABEL, lang .. ": not translated") end
+        local used = ns.OptionsUsedHeight()
+        assert(used.alerts <= 640 - 112 - 18 - 4 - 66, ("Options alerts: %d px, too long"):format(used.alerts))
+
+        -- 8. a client without the full scan: quiet
+        AHX.ReplicateItems = nil
+        Free()
+        mark = #log
+        fire("AUCTION_HOUSE_SHOW") advance(2)
+        assert(#Said(mark) == 0, "no full scan in this client, said on opening: " .. tostring(Said(mark)[1]))
+        Close()
+        Mock()
+
+        -- 8b. every auction is read and only the prices are being worked out:
+        -- closing the window then does not cancel the scan (a clock that jumps
+        -- makes every step as short as it can be, so there are steps to close in)
+        do
+            local keepClock, tick, reads, closed = debugprofilestop, 0, 0, false
+            debugprofilestop = function() tick = tick + 100 return tick end
+            local many = {}
+            for i = 1, 300 do many[i] = { id = 200000 + i, count = 1, unit = 50 + i } end
+            AHX.GetNumReplicateItems = function() return #many end
+            AHX.GetReplicateItemInfo = function(i)
+                local a = many[i + 1]
+                if not a then return nil end
+                reads = reads + 1
+                return "Item", 1, a.count, 1, true, 1, 0, 0, 0, a.unit, 0, false, nil, "Seller", nil, 0, a.id, true
+            end
+            Free()
+            fire("AUCTION_HOUSE_SHOW") advance(1)
+            mark = #log
+            p.scanned = 0
+            C_Timer.After = function(s, fn)
+                keep.after(s, function()
+                    -- (the first step after the last auction was read: the window closes right before it)
+                    if s == 0 and not closed and reads >= #many + 1 then
+                        closed = true
+                        fire("AUCTION_HOUSE_CLOSED")
+                    end
+                    fn()
+                end)
+            end
+            fire("REPLICATE_ITEM_LIST_UPDATE") advance(5)
+            C_Timer.After, debugprofilestop = keep.after, keepClock
+            assert(closed, "test setup: the window was never closed between the steps (" .. reads .. " auctions read)")
+            assert(p.scanned > 0 and p.items[200300] == 350, "closed while the prices were worked out: the scan was thrown away")
+            local lines = Said(mark)
+            assert(#lines == 1 and lines[1]:find((ns.L["Auction house scanned: %d auctions, prices for %d items."]):format(300, 300), 1, true),
+                ("closed while the prices were worked out: %d lines, %s"):format(#lines, tostring(lines[1])))
+            Close()
+            Mock()
+        end
+
+        -- 9. 300,000 auctions of 20,000 items (live: 313,401): no step of the
+        -- reading holds the game for long. The mock's clock, on a faster Lua
+        -- than the game's: it shows that the work is cut into steps of one
+        -- size, not how long a step takes in the game.
+        local okFfi, ffi = pcall(require, "ffi")
+        local clock = function() return os.clock() * 1000 end
+        if okFfi then
+            pcall(ffi.cdef, "int QueryPerformanceCounter(int64_t *c); int QueryPerformanceFrequency(int64_t *f);")
+            local c, f = ffi.new("int64_t[1]"), ffi.new("int64_t[1]")
+            if pcall(function() return ffi.C.QueryPerformanceFrequency(f) end) and tonumber(f[0]) > 0 then
+                local freq = tonumber(f[0])
+                clock = function() ffi.C.QueryPerformanceCounter(c) return tonumber(c[0]) * 1000 / freq end
+            end
+        end
+        local N, ITEMS = 300000, 20000
+        AHX.GetNumReplicateItems = function() return N end
+        AHX.GetReplicateItemInfo = function(i)
+            if i >= N then return nil end
+            local count = i % 20 + 1
+            return "Item", 1, count, 1, true, 1, 0, 0, 0, (100 + i % 37) * count, 0, false, nil, "Seller", nil, 0, 100000 + (i * 7919) % ITEMS, true
+        end
+        local function Scan()
+            Free()
+            fire("AUCTION_HOUSE_SHOW") advance(1)
+            local steps, worst, total = 0, 0, 0
+            local function Timed(fn)
+                local t0 = clock()
+                fn()
+                local ms = clock() - t0
+                steps, total = steps + 1, total + ms
+                if ms > worst then worst = ms end
+            end
+            -- (the scan's steps follow each other with no wait; other timers of the addon are not its steps)
+            C_Timer.After = function(s, fn) if s == 0 then keep.after(s, function() Timed(fn) end) else keep.after(s, fn) end end
+            p.scanned = 0
+            Timed(function() fire("REPLICATE_ITEM_LIST_UPDATE") end)
+            advance(60)
+            C_Timer.After = keep.after
+            assert(p.scanned > 0, "the 300,000 auctions were not read to the end")
+            local count = 0
+            for _ in pairs(p.items) do count = count + 1 end
+            assert(count == ITEMS, ("prices for %d of %d items"):format(count, ITEMS))
+            Close()
+            return worst, steps, total
+        end
+        local worst, steps, total = Scan()
+        for _ = 1, 2 do
+            local w, s, t = Scan()
+            if w < worst then worst, steps, total = w, s, t end
+        end
+        note(("MEASURE P5 scan of 300000 auctions / 20000 items: %d steps, %.0f ms in all, the longest step %.1f ms"):format(steps, total, worst))
+        assert(steps >= 200, ("300,000 auctions were read in %d steps"):format(steps))
+        assert(worst < 16, ("the longest step of the scan takes %.1f ms"):format(worst))
+    end)
+    C_Timer.After = keep.after
+    fire("AUCTION_HOUSE_CLOSED") advance(1)
+    AHX.ReplicateItems, AHX.GetNumReplicateItems, AHX.GetReplicateItemInfo = keep.rep, keep.num, keep.info
+    ns.db.autoScanOff, ns.db.debug = keep.off, keep.debug
+    p.lastScanStart, p.scanned, p.items, p.qty, p.seen, p.history = keep.last, keep.scanned, keep.items, keep.qty, keep.seen, keep.history
     assert(ok, err)
 end)
 step("Long run (10 min) for leaks", function() slash("run herb") advance(600) slash("stop") end)

@@ -14,7 +14,13 @@ local L = ns.L or setmetatable({}, { __index = function(_, k) return k end })
 local CALLER = ADDON_NAME
 local SCAN_COOLDOWN = 15 * 60   -- the server allows one full scan per 15 minutes
 local SCAN_TIMEOUT = 90         -- seconds to wait for the server's answer
-local SCAN_CHUNK = 1500         -- auctions read per step (keeps the game smooth)
+local SCAN_CHUNK = 1500         -- auctions read per step at most (keeps the game smooth)
+-- ... and a step ends after this many milliseconds (v0.1.23 P5: the scan
+-- starts by itself now, and Sven's auction house had 313,401 auctions - a
+-- step of 1500 is too long on a slow machine). Looked at every SCAN_LOOK
+-- auctions; the prices at the end are worked out in steps the same way.
+local SCAN_STEP_MS = 8
+local SCAN_LOOK = 50
 local FRESH_PRICE = 6 * 3600    -- older own prices count as old: Auctionator goes first
 local MAX_PRICE_AGE = 7 * 86400 -- older own prices: use the fallbacks instead
 local HISTORY_DAYS = 14
@@ -281,18 +287,20 @@ end
 -- history: "day:price;day:price;..." (one value per day, newest last), only
 -- for trade goods (herbs, ores, cloth, ...): that's what the price alerts
 -- watch, and it keeps the SavedVariables small
-local function AddHistory(p, itemID, price)
-    if not IsTradeGood(itemID) then
-        p.history[itemID] = nil
-        return
-    end
+-- the history of an item with today's price in it, or nil for none
+local function HistoryWith(p, itemID, price)
+    if not IsTradeGood(itemID) then return nil end
     local day = math.floor(time() / 86400)
     local kept = {}
     for d, v in (p.history[itemID] or ""):gmatch("(%d+):(%d+)") do
         if tonumber(d) ~= day and tonumber(d) > day - HISTORY_DAYS then kept[#kept + 1] = d .. ":" .. v end
     end
     kept[#kept + 1] = day .. ":" .. price
-    p.history[itemID] = table.concat(kept, ";")
+    return table.concat(kept, ";")
+end
+
+local function AddHistory(p, itemID, price)
+    p.history[itemID] = HistoryWith(p, itemID, price)
 end
 
 local CheckAlerts -- price alerts, further down
@@ -329,31 +337,60 @@ end
 
 -- A scan without a result: the prices stay, and the 15 minutes count from the
 -- start. Nobody knows when the server would take the next one, so we wait.
+-- A scan that started by itself (see StartScan) fails without a word in
+-- chat: you did not ask for it. The debug tab has the line.
 local function ScanFailed(message)
     FlushIgnored()
+    local quiet = scan and scan.auto
     scan = nil
-    ns.Print(message)
-    local left = Cooldown()
-    ns.Print((L["Your prices stay as they are. Next scan in %d:%02d."]):format(math.floor(left / 60), left % 60))
+    if quiet then
+        ns.Debug("SCAN (started on opening) without a result, not said in chat: " .. tostring(message))
+    else
+        ns.Print(message)
+        local left = Cooldown()
+        ns.Print((L["Your prices stay as they are. Next scan in %d:%02d."]):format(math.floor(left / 60), left % 60))
+    end
     UpdateButton()
 end
 
-local function FinishScan()
+-- Every auction is read: a market price and the history for each item, in
+-- steps (20,000 items in one go would hold the game for a moment), then
+-- everything is put in place at once. Nothing is stored before that: a
+-- scan that ends half way leaves the prices as they were.
+local FinishScan
+local function PriceStep()
+    if not scan or scan.state ~= "pricing" then return end
     local p = PriceDB()
-    local items, qty, seen = {}, {}, {}
-    local count, now = 0, time()
-    for itemID, list in pairs(scan.acc) do
+    local t0, looked = debugprofilestop(), 0
+    local itemID, list = next(scan.acc, scan.at)
+    while itemID do
         local price, total = MarketPrice(list)
-        items[itemID], qty[itemID], seen[itemID] = price, total, now
-        count = count + 1
+        scan.items[itemID], scan.qty[itemID] = price, total
+        scan.hist[itemID] = HistoryWith(p, itemID, price) or false
+        scan.count = scan.count + 1
+        scan.at = itemID
+        looked = looked + 1
+        if looked % SCAN_LOOK == 0 and debugprofilestop() - t0 >= SCAN_STEP_MS then
+            C_Timer.After(0, PriceStep)
+            return
+        end
+        itemID, list = next(scan.acc, itemID)
     end
+    FinishScan()
+end
+
+FinishScan = function()
+    local p = PriceDB()
+    local items, qty, seen = scan.items, scan.qty, {}
+    local count, now = scan.count, time()
+    for itemID in pairs(items) do seen[itemID] = now end
     ns.Debug(("SCAN read %d of %d: %d items, skipped %d without itemID, %d with count 0, %d with buyout 0, %d could not be read"):format(
         scan.index, scan.total, count, scan.noItem, scan.noCount, scan.noBuyout, scan.readErrors))
     if count == 0 then
         ScanFailed(L["The auction house sent no auctions. Try again in a moment."])
         return
     end
-    for itemID, price in pairs(items) do AddHistory(p, itemID, price) end
+    for itemID, text in pairs(scan.hist) do p.history[itemID] = text or nil end
     if scan.readErrors > 0 then
         -- some auctions could not be read (R4-B2): this is no full picture.
         -- The prices read are real and replace the old ones of their items;
@@ -379,18 +416,27 @@ end
 
 -- read = false when the game could not give this auction at all (an error,
 -- or no answer): a technical gap, not an auction without a price
-local function Pack(...) return select("#", ...), { ... } end
-local function ReadInfo(index)
-    local n, result = Pack(pcall(AH.GetReplicateItemInfo, index))
-    if not result[1] or n <= 1 then return false end
-    local name, count, buyout, itemID = result[2], result[4], result[11], result[18]
+-- (the answer of the game is not put into a table: one table for each of
+-- 300,000 auctions is a lot to clear away - v0.1.23 P5)
+local function Picked(ok, ...)
+    if not ok or select("#", ...) == 0 then return false end
+    local name, _, count, _, _, _, _, _, _, buyout, _, _, _, _, _, _, itemID = ...
     return true, itemID, count, buyout, name
+end
+local function ReadInfo(index)
+    return Picked(pcall(AH.GetReplicateItemInfo, index))
 end
 
 local function ReadStep()
-    if not scan then return end
+    if not scan or scan.state ~= "reading" then return end
     local last = math.min(scan.index + SCAN_CHUNK, scan.total) - 1
+    local t0 = debugprofilestop()
     for i = scan.index, last do
+        -- (a step ends when its time is up: the rest is read in the next one)
+        if i > scan.index and (i - scan.index) % SCAN_LOOK == 0 and debugprofilestop() - t0 >= SCAN_STEP_MS then
+            last = i - 1
+            break
+        end
         local read, itemID, count, buyout, name = ReadInfo(i + scan.base)
         if not read then
             scan.readErrors = scan.readErrors + 1
@@ -414,7 +460,9 @@ local function ReadStep()
     scan.index = last + 1
     ns.Debug(("SCAN step: %d of %d read"):format(scan.index, scan.total))
     if scan.index >= scan.total then
-        FinishScan()
+        -- all read: from here on the auction house is not needed any more
+        scan.state, scan.items, scan.qty, scan.hist, scan.count = "pricing", {}, {}, {}, 0
+        PriceStep()
     else
         C_Timer.After(0, ReadStep)
     end
@@ -449,42 +497,63 @@ local function OnReplicateReady()
     ReadStep()
 end
 
-local function StartScan()
+-- auto (v0.1.23 P5): started by the window opening, not by a click or
+-- /gcr scan. Then nothing is said in chat when it cannot start, when no
+-- answer comes (another addon may have used up the server's scan) or when
+-- the window closes: the debug tab has those lines. The button shows what
+-- is going on, and the result is said as after a click.
+local function StartScan(auto)
+    auto = auto == true -- (the button hands its frame over as the first argument)
+    local function Say(text)
+        if auto then
+            ns.Debug("SCAN (on opening) not started, not said in chat: " .. tostring(text))
+        else
+            ns.Print(text)
+        end
+    end
     if not (AH and AH.ReplicateItems) then
-        ns.Print(L["This client has no full auction house scan."])
+        Say(L["This client has no full auction house scan."])
         return
     end
     if not ahOpen then
-        ns.Print(L["Open the auction house first."])
+        Say(L["Open the auction house first."])
         return
     end
     if scan then
-        ns.Print(L["Scan is already running..."])
+        Say(L["Scan is already running..."])
         return
     end
     local left = Cooldown()
     if left > 0 then
-        ns.Print((L["The server allows one full scan every 15 minutes. Next scan in %d:%02d."]):format(math.floor(left / 60), left % 60))
+        Say((L["The server allows one full scan every 15 minutes. Next scan in %d:%02d."]):format(math.floor(left / 60), left % 60))
         return
     end
     FlushIgnored()
     local ok, err = pcall(AH.ReplicateItems)
-    ns.Debug("SCAN ReplicateItems called: " .. (ok and "ok" or tostring(err)))
+    ns.Debug("SCAN ReplicateItems called" .. (auto and " (on opening): " or ": ") .. (ok and "ok" or tostring(err)))
     if not ok then
-        ns.Print(L["Scan failed: "] .. tostring(err))
+        Say(L["Scan failed: "] .. tostring(err))
         return
     end
     PriceDB().lastScanStart = time()
     scan, lateAnswer = NewScan(), false
-    ns.Print(L["Scanning the auction house... (this takes a few seconds)"])
+    scan.auto = auto or nil
+    if not auto then ns.Print(L["Scanning the auction house... (this takes a few seconds)"]) end
     UpdateButton()
+    local mine = scan
     C_Timer.After(SCAN_TIMEOUT, function()
-        if scan and scan.state == "waiting" then
+        if scan == mine and scan.state == "waiting" then
             ns.Debug(("SCAN timeout: no answer after %d s"):format(SCAN_TIMEOUT))
             lateAnswer = true
             ScanFailed(L["The auction house didn't answer. Try again later."])
         end
     end)
+end
+
+-- Options > Rares & prices: "Scan the auction house automatically when I
+-- open it", on unless turned off
+local function AutoScanOn()
+    return ns.db ~= nil and not ns.db.autoScanOff
 end
 
 -- Our button looks like the other tabs at the bottom of the auction house
@@ -698,11 +767,17 @@ ahEvents:SetScript("OnEvent", function(_, event, arg)
             if scanButton then scanButton.anchor = false end
             PlaceButton()
             UpdateButton()
+            -- (v0.1.23 P5) opening the window starts the scan - when the
+            -- window is still open, no scan runs and the 15 minutes are over
+            if ahOpen and AutoScanOn() and not scan and Cooldown() == 0 then StartScan(true) end
         end)
     elseif event == "AUCTION_HOUSE_CLOSED" then
         ahOpen, lateAnswer = false, false
         FlushIgnored()
-        if scan then -- also while reading: what is left of the list is gone
+        if scan and scan.state == "pricing" then
+            -- every auction is read, only the prices are being worked out: that goes on
+            ns.Debug("SCAN auction house closed, the auctions are all read: finishing")
+        elseif scan then -- also while reading: what is left of the list is gone
             ns.Debug(("SCAN cancelled, auction house closed (%s)"):format(scan.state))
             ScanFailed(L["Auction house closed, scan cancelled."])
         end

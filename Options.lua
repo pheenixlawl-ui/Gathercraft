@@ -1076,6 +1076,10 @@ local function Build()
     AddCheck("Auction prices in item tooltips",
         function() return ns.db.tooltipPrices ~= false end,
         function(on) ns.db.tooltipPrices = on end)
+    -- (v0.1.23 P5) Prices.lua: at most once in the server's 15 minutes
+    AddCheck("Scan the auction house automatically when I open it",
+        function() return not ns.db.autoScanOff end,
+        function(on) ns.db.autoScanOff = not on or nil end)
 
     Section("fishing", true) -- (a line under each switch: rows flow)
     AddCheck("Fish key applies a lure when the pole has none",

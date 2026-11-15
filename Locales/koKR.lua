@@ -586,4 +586,5 @@ ns.Locales.koKR = {
     ["The game's own icon above your bobber while your line is out. Afterwards your setting is back."] = "낚싯줄을 던진 동안 찌 위에 게임 자체 아이콘을 표시합니다. 끝나면 원래 설정으로 돌아갑니다.",
     ["Sound effects at full volume, music and ambience quiet, while your line is out. Afterwards your volumes are back."] = "낚싯줄을 던진 동안 효과음은 최대로, 음악과 환경 소리는 작게 합니다. 끝나면 원래 음량으로 돌아갑니다.",
     ["Ping when I reach a route point"] = "경로 지점에 도착하면 핑 소리",
+    ["Scan the auction house automatically when I open it"] = "경매장을 열면 자동으로 스캔",
 }
