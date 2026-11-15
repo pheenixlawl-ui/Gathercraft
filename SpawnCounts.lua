@@ -26,7 +26,9 @@ local ADDON_NAME, ns = ...
 --   TOC) and nothing while nobody uses it: a user says Start and Stop. The
 --   Questie part is built once, a few zones per frame; the own part per
 --   zone, a moment after the last change there. While an item's numbers
---   are not current, there are none - never an old number.
+--   are not current, there are none - never an old number. Recounts can
+--   overlap (a fight holds their steps up): the last one to end hands the
+--   numbers out.
 ---------------------------------------------------------------------------
 local KNOWN_RADIUS = 15  -- yards: an own point this close to a Questie place is that place (Starter.lua: MERGE_RADIUS * 1.5)
 local KNOWN_BOX = 0.01   -- share of the map checked before the distance is worked out (as ns.IsKnownSpawn)
@@ -53,6 +55,7 @@ local staleAll = false   -- every item waits
 local dirty = {}         -- mapID -> true: the own part of this zone must be counted again
 local dirtyAll = false
 local settle             -- the running timer for the recount
+local recounts = 0       -- recounts of this run that are not done yet (they can overlap when a fight holds them up)
 
 local function Kind(id)
     local data = GathercraftQuestieData
@@ -141,6 +144,7 @@ local function Recount(myRun)
         for mapID in pairs(dirty) do zones[#zones + 1] = mapID end
     end
     dirty, dirtyAll = {}, false
+    recounts = recounts + 1
     table.sort(zones)
     local i, changed = 0, {}
     local function Step()
@@ -160,8 +164,10 @@ local function Recount(myRun)
         end
         for itemID in pairs(changed) do BuildList(itemID) end
         buildMs = buildMs + (debugprofilestop() - t0)
-        -- changes that came in meanwhile wait for their own recount
-        if settle or dirtyAll or next(dirty) then return end
+        recounts = recounts - 1
+        -- changes that came in meanwhile wait for their own recount, and a
+        -- recount that still runs hands the numbers out when it is done
+        if settle or dirtyAll or next(dirty) or recounts > 0 then return end
         stale, staleAll = {}, false
         rev = rev + 1
     end
@@ -258,7 +264,7 @@ ns.SpawnCountsStart = function(who)
     users[who or "?"] = true
     if state ~= "off" then return end
     state, run, rev, buildMs = "building", run + 1, rev + 1, 0
-    stale, staleAll, dirty, dirtyAll = {}, true, {}, false
+    stale, staleAll, dirty, dirtyAll, recounts = {}, true, {}, false, 0
     Build(run)
 end
 
@@ -270,7 +276,7 @@ ns.SpawnCountsStop = function(who)
     state, run, rev = "off", run + 1, rev + 1
     if settle then settle:Cancel() settle = nil end
     questie, own, lists = nil, nil, nil
-    stale, staleAll, dirty, dirtyAll = {}, false, {}, false
+    stale, staleAll, dirty, dirtyAll, recounts = {}, false, {}, false, 0
 end
 
 -- The zones of an item, most places first: { { mapID, total, questie, own }, ... }.

@@ -21591,6 +21591,112 @@ step("Item tooltip in combat: the lines stay as they are, nothing is worked out 
     advance(15)
     if not ok then error(err, 0) end
 end)
+step("Spawn points: two recounts that overlap after a fight - no number before the last of them is done (v0.2 B2 R1-N1)", function()
+    -- Codex review of block 2, N1: a recount has counted its zone and waits
+    -- in combat for its last step; a second node change starts a second
+    -- recount, which waits too. After the fight the first one must not hand
+    -- out numbers while the second has not counted its zone yet.
+    local data = GathercraftQuestieData
+    local ZA, ZB, ITEM = 99997, 99998, 3340
+    local saved = { a = ns.db.nodes[ZA], b = ns.db.nodes[ZB], tooltip = ns.db.tooltipPrices, combat = InCombatLockdown, za = data.zones[ZA], zb = data.zones[ZB] }
+    if ns.ItemTooltipSetEnabled then ns.ItemTooltipSetEnabled(false) end
+    local A
+    for id, kind in pairs(data.kinds) do
+        if kind[2] == ITEM and kind[1] == "o" and (not A or id < A) then A = id end
+    end
+    assert(A, "test setup: no node kind for Incendicite")
+    local function Own(x)
+        return { id = A, name = "Incendicite Mineral Vein", type = "ore", x = x, y = 0.5, count = 1, last = time() }
+    end
+    local function Zones()
+        local list = ns.SpawnCounts(ITEM)
+        if not list then return nil end
+        local a, b = 0, 0
+        for _, z in ipairs(list) do
+            if z.mapID == ZA then a = z.total elseif z.mapID == ZB then b = z.total end
+        end
+        return a, b
+    end
+    local fighting = false
+    local ok, err = pcall(function()
+        data.zones[ZA], data.zones[ZB], ns.db.nodes[ZA], ns.db.nodes[ZB] = nil, nil, nil, nil
+        InCombatLockdown = function() return fighting end
+        ns.SpawnCountsStart("test")
+        advance(15)
+        assert(ns.SpawnCountsState() == "ready", "test setup: not ready")
+        local a, b = Zones()
+        assert(a == 0 and b == 0, "test setup: the test zones are not empty")
+
+        -- the first change: its recount starts 3 s later and counts the zone ...
+        ns.db.nodes[ZA] = { Own(0.3) }
+        ns.NotifyNodesChanged("add", ZA, ns.db.nodes[ZA][1])
+        advance(3.02)
+        -- ... then the fight begins: its last step waits
+        fighting = true
+        advance(0.08)
+        assert(Zones() == nil, "numbers although the recount is not done")
+        -- the second change, in another zone: its recount starts in the fight and waits
+        ns.db.nodes[ZB] = { Own(0.4) }
+        ns.NotifyNodesChanged("add", ZB, ns.db.nodes[ZB][1])
+        advance(3.4)
+        assert(Zones() == nil, "numbers in the fight, with two recounts waiting")
+        -- the fight is over: whatever is handed out from now on has both zones
+        fighting = false
+        local shown = 0
+        for _ = 1, 400 do
+            advance(0.01)
+            a, b = Zones()
+            if a then
+                shown = shown + 1
+                assert(a == 1 and b == 1, ("after the fight a list with %d and %d places in the two zones, want 1 and 1 - the first recount gave the numbers free"):format(a, b))
+            end
+        end
+        assert(shown > 0, "no numbers 4 s after the fight")
+
+        -- three in a row, the fight ending between their steps: the same rule
+        fighting = true
+        for i, zone in ipairs({ ZA, ZB, ZA }) do
+            table.insert(ns.db.nodes[zone], Own(0.5 + i * 0.05))
+            ns.NotifyNodesChanged("add", zone, ns.db.nodes[zone][#ns.db.nodes[zone]])
+            advance(3.31)
+        end
+        fighting = false
+        shown = 0
+        for _ = 1, 500 do
+            advance(0.01)
+            a, b = Zones()
+            if a then
+                shown = shown + 1
+                assert(a == 3 and b == 2, ("three recounts: a list with %d and %d places, want 3 and 2"):format(a, b))
+            end
+        end
+        assert(shown > 0, "no numbers 5 s after three recounts")
+        -- and a single change afterwards still comes through (nothing stays locked)
+        table.insert(ns.db.nodes[ZB], Own(0.9))
+        ns.NotifyNodesChanged("add", ZB, ns.db.nodes[ZB][3])
+        advance(5)
+        a, b = Zones()
+        assert(a == 3 and b == 3, "a change after the overlap: " .. tostring(a) .. " and " .. tostring(b) .. ", want 3 and 3")
+        -- a stop in the middle of two recounts and a new start: ready again, with numbers
+        fighting = true
+        table.insert(ns.db.nodes[ZA], Own(0.95))
+        ns.NotifyNodesChanged("add", ZA, ns.db.nodes[ZA][4])
+        advance(3.1)
+        ns.SpawnCountsStop("test")
+        fighting = false
+        ns.SpawnCountsStart("test")
+        advance(15)
+        a, b = Zones()
+        assert(a == 4 and b == 3, "after stop and start: " .. tostring(a) .. " and " .. tostring(b) .. ", want 4 and 3")
+    end)
+    InCombatLockdown = saved.combat
+    ns.SpawnCountsStop("test")
+    ns.db.nodes[ZA], ns.db.nodes[ZB], data.zones[ZA], data.zones[ZB] = saved.a, saved.b, saved.za, saved.zb
+    ns.NotifyNodesChanged()
+    advance(5)
+    if ns.ItemTooltipSetEnabled then ns.ItemTooltipSetEnabled(saved.tooltip ~= false) end
+    if not ok then error(err, 0) end
+end)
 -- (end of the item tooltip steps, v0.2 building block 2)
 step("Long run (10 min) for leaks", function() slash("run herb") advance(600) slash("stop") end)
 step("Test mock: OnUpdate runs for the same frames in the same order as going over every frame (tools only)", function()
