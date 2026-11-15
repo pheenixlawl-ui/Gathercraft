@@ -15178,27 +15178,46 @@ step("Sync: a node that is sent again is found by its exact place - same result,
         for _, z in ipairs(ZONES) do ns.ImportQuestieZone(z, true) saved.nodes[z] = ns.db.nodes[z] end
         ns.SyncExactOff = nil
 
-        -- The time in the handlers: the best of three minutes each, on the
-        -- mock's clock. And the same result, node by node and report by
-        -- report: what the last of those minutes left behind.
-        local function Best(run, send, off)
-            local best, state
-            for _ = 1, 3 do
-                local ms, left = run(send, off)
-                best, state = math.min(best or ms, ms), left
+        -- The time in the handlers, on the mock's clock: a fixed number of
+        -- minutes, by turns without and with the lookup (ABAB..., the same
+        -- number each way, the garbage collected before every one), and the
+        -- median of each way compared. Measured all of one way first, the
+        -- way measured second came out slower (about 10 %, the other way
+        -- round as much faster) - that is the order, not the lookup.
+        -- And the same result, node by node and report by report: what the
+        -- last minute of each way left behind.
+        local TURNS = 5
+        local series = {}
+        local function Median(t)
+            local s = {}
+            for i, v in ipairs(t) do s[i] = v end
+            table.sort(s)
+            return s[(#s + 1) / 2]
+        end
+        local function Pair(run, send, what)
+            local off, on, offState, onState = {}, {}, nil, nil
+            for _ = 1, TURNS do
+                collectgarbage("collect")
+                local ms, left = run(send, true)
+                off[#off + 1], offState = ms, left
+                collectgarbage("collect")
+                ms, left = run(send, false)
+                on[#on + 1], onState = ms, left
             end
-            return best, state
+            series[#series + 1] = { what = what, off = off, on = on }
+            return Median(off), Median(on), offState, onState
         end
         -- three kinds of minute, 570 messages / 4500 nodes each where it is answers:
         --   again: answers for nodes you all know by now (what Sven's minute mostly was)
         --   first: answers you hear for the first time - half of the nodes are new and become nodes of yours
         --   harvests: an evening without questions, 300 messages with a node each
-        local rOff, without3 = Best(RunAgain, Answers, true)
-        local rOn, with3 = Best(RunAgain, Answers, false)
-        local aOff, without = Best(Run, Answers, true)
-        local aOn, with = Best(Run, Answers, false)
-        local hOff, without2 = Best(Run, Harvests, true)
-        local hOn, with2 = Best(Run, Harvests, false)
+        local rOff, rOn, without3, with3 = Pair(RunAgain, Answers, "again")
+        local aOff, aOn, without, with = Pair(Run, Answers, "first")
+        local hOff, hOn, without2, with2 = Pair(Run, Harvests, "harvests")
+        for _, s in ipairs(series) do
+            local function List(t) local o = {} for i, v in ipairs(t) do o[i] = ("%.1f"):format(v) end return table.concat(o, " ") end
+            note(("MEASURE P2 series %s (%d each way, by turns): without %s | with %s"):format(s.what, TURNS, List(s.off), List(s.on)))
+        end
         Same(without, with, "answers")
         Same(without2, with2, "harvests")
         Same(without3, with3, "the answers again")
