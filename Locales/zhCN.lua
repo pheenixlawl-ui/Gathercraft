@@ -587,4 +587,5 @@ ns.Locales.zhCN = {
     ["Sound effects at full volume, music and ambience quiet, while your line is out. Afterwards your volumes are back."] = "抛竿期间音效开到最大，音乐和环境音调低。结束后恢复你的音量。",
     ["Ping when I reach a route point"] = "到达路线上的点时播放提示音",
     ["Scan the auction house automatically when I open it"] = "打开拍卖行时自动扫描",
+    ["Only nodes near you get a minimap pin now - less work for the game while you move. The auction house scan starts when you open the window (Options, Rares & prices). The skill plan reads your profession skill from the game itself; where that fails, opening the profession window once still does it. New: Options, Fishing - and a switch for the ping at route points (Options, General)."] = "现在只有你附近的采集点才有小地图标记——移动时游戏的负担更小。打开拍卖行窗口时自动开始扫描（选项，稀有和价格）。技能规划直接从游戏读取你的专业技能；读不到时，照旧打开一次专业技能窗口即可。新增：选项，钓鱼——以及到达路线点时提示音的开关（选项，常规）。",
 }

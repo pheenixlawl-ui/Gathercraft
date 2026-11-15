@@ -62,7 +62,7 @@ Every zone of your continent – or any other, one click away – ranked by **go
 
 **🏷️ Your own auction house scan**
 
-One click on the Gathercraft tab at the auction house reads every auction and keeps a fair market price per item. Prices show in item tooltips with how many are listed and how old the price is. Every search you do at the auction house teaches it too. **Price alerts** tell you when something you gather sells well above normal. Works on its own. Your own scan comes first; once it is more than 6 hours old, a fresher Auctionator price can take over. With no scan of your own from the last 7 days, Auctionator or TSM fill in.
+Open the auction house and Gathercraft reads every auction (at most once in the 15 minutes the server allows; a click on the Gathercraft tab does the same) and keeps a fair market price per item. Prices show in item tooltips with how many are listed and how old the price is. Every search you do at the auction house teaches it too. **Price alerts** tell you when something you gather sells well above normal. Works on its own. Your own scan comes first; once it is more than 6 hours old, a fresher Auctionator price can take over. With no scan of your own from the last 7 days, Auctionator or TSM fill in.
 
 **➤ The Gathercraft Arrow & Farm Panel**
 
@@ -91,7 +91,7 @@ Minimap button via LibDBIcon – works with ElvUI, minimap button bags and broke
 ## 🎒 Getting started
 **1** Install & log in → **2** Gather anything → **3** Click the emblem on your minimap → **4** *Farm run: Herbs / Ores / Herbs + Ores*
 
-Then visit the auction house once and press *Gathercraft Scan* – from now on everything shows its gold value.
+Then visit the auction house once – the scan starts by itself (or press *Gathercraft Scan*) – and from now on everything shows its gold value.
 
 ## 🎮 Controls
 **Everything lives in the Gathercraft window** – click the emblem on your minimap (right-click starts a farm run, Ctrl + right-click switches the questing mode) or type `/gcr`.
@@ -103,7 +103,7 @@ Then visit the auction house once and press *Gathercraft Scan* – from now on e
 | **Crafting** | Profit of every recipe, per profession – and the skill plan |
 | **Zones** | Pick zones and materials for your routes |
 | **Skills** | Which nodes gave you skill-ups so far |
-| **Options** | Map & minimap, farm runs, leveling, sharing, rares & prices, general |
+| **Options** | Map & minimap, farm runs, leveling, sharing, rares & prices, fishing, general |
 
 For power users and macros: `/gcr run herb|ore|both` · `/gcr route` *(preview)* · `/gcr loadall` *(whole continent)* · `/gcr help` *(all commands)*
 

@@ -28,6 +28,7 @@ local WHATS_NEW = {
     ["0.1.20"] = "The herbs/minerals button now sits on the edge of a square minimap too. Craft log: a Create All series counts as one block when it is clear; no green threshold is made up any more.",
     ["0.1.21"] = "Questing mode: nodes at one spot share one ring, none on a spot just harvested; thinner rings; a much lighter search. The Fish key that gathers no longer blocks fishing there: it gathers only while a node is marked. Craft log: Create All ended by moving keeps its series. New in Options, General: Minimap shape.",
     ["0.1.22"] = "Sharing: Gathercraft answers a question about a zone only when it knows clearly more. Long answers come from at most three players (up to six where some players get their own messages back late); very short answers can still come from a few more. New: it notes which ways you ride - only on this computer, nothing is sent; routes will use it later (Options, Sharing: Record the paths I ride; /gcr paths).",
+    ["0.1.23"] = "Only nodes near you get a minimap pin now - less work for the game while you move. The auction house scan starts when you open the window (Options, Rares & prices). The skill plan reads your profession skill from the game itself; where that fails, opening the profession window once still does it. New: Options, Fishing - and a switch for the ping at route points (Options, General).",
 }
 
 -- What comes next (Sven, 08.11.2026): only what is really planned, no dates;

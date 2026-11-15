@@ -10617,10 +10617,6 @@ step("Crafting: \"Alchimie\" is Alchemy - in the skill list, the skill plan and 
         assert(Said("Alchimie 120/150 = Alchemy", mark + 1) == 1, "crafttest: no line \"Alchimie 120/150 = Alchemy\"")
         assert(Said("Alchimistik 20/75 = not recognised", mark + 1) == 1, "crafttest: the unknown line is not marked")
         assert(Said("Kräuterkunde 130/150 = Herbalism", mark + 1) == 1 and Said("Kochkunst 75/75 = Cooking", mark + 1) == 1, "crafttest: gathering or cooking line")
-        -- (6) the changelog says it
-        local cf = assert(io.open(ROOT .. "/CHANGELOG.md"))
-        local changelog = cf:read("*a") cf:close()
-        assert(changelog:find("the skill plan now finds your Alchemy skill", 1, true) and changelog:find("\"Alchimie\"", 1, true), "CHANGELOG: nothing about \"Alchimie\"")
     end)
     GetProfessions, GetNumSkillLines, GetSkillLineInfo, ns.db.debug = keep.gp, keep.gn, keep.gi, keep.debug
     GetTradeSkillLine, GetNumTradeSkills, GetTradeSkillInfo, GetTradeSkillItemLink = keep.line, keep.num, keep.info, keep.link
@@ -12562,97 +12558,85 @@ step("Welcome, what's new and the run summary (v0.1.13)", function()
     ns.db.summaryOff = nil
     SendChatMessage = nil
 end)
-step("What's new: 0.1.22 after an update, in this language and all translations", function()
+step("What's new: 0.1.23 after an update, in this language and all translations", function()
     local version = toc:match("## Version: ([%d%.]+)")
-    assert(version == "0.1.22", "TOC version: " .. tostring(version))
+    assert(version == "0.1.23", "TOC version: " .. tostring(version))
     assert(toc:match("## Interface: (%d+)") == "16001", "TOC interface changed")
     local f = assert(io.open(ROOT .. "/Welcome.lua"))
     local src = f:read("*a") f:close()
-    local key = src:match('%["0%.1%.22"%] = "([^"]+)"')
-    assert(key and key:find("knows clearly more", 1, true) and key:find("Long answers come from at most three players", 1, true)
-        and key:find("up to six where some players get their own messages back late", 1, true) and key:find("very short answers can still come from a few more", 1, true)
-        and key:find("only on this computer, nothing is sent", 1, true) and key:find("Record the paths I ride", 1, true) and key:find("/gcr paths", 1, true),
-        "no entry for 0.1.22 in Welcome.lua")
-    -- said as it is: what Gathercraft itself does, not what a channel with
-    -- older versions in it will look like; and the paths are not used yet
-    -- (R1; Codex, 13.11.2026: "Sharing is quieter" is more than the numbers carry - a normal
-    -- evening has 229 messages instead of 259 in the simulation, a launch day 428 instead of 436)
-    for _, word in ipairs({ "faster", "lag", "never more than", "better routes", "routes now", "quieter", "less traffic" }) do
-        assert(not key:find(word, 1, true), "what's new 0.1.22 says \"" .. word .. "\"")
+    local key = src:match('%["0%.1%.23"%] = "([^"]+)"')
+    assert(key and key:find("Only nodes near you get a minimap pin", 1, true) and key:find("The auction house scan starts when you open the window", 1, true)
+        and key:find("reads your profession skill from the game itself", 1, true) and key:find("opening the profession window once still does it", 1, true)
+        and key:find("Options, Fishing", 1, true) and key:find("a switch for the ping at route points", 1, true),
+        "no entry for 0.1.23 in Welcome.lua")
+    -- said as it is: what was built, no number for the game (the minimap
+    -- pins and the sharing are measured in our tests only), and no promise
+    -- that the skill is always read without the window (the numbers of the
+    -- crafting professions are not seen in the Forever client yet)
+    for _, word in ipairs({ "faster", "lag", "FPS", "%", "always", "every profession", "no need to open", "never" }) do
+        assert(not key:find(word, 1, true), "what's new 0.1.23 says \"" .. word .. "\"")
     end
-    -- "at most three" only for long answers (Sven, 14.11.2026, R2-M1: the
-    -- answer contract as it is built - short answers can come from more
-    -- players, and long ones from up to six where only some players get their
-    -- own messages back in time)
-    local function OnlyLong(text, what)
-        local low = text:lower()
-        local _, all = low:gsub("at most three", "")
-        local _, long = low:gsub("long answers come from at most three players", "")
-        assert(all == long, what .. " says \"at most three\" of answers that are not only the long ones")
-    end
-    OnlyLong(key, "what's new 0.1.22")
-    assert(key:find("routes will use it later", 1, true), "what's new 0.1.22 does not say that the paths are for later")
     -- the entries before stay for players who skip a version
-    assert(src:match('%["0%.1%.20"%] = "([^"]+)"') and src:match('%["0%.1%.21"%] = "([^"]+)"'), "the 0.1.20 or 0.1.21 entry is gone")
-    -- every translation names the options page and the switch as the options show them
+    assert(src:match('%["0%.1%.21"%] = "([^"]+)"') and src:match('%["0%.1%.22"%] = "([^"]+)"'), "the 0.1.21 or 0.1.22 entry is gone")
+    -- every translation names the options pages as the options show them
     for _, code in ipairs({ "deDE", "esES", "frFR", "itIT", "koKR", "ptBR", "ruRU", "zhCN", "zhTW" }) do
         local loc = ns.Locales[code]
         local t = loc and loc[key]
-        assert(t and loc["Sharing"] and t:find(loc["Sharing"], 1, true), code .. ": the page Sharing is not named as the options call it")
-        assert(loc["Record the paths I ride"] and t:find(loc["Record the paths I ride"], 1, true), code .. ": the switch is not named as the options call it")
-        assert(t:find("/gcr paths", 1, true), code .. ": /gcr paths is not named")
+        assert(type(t) == "string" and t ~= "" and t ~= key, "no translation in " .. code)
+        for _, pageName in ipairs({ "Rares & prices", "Fishing", "General" }) do
+            assert(loc[pageName] and t:find(loc[pageName], 1, true), ("%s: the page %s is not named as the options call it"):format(code, pageName))
+        end
+    end
+    -- the switches the texts name are in the options under these names
+    for _, label in ipairs({ "Scan the auction house automatically when I open it", "Ping when I reach a route point" }) do
+        local found
+        for _, o in ipairs(allFrames) do if o.__kind == "FontString" and o.__text == ns.L[label] then found = true end end
+        assert(found, "the options have no switch \"" .. label .. "\"")
     end
     -- README and CHANGELOG say it
     local rf = assert(io.open(ROOT .. "/README.md"))
     local readme = rf:read("*a") rf:close()
     assert(readme:find("Questing mode – gather along the way", 1, true) and readme:find("`/gcr quest`", 1, true), "README: no questing mode")
+    assert(readme:find("Open the auction house and Gathercraft reads every auction", 1, true) and readme:find("the scan starts by itself", 1, true),
+        "README: the scan is still said to need a click")
+    assert(not readme:find("One click on the Gathercraft tab at the auction house reads", 1, true), "README: the scan is still said to need a click")
+    assert(readme:find("rares & prices, fishing, general", 1, true), "README: the options page Fishing is not named")
     local cf = assert(io.open(ROOT .. "/CHANGELOG.md"))
     local changelog = cf:read("*a") cf:close()
-    assert(changelog:find("^## v0%.1%.22") and not changelog:find("## v0.1.21", 1, true), "CHANGELOG: not 0.1.22 only")
-    for _, said in ipairs({ "Older versions keep their old rule", "at least a fifth and at least 20 nodes more", "more than 125 new nodes",
-        "was already on its way", "`/gcr perf`", "English in every language", "squares of 25 yards", "nothing is sent", "Nothing uses the data yet",
-        "30,000 path pieces", "Record the paths I ride", "`/gcr paths clear`", "uses no height", "not the live game",
-        -- R1: Sven's decisions E1 and E2 of 13.11.2026, said as they are
-        "after the first message of his answer at the latest", "who could add a single node does not answer", "only when all three name it",
-        "which may or may not come", "nothing brings him what he missed", "send attempts (not what arrived)", "before any check",
-        "no list of the places in the order you went", "an estimate", "with the same players doing the same things before and after",
-        -- R2-M1: the answer contract of 14.11.2026, said as it is built
-        "long answers come from at most three players", "very short answers can still come from a few more",
-        "up to six can answer in full: three in the order of the channel and three by name", "it is out before they hear each other",
-        "the others stop after their second message", "at least one answer is sent in full",
-        -- R2 (Sven, 14.11.2026): fewer channel messages is not less traffic - the guild says it too
-        "guild messages rise from 1,372 to 1,933, because answers in a full zone now get through",
-        -- "Alchimie" (Sven's live look of 14.11.2026): this client has no skill list, the profession window tells
-        "The game calls the profession \"Alchimie\" in the profession window", "Open your Alchemy window once after the update" }) do
+    assert(changelog:find("^## v0%.1%.23") and not changelog:find("## v0.1.22", 1, true), "CHANGELOG: not 0.1.23 only")
+    for _, said in ipairs({
+        -- the minimap pins: what was measured where, the two distances, what you see
+        "up to 20 % of the addon time, about 5 %", "within 400 yards", "more than 450 yards away", "50 yards on, or after 2 seconds",
+        "about 233 yards at its widest zoom outdoors", "not the live game", "32 of 1,234 pins", "minimap pins: N near / M in zone",
+        "How much it is in the game we have not measured yet",
+        -- sharing: the same result, and the three numbers of the test
+        "What happens then is the same as before", "about 60 % less time in the handlers", "5–20 %", "single harvests the same",
+        -- the scan: steps, what starts it, when it is quiet, how to turn it off
+        "ends after 8 milliseconds", "from 94 ms to under 9 ms", "our test machine, not the game", "finished even when you close the window",
+        "at most once in the 15 minutes the server allows", "Chat stays quiet when it cannot start, gets no answer",
+        "Scan the auction house automatically when I open it", "The button and `/gcr scan` work as before",
+        -- the pages and the ping
+        "Options › Fishing", "Your settings are kept", "Ping when I reach a route point", "On by default",
+        -- the professions: what is seen live and what is not
+        "by their number", "the Forever client has seven; only six were read", "Herbalism, Mining, First Aid, Fishing and Cooking",
+        "which we have not seen there yet", "open the profession window once, as before", "`/gcr crafttest` lists what the game says" }) do
         assert(changelog:find(said, 1, true), "CHANGELOG: nothing about \"" .. said .. "\"")
     end
-    -- what the changelog must not promise about "Alchimie" (Sven's live look of 14.11.2026: no skill list in this
-    -- client, so /gcr crafttest lists none and /gcr debug names no line of it)
-    for _, said in ipairs({ "skill list", "/gcr crafttest", "/gcr debug", "named once per session" }) do
-        assert(not changelog:find(said, 1, true), "CHANGELOG still says \"" .. said .. "\"")
+    -- what the changelog must not promise: no number for the live game, and
+    -- no "without the window" for every profession
+    for _, said in ipairs({ "FPS", "no lag", "in the game it is", "every profession without", "never need", "always knows", "all professions are" }) do
+        assert(not changelog:find(said, 1, true), "CHANGELOG says \"" .. said .. "\"")
     end
-    -- what the changelog must not promise (Codex, 13.11.2026)
-    for _, said in ipairs({ "answer as before", "Sharing is quieter", "no order of the squares", "The client tells no height", "no two players stop each other",
-        "waits for its next confirmation", "comes later", "at most three players answer", "An answer of one or two messages cannot always be held back" }) do
-        assert(not changelog:find(said, 1, true), "CHANGELOG still says \"" .. said .. "\"")
-    end
-    OnlyLong(changelog, "CHANGELOG")
-    -- the numbers the changelog names are the code's
-    local total, zone, tile = ns.PathsLimits()
-    assert(total == 30000 and tile == 25, "the changelog says 30,000 pieces and squares of 25 yards; the code has " .. tostring(total) .. " and " .. tostring(tile))
+    -- the numbers the changelog names are the ones of the options and the texts
+    assert(ns.L["Your skill: ? (open your profession window once)"], "the skill plan's line for an unknown skill")
+    assert(changelog:find("\"Your skill: ?\"", 1, true), "CHANGELOG: the plan's line is not named as the plan shows it")
     -- the date comes with the release itself: the heading is the version
     -- alone, or the version and a date
-    local heading = changelog:match("^(## v0%.1%.22[^\r\n]*)")
-    assert(heading == "## v0.1.22" or heading:match("^## v0%.1%.22 – %d%d%d%d%-%d%d%-%d%d$"), "CHANGELOG heading: " .. tostring(heading))
-    -- every translation is there, whatever language this run is in
-    for _, code in ipairs({ "deDE", "esES", "frFR", "itIT", "koKR", "ptBR", "ruRU", "zhCN", "zhTW" }) do
-        local t = ns.Locales[code] and ns.Locales[code][key]
-        assert(type(t) == "string" and t ~= "" and t ~= key, "no translation in " .. code)
-    end
+    local heading = changelog:match("^(## v0%.1%.23[^\r\n]*)")
+    assert(heading == "## v0.1.23" or heading:match("^## v0%.1%.23 – %d%d%d%d%-%d%d%-%d%d$"), "CHANGELOG heading: " .. tostring(heading))
     local function said(text)
         for _, l in ipairs(log) do if l:find(text, 1, true) then return l end end
     end
-    local function clear() for i in ipairs(log) do log[i] = "" end end
     local keepMeta, keepVersion, keepFresh = C_AddOns.GetAddOnMetadata, ns.db.lastVersion, ns.freshInstall
     local ok, err = pcall(function()
         C_AddOns.GetAddOnMetadata = function() return version end
@@ -12663,7 +12647,7 @@ step("What's new: 0.1.22 after an update, in this language and all translations"
         -- (since 0.1.19 in its own window, Q5)
         local win = _G.GathercraftWhatsNew
         if win then win:Hide() end
-        ns.db.lastVersion = "0.1.21"
+        ns.db.lastVersion = "0.1.22"
         ns.WelcomeOnLogin()
         win = _G.GathercraftWhatsNew
         assert(win and win:IsShown() and win.body:GetText() == text and win.title:GetText():find(version, 1, true),
