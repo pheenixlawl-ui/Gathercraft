@@ -150,11 +150,14 @@ local function Perf()
         b, what = perf.cur, ("running minute, %d s"):format(GetTime() % 60)
     end
     local kb = PerfMemory()
+    -- (v0.1.23 P1: the minimap pins registered with HereBeDragons, of the ones your zone has)
+    local near, inZone = 0, 0
+    if ns.MiniPinCounts then near, inZone = ns.MiniPinCounts() end
     -- (own messages heard back: since login - does this realm send our own
     -- messages back to us? AnswerStops counts on it and has a rule without it)
-    ns.Print(("perf (%s): sync messages received %d, send attempts %d; nodes announced %d (before any check); refused: %d messages over the budget, %d nodes over the limit per player; other addons' messages %d; time in the receive and send handlers %.1f ms; own messages heard back %d of %d send attempts since login; %s"):format(
+    ns.Print(("perf (%s): sync messages received %d, send attempts %d; nodes announced %d (before any check); refused: %d messages over the budget, %d nodes over the limit per player; other addons' messages %d; time in the receive and send handlers %.1f ms; own messages heard back %d of %d send attempts since login; %s; minimap pins: %d near / %d in zone"):format(
         what, b.msgIn, b.msgOut, b.nodes, b.overBudget, b.overLimit, b.other, b.ms, perf.back or 0, perf.sent or 0,
-        kb and ("memory %.1f MB"):format(kb / 1024) or "memory not readable in this client"))
+        kb and ("memory %.1f MB"):format(kb / 1024) or "memory not readable in this client", near, inZone))
 end
 
 ---------------------------------------------------------------------------

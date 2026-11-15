@@ -426,7 +426,125 @@ local function AddToGrid(mapID, pin)
     table.insert(grid[mapID][key], pin)
 end
 
--- The minimap pin of a node (only nodes of the zone you are in have one).
+---------------------------------------------------------------------------
+-- Minimap pins only near you (v0.1.23 P1)
+--   Sven, 13.11.2026, Stranglethorn, walking: Gathercraft up to 20 % of the
+--   addon time, 5 % with the minimap pins off. HereBeDragons works through
+--   every registered minimap pin on each frame you move - also the ones half
+--   a zone away. So every node of your zone still has its pin frame, with
+--   its look and the kinds sharing its spot, but only the ones near you are
+--   registered with HereBeDragons (and only those are on the screen).
+--     MINI_IN / MINI_OUT: registered from 400 yd, taken off beyond 450 yd.
+--       The minimap shows 233 yd at its widest zoom outdoors, a square one
+--       about 330 yd into its corners; 400 leaves 70 yd for what you ride
+--       until the next look. 50 yd between on and off: no flicker at the edge.
+--     MINI_MOVE / MINI_EVERY: looked at again once you are 50 yd from the
+--       last look, and after 2 s when you moved at all. Not while you stand.
+--     MINI_CELL: the zone in squares of 150 yd, so a look goes through the
+--       squares in reach and not through the zone.
+---------------------------------------------------------------------------
+local MINI_IN, MINI_OUT = 400, 450
+local MINI_MOVE, MINI_EVERY, MINI_TICK = 50, 2, 0.5
+local MINI_CELL = 150
+local miniAll = {}       -- every minimap pin of your zone, near or not (pin -> true)
+local miniCells = {}     -- square -> { pin, ... }
+local miniCount = { near = 0, zone = 0 }
+local here = {}          -- where the last look was: map, x, y, t; w, h = the zone in yards
+
+local function ZoneYards(mapID)
+    local w, h
+    if C_Map.GetMapWorldSize then w, h = C_Map.GetMapWorldSize(mapID) end
+    if not w or w == 0 then w, h = 1000, 1000 end -- as ns.Distance does
+    return w, h
+end
+
+local function MiniCell(x, y)
+    return math.floor(x * here.w / MINI_CELL) * 4096 + math.floor(y * here.h / MINI_CELL)
+end
+
+-- yards from the last look to a node, or nil when we do not know where you are
+local function MiniDist(n)
+    if not (here.x and n and n.x and n.y) then return nil end
+    local dx, dy = (n.x - here.x) * here.w, (n.y - here.y) * here.h
+    return math.sqrt(dx * dx + dy * dy)
+end
+
+-- Where you are, for the pins of mapID. False: not known, or not in that zone
+local function MiniHere(mapID)
+    local map, x, y = ns.GetPlayerPos()
+    if here.map ~= mapID then
+        here.map = mapID
+        here.w, here.h = ZoneYards(mapID or 0)
+        here.x, here.y = nil, nil
+    end
+    if not (map and x and y and map == mapID) then return false end
+    here.x, here.y, here.t = x, y, GetTime()
+    return true
+end
+
+local function MiniOn(m)
+    if miniOn[m] then return end
+    local n = m.node
+    HBDPins:AddMinimapIconMap(REF, m, m.mapID, n.x, n.y, false, false)
+    miniOn[m] = true
+    miniCount.near = miniCount.near + 1
+end
+
+local function MiniOff(m)
+    if not miniOn[m] then return end
+    HBDPins:RemoveMinimapIcon(REF, m)
+    miniOn[m] = nil
+    miniCount.near = miniCount.near - 1
+end
+
+-- a pin frame leaves the zone's books (its node went, or the zone did)
+local function MiniForget(m, bulk)
+    MiniOff(m)
+    if not miniAll[m] then return end
+    miniAll[m] = nil
+    miniCount.zone = miniCount.zone - 1
+    local cell = not bulk and m.cell and miniCells[m.cell]
+    if cell then
+        for i = #cell, 1, -1 do
+            if cell[i] == m then table.remove(cell, i) break end
+        end
+        if #cell == 0 then miniCells[m.cell] = nil end
+    end
+    m.cell = nil
+end
+
+-- Which pins are near now: off what is beyond MINI_OUT, on what is within
+-- MINI_IN. Goes through the registered pins and the squares in reach.
+local function MiniLook()
+    for m in pairs(miniOn) do
+        local d = MiniDist(m.node)
+        if not d or d > MINI_OUT then MiniOff(m) end
+    end
+    if not here.x then return end
+    local cx0, cx1 = math.floor((here.x * here.w - MINI_IN) / MINI_CELL), math.floor((here.x * here.w + MINI_IN) / MINI_CELL)
+    local cy0, cy1 = math.floor((here.y * here.h - MINI_IN) / MINI_CELL), math.floor((here.y * here.h + MINI_IN) / MINI_CELL)
+    for cx = cx0, cx1 do
+        for cy = cy0, cy1 do
+            local cell = miniCells[cx * 4096 + cy]
+            if cell then
+                for i = 1, #cell do
+                    local m = cell[i]
+                    if not miniOn[m] and (MiniDist(m.node) or MINI_OUT) <= MINI_IN then MiniOn(m) end
+                end
+            end
+        end
+    end
+end
+
+-- /gcr perf: how many minimap pins are registered, and how many the zone has
+ns.MiniPinCounts = function() return miniCount.near, miniCount.zone end
+-- one look now, whatever the clock says (the tests measure it with this)
+ns.MiniPinLook = function()
+    if here.map and MiniHere(here.map) then MiniLook() end
+end
+
+-- The minimap pin of a node (only nodes of the zone you are in have one, and
+-- only the ones near you are registered: see above).
 -- world: the node's world map pin, which holds the kinds sharing its spot;
 -- linked before the colour is worked out (the spot shows its best kind)
 local function AddMiniPin(mapID, n, world)
@@ -447,16 +565,27 @@ local function AddMiniPin(mapID, n, world)
     m.icon:SetShown(not m.ringOnly)
     Tint(m)
     SetAlpha(m)
-    HBDPins:AddMinimapIconMap(REF, m, mapID, n.x, n.y, false, false)
-    miniOn[m] = true
+    if here.map ~= mapID then MiniHere(mapID) end
+    miniAll[m] = true
+    miniCount.zone = miniCount.zone + 1
+    if n.x and n.y then -- (a node without a place is in no square: it is never near)
+        m.cell = MiniCell(n.x, n.y)
+        local cell = miniCells[m.cell]
+        if not cell then
+            cell = {}
+            miniCells[m.cell] = cell
+        end
+        cell[#cell + 1] = m
+    end
+    local d = MiniDist(n)
+    if d and d <= MINI_IN then MiniOn(m) end
     return m
 end
 
 local function RemoveMiniPin(pins)
     local m = pins.mini
     if not m then return end
-    HBDPins:RemoveMinimapIcon(REF, m)
-    miniOn[m] = nil
+    MiniForget(m)
     m:Hide()
     m.node, m.othersOf = nil, nil
     table.insert(freeMini, m)
@@ -537,10 +666,7 @@ local function RemoveNodePins(n, quiet)
         RequestRebuild() -- another kind takes over this spot
     end
     if pins.world then HBDPins:RemoveWorldMapIcon(REF, pins.world) end
-    if pins.mini then
-        HBDPins:RemoveMinimapIcon(REF, pins.mini)
-        miniOn[pins.mini] = nil
-    end
+    if pins.mini then MiniForget(pins.mini, rebuilding) end
     for key, pin in pairs(pins) do
         pin:Hide()
         pin.node = nil
@@ -843,6 +969,8 @@ local function Rebuild()
         RemoveNodePins(n)
     end
     rebuilding = false
+    wipe(miniCells) -- (the pins left the books above; the lists are dropped here in one go)
+    MiniHere(playerMap)
     wipe(grid)
     wipe(proxies) -- old reports (imported, expired) are let go here
     if target.node then PlaceTarget() end -- the pin size may have changed
@@ -915,6 +1043,7 @@ local function MovePlayerMap(old, new)
         return
     end
     if not MiniPinsShown() then return end
+    MiniHere(new)
     local moved = { off = 0, on = 0 }
     local function Each(mapID, fn)
         for _, n in ipairs(ns.db.nodes[mapID] or {}) do fn(n) end
@@ -939,6 +1068,21 @@ local function MovePlayerMap(old, new)
     end)
     ns.Debug(("minimap pins: zone %s -> %s, %d off, %d on (world map pins kept)"):format(
         tostring(old), tostring(new), moved.off, moved.on))
+end
+
+-- Minimap pins near you (see MiniLook): every half second, did you move far
+-- enough, or long enough ago?
+local function MiniTick()
+    if not (ns.db and playerMap) or miniCount.zone == 0 then return end
+    local map, x, y = ns.GetPlayerPos()
+    if not (map and x and y and map == playerMap and here.map == map) then return end
+    if here.x then
+        local dx, dy = (x - here.x) * here.w, (y - here.y) * here.h
+        local moved = math.sqrt(dx * dx + dy * dy)
+        if moved < MINI_MOVE and (moved == 0 or GetTime() - (here.t or 0) < MINI_EVERY) then return end
+    end
+    here.x, here.y, here.t = x, y, GetTime()
+    MiniLook()
 end
 
 ---------------------------------------------------------------------------
@@ -1015,6 +1159,7 @@ loader:SetScript("OnEvent", function(_, event)
         playerMap = ns.GetPlayerPos()
         C_Timer.After(1, Rebuild)
         C_Timer.NewTicker(3, UpdateAlpha) -- cooldowns run out
+        C_Timer.NewTicker(MINI_TICK, MiniTick) -- minimap pins: only the ones near you
         return
     end
     -- New zone: move the minimap pins over

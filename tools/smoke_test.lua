@@ -2194,8 +2194,9 @@ step("Pins: a zone change on the same continent moves only the minimap pins (v0.
     -- is grey there, the spot shows Tin's yellow
     local ore = { PROFS[2][2], PROFS[2][3] }
     PROFS[2][2], PROFS[2][3] = 110, 150
-    local copper = { id = "o1731", name = "Copper Vein", type = "ore", x = 0.1234, y = 0.4567, count = 0, last = 0, source = "questie" }
-    local tin = { id = "o1732", name = "Tin Vein", type = "ore", x = 0.1234, y = 0.4567, count = 0, last = 0, source = "questie" }
+    -- (20 yd from where you stand: since 0.1.23 only the nodes near you have a registered minimap pin)
+    local copper = { id = "o1731", name = "Copper Vein", type = "ore", x = player.x + 0.004, y = player.y, count = 0, last = 0, source = "questie" }
+    local tin = { id = "o1732", name = "Tin Vein", type = "ore", x = copper.x, y = copper.y, count = 0, last = 0, source = "questie" }
     table.insert(ns.db.nodes[1413], copper) table.insert(ns.db.nodes[1413], tin)
     ns.TogglePins() ns.TogglePins() advance(4)
     Go(1412) Go(1413)
@@ -13762,6 +13763,9 @@ step("Pins: only what your professions can gather (v0.1.16)", function()
     local chest = { id = "o2843", name = "Battered Chest", type = "chest", x = 0.45, y = 0.5, count = 1, last = 1 }
     ns.db.nodes[M] = { herb, ore, chest }
     ns.db.noProfessionHint = nil
+    -- (you stand between them: since 0.1.23 only the nodes near you have a registered minimap pin)
+    local standX, standY = player.x, player.y
+    player.x, player.y = 0.43, 0.5
     local pins = LibStub("HereBeDragons-Pins-2.0")
     local addWorld, addMini = pins.AddWorldMapIconMap, pins.AddMinimapIconMap
     local world, mini = {}, {}
@@ -13860,6 +13864,7 @@ step("Pins: only what your professions can gather (v0.1.16)", function()
     end)
     pins.AddWorldMapIconMap, pins.AddMinimapIconMap = addWorld, addMini
     ns.db.mapFollowsZones, ns.db.allGatherPins, ns.db.disabledZones[M] = nil, nil, nil
+    player.x, player.y = standX, standY
     T.Restore()
     assert(ok, err)
     assert(#fails == 0, table.concat(fails, " | "))
@@ -14073,9 +14078,13 @@ step("Professions: a find beats an old \"none\", without a new login (v0.1.16)",
     local T = ProfessionTest()
     local keepLocale, keepDebug = GetLocale, ns.Debug
     local M = player.map
+    -- (20 yd apart around where you stand: since 0.1.23 only the nodes near
+    -- you have a registered minimap pin)
+    local standX, standY = player.x, player.y
+    player.x, player.y = 0.497, 0.5
     local kinds, list = {}, {}
     for i = 1, 10 do
-        local hx, ox = 0.3 + i / 100, 0.5 + i / 100
+        local hx, ox = 0.45 + i * 0.004, 0.5 + i * 0.004
         kinds[hx], kinds[ox] = "herb", "ore"
         list[#list + 1] = { id = "o1617", name = "Silverleaf", type = "herb", x = hx, y = 0.5, count = 1, last = 1, item = 765 }
         list[#list + 1] = { id = "o1731", name = "Copper Vein", type = "ore", x = ox, y = 0.5, count = 1, last = 1, item = 2770 }
@@ -14228,6 +14237,7 @@ step("Professions: a find beats an old \"none\", without a new login (v0.1.16)",
     end)
     pins.AddWorldMapIconMap, pins.AddMinimapIconMap = addWorld, addMini
     GetLocale, ns.Debug = keepLocale, keepDebug
+    player.x, player.y = standX, standY
     T.Restore()
     assert(ok, err)
     assert(#fails == 0, #fails .. " wrong: " .. table.concat(fails, " | "):sub(1, 900))
@@ -14745,13 +14755,231 @@ step("Crafting: the skill in its own column, never 0, unknown ones last (v0.1.17
     ns.HideMain()
     ns.db.recipeDB = keepDB
 end)
+step("Minimap pins only near you: on within 400 yd, off beyond 450 yd, kept right while you walk (v0.1.23 P1)", function()
+    -- Sven, 13.11.2026, Stranglethorn, walking: Gathercraft up to 20 % of the
+    -- addon time, 5 % with "Show nodes on the minimap" off. Every node of the
+    -- zone had a minimap pin, and HereBeDragons places every registered pin
+    -- again on each frame you move. Now only the nodes near you are
+    -- registered. The mock's zone is 5000 x 3333 yd: 1 yd = 0.0002 x.
+    local ZONE, YD = 1434, 1 / 5000
+    local pins = LibStub("HereBeDragons-Pins-2.0")
+    local keepAdd, keepRem = pins.AddMinimapIconMap, pins.RemoveMinimapIcon
+    local active, adds = {}, 0
+    pins.AddMinimapIconMap = function(self, ref, icon, ...)
+        if ref == "Gathercraft" then active[icon] = icon.node adds = adds + 1 end
+        return keepAdd(self, ref, icon, ...)
+    end
+    pins.RemoveMinimapIcon = function(self, ref, icon, ...)
+        if ref == "Gathercraft" then active[icon] = nil end
+        return keepRem(self, ref, icon, ...)
+    end
+    local saved = { map = player.map, x = player.x, y = player.y, world = ns.db.worldPinsHidden, mini = ns.db.miniPinsHidden,
+        follow = ns.db.mapFollowsZones, grey = ns.db.hideGreyNodes }
+    local mine = {}
+    local function Own(x, y, name)
+        local n = { id = "o1618", name = name or "Peacebloom", type = "herb", x = x, y = y, count = 1, last = time(), item = 2447 }
+        table.insert(ns.db.nodes[ZONE], n)
+        mine[n] = true
+        return n
+    end
+    local function Go(mapID, x, y)
+        player.map, player.x, player.y = mapID, x or player.x, y or player.y
+        fire("ZONE_CHANGED_NEW_AREA") advance(1)
+    end
+    local function Walk(yards) player.x = player.x + yards * YD end
+    local function Dist(n) return ns.Distance(ZONE, player.x, player.y, n.x, n.y) end
+    local function On(n) for _, node in pairs(active) do if node == n then return true end end return false end
+    local function Count() local c = 0 for _ in pairs(active) do c = c + 1 end return c end
+    -- every minimap pin frame that stands for a node, registered or not
+    local function InZone()
+        local c = 0
+        for _, f in ipairs(allFrames) do if f.isMini and f.node and not f.isTarget and f.mapID == ZONE then c = c + 1 end end
+        return c
+    end
+    local function PerfLine()
+        local mark = #log
+        slash("perf")
+        for i = mark + 1, #log do if log[i]:find("^PRINT") and log[i]:find("perf (", 1, true) then return log[i] end end
+        error("/gcr perf printed no line")
+    end
+    local ok, err = pcall(function()
+        ns.db.worldPinsHidden, ns.db.miniPinsHidden, ns.db.mapFollowsZones, ns.db.hideGreyNodes = nil, nil, nil, nil
+        ns.db.nodes[ZONE] = ns.db.nodes[ZONE] or {}
+        ns.ImportQuestieZone(ZONE, true)
+        local known = #ns.db.nodes[ZONE]
+        assert(known > 300, "test setup: the known spawn points of Stranglethorn are not there (" .. known .. ")")
+        -- 300 nodes of your own all over the zone, and markers east of where you stand
+        local seed = 7
+        local function Rand() seed = (seed * 1103515245 + 12345) % 2147483648 return seed / 2147483648 end
+        for _ = 1, 300 do Own(0.02 + Rand() * 0.96, 0.02 + Rand() * 0.96) end
+        local X, Y = 0.5, 0.5
+        local m390, m420, m445, m520 = Own(X + 390 * YD, Y, "M390"), Own(X + 420 * YD, Y, "M420"), Own(X + 445 * YD, Y, "M445"), Own(X + 520 * YD, Y, "M520")
+        local m490 = Own(X + 490 * YD, Y, "M490")
+        ns.NotifyNodesChanged()
+        Go(ZONE, X, Y)
+        ns.TogglePins() ns.TogglePins() advance(4)
+
+        -- 1. only what is near is registered, and all of that
+        local near, all = Count(), InZone()
+        assert(all >= 304, ("test setup: %d minimap pins for the zone"):format(all))
+        assert(near < all / 2, ("%d of the zone's %d minimap pins are registered: not only the near ones"):format(near, all))
+        for _, n in pairs(active) do
+            assert(Dist(n) <= 400.5, ("a minimap pin %d yd away is registered"):format(Dist(n)))
+        end
+        for n in pairs(mine) do
+            assert(On(n) == (Dist(n) <= 400), ("%s, %d yd away: registered %s"):format(n.name, Dist(n), tostring(On(n))))
+        end
+        assert(On(m390) and not On(m420) and not On(m445) and not On(m520), "the markers at 390 / 420 / 445 / 520 yd")
+        -- (a pin that is not registered is not on the screen either)
+        for _, f in ipairs(allFrames) do
+            if f.isMini and f.node and not f.isTarget and f.mapID == ZONE and not active[f] then
+                assert(not f:IsShown(), "a minimap pin that is not registered is shown")
+            end
+        end
+
+        -- 2. /gcr perf says both numbers
+        local line = PerfLine()
+        local pn, pm = line:match("minimap pins: (%d+) near / (%d+) in zone")
+        assert(pn, "/gcr perf does not say the minimap pins: " .. line)
+        assert(tonumber(pn) == near and tonumber(pm) == all, ("/gcr perf says %s near / %s in zone, registered are %d of %d"):format(pn, pm, near, all))
+
+        -- 3. on at 400 yd, off only beyond 450 yd: a pin at the edge does not flicker
+        Walk(-35) advance(3) -- M390 is 425 yd away now
+        assert(On(m390), "a pin 425 yd away that was on went off (it stays to 450 yd)")
+        assert(not On(m420), "M420")
+        Walk(-30) advance(3) -- 455 yd
+        assert(not On(m390), "a pin 455 yd away is still registered")
+        Walk(30) advance(3) -- 425 yd again
+        assert(not On(m390), "a pin 425 yd away that was off came on (only from 400 yd)")
+        Walk(30) advance(3) -- 395 yd
+        assert(On(m390), "a pin 395 yd away is not registered")
+        Walk(5) advance(3) -- where we began
+
+        -- 4. while you walk: after 50 yd at once, else every 2 s at the latest
+        Walk(60) advance(0.6) -- M420 is 360 yd away, M445 385 yd
+        assert(On(m420) and On(m445), "60 yd walked: the pins that came into reach are not there within a moment")
+        assert(not On(m520) and not On(m490), "M490 is 430 yd away, M520 460 yd")
+        Walk(40) advance(0.6) -- M490 390 yd: in reach, but 40 yd since the last look, and that was a moment ago
+        assert(not On(m490), "40 yd after a look, within 2 s: looked again (a look is due after 50 yd or 2 s)")
+        advance(2)
+        assert(On(m490), "a pin in reach is not there 2 s later")
+        Walk(70) advance(0.6) -- M520 350 yd
+        assert(On(m520), "M520")
+        -- standing still: nothing is registered or taken off
+        local before = adds
+        advance(30)
+        assert(adds == before, "pins were registered while you stood still")
+        -- every pin that is on is in reach, every node of yours in 400 yd is on
+        for _, n in pairs(active) do assert(Dist(n) <= 450.5, ("after walking: a pin %d yd away"):format(Dist(n))) end
+        for n in pairs(mine) do if Dist(n) <= 400 then assert(On(n), ("after walking: %s, %d yd away, has no pin"):format(n.name, Dist(n))) end end
+
+        -- 5. a node you find where you stand has its pin at once; one that comes from far away has none
+        local found = Own(player.x + 5 * YD, player.y, "Found")
+        ns.NotifyNodesChanged("add", ZONE, found)
+        assert(On(found), "the node you just found has no minimap pin")
+        local far = Own(player.x - 1200 * YD, player.y, "Far")
+        ns.NotifyNodesChanged("add", ZONE, far)
+        assert(not On(far), "a new node 1200 yd away has a minimap pin")
+        assert(InZone() == all + 2, "the two new nodes are not counted in the zone")
+        -- ... and it is there when you get to it
+        local hereX = player.x
+        player.x = far.x + 100 * YD advance(3)
+        assert(On(far) and not On(found), "1100 yd further: the pins did not follow")
+        player.x = hereX advance(3)
+        assert(On(found) and not On(far), "back again: the pins did not follow")
+
+        -- 6. another zone and back, another continent and back: near ones only
+        Go(1433) Go(ZONE)
+        for _, n in pairs(active) do assert(Dist(n) <= 450.5, "after a zone change: a far pin") end
+        assert(On(found) and On(m520) and not On(far), "after a zone change: the near pins are not there")
+        Go(1412) Go(ZONE) advance(4)
+        for _, n in pairs(active) do assert(Dist(n) <= 450.5, "after a continent change: a far pin") end
+        assert(On(found) and On(m520) and not On(far), "after a continent change: the near pins are not there")
+        local nearNow = Count()
+
+        -- 7. without world map pins the minimap pin holds the kinds of a shared spot: also for a spot you walk to
+        local copper = { id = "o1731", name = "Copper Vein", type = "ore", x = player.x - 900 * YD, y = player.y, count = 0, last = 0, source = "questie" }
+        local tin = { id = "o1732", name = "Tin Vein", type = "ore", x = copper.x, y = copper.y, count = 0, last = 0, source = "questie" }
+        table.insert(ns.db.nodes[ZONE], copper) table.insert(ns.db.nodes[ZONE], tin)
+        mine[copper], mine[tin] = true, true
+        ns.db.worldPinsHidden = true
+        ns.NotifyNodesChanged() advance(4)
+        assert(Count() == nearNow, ("without world map pins %d minimap pins are registered, with them %d"):format(Count(), nearNow))
+        assert(not On(copper) and not On(tin), "the far shared spot has a pin")
+        player.x = copper.x + 50 * YD advance(3)
+        local spot
+        for icon, n in pairs(active) do if n == copper or n == tin then spot = icon end end
+        assert(spot and spot.others and #spot.others == 1, "the shared spot you walked to: no pin with both kinds")
+        player.x = hereX advance(3)
+        ns.db.worldPinsHidden = nil
+
+        -- 8. "Show nodes on the minimap" off: none, also while walking
+        ns.db.miniPinsHidden = true
+        ns.NotifyNodesChanged() advance(4)
+        assert(Count() == 0, "minimap pins off: " .. Count() .. " are registered")
+        Walk(200) advance(5) Walk(-200) advance(5)
+        assert(Count() == 0, "minimap pins off: walking registered some")
+        local off = PerfLine()
+        assert(off:find("minimap pins: 0 near / 0 in zone", 1, true), "/gcr perf with minimap pins off: " .. off)
+        ns.db.miniPinsHidden = nil
+        ns.NotifyNodesChanged() advance(4)
+        assert(Count() == nearNow, ("minimap pins on again: %d registered, before %d"):format(Count(), nearNow))
+
+        -- 9. what it costs (the mock's clock, a rough bound): HereBeDragons works
+        -- through every registered pin on each frame you move - the same work
+        -- per pin here (offset, distance, in the circle or not)
+        -- (drawMinimapPin of HereBeDragons-Pins-2.0, round minimap, 233 yd, not rotating)
+        local function Frame(list)
+            local px, py, radius, half = player.x * 5000, player.y * 3333, 233, 70
+            for i = 1, #list do
+                local pin = list[i]
+                local xDist, yDist = px - pin.node.x * 5000, py - pin.node.y * 3333
+                local diffX, diffY = xDist / radius, yDist / radius
+                local dist = (diffX * diffX + diffY * diffY) / 0.9 ^ 2
+                if dist <= 1 then
+                    pin:Show()
+                    pin:ClearAllPoints()
+                    pin:SetPoint("CENTER", UIParent, "CENTER", diffX * half, -diffY * half)
+                else
+                    pin:Hide()
+                end
+            end
+        end
+        local zonePins, nearPins = {}, {}
+        for _, f in ipairs(allFrames) do if f.isMini and f.node and not f.isTarget and f.mapID == ZONE then zonePins[#zonePins + 1] = f end end
+        for icon in pairs(active) do nearPins[#nearPins + 1] = icon end
+        local function Ms(fn, times)
+            local t0 = os.clock()
+            for _ = 1, times do fn() end
+            return (os.clock() - t0) * 1000 / times
+        end
+        local inZone = InZone()
+        local was, now = Ms(function() Frame(zonePins) end, 300), Ms(function() Frame(nearPins) end, 300)
+        for _, f in ipairs(zonePins) do if not active[f] then f:Hide() end end
+        -- one look of ours while walking: 60 yd on, look, 60 yd back, look
+        local look = Ms(function() Walk(60) ns.MiniPinLook() Walk(-60) ns.MiniPinLook() end, 300) / 2
+        for _, n in pairs(active) do assert(Dist(n) <= 450.5, "after the looks of the measurement: a far pin") end
+        note(("MEASURE P1 minimap pins registered: %d of the zone's %d"):format(nearNow, inZone))
+        note(("MEASURE P1 work per frame while moving (model of the library's loop): %.4f ms -> %.4f ms"):format(was, now))
+        note(("MEASURE P1 one look of ours while walking (at most every 0.5 s): %.3f ms"):format(look))
+        assert(nearNow * 3 < inZone, ("%d of %d pins registered in a full zone"):format(nearNow, inZone))
+        assert(now * 5 < was, ("the work per frame went from %.4f ms to %.4f ms only"):format(was, now))
+        assert(look < 5, ("one look while walking takes %.2f ms"):format(look))
+    end)
+    for i = #ns.db.nodes[ZONE], 1, -1 do if mine[ns.db.nodes[ZONE][i]] then table.remove(ns.db.nodes[ZONE], i) end end
+    ns.db.worldPinsHidden, ns.db.miniPinsHidden, ns.db.mapFollowsZones, ns.db.hideGreyNodes = saved.world, saved.mini, saved.follow, saved.grey
+    pins.AddMinimapIconMap, pins.RemoveMinimapIcon = keepAdd, keepRem
+    ns.NotifyNodesChanged()
+    Go(saved.map, saved.x, saved.y) advance(4)
+    assert(ok, err)
+end)
 step("Long run (10 min) for leaks", function() slash("run herb") advance(600) slash("stop") end)
 
 io.write("\n--- errors: " .. #errors .. "\n")
 for _, e in ipairs(errors) do io.write("  " .. e .. "\n") end
 io.write("\n--- notable log lines:\n")
 for _, l in ipairs(log) do
-    if l:find("questie nodes") or l:find("grey pins") or l:find("recipe sources") or l:find("route line") or l:find("route goal") or l:find("fish next") or l:find("SOUNDFILE") or l:find("RAIDWARN") or l:find("sync sent") or l:find("empty test") or l:find("prices ok") or l:find("scan price") or l:find("TTPRICE") or l:find("advisor") or l:find("target changes") or l:find("JUMP") or l:find("harvest cost") or l:find("slim:") or l:find("learned prices") or l:find("fishing session") or l:find("recipe item") or l:find("craft ") or l:find("recipes") or l:find("profit") or l:find("Price alert") or l:find("scanned") or l:find("Own scan") or l:find("15 minutes") or l:find("shared spawn") or l:find("Shared spawn") or l:find("Loaded") or l:find("took over") or l:find("RECORD") or l:find("No ") or l:find("rror") then
+    if l:find("MEASURE", 1, true) or l:find("questie nodes") or l:find("grey pins") or l:find("recipe sources") or l:find("route line") or l:find("route goal") or l:find("fish next") or l:find("SOUNDFILE") or l:find("RAIDWARN") or l:find("sync sent") or l:find("empty test") or l:find("prices ok") or l:find("scan price") or l:find("TTPRICE") or l:find("advisor") or l:find("target changes") or l:find("JUMP") or l:find("harvest cost") or l:find("slim:") or l:find("learned prices") or l:find("fishing session") or l:find("recipe item") or l:find("craft ") or l:find("recipes") or l:find("profit") or l:find("Price alert") or l:find("scanned") or l:find("Own scan") or l:find("15 minutes") or l:find("shared spawn") or l:find("Shared spawn") or l:find("Loaded") or l:find("took over") or l:find("RECORD") or l:find("No ") or l:find("rror") then
         io.write("  " .. l:sub(1, 160) .. "\n")
     end
 end
