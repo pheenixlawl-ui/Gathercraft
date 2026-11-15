@@ -21188,7 +21188,7 @@ step("Item tooltip with Shift: the zone with the most known spawn points, and th
     advance(12)
     if not ok then error(err, 0) end
 end)
-step("Item tooltip: cheap while hovering, nothing built while it is off, every text fits (v0.2 B2 C4)", function()
+step("Item tooltip: cheap while hovering, nothing built while it is off, every text of a fixed shape fits - 'Used in' is measured (v0.2 B2 C4, R1-N2)", function()
     -- Concept item tooltip 4.6, 5.7, 5.8, 5.12, 6 ("many hovers", languages).
     ns.GetPrice(785)
     local p = ns.db.prices[next(ns.db.prices)]
@@ -21313,6 +21313,54 @@ step("Item tooltip: cheap while hovering, nothing built while it is off, every t
             end
         end
         assert(#tooWide == 0, #tooWide .. " lines wider than 80 characters: " .. table.concat(tooWide, " | "))
+        -- ---- what that check covers, and what it does not (Codex review of block 2, N2)
+        -- The rows above are the lines with a fixed shape. Every labelled line
+        -- of the block must be among them - or be named here as a line without
+        -- a bound, and then it is measured with the real recipe data instead
+        -- of promised: "Used in" lists every profession with a recipe for the
+        -- item, and for a few reagents that is far more than 80 characters.
+        -- Whether the client then only draws a wider tooltip is a live point.
+        local CHECKED = { ["AH price"] = true, ["14 days"] = true, ["Last 7 days"] = true, ["Most spawn points"] = true }
+        local UNBOUNDED = { ["Used in"] = true }
+        local tipCode = assert(io.open(ROOT .. "/ItemTooltip.lua")):read("*a")
+        local labels = 0
+        for key in saved.gmatch(tipCode, 'Label%(L%["(.-)"%]%)') do
+            labels = labels + 1
+            assert(CHECKED[key] or UNBOUNDED[key], ("the line %q of the tooltip block is not in the width check and not named as a line without a bound"):format(key))
+            assert(not (CHECKED[key] and UNBOUNDED[key]), "checked and without a bound at once: " .. key)
+        end
+        assert(labels == 5, "test setup: " .. labels .. " labelled lines found in ItemTooltip.lua, want 5")
+        for key in pairs(UNBOUNDED) do
+            -- the widest line there is with the recipe data of this build, and Codex's two items
+            for _, lang in ipairs({ "enUS", "deDE" }) do
+                ns.db.language = lang
+                ns.ApplyLanguage()
+                fx.ns.languageListeners[1]()
+                local label = lang == "enUS" and key or ns.Locales[lang][key]
+                local function Used(id)
+                    local line = TT.Line(fx.Hover(tip, id), label .. " = ")
+                    if not line then return end
+                    local plain = TT.Plain(line)
+                    local at = plain:find(" = ", 1, true)
+                    -- (label, two spaces, value - as the rows above and as Codex counted; the profession names are the game client's, so the client's language counts too)
+                    return Width(label .. "  " .. plain:sub(at + 3)), plain:sub(at + 3)
+                end
+                local widest, widestID, over, with = 0, nil, 0, 0
+                for id = 1, 25000 do
+                    local w = Used(id)
+                    if w then
+                        with = with + 1
+                        if w > 80 then over = over + 1 end
+                        if w > widest then widest, widestID = w, id end
+                    end
+                end
+                assert(with > 300, "test setup: only " .. with .. " items with a \"Used in\" line")
+                local w1, w2 = Used(7080), Used(8170)
+                assert(w1 and w2, "test setup: no \"Used in\" line for 7080 or 8170")
+                note(("MEASURE N2 client %s, language %s \"%s\": %d items have the line, %d of them wider than 80 characters; widest %d (item %d); item 7080: %d, item 8170: %d"):format(
+                    GetLocale(), lang, key, with, over, widest, widestID, w1, w2))
+            end
+        end
         -- nothing English built in: every word of a line comes from a key above (the money and the numbers aside)
         ns.db.language = "deDE"
         ns.ApplyLanguage()
