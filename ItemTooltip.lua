@@ -21,9 +21,12 @@ local L = ns.L or setmetatable({}, { __index = function(_, k) return k end })
 --   hour and 7 day borders and a change in Auctionator show without a
 --   scan), everything else is read from caches that know when they are
 --   old: the price revision and the UTC day, the spawn count revision and
---   the continent, the recipe revision, the language. The indexes behind
---   them are built after login in small steps - and not at all while the
---   option is off.
+--   the continent, the recipe revision, the language. The first hover of
+--   an item fills its cache lines: it reads the item's own 14 days and
+--   sorts two short lists (days, professions); later hovers parse and sort
+--   nothing. No index is built in a hover: the indexes are built after
+--   login in small steps - not at all while the option is off, and not in
+--   a fight.
 ---------------------------------------------------------------------------
 local floor = math.floor
 local HEADER = "|cffffd060Gathercraft|r"
@@ -60,18 +63,24 @@ local COMBAT_WAIT = 1 -- seconds until a waiting build step looks again
 ---------------------------------------------------------------------------
 -- The indexes: which items get the block, which professions use an item
 ---------------------------------------------------------------------------
+-- (the small one: the main items of the herb and ore node kinds)
+local function BuildGather()
+    if gather then return end
+    local g = {}
+    local data = GathercraftQuestieData
+    for _, kind in pairs((data and data.kinds) or {}) do
+        if (kind[1] == "h" or kind[1] == "o") and kind[2] > 0 then g[kind[2]] = true end
+    end
+    gather = g
+end
+
 local function Build(myRun)
     local d = ns.CraftData
     local t0 = debugprofilestop()
     state, usedIn = "building", nil
-    if not gather then
-        local g = {}
-        local data = GathercraftQuestieData
-        for _, kind in pairs((data and data.kinds) or {}) do
-            if (kind[1] == "h" or kind[1] == "o") and kind[2] > 0 then g[kind[2]] = true end
-        end
-        gather = g
-    end
+    -- at once, so that herbs and ores have their block before the recipes
+    -- are read - but not in a fight: then the first step does it afterwards
+    if not Fighting() then BuildGather() end
     local startRev = ns.RecipeRev and ns.RecipeRev() or 0
     local profs = {}
     for _, p in ipairs((d and d.Professions) or {}) do profs[#profs + 1] = p.name end
@@ -85,6 +94,7 @@ local function Build(myRun)
             return
         end
         local s0 = debugprofilestop()
+        BuildGather()
         local budget = RECIPES_PER_STEP
         while budget > 0 do
             if not list then

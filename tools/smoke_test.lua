@@ -21745,6 +21745,122 @@ step("Spawn points: two recounts that overlap after a fight - no number before t
     if ns.ItemTooltipSetEnabled then ns.ItemTooltipSetEnabled(saved.tooltip ~= false) end
     if not ok then error(err, 0) end
 end)
+step("Item tooltip: the first hover of an item does a little work, the next ones none; switched on in a fight nothing is built before it ends (v0.2 B2 R1-N3)", function()
+    -- Codex review of block 2, N3: "no gmatch while hovering" is true for a
+    -- warm hover only. Said exactly: the FIRST hover of an item after a
+    -- login, a price change or a new UTC day reads that item's own 14 days
+    -- (at most two passes over one history string) and sorts two short
+    -- lists (the days, the professions); no index is built and nothing
+    -- large is sorted. Every later hover of it parses and sorts nothing.
+    -- And: switching the option on in a fight must not walk the node kinds
+    -- either - that small index waits like the rest.
+    ns.GetPrice(785)
+    local p = ns.db.prices[next(ns.db.prices)]
+    local HERB = 765
+    local saved = { option = ns.db.tooltipPrices, shift = IsShiftKeyDown, combat = InCombatLockdown, gmatch = string.gmatch, sort = table.sort, pairs = pairs, atr = Auctionator,
+        price = { p.items[HERB], p.qty[HERB], p.seen[HERB], p.meta[HERB], p.history[HERB] } }
+    local before = #errors
+    local ok, err = pcall(function()
+        Auctionator = nil
+        ns.db.tooltipPrices = true
+        IsShiftKeyDown = function() return true end
+        local day, now = math.floor(time() / 86400), time()
+        p.items[HERB], p.seen[HERB], p.meta[HERB], p.qty[HERB] = 120, now - 600, 1, 7
+        p.history[HERB] = ("%d:%d;%d:%d;%d:%d;%d:%d"):format(day - 3, 90, day - 2, 95, day - 1, 99, day, 120)
+
+        -- ---- cold and warm
+        local fx = TT.Load("tdp", true)
+        fx.Event("PLAYER_LOGIN") advance(10)
+        assert(fx.State() == "ready", "test setup: " .. fx.State())
+        local tip = fx.game
+        local parsed, sorted, longest, longestText = 0, 0, 0, 0
+        string.gmatch = function(s, ...)
+            parsed = parsed + 1
+            if #s > longestText then longestText = #s end
+            return saved.gmatch(s, ...)
+        end
+        table.sort = function(t, ...)
+            sorted = sorted + 1
+            if #t > longest then longest = #t end
+            return saved.sort(t, ...)
+        end
+        local gmatchCounted, sortCounted = string.gmatch, table.sort
+        local function Count(fn)
+            parsed, sorted, longest, longestText = 0, 0, 0, 0
+            local lines = fn()
+            return parsed, sorted, lines
+        end
+        local function Cold(what)
+            local g, s, lines = Count(function() return fx.Hover(tip, HERB) end)
+            assert(TT.Line(lines, "14") and #lines >= 5, what .. ": test setup, the block is not there (" .. #lines .. " lines)")
+            assert(g >= 1, what .. ": test setup, this hover read no history - it was not a first hover")
+            assert(g <= 2 and s <= 2, ("%s: the first hover parsed %d times and sorted %d times, want at most 2 and 2"):format(what, g, s))
+            assert(longestText == #p.history[HERB], ("%s: the first hover parsed a text of %d bytes - not only the item's own history (%d bytes)"):format(what, longestText, #p.history[HERB]))
+            assert(longest <= 14, what .. ": the first hover sorted a list of " .. longest .. " entries")
+            note(("MEASURE N3 %s: first hover %d gmatch, %d sorts (longest list %d)"):format(what, g, s, longest))
+            for i = 1, 3 do
+                local g2, s2, lines2 = Count(function() return fx.Hover(tip, HERB) end)
+                assert(g2 == 0 and s2 == 0, ("%s: hover %d of the same item parsed %d times and sorted %d times, want 0 and 0"):format(what, i + 1, g2, s2))
+                assert(#lines2 == #lines, what .. ": the warm hover shows other lines")
+            end
+        end
+        Cold("after the login")
+        -- a new price: the caches are old, one hover works them out again
+        local rev = ns.PriceRev()
+        local ah = { n = C_AuctionHouse.GetNumCommoditySearchResults, full = C_AuctionHouse.HasFullCommoditySearchResults, info = C_AuctionHouse.GetCommoditySearchResultInfo }
+        C_AuctionHouse.GetNumCommoditySearchResults = function() return 2 end
+        C_AuctionHouse.HasFullCommoditySearchResults = function() return true end
+        C_AuctionHouse.GetCommoditySearchResultInfo = function(_, i) return ({ { unitPrice = 131, quantity = 10 }, { unitPrice = 140, quantity = 30 } })[i] end
+        string.gmatch, table.sort = saved.gmatch, saved.sort
+        fire("COMMODITY_SEARCH_RESULTS_UPDATED", HERB)
+        string.gmatch, table.sort = gmatchCounted, sortCounted
+        C_AuctionHouse.GetNumCommoditySearchResults, C_AuctionHouse.HasFullCommoditySearchResults, C_AuctionHouse.GetCommoditySearchResultInfo = ah.n, ah.full, ah.info
+        assert(ns.PriceRev() ~= rev, "test setup: the search result changed no price")
+        Cold("after a price change")
+        string.gmatch, table.sort = saved.gmatch, saved.sort
+
+        -- ---- switched on in a fight: nothing is walked or built until it is over
+        local kinds, walked = GathercraftQuestieData.kinds, 0
+        pairs = function(t, ...)
+            if t == kinds then walked = walked + 1 end
+            return saved.pairs(t, ...)
+        end
+        ns.db.tooltipPrices = false
+        local late = TT.Load("tdp", true)
+        late.Event("PLAYER_LOGIN") advance(5)
+        assert(late.State() == "off", "test setup: built although the option is off")
+        local fighting = true
+        InCombatLockdown = function() return fighting end
+        walked = 0
+        late.ns.ItemTooltipSetEnabled(true)
+        advance(10)
+        assert(walked == 0, "switched on in a fight: the node kinds were walked " .. walked .. " time(s) before the fight was over")
+        assert(late.State() == "building", "switched on in a fight: state " .. late.State() .. ", want building")
+        local st = late.ns.ItemTooltipState()
+        assert(st.recipes == 0 and st.builds == 0, "switched on in a fight: " .. st.recipes .. " recipes read")
+        -- (a hover in the fight: no error, and no block that would need the index)
+        local n = #late.Hover(late.game, HERB)
+        assert(#errors == before, "an error while hovering in the fight: " .. tostring(errors[#errors]))
+        fighting = false
+        advance(10)
+        assert(late.State() == "ready" and walked == 1, "after the fight: state " .. late.State() .. ", node kinds walked " .. walked .. " time(s), want ready and 1")
+        assert(#late.Hover(late.game, HERB) > n and TT.Line(late.game.lines, "14"), "after the fight the block is not there")
+        -- outside a fight nothing changed: the block for a gathered item is there before the recipes are read
+        ns.db.tooltipPrices = false
+        local early = TT.Load("tdp", true)
+        early.Event("PLAYER_LOGIN") advance(5)
+        walked = 0
+        early.ns.ItemTooltipSetEnabled(true)
+        assert(walked == 1 and early.State() == "building", "switched on outside a fight: walked " .. walked .. ", state " .. early.State())
+        assert(TT.Line(early.Hover(early.game, HERB), "14"), "outside a fight the block waits for the recipe index")
+        assert(#errors == before, "an error: " .. tostring(errors[#errors]))
+    end)
+    string.gmatch, table.sort, pairs = saved.gmatch, saved.sort, saved.pairs
+    IsShiftKeyDown, InCombatLockdown, Auctionator = saved.shift, saved.combat, saved.atr
+    ns.db.tooltipPrices = saved.option
+    p.items[HERB], p.qty[HERB], p.seen[HERB], p.meta[HERB], p.history[HERB] = saved.price[1], saved.price[2], saved.price[3], saved.price[4], saved.price[5]
+    if not ok then error(err, 0) end
+end)
 -- (end of the item tooltip steps, v0.2 building block 2)
 step("Long run (10 min) for leaks", function() slash("run herb") advance(600) slash("stop") end)
 step("Test mock: OnUpdate runs for the same frames in the same order as going over every frame (tools only)", function()
