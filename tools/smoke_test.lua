@@ -22046,6 +22046,448 @@ step("Farm for plan: a material's node kinds come from the spawn data alone; you
     ns.db.kindLoot = saved.loot
     if not ok then error(err, 0) end
 end)
+step("Farm for plan: the run - its filter, what it routes to, when it waits, ends once or is blocked, and after a reload (v0.2 B3 T2)", function()
+    -- Concept shopping list 4.2, 4.3, 4.5, 4.6, 4.8; tests 3, 5, 7, 8, 12, 14, 17;
+    -- Sven V4, V5, V7, V9; the order's extra tests (preview, updating, the
+    -- second reader of the plan).
+    assert(type(ns.PlanFilter) == "function" and type(ns.PlanFilterParse) == "function" and type(ns.PlanRunState) == "function"
+        and type(ns.PlanRunLastEnd) == "function" and type(ns.PlanRunResume) == "function" and type(ns.SkillPlanFor) == "function",
+        "no ns.PlanFilter / PlanFilterParse / PlanRunState / PlanRunLastEnd / PlanRunResume / SkillPlanFor")
+    local L, d, core = ns.L, ns.CraftData, ns.PlanCore
+    local COPPER, TIN, VEIN = 2770, 2771, "o1731"
+    local TINVEIN
+    for key, kind in pairs(GathercraftQuestieData.kinds) do
+        if kind[1] == "o" and kind[2] == TIN and (not TINVEIN or key < TINVEIN) then TINVEIN = key end
+    end
+    assert(TINVEIN, "test setup: no tin vein in the spawn data")
+    local saved = { rank = ns.ProfessionRank, have = d.Have, known = d.Known, skill = ns.GetSkill, planFor = ns.SkillPlanFor, shown = ns.SkillPlanShown,
+        compute = core.Compute, enabled = ns.IsNodeEnabled, parked = ns.IsParked, targets = ns.db.planTargets, listeners = ns.skillPlanListeners,
+        other = ns.db.nodes[1413], run = ns.db.activeRun, summaryOff = ns.db.summaryOff, loot = ns.db.kindLoot }
+    local W = IdentityWorld()
+    local before = #errors
+    local win = _G.GathercraftSkillPlan
+    if win then win:Hide() end
+    local ok, err = pcall(function()
+        local profSkill, gatherSkill, stock = 1, 100, {}
+        ns.ProfessionRank = function(p) if p == "Mining" then return profSkill, 75 end end
+        d.Known = function() return {} end
+        d.Have = function(id)
+            local v = stock[id]
+            if v == "?" then return nil end
+            return v or 0
+        end
+        ns.GetSkill = function(t) if t == "ore" and gatherSkill then return gatherSkill, 300, gatherSkill end end
+        local computes = 0
+        core.Compute = function(...) computes = computes + 1 return saved.compute(...) end
+        local published = 0
+        local function Count() published = published + 1 end
+        table.insert(ns.skillPlanListeners, Count)
+        saved.count = Count
+        local mark = #log
+        local function Said(text)
+            for i = mark + 1, #log do if log[i]:find(text, 1, true) then return true end end
+            return false
+        end
+        local function Bags(n) for _ = 1, n or 1 do fire("BAG_UPDATE_DELAYED") end end
+        local function State() local s = ns.PlanRunState() return s and s.state, s end
+        local function Row(item)
+            local s = ns.PlanRunState()
+            for _, r in ipairs((s and s.rows) or {}) do if r.item == item then return r end end
+        end
+        local function Ends() local _, n = ns.PlanRunLastEnd() return n end
+        local function Last() return (ns.PlanRunLastEnd()) end
+        local summary = function() local f = _G.GathercraftRunSummary return f and f:IsShown() or false end
+        local hintShown = function() local f = _G.GathercraftPlanHint return (f and f.shown) or 0 end
+        local function Veins(extra)
+            local list = { W.Node(VEIN, "Copper Vein", 100, { type = "ore" }), W.Node(VEIN, "Copper Vein", 200, { type = "ore" }),
+                W.Node(VEIN, "Copper Vein", 300, { type = "ore", item = 2835 }) } -- (the third says it gave rough stone)
+            for _, n in ipairs(extra or {}) do list[#list + 1] = n end
+            W.Set(list)
+            W.At(0)
+        end
+        local function Tin(x) return W.Node(TINVEIN, "Tin Vein", x or 400, { type = "ore" }) end
+
+        -- ---- the filter (test 17)
+        local F30 = ns.PlanFilter("Mining", 30)
+        assert(F30 == "plan:v1:mining:30" and F30:lower() == F30, "the filter of Mining to 30: " .. tostring(F30))
+        assert(ns.PlanFilter("First Aid", 75) == "plan:v1:first_aid:75", "the filter of First Aid: " .. tostring(ns.PlanFilter("First Aid", 75)))
+        local prof, target = ns.PlanFilterParse("plan:v1:first_aid:75")
+        assert(prof == "First Aid" and target == 75, "plan:v1:first_aid:75 read back: " .. tostring(prof) .. " " .. tostring(target))
+        prof, target = ns.PlanFilterParse("plan:v1:mining:150")
+        assert(prof == "Mining" and target == 150, "plan:v1:mining:150 read back: " .. tostring(prof) .. " " .. tostring(target))
+        for _, p in ipairs(d.Professions) do
+            local f = ns.PlanFilter(p.name, 150)
+            local back, t = ns.PlanFilterParse(f)
+            assert(f and f == f:lower() and back == p.name and t == 150, "the filter of " .. p.name .. " does not come back: " .. tostring(f))
+        end
+        for _, bad in ipairs({ "plan:v2:mining:150", "plan:mining:150", "plan:v1:bergbau:150", "plan:v1:smelting:150", "plan:v1:mining:0", "plan:v1:mining:301",
+            "plan:v1:mining:15x", "plan:v1:mining:", "plan:v1:mining", "plan:v1::150", "plan:v1:Mining:150", "plan:v1:mining:150 ", "plan:", "plan:v1:mining:1.5", "item:2770" }) do
+            assert(ns.PlanFilterParse(bad) == nil, "read as a plan run: " .. bad)
+        end
+        assert(ns.PlanFilter("Bergbau", 150) == nil and ns.PlanFilter("Smelting", 150) == nil and ns.PlanFilter("Mining", 150.5) == nil
+            and ns.PlanFilter("Mining", 0) == nil and ns.PlanFilter("Mining", 301) == nil and ns.PlanFilter(nil, 150) == nil, "a filter for something that is no plan")
+
+        -- ---- an unknown format is no run: not by hand, not by its name, and the run before stays
+        Veins({ W.Node("o1731", "plan:v2:mining:150", 500, { type = "ore" }) }) -- (a node whose NAME is the filter: the old name search would take it)
+        ns.StartRun("ore", 1412) W.Wait(1)
+        local oreRun = ns.run
+        assert(oreRun and oreRun.filter == "ore", "test setup: no ore run")
+        for _, bad in ipairs({ "plan:v2:mining:150", "plan:mining:150", "PLAN:V1:BERGBAU:150", "plan:v1:mining:999" }) do
+            mark = #log
+            slash("run " .. bad)
+            W.Wait(1)
+            assert(ns.run == oreRun and ns.db.activeRun and ns.db.activeRun.filter == "ore", "a plan filter of an unknown format changed the run: " .. bad)
+            assert(Said(L["That is no plan run Gathercraft knows (unknown format). Start it from the skill plan."]), "no word about the unknown format: " .. bad)
+        end
+        ns.StopRun(true)
+        slash("run plan:v2:mining:150") W.Wait(1)
+        assert(ns.run == nil and ns.db.activeRun == nil, "a run from a plan filter of an unknown format (the name search?)")
+        -- no preview: that would be a "show on map" without a run
+        mark = #log
+        slash("route " .. F30) W.Wait(1)
+        assert(Said(L["A plan run has no route preview. Start it from the skill plan."]) and ns.run == nil, "a route preview for a plan")
+
+        -- ---- nothing is worked out without the window and without a plan run
+        Veins({ Tin() })
+        computes = 0
+        stock[COPPER] = 3 Bags(3) W.Wait(2)
+        assert(computes == 0, "the plan was worked out " .. computes .. " time(s) with the window closed and no plan run")
+        local r, why = ns.SkillPlanFor("Mining", 30)
+        assert(r == nil and why == "off" and computes == 0, "the plan for a run that is not there: " .. tostring(why))
+
+        -- ---- start: one zone, the plan's materials through their kinds, your own count
+        stock[COPPER] = 0
+        mark = #log
+        ns.StartRun(F30, 1412) W.Wait(1)
+        local run = ns.run
+        assert(run and run.plan and run.filter == F30 and run.zone == 1412 and not run.quick and not run.loopMode, "no plan run in the zone asked for")
+        assert(ns.db.activeRun and ns.db.activeRun.filter == F30 and ns.db.activeRun.zone == 1412 and ns.db.activeRun.quick == nil, "the saved run is not the plan run")
+        assert(State() == "active", "the state after the start: " .. tostring(State()))
+        assert(computes >= 1, "the plan run did not work the plan out (the second reader)")
+        assert(#run.points == 3, "the route has " .. #run.points .. " nodes, want the 3 copper veins (the tin vein is not in the plan to 30)")
+        for _, p in ipairs(run.points) do assert(p.node.id == VEIN, "a node of another kind in the route: " .. tostring(p.node.id)) end
+        assert(run.goal == "plan" and run.target and run.path and #run.path > 0, "the plan run steers to nothing")
+        for key, w in pairs(run.weights) do assert(w == 1 or w == 0, "the weight of " .. tostring(key) .. " is " .. tostring(w) .. ": a plan run knows 1 (you can gather it) and 0") end
+        assert(Said((L["Route goal: %s."]):format(L["Plan"])), "the start line does not name the plan as the goal")
+        local row = Row(COPPER)
+        assert(row and row.need == 30 and row.have == 0 and row.ok == false, "copper ore at the start: " .. tostring(row and row.have) .. " / " .. tostring(row and row.need))
+
+        -- typed by hand without a zone: the zone you stand in, nothing else
+        ns.StopRun(true)
+        slash("run " .. F30) W.Wait(1)
+        run = ns.run
+        assert(run and run.plan and run.zone == 1412 and ns.db.activeRun.zone == 1412 and #run.points == 3, "/gcr run with a plan filter: not a run in the zone you stand in")
+
+        -- ---- loot never counts: only what the plan says you have (tests 3, 12)
+        W.At(100)
+        local c = W.Cast("Copper Vein", 2575) W.Wait(2) W.Done(c, 2575) W.Loot(1731, COPPER, "T2A001") fire("LOOT_CLOSED") W.Wait(4)
+        row = Row(COPPER)
+        assert(row.have == 0 and State() == "active", "a gather counted without the bags: " .. tostring(row.have))
+        local pub0 = published
+        stock[COPPER] = 12 Bags(3) W.Wait(1) Bags(1) W.Wait(1)
+        row = Row(COPPER)
+        assert(row.have == 12 and row.ok == false, "after the bags changed: " .. tostring(row.have) .. ", want 12")
+        assert(published == pub0 + 1, "4 bag events for one change gave " .. (published - pub0) .. " plans, want 1")
+
+        -- ---- the last material: no end while the loot is on its way (waiting), then one end, silent
+        local ends0 = Ends()
+        mark = #log
+        fire("LOOT_OPENED")
+        stock[COPPER] = 30 Bags(1) W.Wait(0.5)
+        assert(ns.run and State() == "waiting" and Ends() == ends0, "ended (or decided) with the loot window open: " .. tostring(State()))
+        fire("LOOT_CLOSED") W.Wait(1)
+        assert(ns.run and State() == "waiting", "decided 1 s after the loot window closed, without a bag update: " .. tostring(State()))
+        W.Wait(2)
+        assert(ns.run == nil and ns.db.activeRun == nil, "not ended 3 s after the loot window closed with everything gathered")
+        local last = Last()
+        assert(Ends() == ends0 + 1 and last.kind == "success" and last.prof == "Mining" and last.target == 30 and last.zone == 1412, "the end: " .. tostring(last and last.kind))
+        assert(last.rows[1].item == COPPER and last.rows[1].ok and last.rows[1].have == 30, "the end does not say what was gathered")
+        assert(not Said(L["Run stopped."]) and not summary() and hintShown() == 0, "the end of a plan run said \"Run stopped.\", showed the run summary or the blocked window")
+        assert(ns.PlanRunState() == nil and select(2, ns.SkillPlanFor("Mining", 30)) == "off", "something of the plan run is left after its end")
+        -- later events find no run: no second end, and nothing starts again when the count falls
+        Bags(2) fire("LOOT_CLOSED") fire("SKILL_LINES_CHANGED") W.Wait(4)
+        stock[COPPER] = 5 Bags(1) W.Wait(4)
+        assert(Ends() == ends0 + 1 and ns.run == nil, "a second end, or a run that started by itself")
+        -- asked for with everything gathered: no run, a word
+        stock[COPPER] = 30
+        mark = #log
+        ns.StartRun(F30, 1412) W.Wait(1)
+        assert(ns.run == nil and Ends() == ends0 + 1 and Said(L["Everything from the map is gathered for your plan."]), "a run although everything is gathered")
+        -- the bag update right after the loot window: decided at once
+        stock[COPPER] = 29
+        ns.StartRun(F30, 1412) W.Wait(1)
+        assert(State() == "active", "test setup: no run with 29 of 30")
+        fire("LOOT_OPENED") fire("LOOT_CLOSED") stock[COPPER] = 30 Bags(1) W.Wait(0.5)
+        assert(ns.run == nil and Ends() == ends0 + 2, "loot window closed, then the bags: not ended at once")
+        -- a skill point before the bags: waiting, decided with the bags (test 14)
+        stock[COPPER] = 29
+        ns.StartRun(F30, 1412) W.Wait(1)
+        stock[COPPER] = 30
+        fire("SKILL_LINES_CHANGED") W.Wait(0.5)
+        assert(ns.run and State() == "waiting" and Ends() == ends0 + 2, "decided on a skill change before the bags: " .. tostring(State()))
+        Bags(2) W.Wait(0.5)
+        assert(ns.run == nil and Ends() == ends0 + 3, "not ended with the bags after the skill change")
+        -- a skill change that no bag update follows (a trainer): 2 s, then decided
+        stock[COPPER] = 29
+        ns.StartRun(F30, 1412) W.Wait(1)
+        stock[COPPER] = 30
+        fire("SKILL_LINES_CHANGED") W.Wait(1.5)
+        assert(ns.run, "decided 1.5 s after a skill change")
+        W.Wait(1.5)
+        assert(ns.run == nil and Ends() == ends0 + 4, "a skill change without a bag update keeps the run waiting")
+
+        -- ---- stopped by the player: as any run, and nothing of the plan stays
+        stock[COPPER] = 0
+        ns.StartRun(F30, 1412) W.Wait(1)
+        mark = #log
+        local endsS = Ends()
+        ns.StopRun()
+        assert(Said(L["Run stopped."]) and ns.run == nil and ns.PlanRunState() == nil and Ends() == endsS, "a stop by the player is not a plain stop")
+        computes = 0
+        stock[COPPER] = 7 Bags(2) W.Wait(2)
+        assert(computes == 0, "the plan is worked out after the plan run was stopped")
+
+        -- ---- blocked (tests 8, 14): what is left cannot be farmed here - no success, a small window, once
+        -- the plan to 75 needs copper (120) and tin (10); the copper is there
+        local F75 = ns.PlanFilter("Mining", 75)
+        stock[COPPER], stock[TIN] = 120, 0
+        Veins({ Tin() })
+        -- asked for without the skill for tin: no run, why
+        gatherSkill = 10
+        mark = #log
+        local endsB, hints0 = Ends(), hintShown()
+        ns.StartRun(F75, 1412) W.Wait(1)
+        assert(ns.run == nil and Ends() == endsB, "a run for tin without the skill for it")
+        assert(Said(ns.ItemName(TIN) or "x") and Said(L["can't gather yet"]), "no word why there is no run (can't gather yet)")
+        local check = ns.PlanRunCheck("Mining", 75, 1412)
+        assert(check.state == "blocked" and #check.reasons == 1 and check.reasons[1].item == TIN and check.reasons[1].reason == "no_skill", "the check of the zone: " .. tostring(check.state))
+        -- with the skill it runs - to the tin vein only (the copper is covered)
+        gatherSkill = 100
+        ns.StartRun(F75, 1412) W.Wait(1)
+        run = ns.run
+        assert(run and State() == "active" and #run.points == 1 and run.points[1].node.id == TINVEIN, "the run for tin: " .. tostring(State()) .. ", " .. tostring(run and #run.points) .. " nodes")
+        assert(Row(COPPER).ok and not Row(TIN).ok, "copper is not ticked or tin is")
+        -- the skill is gone in the middle of the run (gloves off): blocked, not success
+        gatherSkill = 10
+        mark = #log
+        W.Wait(40) Bags(1) W.Wait(2)
+        last = Last()
+        assert(ns.run == nil and Ends() == endsB + 1 and last.kind == "blocked", "the run without anything to gather left did not end as blocked")
+        assert(#last.reasons == 1 and last.reasons[1].item == TIN and last.reasons[1].reason == "no_skill", "the reason of the blocked end")
+        assert(hintShown() == hints0 + 1 and _G.GathercraftPlanHint:IsShown(), "the blocked end shows no window (or more than one)")
+        assert(not Said(L["Run stopped."]) and not summary() and not Said(L["You can't gather any of these nodes yet (skill too low or profession not learned)."]),
+            "the blocked end went the route's own way out")
+        Bags(2) W.Wait(4)
+        assert(hintShown() == hints0 + 1 and Ends() == endsB + 1, "a second window after the blocked end")
+        _G.GathercraftPlanHint:Hide()
+        gatherSkill = 100
+        -- only in another zone: blocked with "not in this zone", and the run never changes its zone
+        Veins()
+        ns.db.nodes[1413] = { Tin(0) }
+        ns.NotifyNodesChanged() advance(1)
+        check = ns.PlanRunCheck("Mining", 75, 1412)
+        assert(check.state == "blocked" and check.reasons[1].reason == "not_in_zone", "tin only in another zone: " .. tostring(check.state) .. " " .. tostring(check.reasons and check.reasons[1] and check.reasons[1].reason))
+        mark = #log
+        ns.StartRun(F75, 1412) W.Wait(1)
+        assert(ns.run == nil and Said(L["not in this zone"]), "a run (in another zone?) although nothing is here")
+        ns.db.nodes[1413] = saved.other
+        -- switched off in the Zones tab, parked by reports
+        Veins({ Tin() })
+        ns.IsNodeEnabled = function(n, mapID) if n.id == TINVEIN then return false end return saved.enabled(n, mapID) end
+        check = ns.PlanRunCheck("Mining", 75, 1412)
+        assert(check.state == "blocked" and check.reasons[1].reason == "kinds_off", "tin switched off: " .. tostring(check.reasons and check.reasons[1] and check.reasons[1].reason))
+        ns.IsNodeEnabled = saved.enabled
+        ns.IsParked = function(n) return n.id == TINVEIN end
+        ns.NotifyNodesChanged() advance(1)
+        check = ns.PlanRunCheck("Mining", 75, 1412)
+        assert(check.state == "blocked" and check.reasons[1].reason == "parked", "tin parked: " .. tostring(check.reasons and check.reasons[1] and check.reasons[1].reason))
+        ns.IsParked = saved.parked
+        ns.NotifyNodesChanged() advance(1)
+        -- no gathering profession can be read: not filtered, as every run - no success, not blocked
+        gatherSkill = nil
+        check = ns.PlanRunCheck("Mining", 75, 1412)
+        assert(check.state == "active", "no gathering skill readable: " .. tostring(check.state))
+        gatherSkill = 100
+        -- a count that is not known: "?", no tick, never an end
+        stock[COPPER], stock[TIN] = "?", 10
+        ns.StartRun(F75, 1412) W.Wait(1)
+        row = Row(COPPER)
+        assert(ns.run and State() == "active" and row.have == nil and row.ok == false and Row(TIN).ok, "an unknown count: " .. tostring(State()) .. ", copper " .. tostring(row and row.have))
+        Bags(2) W.Wait(4)
+        assert(ns.run and Ends() == endsB + 1, "ended with a count that is not known")
+        ns.StopRun(true)
+
+        -- ---- the plan itself (the order's extra tests; test 14): told through what the plan run is given
+        Veins({ Tin() })
+        stock[COPPER], stock[TIN] = 0, 0
+        ns.StartRun(F75, 1412) W.Wait(1)
+        assert(State() == "active" and #ns.run.points == 4, "test setup: the run for copper and tin")
+        local endsP = Ends()
+        local given
+        ns.SkillPlanFor = function() if type(given) == "table" then return given end return nil, given end
+        local function Result(items, more)
+            local res = { prof = "Mining", from = 1, target = 75, status = "ok", valid = true, complete = true, reliable = true, revision = 9000, items = {} }
+            for id, m in pairs(items) do res.items[id] = { need = m[1], have = m[2], haveKnown = m[2] ~= nil, missing = math.max(0, m[1] - (m[2] or 0)) } end
+            for k, v in pairs(more or {}) do res[k] = v end
+            return res
+        end
+        local ALL = { [COPPER] = { 120, 120 }, [TIN] = { 10, 10 } }
+        local function Look() Bags(1) W.Wait(1) end
+        -- a preview (the skill was only seen last) with everything covered: no end, no tick taken from it
+        given = Result(ALL, { reliable = false, status = "preview", complete = false })
+        Look()
+        local st, s = State()
+        assert(ns.run and st == "invalid" and s.why == "preview" and s.frozen and Ends() == endsP, "a preview with everything covered: " .. tostring(st))
+        assert(s.rows and #s.rows == 2 and s.rows[1].have == 0, "the rows read last are gone while the plan is not known")
+        assert(ns.run.target and #ns.run.points == 4, "the route did not go on with the materials read last")
+        -- a plan that is being worked out anew: waiting
+        given = Result(ALL, { updating = true })
+        Look()
+        assert(ns.run and State() == "waiting" and Ends() == endsP, "a plan marked as being updated ended the run: " .. tostring(State()))
+        given = "working" Look()
+        assert(ns.run and State() == "waiting", "a plan on its way: " .. tostring(State()))
+        -- no plan to go by
+        for _, w in ipairs({ "window", "skill", "broke" }) do
+            given = w Look()
+            st, s = State()
+            assert(ns.run and st == "invalid" and s.why == w and Ends() == endsP, "no plan (" .. w .. "): " .. tostring(st))
+        end
+        given = Result(ALL, { valid = false, complete = false, status = "invalid" })
+        Look()
+        assert(ns.run and State() == "invalid" and Ends() == endsP, "an invalid plan with everything covered ended the run")
+        -- an empty route never ends a plan run: no nodes at all and no plan
+        given = "skill"
+        W.Set({}) W.At(0)
+        mark = #log
+        Look() W.Wait(40)
+        assert(ns.run and State() == "invalid" and Ends() == endsP and ns.run.target == nil, "a plan run without nodes and without a plan ended (from the empty route?)")
+        assert(not Said(L["No matching nodes in "]) and not Said(L["Run stopped."]), "the empty route's own way out")
+        -- an incomplete plan with all it lists covered: blocked, never success
+        Veins({ Tin() })
+        given = Result(ALL, { complete = false, status = "incomplete" })
+        Look()
+        last = Last()
+        assert(ns.run == nil and Ends() == endsP + 1 and last.kind == "blocked" and last.reasons[1].reason == "plan_incomplete", "an incomplete plan with everything covered: " .. tostring(last and last.kind))
+        _G.GathercraftPlanHint:Hide()
+        -- the target is reached, or the plan needs nothing from the map: success, also with nothing at all in K
+        for i, res in ipairs({ Result({}, { status = "done" }), Result({ [2840] = { 8, 0 } }), Result({ [COPPER] = { 0, 0 }, [TIN] = { 0, 5 } }) }) do
+            given = Result({ [COPPER] = { 120, 0 }, [TIN] = { 10, 0 } })
+            ns.StartRun(F75, 1412) W.Wait(1)
+            assert(State() == "active", "test setup: the run before case " .. i)
+            given = res
+            local e0 = Ends()
+            Look()
+            last = Last()
+            assert(ns.run == nil and Ends() == e0 + 1 and last.kind == "success", "nothing left from the map (case " .. i .. "): " .. tostring(last and last.kind))
+            assert(#last.rows == 0 and (i ~= 2 or (#last.offMap == 1 and last.offMap[1].item == 2840 and not last.offMap[1].ok)), "the end does not name what is not on the map (case " .. i .. ")")
+        end
+        -- asked for: target reached / no plan
+        mark = #log
+        given = Result({}, { status = "done" })
+        ns.StartRun(F75, 1412) W.Wait(1)
+        assert(ns.run == nil and Said(L["Target reached: nothing left to farm for your plan."]), "a run although the target is reached")
+        for w, text in pairs({ window = "the skill plan shows another profession", skill = "your skill can't be read", preview = "the plan is only a preview (skill last seen)" }) do
+            mark = #log
+            given = w == "preview" and Result(ALL, { reliable = false, status = "preview" }) or w
+            ns.StartRun(F75, 1412) W.Wait(1)
+            assert(ns.run == nil and Said((L["No plan run: %s."]):format(L[text])), "a run without a plan to go by (" .. w .. ")")
+        end
+
+        -- ---- the target is changed in the open window: the same profession is followed, another one is not (Sven V7)
+        given = Result({ [COPPER] = { 120, 0 }, [TIN] = { 10, 0 } })
+        ns.StartRun(F75, 1412) W.Wait(1)
+        ns.SkillPlanShown = function() return "Tailoring", 150 end
+        Look()
+        assert(ns.run and ns.run.filter == F75 and ns.db.activeRun.filter == F75, "the run followed another profession")
+        ns.SkillPlanShown = function() return "Mining", 65 end
+        Look()
+        local F65 = ns.PlanFilter("Mining", 65)
+        s = ns.PlanRunState()
+        assert(ns.run and ns.run.filter == F65 and ns.db.activeRun.filter == F65 and s.target == 65, "the run did not follow the new target: " .. tostring(ns.run and ns.run.filter))
+        ns.SkillPlanShown = saved.shown
+        ns.StopRun(true)
+        ns.SkillPlanFor = saved.planFor
+
+        -- ---- after a reload (test 5): the same run goes on; a format this version does not know is dropped and said
+        stock[COPPER], stock[TIN] = 5, 0
+        Veins({ Tin() })
+        ns.StartRun(F75, 1412) W.Wait(1)
+        local keep = { filter = ns.db.activeRun.filter, zone = ns.db.activeRun.zone }
+        ns.StopRun(true)
+        ns.db.activeRun = { filter = keep.filter, zone = keep.zone }
+        assert(ns.PlanRunResume(ns.db.activeRun) and ns.run, "the saved plan run was not taken up")
+        W.Wait(1)
+        row = Row(COPPER)
+        assert(ns.run.filter == F75 and ns.run.zone == 1412 and State() == "active" and row.have == 5 and row.need == 120, "the run after the reload: " .. tostring(State()))
+        -- everything covered when it is taken up: one end
+        ns.StopRun(true)
+        stock[COPPER], stock[TIN] = 120, 10
+        ns.db.activeRun = { filter = keep.filter, zone = keep.zone }
+        local endsR = Ends()
+        ns.PlanRunResume(ns.db.activeRun) W.Wait(2)
+        assert(ns.run == nil and ns.db.activeRun == nil and Ends() == endsR + 1 and Last().kind == "success", "taken up with everything gathered: not one end")
+        Bags(1) W.Wait(3)
+        assert(ns.run == nil and Ends() == endsR + 1, "something happened after the end")
+        -- formats of another version, a missing zone
+        for _, bad in ipairs({ { filter = "plan:v2:mining:75", zone = 1412 }, { filter = "plan:mining:75", zone = 1412 }, { filter = "plan:v1:bergbau:75", zone = 1412 },
+            { filter = "plan:v1:mining:75" } }) do
+            mark = #log
+            ns.db.activeRun = bad
+            assert(ns.PlanRunResume(bad) == false, "a saved run of an unknown format was taken up: " .. bad.filter)
+            W.Wait(1)
+            assert(ns.run == nil and ns.db.activeRun == nil, "an unknown format left a run or a saved run behind: " .. bad.filter)
+            assert(Said(L["Your saved plan run can't be resumed (unknown format). Start it again from the skill plan."]), "no word about the saved run: " .. bad.filter)
+        end
+        local coreSrc = assert(io.open(ROOT .. "/Core.lua")):read("*a")
+        assert(coreSrc:find("ns.PlanRunResume(saved)", 1, true), "Core.lua does not hand a saved plan run to PlanFarm.lua")
+
+        -- ---- the open window decides what is planned: one calculation for both readers
+        stock[COPPER], stock[TIN] = 5, 0
+        ns.db.planTargets = nil -- (the window's target for skill 1 is the next rank: 75)
+        Veins({ Tin() })
+        ns.StartRun(F75, 1412) W.Wait(1)
+        assert(State() == "active" and Row(COPPER).have == 5, "test setup: the run before the window opens")
+        ns.ShowSkillPlan("Mining") W.Wait(1)
+        win = _G.GathercraftSkillPlan
+        assert(win and win:IsShown() and State() == "active", "the window open on the run's plan: " .. tostring(State()))
+        local c0, p0 = computes, published
+        stock[COPPER] = 6 Bags(2) W.Wait(1)
+        assert(Row(COPPER).have == 6, "the run did not get the plan the window worked out: " .. tostring(Row(COPPER).have))
+        assert(computes == c0 + 1 and published == p0 + 1, ("one change with window and run: worked out %d times, %d plans - want 1 and 1"):format(computes - c0, published - p0))
+        -- the window shows another profession: the run knows nothing new and decides nothing
+        ns.ShowSkillPlan("Tailoring") W.Wait(1)
+        stock[COPPER], stock[TIN] = 120, 10
+        Bags(1) W.Wait(3)
+        st, s = State()
+        assert(ns.run and st == "invalid" and s.why == "window" and s.frozen, "the window on another profession: " .. tostring(st) .. " " .. tostring(s and s.why))
+        assert(s.rows and Row(COPPER).have == 6, "the rows read last are gone while the window shows another profession")
+        -- closed again: the run reads the plan itself - and ends, everything is there
+        local endsW = Ends()
+        win:Hide()
+        Bags(1) W.Wait(1)
+        assert(ns.run == nil and Ends() == endsW + 1 and Last().kind == "success", "after the window closed the run did not read the plan")
+
+        -- ---- the single "Farm" run of one material goes by the node's own item as before
+        Veins()
+        ns.StartRun("item:2835", 1412) W.Wait(1)
+        assert(ns.run and #ns.run.points == 1 and ns.run.points[1].node.item == 2835, "an item: run changed: " .. tostring(ns.run and #ns.run.points))
+        ns.StopRun(true)
+        assert(#errors == before, "an error: " .. tostring(errors[#errors]))
+    end)
+    ns.SkillPlanFor, ns.SkillPlanShown = saved.planFor, saved.shown
+    if ns.run then ns.StopRun(true) end
+    ns.ProfessionRank, d.Have, d.Known, ns.GetSkill, core.Compute = saved.rank, saved.have, saved.known, saved.skill, saved.compute
+    ns.IsNodeEnabled, ns.IsParked, ns.db.planTargets = saved.enabled, saved.parked, saved.targets
+    for i = #ns.skillPlanListeners, 1, -1 do
+        if ns.skillPlanListeners[i] == saved.count then table.remove(ns.skillPlanListeners, i) end
+    end
+    if win then win:Hide() end
+    ns.db.nodes[1413], ns.db.activeRun, ns.db.kindLoot = saved.other, saved.run, saved.loot
+    if _G.GathercraftPlanHint then _G.GathercraftPlanHint:Hide() end
+    if _G.GathercraftRunSummary then _G.GathercraftRunSummary:Hide() end
+    W.Restore()
+    if not ok then error(err, 0) end
+end)
 -- (end of the "Farm for plan" steps, v0.2 building block 3)
 step("Long run (10 min) for leaks", function() slash("run herb") advance(600) slash("stop") end)
 step("Test mock: OnUpdate runs for the same frames in the same order as going over every frame (tools only)", function()

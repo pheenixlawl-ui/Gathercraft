@@ -220,10 +220,12 @@ ns.SkillPlanSnapshot = Snapshot
 --                          now - nothing to count as reached or to buy by.
 --                          updating = true: the state has changed and a new
 --                          plan is being worked out (or would be, were the
---                          window open) - this one is the last finished one.
+--                          window open or a plan run active) - this one is
+--                          the last finished one.
 --   ns.SkillPlanBusy()     is the window working out a plan right now?
 --   ns.skillPlanListeners  functions called with that result when a new
---                          revision is there (nobody listens yet)
+--                          revision is there
+--   ns.SkillPlanFor()      the plan for a plan run, the second reader (below)
 ---------------------------------------------------------------------------
 local calc = { revision = 0 }
 ns.skillPlanListeners = ns.skillPlanListeners or {}
@@ -372,23 +374,36 @@ end
 -- this is still the calculation that is wanted. The frame after the last
 -- part takes the finished plan (a fresh look at the game, then the window is
 -- drawn) - not the frame that did the last part as well.
+local runnerOn = false -- a plan run reads the plan too (0.2 B3, below)
+local function WindowShown()
+    local shown = _G.GathercraftSkillPlan
+    return (shown and shown:IsShown()) and true or false
+end
+-- a part is done or broke: whoever reads the plan looks again - the open
+-- window, else the plan run
+local function Advance()
+    if WindowShown() then
+        ns.RefreshSkillPlan()
+    elseif runnerOn and ns.PlanRunLook then
+        ns.PlanRunLook()
+    end
+end
 local function Drive(j)
     C_Timer.After(0, function()
         if job ~= j then return end
-        local shown = _G.GathercraftSkillPlan
-        if not (shown and shown:IsShown()) then
-            job = nil -- closed: nothing goes on
+        if not WindowShown() and not runnerOn then
+            job = nil -- closed and no plan run: nothing goes on
             return
         end
         if j.plan then
-            ns.RefreshSkillPlan()
+            Advance()
             return
         end
         Part(j)
         if j.failed then
             -- it broke in this part: the window is drawn without "Updating"
             -- and raises the error
-            ns.RefreshSkillPlan()
+            Advance()
             return
         end
         Drive(j)
@@ -451,6 +466,57 @@ local function DropJob() job = nil end
 -- before may be tried once more
 local function TryAgain() broke = nil end
 ns.SkillPlanBusy = function() return job ~= nil end
+
+---------------------------------------------------------------------------
+-- The second reader: an active plan run (0.2 B3, concept shopping list 4.1,
+-- Codex P1). It reads the SAME plan as the window - one calculation, one
+-- revision, worked out in the same parts - and nothing of its own:
+--   * the window is open: it decides what is planned. The run gets the
+--     result when it is the plan of its profession and target, and
+--     "window" when the window shows something else (the run then knows
+--     nothing new and decides nothing).
+--   * the window is closed: the run asks for the plan of its profession
+--     and target, as the window would.
+--   * no window and no run (ns.SkillPlanRunner(false)): nothing is worked
+--     out, as before.
+-- ns.SkillPlanFor(prof, target) -> the result (never one that is being
+-- updated), or nil and why: "off", "window", "skill" (it cannot be read or
+-- the profession is not learned), "working" (on its way: ns.PlanRunLook is
+-- called when it is there), "broke".
+---------------------------------------------------------------------------
+ns.SkillPlanRunner = function(on)
+    runnerOn = on and true or false
+end
+ns.SkillPlanFor = function(prof, target)
+    if not runnerOn then return nil, "off" end
+    if WindowShown() then
+        -- (what the window shows now - not what it showed before: a plan of
+        -- this profession left from earlier is not kept up to date)
+        local shownProf, shownTarget = ns.SkillPlanShown()
+        if shownProf ~= prof or shownTarget ~= target then return nil, "window" end
+        local r = calc.result
+        if not (r and r.prof == prof and r.target == target) then return nil, "working" end
+        if r.updating or job then return nil, "working" end
+        return r
+    end
+    local skillState, rank, _, _, source, seenAt = SkillState(prof)
+    if skillState ~= "learned" then
+        DropJob()
+        return nil, "skill"
+    end
+    local plan, updating, broken = PlanToShow(prof, rank, target, source == "lastSeen" and "lastSeen" or nil, seenAt)
+    if broken then
+        -- reported once, like any other error - after the run has been told
+        if not broken.reported then
+            broken.reported = true
+            local err = broken.err
+            C_Timer.After(0, function() error(err, 0) end)
+        end
+        return nil, "broke"
+    end
+    if updating or not plan or plan ~= calc.plan then return nil, "working" end
+    return calc.result
+end
 
 -- steps, materials, cost of the missing materials, where the plan got stuck,
 -- whether stand-in prices were used, and info = { learn costs, missing
@@ -633,6 +699,13 @@ ns.SkillPlanSetTarget = function(value)
     if ns.RefreshSkillPlan then ns.RefreshSkillPlan() end
     return ok, hint
 end
+-- What the open window plans: the profession and its target (nil while it
+-- is closed or shows no plan). 1 and the highest target there is.
+ns.SkillPlanShown = function()
+    if not WindowShown() or not state.prof or not state.skill then return nil end
+    return state.prof, TargetFor(state.prof, state.skill)
+end
+ns.SkillPlanTargetRange = function() return 1, CAPS[#CAPS] end
 
 -- when the bank was last opened on this character (for the tooltip)
 local bankWatch = CreateFrame("Frame")

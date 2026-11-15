@@ -135,6 +135,9 @@ local TYPE_FILTERS = { herb = true, ore = true }
 -- "item:2770": every node that gives this item (any language, rich and poor
 -- variants too) - the skill planner's farm runs use it
 local itemFilters = {}
+local function IsPlanFilter(filter)
+    return type(filter) == "string" and filter:sub(1, 5) == "plan:"
+end
 local function FilterItem(filter)
     local item = itemFilters[filter]
     if item == nil then
@@ -155,6 +158,9 @@ local function MatchesFilter(n, filter)
     if not filter then return true end
     if filter == "both" then return n.type == "herb" or n.type == "ore" end
     if TYPE_FILTERS[filter] then return n.type == filter end -- no string work per node
+    -- a plan run (PlanFarm.lua): the node's kind against the plan's
+    -- materials - never the item a node says it gave, never a name
+    if IsPlanFilter(filter) then return ns.PlanRunMatches ~= nil and ns.PlanRunMatches(n, filter) end
     local item = FilterItem(filter)
     if item then return NodeItem(n) == item end
     return n.type == filter or n.name:lower():find(filter, 1, true)
@@ -1302,7 +1308,9 @@ local function StopRun(silent, summary)
     ClearLine()
     preview = nil
     if ns.run then
+        local wasPlan = ns.run.plan
         ns.run = nil
+        if wasPlan and ns.PlanRunStopped then ns.PlanRunStopped() end
         if ns.UpdateGatherHelp then ns.UpdateGatherHelp("run stop") end
         ClearTargetMarks()
         if not silent then
@@ -1324,6 +1332,8 @@ Plan = function(quick)
 
     -- The node list only changes when the database changes: reuse it
     -- (rebuilding thousands of entries on every plan makes the game hitch)
+    -- a plan run: what the plan needs now (a change collects the nodes anew)
+    if run.plan and ns.PlanRunRefresh then ns.PlanRunRefresh(run) end
     if not run.points or run.pointsDirty or run.pointsInstance ~= instance then
         run.points = CollectPoints(run.filter, instance, run.zone, run.quick)
         -- picked zones far apart: the group of neighbouring zones near you.
@@ -1380,6 +1390,31 @@ Plan = function(quick)
     end
     local points = run.points
     run.total = #points
+    if run.plan then
+        -- A plan run never ends from an empty route or from "nothing you
+        -- can gather": its state is worked out from the plan (success,
+        -- blocked, waiting, plan unknown) before those two ways - and it
+        -- ends itself, once (PlanFarm.lua).
+        if not run.weights or run.pointsChanged or time() - (run.weightsAt or 0) > 30 then
+            -- what you can gather counts 1, the rest 0: no gold, no skill-ups
+            local weights = KindWeights(points)
+            for key, w in pairs(weights) do weights[key] = w > 0 and 1 or 0 end
+            run.weights, run.goal = weights, "plan"
+            run.weightsAt, run.pointsChanged = time(), nil
+            run.loopDirty = true
+        end
+        local verdict = ns.PlanRunJudge and ns.PlanRunJudge(run, points, run.weights) or "hold"
+        if verdict == "end" then return end -- (it has stopped the run)
+        if verdict ~= "go" then
+            -- waiting for the bags or the plan: nothing is steered to, nothing ends
+            run.target, run.targetPoint, run.path = nil, nil, nil
+            ClearLine()
+            ClearTargetMarks()
+            run.held = true
+            return
+        end
+        run.held = nil
+    end
     if #points == 0 then
         ns.Print(run.zone and (L["No matching nodes in "] .. ns.GetZoneName(run.zone) .. ".")
             or L["No matching nodes on this continent (check /gcr zones)."])
@@ -1993,8 +2028,18 @@ local function StartRun(filter, zone, quick)
         ns.Print(L["HereBeDragons missing, routes are not available."])
         return
     end
-    StopRun(true)
     filter = (filter and filter ~= "") and filter:lower() or nil
+    local plan
+    if IsPlanFilter(filter) then
+        -- always one zone (no group of zones, no run "where you are" with its
+        -- search for another zone); an unknown format is no run at all
+        local here = ns.GetPlayerPos and ns.GetPlayerPos()
+        zone, quick = zone or (here and CITY_ZONE[here] or here), nil
+        plan = ns.PlanRunBegin and ns.PlanRunBegin(filter, zone)
+        if not plan then return end
+    end
+    StopRun(true)
+    if plan and ns.PlanRunBegun then ns.PlanRunBegun(plan) end
 
     ns.run = {
         startedAt = GetTime(), -- the run's numbers count from here (UI.lua RunStats)
@@ -2006,7 +2051,8 @@ local function StartRun(filter, zone, quick)
         harvests = {}, -- where we harvested during this run (recent ones)
         round = 1,
         done = 0,
-        loopMode = LoopMode() or nil, -- a fixed round instead of planning live
+        loopMode = (not plan and LoopMode()) or nil, -- a fixed round instead of planning live
+        plan = plan, -- a plan run: { prof, target } (PlanFarm.lua)
     }
     ns.db.activeRun = { filter = filter, zone = zone, quick = quick or nil }
     ns.run.bonusSig = BonusSignature()
@@ -2020,7 +2066,7 @@ local function StartRun(filter, zone, quick)
             #run.loop, run.zones, run.loopLength or 0))
     elseif run.path then
         ns.Print((L["Run started: %d nodes in %d zone(s), path %d yd."]):format(
-            #run.path, run.zones, run.length) .. " " .. (L["Route goal: %s."]):format(L[GOAL_NAMES[run.goal] or "Nodes"]))
+            #run.path, run.zones, run.length) .. " " .. (L["Route goal: %s."]):format(run.plan and L["Plan"] or L[GOAL_NAMES[run.goal] or "Nodes"]))
     end
     ticker = C_Timer.NewTicker(TICK, CheckArrival)
     headTicker = C_Timer.NewTicker(HEAD_TICK, UpdateHead)
@@ -2234,6 +2280,10 @@ local function PreviewRoute(filter)
     end
 
     filter = (filter and filter ~= "") and filter:lower() or nil
+    if IsPlanFilter(filter) then
+        ns.Print(L["A plan run has no route preview. Start it from the skill plan."])
+        return
+    end
     local px, py, instance = PlayerWorld()
     if not px then
         ns.Print(L["No position available here."])
@@ -2359,6 +2409,20 @@ end
 ns.ARRIVE_LIMITS = { ARRIVE_MIN, ARRIVE_MAX, ARRIVE_DEFAULT }
 
 ns.StartRun = StartRun
+-- for PlanFarm.lua: the nodes a plan run would take in this zone and the
+-- weight of their kinds (1: you can gather it, 0: not); nil without a position
+ns.PlanRouteCandidates = function(filter, zone)
+    local px, _, instance = PlayerWorld()
+    if not px then return nil end
+    local points = CollectPoints(filter, instance, zone, false)
+    local weights = KindWeights(points)
+    for key, w in pairs(weights) do weights[key] = w > 0 and 1 or 0 end
+    return points, weights
+end
+-- the running run is planned anew now (the plan or the bags changed)
+ns.RouteReplan = function()
+    if ns.run then Plan(true) end
+end
 ns.StopRun = StopRun
 ns.SkipNode = SkipNode
 ns.PreviewRoute = PreviewRoute

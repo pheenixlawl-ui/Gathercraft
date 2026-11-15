@@ -1356,7 +1356,11 @@ frame:SetScript("OnEvent", function(self, event, ...)
         -- Resume a run that was active before reload/logout
         if ns.db.activeRun then
             C_Timer.After(2, function()
-                if ns.db.activeRun then
+                local saved = ns.db.activeRun
+                if saved and type(saved.filter) == "string" and saved.filter:sub(1, 5) == "plan:" then
+                    -- a plan run (PlanFarm.lua): checked there, never another route instead
+                    if ns.PlanRunResume then ns.PlanRunResume(saved) else ns.db.activeRun = nil end
+                elseif saved then
                     ns.StartRun(ns.db.activeRun.filter, ns.db.activeRun.zone, ns.db.activeRun.quick)
                 end
             end)
