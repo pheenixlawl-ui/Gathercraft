@@ -585,4 +585,5 @@ ns.Locales.ptBR = {
     ["The small window with your catch and gold per hour while you fish. The catch is counted all the same."] = "A janelinha com suas capturas e o ouro por hora enquanto você pesca. As capturas são contadas do mesmo jeito.",
     ["The game's own icon above your bobber while your line is out. Afterwards your setting is back."] = "O ícone do próprio jogo sobre a sua boia enquanto a linha está na água. Depois, sua configuração volta.",
     ["Sound effects at full volume, music and ambience quiet, while your line is out. Afterwards your volumes are back."] = "Efeitos sonoros no máximo, música e ambiente baixos, enquanto a linha está na água. Depois, seus volumes voltam.",
+    ["Ping when I reach a route point"] = "Ping ao chegar a um ponto da rota",
 }

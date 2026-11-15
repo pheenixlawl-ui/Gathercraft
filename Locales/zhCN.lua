@@ -585,4 +585,5 @@ ns.Locales.zhCN = {
     ["The small window with your catch and gold per hour while you fish. The catch is counted all the same."] = "钓鱼时显示渔获和每小时金币的小窗口。隐藏后渔获照样计数。",
     ["The game's own icon above your bobber while your line is out. Afterwards your setting is back."] = "抛竿期间在你的鱼漂上方显示游戏自带的图标。结束后恢复你的设置。",
     ["Sound effects at full volume, music and ambience quiet, while your line is out. Afterwards your volumes are back."] = "抛竿期间音效开到最大，音乐和环境音调低。结束后恢复你的音量。",
+    ["Ping when I reach a route point"] = "到达路线上的点时播放提示音",
 }

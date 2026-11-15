@@ -1168,6 +1168,12 @@ local function Build()
         macro:SetScript("OnLeave", GameTooltip_Hide)
         nextY = nextY - 28
     end
+    -- (v0.1.23 P3) a switch of the farm runs - it stands here because their
+    -- page is full to the last row, and this one has room since the fishing
+    -- switches have a page of their own
+    AddCheck("Ping when I reach a route point",
+        function() return not ns.db.routePingOff end,
+        function(on) ns.db.routePingOff = not on or nil end)
     AddCheck("Record crafting skill-ups (helps improve the skill plan)",
         function() return not ns.db.craftLogOff end,
         function(on)

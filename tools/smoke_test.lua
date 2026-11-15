@@ -15443,9 +15443,10 @@ step("Options: a page of its own for fishing - four switches with a line each, t
         page.__w = nil
         ns.db.language = saved.lang ns.ApplyLanguage() opts:Refresh()
 
-        -- General has its rows back, and every page that does not flow still ends above the footer
+        -- General has its rows back (one of the four went to the ping switch
+        -- right away: P3), and every page that does not flow still ends above the footer
         local used = ns.OptionsUsedHeight()
-        assert(used.general <= ROOM - 4 * 26, ("General still goes down to %d px"):format(used.general))
+        assert(used.general <= ROOM - 3 * 26, ("General still goes down to %d px"):format(used.general))
         for key, h in pairs(used) do
             if key ~= "level" and key ~= "fishing" then assert(h <= ROOM, ("Options %s: %d px of %d"):format(key, h, ROOM)) end
         end
@@ -15455,6 +15456,76 @@ step("Options: a page of its own for fishing - four switches with a line each, t
     ns.db.language = saved.lang ns.ApplyLanguage()
     ns.ShowOptionsSection(saved.section)
     opts:Refresh()
+    assert(ok, err)
+end)
+step("Run: the ping at a route point has a switch, on unless you turn it off (v0.1.23 P3)", function()
+    -- Sven, and a player on CurseForge ("Is there an option to disable the
+    -- ping sound?"): every point of a run you reach plays the map ping, and
+    -- nothing turned it off. Mulgore in the mock: 1 yd = 0.0002 map x.
+    local LABEL = "Ping when I reach a route point"
+    local PING = 3175
+    local keep = { nodes = ns.db.nodes[1412], arrive = ns.db.arriveDist, map = player.map, x = player.x, y = player.y,
+        kit = SOUNDKIT.MAP_PING, off = ns.db.routePingOff }
+    local function Node(name, id, item, xYd)
+        return { id = "o" .. id, name = name, type = "herb", item = item, x = 0.5 + xYd / 5000, y = 0.5, count = 1, last = 1 }
+    end
+    local function At(xYd) player.map, player.x, player.y = 1412, 0.5 + xYd / 5000, 0.5 end
+    local function Wait(s) for _ = 1, s * 2 do advance(0.5) end end
+    -- a run to a first point 200 yd away; returns the pings on reaching it and what the run did
+    local function Arrive()
+        local first, far = Node("Earthroot", 1619, 2449, 0), Node("Peacebloom", 1618, 2447, 2500)
+        ns.db.nodes[1412] = { first, far }
+        ns.NotifyNodesChanged() advance(1)
+        At(-200)
+        ns.StartRun("herb", 1412) Wait(1)
+        assert(ns.run and ns.run.target == first, "test setup: the run does not go for the first point")
+        local mark = #log
+        At(-19) Wait(1) -- reached (19 yd, the radius is 20)
+        local pings = 0
+        for i = mark + 1, #log do if log[i] == "SOUND " .. PING then pings = pings + 1 end end
+        local done, target = ns.run and ns.run.done, ns.run and ns.run.target
+        ns.StopRun(true)
+        return pings, done, target == far
+    end
+    local ok, err = pcall(function()
+        SOUNDKIT.MAP_PING = PING
+        ns.db.arriveDist = 20
+        -- never touched: the ping is there
+        ns.db.routePingOff = nil
+        local pings, done, onward = Arrive()
+        assert(pings == 1, ("never touched: %d pings at the point"):format(pings))
+        assert(done == 1 and onward, "test setup: the point was not reached")
+        -- the switch: on a page of the options, ticked
+        local label
+        for _, f in ipairs(allFrames) do if f.__kind == "FontString" and f.__text == ns.L[LABEL] then label = f end end
+        assert(label, "no switch '" .. LABEL .. "' in the options")
+        local box = (label.__pts.TOPLEFT and label.__pts.TOPLEFT[1]) or (label.__pts.LEFT and label.__pts.LEFT[1])
+        assert(box and box.__kind == "CheckButton" and box.get and box.__scripts.OnClick, "test setup: the switch has no box")
+        assert(box.get() == true, "never touched, and the box is empty")
+        -- off: no sound, and the run does what it did
+        box:SetChecked(false) box.__scripts.OnClick(box)
+        assert(ns.db.routePingOff == true and box.get() == false, "unticked is saved as " .. tostring(ns.db.routePingOff))
+        local pings2, done2, onward2 = Arrive()
+        assert(pings2 == 0, ("unticked: %d pings at the point"):format(pings2))
+        assert(done2 == done and onward2 == onward, "unticked: the run does not count the point or does not go on")
+        -- on again: nothing is left in the saved data
+        box:SetChecked(true) box.__scripts.OnClick(box)
+        assert(ns.db.routePingOff == nil and box.get() == true, "ticked again is saved as " .. tostring(ns.db.routePingOff))
+        assert(Arrive() == 1, "ticked again: no ping at the point")
+        -- every language, and the page still ends above the footer
+        for lang, d in pairs(ns.Locales) do assert(d[LABEL] and d[LABEL] ~= LABEL, lang .. ": not translated") end
+        local page = label.__parent
+        while page and not page.key do page = page.__parent end
+        assert(page, "the switch is on no page")
+        local used = ns.OptionsUsedHeight()
+        assert(used[page.key] <= 640 - 112 - 18 - 4 - 66, ("Options %s: %d px, too long"):format(page.key, used[page.key]))
+    end)
+    if ns.run then ns.StopRun(true) end
+    SOUNDKIT.MAP_PING, ns.db.routePingOff, ns.db.arriveDist = keep.kit, keep.off, keep.arrive
+    ns.db.nodes[1412] = keep.nodes
+    player.map, player.x, player.y = keep.map, keep.x, keep.y
+    ns.NotifyNodesChanged() advance(1)
+    GathercraftOptions:Refresh()
     assert(ok, err)
 end)
 step("Long run (10 min) for leaks", function() slash("run herb") advance(600) slash("stop") end)

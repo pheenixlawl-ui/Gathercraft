@@ -585,4 +585,5 @@ ns.Locales.koKR = {
     ["The small window with your catch and gold per hour while you fish. The catch is counted all the same."] = "낚시하는 동안 잡은 수와 시간당 골드를 보여 주는 작은 창입니다. 숨겨도 잡은 수는 계속 셉니다.",
     ["The game's own icon above your bobber while your line is out. Afterwards your setting is back."] = "낚싯줄을 던진 동안 찌 위에 게임 자체 아이콘을 표시합니다. 끝나면 원래 설정으로 돌아갑니다.",
     ["Sound effects at full volume, music and ambience quiet, while your line is out. Afterwards your volumes are back."] = "낚싯줄을 던진 동안 효과음은 최대로, 음악과 환경 소리는 작게 합니다. 끝나면 원래 음량으로 돌아갑니다.",
+    ["Ping when I reach a route point"] = "경로 지점에 도착하면 핑 소리",
 }

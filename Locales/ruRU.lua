@@ -585,4 +585,5 @@ ns.Locales.ruRU = {
     ["The small window with your catch and gold per hour while you fish. The catch is counted all the same."] = "Окошко с уловом и золотом в час во время рыбалки. Улов считается и без него.",
     ["The game's own icon above your bobber while your line is out. Afterwards your setting is back."] = "Значок самой игры над вашим поплавком, пока леска заброшена. Потом возвращается ваша настройка.",
     ["Sound effects at full volume, music and ambience quiet, while your line is out. Afterwards your volumes are back."] = "Звуковые эффекты на полную громкость, музыка и окружение тише, пока леска заброшена. Потом возвращается ваша громкость.",
+    ["Ping when I reach a route point"] = "Сигнал при достижении точки маршрута",
 }

@@ -1973,7 +1973,8 @@ local function CheckArrival()
     end
     if reachedTarget and run.loopMode then LoopReached(run, run.target) end
     if reached then
-        if SOUNDKIT and SOUNDKIT.MAP_PING then
+        -- (Options: "Ping when I reach a route point", on unless turned off - v0.1.23 P3)
+        if SOUNDKIT and SOUNDKIT.MAP_PING and not ns.db.routePingOff then
             PlaySound(SOUNDKIT.MAP_PING)
         end
         Plan(true)
