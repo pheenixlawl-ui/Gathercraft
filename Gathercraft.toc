@@ -46,6 +46,7 @@ Main.lua
 Welcome.lua
 PlanCore.lua
 Planner.lua
+PlanFarm.lua
 CraftLog.lua
 SkinLog.lua
 Paths.lua

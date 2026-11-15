@@ -21862,6 +21862,191 @@ step("Item tooltip: the first hover of an item does a little work, the next ones
     if not ok then error(err, 0) end
 end)
 -- (end of the item tooltip steps, v0.2 building block 2)
+-- "Farm for plan", the shopping list of the skill plan on the map (v0.2 building block 3)
+step("Farm for plan: a material's node kinds come from the spawn data alone; your own loot is only 'seen', counted from 20 gathers and 5 finds on (v0.2 B3 T1)", function()
+    -- Concept shopping list 4.4 (Codex M3, P2-P4), tests 1 and 15; Sven V8.
+    assert(type(ns.PlanBaseKinds) == "function" and type(ns.PlanBaseItem) == "function" and type(ns.PlanNodeMatches) == "function"
+        and type(ns.PlanSeen) == "function" and type(ns.PlanSeenLimits) == "function", "no ns.PlanBaseKinds / PlanBaseItem / PlanNodeMatches / PlanSeen / PlanSeenLimits")
+    local toc = assert(io.open(ROOT .. "/Gathercraft.toc")):read("*a")
+    assert(toc:find("\nPlanFarm.lua", 1, true), "PlanFarm.lua is not in the TOC")
+    local data = GathercraftQuestieData
+    local COPPER, STONE, SEED, LINEN = 2770, 2835, 17034, 2589
+    local VEIN = "o1731"
+    local saved = { loot = ns.db.kindLoot, listeners = #ns.gatherListeners }
+    local W = IdentityWorld()
+    local before = #errors
+    local ok, err = pcall(function()
+        -- ---- base: the kinds whose main item it is, counted here again from the data
+        local want = {}
+        for key, kind in pairs(data.kinds) do
+            if (kind[1] == "h" or kind[1] == "o") and kind[2] == COPPER then want[#want + 1] = key end
+        end
+        table.sort(want)
+        assert(#want >= 1 and data.kinds[VEIN] and data.kinds[VEIN][2] == COPPER, "test setup: the copper vein o1731 is not in the spawn data")
+        local got = ns.PlanBaseKinds(COPPER)
+        assert(got and table.concat(got, " ") == table.concat(want, " "), "copper ore: kinds " .. table.concat(got or {}, " ") .. ", want " .. table.concat(want, " "))
+        assert(ns.PlanBaseItem(VEIN) == COPPER, "the copper vein's main item: " .. tostring(ns.PlanBaseItem(VEIN)))
+        -- every kind of the data: herbs and ores with an item have it as their base, nothing else has one
+        local checked = 0
+        for key, kind in pairs(data.kinds) do
+            local isBase = (kind[1] == "h" or kind[1] == "o") and kind[2] > 0
+            assert(ns.PlanBaseItem(key) == (isBase and kind[2] or nil), "the base item of " .. key .. ": " .. tostring(ns.PlanBaseItem(key)))
+            if isBase then
+                local found = false
+                for _, k in ipairs(ns.PlanBaseKinds(kind[2])) do if k == key then found = true end end
+                assert(found, key .. " is not among the kinds of its item " .. kind[2])
+            end
+            checked = checked + 1
+        end
+        assert(checked >= 80, "test setup: only " .. checked .. " kinds")
+        -- a variant passes through its own kind (several kinds, one item)
+        local several
+        for key, kind in pairs(data.kinds) do
+            if (kind[1] == "h" or kind[1] == "o") and kind[2] > 0 and #ns.PlanBaseKinds(kind[2]) >= 2 then several = kind[2] break end
+        end
+        assert(several, "test setup: no item with two node kinds")
+        for _, key in ipairs(ns.PlanBaseKinds(several)) do
+            assert(ns.PlanNodeMatches({ id = key, type = "ore" }, { [several] = true }), "a variant kind of item " .. several .. " does not match: " .. key)
+        end
+        -- no base: rough stone (a by-product), linen (cloth), a chest, things that are no kind
+        local CHEST
+        for key, kind in pairs(data.kinds) do if kind[1] == "c" then CHEST = key break end end
+        assert(CHEST, "test setup: no chest kind")
+        assert(ns.PlanBaseKinds(STONE) == nil and ns.PlanBaseKinds(LINEN) == nil and ns.PlanBaseKinds(0) == nil, "a base for rough stone, linen or item 0")
+        assert(ns.PlanBaseItem(CHEST) == nil and ns.PlanBaseItem("o999999") == nil and ns.PlanBaseItem(nil) == nil and ns.PlanBaseItem(1731) == nil, "a base item for a chest or for no kind")
+
+        -- ---- the match asks the kind, never what the node says it gave
+        local set = { [COPPER] = true }
+        assert(ns.PlanNodeMatches({ id = VEIN, type = "ore" }, set), "a copper vein does not match copper ore")
+        assert(ns.PlanNodeMatches({ id = VEIN, type = "ore", item = STONE }, set), "a copper vein whose own loot said rough stone does not match copper ore")
+        assert(not ns.PlanNodeMatches({ id = VEIN, type = "ore", item = STONE }, { [STONE] = true }), "n.item made a node a target for rough stone")
+        assert(not ns.PlanNodeMatches({ id = "o999999", type = "ore", item = COPPER }, set), "a kind the spawn data does not know matched through n.item")
+        assert(not ns.PlanNodeMatches({ id = "o999999", type = "ore", item = COPPER, source = "sync" }, set), "a node from sync matched through its item")
+        assert(not ns.PlanNodeMatches({ id = CHEST, type = "chest", item = COPPER }, set), "a chest matched")
+        assert(not ns.PlanNodeMatches({ type = "ore", name = "Copper Vein", item = COPPER }, set), "a node without an ID matched")
+        assert(not ns.PlanNodeMatches({ id = VEIN }, {}) and not ns.PlanNodeMatches({ id = VEIN }, nil) and not ns.PlanNodeMatches(nil, set), "a match without a wanted item")
+
+        -- ---- seen: counted by the listener, from real gathers
+        local minGathers, minItem, maxItems = ns.PlanSeenLimits()
+        assert(minGathers == 20 and minItem == 5 and maxItems == 50, ("the thresholds: %s, %s, %s - want 20, 5, 50"):format(tostring(minGathers), tostring(minItem), tostring(maxItems)))
+        ns.db.kindLoot = nil
+        -- asking does not make the table: only the listener writes
+        assert(ns.PlanSeen(STONE) == nil and ns.PlanBaseKinds(COPPER) and ns.db.kindLoot == nil, "ns.db.kindLoot made by a question")
+        local v = W.Node(VEIN, "Copper Vein", 0, { type = "ore", item = COPPER })
+        W.Set({ v })
+        W.At(0)
+        local tagNo = 0
+        local function Mine(items, tag)
+            if not tag then tagNo = tagNo + 1 tag = ("T1%04d"):format(tagNo) end
+            local c = W.Cast("Copper Vein", 2575) W.Wait(2) W.Done(c, 2575)
+            loot = {}
+            for i, item in ipairs(items) do loot[i] = { guid = ("GameObject-0-1-1-1-1731-%s"):format(tag), item = item, qty = 3 } end
+            fire("LOOT_READY")
+            loot = {}
+            W.Wait(3)
+            return tag
+        end
+        local function Entry() return ns.db.kindLoot and ns.db.kindLoot[VEIN] end
+        Mine({ COPPER, STONE })
+        local e = Entry()
+        assert(e and e.n == 1 and e.items[STONE] == 1, "one gather with copper and stone: " .. tostring(e and e.n) .. " gathers, stone " .. tostring(e and e.items[STONE]))
+        assert(e.items[COPPER] == nil, "the main item of the kind is kept as a by-product")
+        -- the same item in two slots: one find, one gather
+        Mine({ COPPER, STONE, STONE })
+        assert(e.n == 2 and e.items[STONE] == 2, ("stone in two slots: %d gathers, stone %d - want 2 and 2"):format(e.n, e.items[STONE]))
+        -- the same spawn again (a vein mined a second time): not counted
+        local tag = Mine({ COPPER, STONE })
+        assert(e.n == 3 and e.items[STONE] == 3, "test setup: the third gather")
+        Mine({ COPPER, STONE }, tag)
+        Mine({ COPPER, STONE, SEED }, tag)
+        assert(e.n == 3 and e.items[STONE] == 3 and e.items[SEED] == nil, ("the same spawn again was counted: %d gathers, stone %d"):format(e.n, e.items[STONE]))
+        -- only the main item: a gather, no find
+        Mine({ COPPER })
+        assert(e.n == 4 and e.items[STONE] == 3, "a gather with copper only: " .. e.n .. " gathers, stone " .. e.items[STONE])
+        -- no quantities anywhere: two numbers and counts of gathers, nothing else
+        for k, val in pairs(e) do assert((k == "n" and type(val) == "number") or (k == "items" and type(val) == "table"), "the entry keeps more than n and items: " .. tostring(k)) end
+        for id, c in pairs(e.items) do assert(type(id) == "number" and type(c) == "number" and c <= e.n, "a count above the number of gathers (a quantity?): " .. tostring(c)) end
+        -- under the thresholds nothing is shown: 19 gathers with 4 finds, 19 with 5, then 20 with 5
+        assert(ns.PlanSeen(STONE) == nil, "seen with 4 gathers")
+        Mine({ COPPER, STONE })                                  -- 5 gathers, 4 finds
+        for _ = 1, 14 do Mine({ COPPER }) end                    -- 19 gathers, 4 finds
+        assert(e.n == 19 and e.items[STONE] == 4 and ns.PlanSeen(STONE) == nil, ("19 gathers and 4 finds: %d, %d, shown: %s"):format(e.n, e.items[STONE], tostring(ns.PlanSeen(STONE) ~= nil)))
+        -- (the 20th gather without stone: 20 and 4 - still nothing)
+        Mine({ COPPER })
+        assert(e.n == 20 and ns.PlanSeen(STONE) == nil, "shown with 20 gathers and 4 finds")
+        Mine({ COPPER, STONE })
+        local seen = ns.PlanSeen(STONE)
+        assert(seen and #seen == 1 and seen[1].id == VEIN and seen[1].seen == 5 and seen[1].n == 21,
+            ("21 gathers and 5 finds: %s"):format(seen and ("%s %s of %s"):format(tostring(seen[1].id), tostring(seen[1].seen), tostring(seen[1].n)) or "nothing"))
+        -- seen is no base and makes no node a target
+        assert(ns.PlanBaseKinds(STONE) == nil and not ns.PlanNodeMatches(v, { [STONE] = true }), "seen became a base")
+        assert(ns.PlanSeen(COPPER) == nil and ns.PlanSeen(SEED) == nil, "seen for the main item or for an item never found")
+        -- 5 finds in 19 gathers of another kind: under the gather threshold, nothing
+        local listen = ns.gatherListeners
+        local function Tell(node, p) for _, f in ipairs(listen) do f(node, p) end end
+        local OTHER = "o1732"
+        for i = 1, 19 do Tell({ id = OTHER, type = "ore", name = "Tin Vein" }, { items = { { id = 2771, qty = 1 }, i <= 5 and { id = SEED, qty = 1 } or nil } }) end
+        assert(ns.db.kindLoot[OTHER].n == 19 and ns.db.kindLoot[OTHER].items[SEED] == 5 and ns.PlanSeen(SEED) == nil, "shown with 19 gathers and 5 finds")
+        Tell({ id = OTHER, type = "ore", name = "Tin Vein" }, { items = { { id = 2771, qty = 1 } } })
+        seen = ns.PlanSeen(SEED)
+        assert(seen and seen[1].id == OTHER and seen[1].seen == 5 and seen[1].n == 20, "20 gathers and 5 finds are not shown")
+
+        -- ---- what is no observation
+        local n0 = e.n
+        local function Keys() local c = 0 for _ in pairs(ns.db.kindLoot) do c = c + 1 end return c end
+        local keys0 = Keys()
+        Tell({ type = "ore", name = "Copper Vein" }, { items = { { id = STONE, qty = 1 } } })                 -- no object ID
+        Tell({ id = VEIN, type = "ore" }, { value = 5 })                                                      -- loot nobody read
+        Tell({ id = VEIN, type = "ore" }, { items = {} })
+        Tell({ id = CHEST, type = "chest" }, { items = { { id = STONE, qty = 1 } } })                         -- a chest
+        Tell({ id = "f123", type = "fish" }, { items = { { id = STONE, qty = 1 } } })                         -- a fishing spot
+        Tell({ id = VEIN, type = "ore" }, nil)
+        assert(e.n == n0 and Keys() == keys0 and ns.db.kindLoot[CHEST] == nil and ns.db.kindLoot["f123"] == nil, "something that is no readable herb or ore gather was counted")
+        -- a new kind the spawn data does not know: no base, but it can be seen
+        for i = 1, 20 do Tell({ id = "o999999", type = "herb", name = "New Herb" }, { items = { { id = 990001, qty = 1 }, i <= 6 and { id = 990002, qty = 2 } or nil } }) end
+        assert(ns.PlanBaseItem("o999999") == nil and ns.PlanBaseKinds(990001) == nil, "a new kind got a base from its loot")
+        seen = ns.PlanSeen(990002)
+        assert(seen and seen[1].id == "o999999" and seen[1].seen == 6 and seen[1].n == 20, "a new kind's loot is not seen")
+        assert(ns.PlanSeen(990001)[1].seen == 20, "the first item of a kind without a base is not counted like any other")
+
+        -- ---- at most 50 items a kind: the rarest makes room, what was found often stays
+        local BIG = "o1733"
+        for i = 1, 30 do Tell({ id = BIG, type = "ore" }, { items = { { id = 980000, qty = 1 } } }) end
+        for i = 1, 70 do Tell({ id = BIG, type = "ore" }, { items = { { id = 980000 + i, qty = 1 } } }) end
+        local kept = 0
+        for _ in pairs(ns.db.kindLoot[BIG].items) do kept = kept + 1 end
+        assert(kept == 50, kept .. " items kept for one kind, want 50")
+        assert(ns.db.kindLoot[BIG].items[980000] == 30 and ns.db.kindLoot[BIG].items[980070] == 1 and ns.db.kindLoot[BIG].n == 100, "the item found 30 times or the newest one is gone")
+
+        -- ---- an error in this listener stops no other listener, and nothing gets out
+        local called = 0
+        table.insert(listen, function() called = called + 1 end)
+        ns.db.kindLoot[VEIN] = "broken"
+        ns.db.kindLoot.o1734 = { n = "x", items = 7 }
+        local fine, why = pcall(Tell, { id = VEIN, type = "ore" }, { items = { { id = STONE, qty = 1 } } })
+        Tell({ id = "o1734", type = "ore" }, { items = { { id = STONE, qty = 1 }, "junk", { id = "text" }, { id = -3 } } })
+        local keep = ns.db.kindLoot
+        ns.db.kindLoot = 5
+        local fine2 = pcall(Tell, { id = VEIN, type = "ore" }, { items = { { id = STONE, qty = 1 } } })
+        assert(type(ns.db.kindLoot) == "table", "a broken saved table was not replaced")
+        ns.db.kindLoot = keep
+        table.remove(listen)
+        assert(fine and fine2 and called == 3, "broken saved data: error " .. tostring(why) .. ", the listener behind was called " .. called .. " times (want 3)")
+        assert(type(ns.db.kindLoot[VEIN]) == "table" and ns.db.kindLoot[VEIN].n == 1 and ns.db.kindLoot.o1734.n == 1 and ns.db.kindLoot.o1734.items[STONE] == 1, "a broken entry was not begun anew")
+        local junk = 0
+        for _ in pairs(ns.db.kindLoot.o1734.items) do junk = junk + 1 end
+        assert(junk == 1, "something that is no item ID was kept")
+        -- a listener that throws on its own: the source keeps its own errors (a pcall around the count)
+        local src = assert(io.open(ROOT .. "/PlanFarm.lua")):read("*a")
+        assert(src:find("pcall(CountGather, node, p)", 1, true), "the listener does not keep its errors to itself")
+        assert(#errors == before, "an error: " .. tostring(errors[#errors]))
+    end)
+    while #ns.gatherListeners > saved.listeners do table.remove(ns.gatherListeners) end
+    W.Restore()
+    ns.db.kindLoot = saved.loot
+    if not ok then error(err, 0) end
+end)
+-- (end of the "Farm for plan" steps, v0.2 building block 3)
 step("Long run (10 min) for leaks", function() slash("run herb") advance(600) slash("stop") end)
 step("Test mock: OnUpdate runs for the same frames in the same order as going over every frame (tools only)", function()
     -- The mock's advance() goes over the frames that have an OnUpdate only
