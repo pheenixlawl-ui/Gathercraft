@@ -62,7 +62,7 @@ Every zone of your continent – or any other, one click away – ranked by **go
 
 **🏷️ Your own auction house scan**
 
-Open the auction house and Gathercraft reads every auction (at most once in the 15 minutes the server allows; a click on the Gathercraft tab does the same) and keeps a fair market price per item. Prices show in item tooltips with how many are listed and how old the price is. Every search you do at the auction house teaches it too. **Price alerts** tell you when something you gather sells well above normal. Works on its own. Your own scan comes first; once it is more than 6 hours old, a fresher Auctionator price can take over. With no scan of your own from the last 7 days, Auctionator or TSM fill in.
+Open the auction house and Gathercraft reads every auction (at most once in the 15 minutes the server allows; a click on the Gathercraft tab does the same) and keeps a fair market price per item. To turn that off: Options › Rares & prices › "Scan the auction house automatically when I open it". Prices show in item tooltips with how many are listed and how old the price is. Every search you do at the auction house teaches it too. **Price alerts** tell you when something you gather sells well above normal. Works on its own. Your own scan comes first; once it is more than 6 hours old, a fresher Auctionator price can take over. With no scan of your own from the last 7 days, Auctionator or TSM fill in.
 
 **➤ The Gathercraft Arrow & Farm Panel**
 

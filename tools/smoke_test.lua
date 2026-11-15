@@ -12601,6 +12601,9 @@ step("What's new: 0.1.23 after an update, in this language and all translations"
         "README: the scan is still said to need a click")
     assert(not readme:find("One click on the Gathercraft tab at the auction house reads", 1, true), "README: the scan is still said to need a click")
     assert(readme:find("rares & prices, fishing, general", 1, true), "README: the options page Fishing is not named")
+    -- (R1-N4) where the scan on opening is turned off: the same path as in the changelog
+    assert(readme:find('To turn that off: Options › Rares & prices › "Scan the auction house automatically when I open it".', 1, true),
+        "README: not said where the scan on opening is turned off")
     local cf = assert(io.open(ROOT .. "/CHANGELOG.md"))
     local changelog = cf:read("*a") cf:close()
     assert(changelog:find("^## v0%.1%.23") and not changelog:find("## v0.1.22", 1, true), "CHANGELOG: not 0.1.23 only")
@@ -12612,7 +12615,8 @@ step("What's new: 0.1.23 after an update, in this language and all translations"
         -- sharing: the same result, and the three numbers of the test
         "What happens then is the same as before", "about 60 % less time in the handlers", "5–20 %", "single harvests the same",
         -- the scan: steps, what starts it, when it is quiet, how to turn it off
-        "ends after 8 milliseconds", "from 94 ms to under 9 ms", "our test machine, not the game", "finished even when you close the window",
+        "split into small steps by time", "also when most auctions are of a few items", "our test machine, not the game",
+        "How it feels in the game we have not measured yet", "finished even when you close the window",
         "at most once in the 15 minutes the server allows", "Chat stays quiet when it cannot start, gets no answer",
         "Scan the auction house automatically when I open it", "The button and `/gcr scan` work as before",
         -- the pages and the ping
@@ -12626,6 +12630,13 @@ step("What's new: 0.1.23 after an update, in this language and all translations"
     -- no "without the window" for every profession
     for _, said in ipairs({ "FPS", "no lag", "in the game it is", "every profession without", "never need", "always knows", "all professions are" }) do
         assert(not changelog:find(said, 1, true), "CHANGELOG says \"" .. said .. "\"")
+    end
+    -- (R1-N4) the scan: no time in milliseconds is promised - how long a step
+    -- takes is the machine's and the game's
+    local scanSays = changelog:match("%- %*%*Auction house scan in small steps:%*%*[^\r\n]*")
+    assert(scanSays, "CHANGELOG: no point about the scan in small steps")
+    for _, said in ipairs({ " ms", "millisecond", "no longer freezes", "never" }) do
+        assert(not scanSays:find(said, 1, true), "CHANGELOG, the scan in small steps, says \"" .. said .. "\"")
     end
     -- the numbers the changelog names are the ones of the options and the texts
     assert(ns.L["Your skill: ? (open your profession window once)"], "the skill plan's line for an unknown skill")
