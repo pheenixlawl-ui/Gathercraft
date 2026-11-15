@@ -4935,10 +4935,10 @@ end)
 step("Skill plan 2.0: texts in every language, an internal build mark, nothing published yet (v0.2 A7)", function()
     -- 0.2 is built block by block and published as one release: this build is
     -- marked internal, and what players read about releases is not touched.
-    -- (b2: building block 2, the item tooltip - so the build that is
-    -- installed can be told from the ones before it: b1, b1r2, b1r3)
+    -- (b3: building block 3, the shopping list - so the build that is
+    -- installed can be told from the ones before it: b1, b1r2, b1r3, b2)
     local version = toc:match("## Version: ([%w%.%-]+)")
-    assert(version == "0.2.0-b2", "TOC version: " .. tostring(version))
+    assert(version == "0.2.0-b3", "TOC version: " .. tostring(version))
     -- the two files of building block 2 load last: they read the data files only after login
     assert(toc:gsub("\r", ""):match("\nStarter%.lua\nSpawnCounts%.lua\nItemTooltip%.lua\n?$"), "the TOC does not end with Starter.lua, SpawnCounts.lua, ItemTooltip.lua")
     assert(toc:match("## Interface: (%d+)") == "16001", "TOC interface changed")
@@ -23247,14 +23247,19 @@ step("Farm for plan: what you see - have / need under the run window, the window
         copper = Line(data, COPPER)
         local over = Line(data, 990501)
         assert(copper.ok and copper.bar == 1 and over.ok and over.bar == 1 and over.count == "25 / 10", "reached or more: no tick or no full bar")
-        assert(data.lines[1].item == TIN and data.lines[2].item == SILVER and not data.lines[1].ok and not data.lines[2].ok and data.lines[3].ok, "what is still open does not come first")
+        assert(data.lines[1].item == TIN and data.lines[2].item == SILVER and not data.lines[1].ok and not data.lines[2].ok and data.lines[3].kind == "sub" and data.lines[4].ok, "what is still open does not come first")
         assert(Line(data, SILVER).reason == L["not in this zone"] and Line(data, TIN).reason == nil, "why silver has no node here: " .. tostring(Line(data, SILVER).reason))
         assert(data.done == 2 and data.total == 4 and data.compact == (L["Plan %d/%d"]):format(2, 4), "the slim line: " .. tostring(data.compact))
         local tick = false
         for _, row in ipairs(Rows()) do
             if row.line.item == COPPER then tick = row.count:GetText():find("ReadyCheck-Ready", 1, true) ~= nil end
-            if row.line.item == SILVER then assert(row.info:GetText() == L["not in this zone"] and not row.bar:IsShown(), "the row of silver: " .. tostring(row.info:GetText())) end
+            if row.line.item == SILVER then assert(not row.bar:IsShown(), "the row of silver has a bar although nothing of it is there") end
         end
+        local under
+        for i, row in ipairs(Rows()) do
+            if row.line.item == SILVER then under = Rows()[i + 1] end
+        end
+        assert(under and under.line.kind == "sub" and under.name:GetText():find(L["not in this zone"], 1, true), "no line under silver that says why it has no node here")
         assert(tick, "a covered material has no tick in its row")
         -- what the plan makes itself is no count: only have and need are shown
         for _, l in ipairs(data.lines) do assert(l.kind ~= "row" or l.have == nil or l.count == (tostring(l.have) .. " / " .. l.need), "a count that is not have / need") end
@@ -23281,7 +23286,8 @@ step("Farm for plan: what you see - have / need under the run window, the window
         Look() Update()
         data = Lines()
         assert(#Kind(data, "row") == 6 and #Kind(data, "more") == 1 and Kind(data, "more")[1].n == 9 and Kind(data, "more")[1].text == (L["+%d more"]):format(9), "15 materials: " .. #Kind(data, "row") .. " rows")
-        assert(data.total == 15 and #Rows() == 7, "15 materials: " .. #Rows() .. " rows in the window, want 6 and the \"more\" line")
+        assert(data.total == 15 and #Rows() == 6 + #Kind(data, "sub") + 1 and #Kind(data, "sub") == 5,
+            "15 materials: " .. #Rows() .. " rows in the window, want 6, a line under the 5 that have no node here, and the \"more\" line")
         -- 6 of the map and some that are not: the cap holds for all together
         items = { [COPPER] = { 60, 0 } }
         for i = 1, 3 do items[many[i]] = { 10, 0 } end
@@ -23433,6 +23439,145 @@ step("Farm for plan: what you see - have / need under the run window, the window
     if ns.PanelLayout then ns.PanelLayout() end
     W.Restore()
     if not ok then error(err, 0) end
+end)
+step("Farm for plan: every text in nine languages with the same placeholders, the lines keep to their widths, the build is marked 0.2.0-b3 (v0.2 B3 T6)", function()
+    -- The order's part 6; concept test 10 (long names in all 11 language
+    -- codes). Nothing players read about releases is touched.
+    local toc = assert(io.open(ROOT .. "/Gathercraft.toc")):read("*a")
+    assert(toc:match("## Version: ([%w%.%-]+)") == "0.2.0-b3", "TOC version: " .. tostring(toc:match("## Version: ([%w%.%-]+)")))
+    local function Read(name) return assert(io.open(ROOT .. "/" .. name)):read("*a") end
+    local farm = Read("PlanFarm.lua")
+    -- ---- the texts: every L["..."] of PlanFarm.lua, the reasons it looks up, and the three in Route.lua and UI.lua
+    local keys, order = {}, {}
+    local function Key(k) if not keys[k] then keys[k] = true order[#order + 1] = k end end
+    for key in farm:gmatch('L%["(.-)"%]') do Key(key) end
+    local looked = 0
+    for block in farm:gmatch("local [RI][EN][AV][SA][OL][NI]D?_TEXT = (%b{})") do
+        for text in block:gmatch('= "(.-)"') do Key(text) looked = looked + 1 end
+    end
+    assert(looked == 11, "test setup: " .. looked .. " reasons found in PlanFarm.lua, want 11")
+    local others = { ["Plan"] = "Route.lua", ["A plan run has no route preview. Start it from the skill plan."] = "Route.lua", ["Waiting for your plan ..."] = "UI.lua" }
+    for key, file in pairs(others) do
+        assert(Read(file):find('L["' .. key .. '"]', 1, true), "the text is not in " .. file .. ": " .. key)
+        Key(key)
+    end
+    assert(#order >= 45, "test setup: only " .. #order .. " texts")
+    local function Codes(s)
+        local list = {}
+        for code in s:gmatch("%%[%d%$]*[sd]") do list[#list + 1] = code end
+        return table.concat(list, " ")
+    end
+    -- (words that are the same in a language: no translation to tell apart)
+    local SAME = { ["Plan"] = true, ["Plan: %s %d"] = true, ["Plan %d/%d"] = true }
+    local LANGS = { "deDE", "esES", "frFR", "itIT", "koKR", "ptBR", "ruRU", "zhCN", "zhTW" }
+    local T = { enUS = {} }
+    for _, key in ipairs(order) do T.enUS[key] = key end
+    for _, lang in ipairs(LANGS) do
+        T[lang] = {}
+        for _, key in ipairs(order) do
+            local tr = ns.Locales[lang] and ns.Locales[lang][key]
+            assert(type(tr) == "string" and tr ~= "", ("no %s translation of %q"):format(lang, key))
+            assert(Codes(tr) == Codes(key), ("%s: other placeholders (or another order) in %q: %s"):format(lang, key, tr))
+            assert(tr ~= key or SAME[key] or lang == "frFR" and key == "Go", ("%s: %q is not translated"):format(lang, key))
+            assert(not tr:find("^%s") and not tr:find("%s$"), ("%s: blanks around %q"):format(lang, tr))
+            T[lang][key] = tr
+        end
+    end
+    -- esMX reads the Spanish texts
+    local esMX = ns.Locales.esMX or ns.Locales.esES
+    assert(esMX and esMX["Farm for plan"] == ns.Locales.esES["Farm for plan"], "esMX does not read the Spanish texts")
+    -- no promise in any language: no chance, no "best", no "guaranteed", no time
+    for lang, texts in pairs(T) do
+        for key, tr in pairs(texts) do
+            local low = tr:lower()
+            for _, word in ipairs({ "guarant", "garant", "cheapest", "best ", "beste", "mejor", "meilleur", "miglior", "melhor", "лучш", "最佳", "保证", "保證", "chance", "wahrscheinlich", "probab", "вероятн", "概率", "機率", "확률", "% " }) do
+                assert(not low:find(word, 1, true), ("%s: %q promises something (%s)"):format(lang, tr, word))
+            end
+        end
+    end
+
+    -- ---- widths, as characters the player sees (East Asian ones count twice), with the longest values there are
+    local function Width(text)
+        local n = 0
+        for ch in text:gmatch("[%z\1-\127\194-\244][\128-\191]*") do n = n + ((#ch >= 3) and 2 or 1) end
+        return n
+    end
+    local BUTTON, TITLE, LINE, SLIM, MARK = 24, 44, 56, 12, 18
+    local wide = {}
+    local function Fits(lang, what, text, budget)
+        if Width(text) > budget then wide[#wide + 1] = ("%s %s: %d > %d: %s"):format(lang, what, Width(text), budget, text) end
+    end
+    for lang, t in pairs(T) do
+        for _, key in ipairs({ "Farm for plan", "Where to farm", "Back to skill plan", "Close", "Go" }) do Fits(lang, "button", t[key], BUTTON) end
+        for _, key in ipairs({ "Where to farm for your plan", "Gathered for your plan" }) do Fits(lang, "title", t[key], TITLE) end
+        Fits(lang, "the window of a blocked end", t["Nothing left to farm for your plan here"], 60)
+        -- the lines under the run window
+        for _, key in ipairs({ "can't gather yet", "not in this zone", "node types switched off", "parked" }) do Fits(lang, "reason line", "   " .. t[key], LINE) end
+        Fits(lang, "seen line", "   " .. t["seen in %d of %d recorded gathers"]:format(999, 9999), LINE)
+        Fits(lang, "head", t["Not on the map"], LINE)
+        Fits(lang, "more", t["+%d more"]:format(99), LINE)
+        Fits(lang, "note", t["plan unknown right now"], LINE)
+        Fits(lang, "note", t["%d plan nodes hidden"]:format(9999), LINE)
+        Fits(lang, "slim window", t["Plan %d/%d"]:format(12, 15), SLIM)
+        Fits(lang, "next line", t["Waiting for your plan ..."], 40)
+        -- the list of zones
+        Fits(lang, "list sub title", t["Known spots for what you still need"], 60)
+        Fits(lang, "list mark", "(" .. t["you are here"] .. ")", MARK)
+        for _, key in ipairs({ "No known spots for the missing materials yet.", "Counting the known spots ...", "Working out the plan ..." }) do Fits(lang, "list note", t[key], 70) end
+        Fits(lang, "list note", t["Zones %d-%d of %d (mouse wheel)"]:format(11, 20, 20), 60)
+        -- the tooltip's heads and the end window's
+        for _, key in ipairs({ "On the map here:", "Not here right now:", "Still open, not routable:", "Your plan needs nothing from the map." }) do Fits(lang, "head", t[key], LINE) end
+    end
+    assert(#wide == 0, #wide .. " texts wider than their place: " .. table.concat(wide, " | "))
+
+    -- ---- under the run window: a reason and what was seen get a line of their own, in the client's language
+    local saved = { planFor = ns.SkillPlanFor, skill = ns.GetSkill, seen = ns.PlanSeen, run = ns.db.activeRun, compact = ns.db.panelCompact, hidden = ns.db.runPanelHidden }
+    local W = IdentityWorld()
+    local ok, err = pcall(function()
+        ns.db.panelCompact, ns.db.runPanelHidden = nil, nil
+        ns.GetSkill = function(t) if t == "ore" then return 100, 300, 100 end end
+        ns.PlanSeen = function(item) if item == 2835 then return { { id = "o1731", seen = 7, n = 23 } } end return nil end
+        ns.SkillPlanFor = function()
+            return { prof = "Mining", from = 1, target = 75, status = "ok", valid = true, complete = true, reliable = true, revision = 9100, items = {
+                [2770] = { need = 60, have = 3, haveKnown = true, missing = 57 }, [2775] = { need = 5, have = 0, haveKnown = true, missing = 5 },
+                [2835] = { need = 20, have = 1, haveKnown = true, missing = 19 } } }
+        end
+        W.Set({ W.Node("o1731", "Copper Vein", 100, { type = "ore" }) }) W.At(0)
+        ns.StartRun(ns.PlanFilter("Mining", 75), 1412) W.Wait(1) advance(1.5)
+        assert(ns.run and ns.run.plan, "test setup: no plan run")
+        local data = ns.PlanPanelLines()
+        local kinds = {}
+        for i, l in ipairs(data.lines) do kinds[i] = l.kind end
+        assert(table.concat(kinds, " ") == "row row sub head off sub", "the lines: " .. table.concat(kinds, " "))
+        local L = ns.L
+        assert(data.lines[3].text == L["not in this zone"] and data.lines[6].text == (L["seen in %d of %d recorded gathers"]):format(7, 23), "the lines under a row: " .. tostring(data.lines[3].text) .. " / " .. tostring(data.lines[6].text))
+        local f = _G.GathercraftPlanPanel
+        assert(f and f:IsShown(), "test setup: the plan is not under the run window")
+        local shown = {}
+        for _, row in ipairs(f.rows) do if row:IsShown() then shown[#shown + 1] = row end end
+        assert(#shown == 6 and shown[3].name:GetText():find(L["not in this zone"], 1, true) and shown[6].name:GetText():find((L["seen in %d of %d recorded gathers"]):format(7, 23), 1, true),
+            "the window's lines under a row: " .. tostring(shown[3] and shown[3].name:GetText()))
+        assert(not shown[3].bar:IsShown() and not shown[3].barBack:IsShown() and shown[3].count:GetText() == "", "a line under a row has a bar or a count")
+        -- every line the window shows now fits (the client's language)
+        for i, row in ipairs(shown) do
+            local l = row.line
+            if l.kind ~= "row" and l.kind ~= "off" then
+                assert(Width((row.name:GetText():gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""))) <= LINE, "line " .. i .. " is wider than its place: " .. row.name:GetText())
+            end
+        end
+        ns.StopRun(true)
+    end)
+    ns.SkillPlanFor, ns.GetSkill, ns.PlanSeen = saved.planFor, saved.skill, saved.seen
+    if ns.run then ns.StopRun(true) end
+    for _, name in ipairs({ "GathercraftPlanZones", "GathercraftPlanHint", "GathercraftRunSummary", "GathercraftPlanGathered" }) do if _G[name] then _G[name]:Hide() end end
+    ns.db.activeRun, ns.db.panelCompact, ns.db.runPanelHidden = saved.run, saved.compact, saved.hidden
+    W.Restore()
+    if not ok then error(err, 0) end
+
+    -- ---- nothing published: the changelog and the "What's new" page do not name it
+    local changelog = Read("CHANGELOG.md")
+    assert(not changelog:find("Farm for plan", 1, true) and not changelog:find("0%.2%.0"), "the changelog names the shopping list or 0.2.0")
+    assert(not Read("Welcome.lua"):find("Farm for plan", 1, true), "the \"What's new\" page names the shopping list")
 end)
 -- (end of the "Farm for plan" steps, v0.2 building block 3)
 step("Long run (10 min) for leaks", function() slash("run herb") advance(600) slash("stop") end)

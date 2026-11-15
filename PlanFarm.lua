@@ -825,14 +825,14 @@ local function DrawZoneList()
         local row, zone = list.rows[i], zones[listOffset + i]
         if zone and data.state == "ok" then
             row.zone = zone
-            row.name:SetText(zone.here and ("%s |cffffd060(%s)|r"):format(zone.name, L["you are here"]) or zone.name)
+            row.name:SetText(zone.here and ("|cffffd060%s|r"):format(zone.name) or zone.name)
             local parts = {}
             for k = 1, math.min(LIST_ITEMS, #zone.items) do
                 local it = zone.items[k]
                 parts[k] = ("%s %s"):format(ItemLabel(it.item), it.places and tostring(it.places) or "...")
             end
             if #zone.items > LIST_ITEMS then parts[#parts + 1] = (L["+%d more"]):format(#zone.items - LIST_ITEMS) end
-            row.items:SetText(table.concat(parts, " · "))
+            row.items:SetText((zone.here and ("|cffffd060(%s)|r "):format(L["you are here"]) or "") .. table.concat(parts, " · "))
             row.go:SetText(L["Go"])
             row:Show()
         else
@@ -927,18 +927,32 @@ ns.PlanZoneListShow = function(prof, target)
             row:SetPoint("TOPLEFT", 22, -70 - (i - 1) * 24)
             row.name = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
             row.name:SetPoint("LEFT", 2, 0)
-            row.name:SetWidth(170)
+            row.name:SetWidth(150)
             row.name:SetJustifyH("LEFT")
             row.name:SetWordWrap(false)
             row.items = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-            row.items:SetPoint("LEFT", 176, 0)
-            row.items:SetWidth(232)
+            row.items:SetPoint("LEFT", 156, 0)
+            row.items:SetWidth(252)
             row.items:SetJustifyH("LEFT")
             row.items:SetWordWrap(false)
             row.go = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
             row.go:SetSize(60, 20)
             row.go:SetPoint("RIGHT", 0, 0)
             row.go:SetScript("OnClick", function() if row.zone then ns.PlanZoneListGo(row.zone.mapID) end end)
+            -- the whole row, uncut (a long zone name, many materials): only what the list has worked out
+            if row.EnableMouse then row:EnableMouse(true) end
+            row:SetScript("OnEnter", function(self)
+                local zone = self.zone
+                if not zone then return end
+                GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                GameTooltip:AddLine(zone.name, 1, 0.82, 0)
+                if zone.here then GameTooltip:AddLine(L["you are here"], 0.6, 0.6, 0.6) end
+                for _, it in ipairs(zone.items) do
+                    GameTooltip:AddDoubleLine(ItemLabel(it.item), it.places and tostring(it.places) or "...", 1, 1, 1, 1, 1, 1)
+                end
+                GameTooltip:Show()
+            end)
+            row:SetScript("OnLeave", function() GameTooltip:Hide() end)
             list.rows[i] = row
         end
         list.note = list:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
@@ -1096,6 +1110,8 @@ ns.PlanPanelLines = function()
                         count = s.frozen and ("? / %d"):format(row.need) or Count(row), ok = row.ok and not s.frozen, unknown = unknown,
                         bar = (not unknown and row.need > 0) and math.min(row.have, row.need) / row.need or 0,
                         reason = (not row.ok and row.reason) and ns.PlanReasonText(row.reason) or nil }
+                    -- (why it has no node here: a line of its own, a column would cut it off)
+                    if lines[#lines].reason then lines[#lines + 1] = { kind = "sub", text = lines[#lines].reason } end
                 else
                     more = more + 1
                 end
@@ -1109,6 +1125,7 @@ ns.PlanPanelLines = function()
             shown, offShown = shown + 1, offShown + 1
             lines[#lines + 1] = { kind = "off", item = row.item, name = ItemLabel(row.item), need = row.need, have = (not s.frozen) and row.have or nil,
                 count = s.frozen and ("? / %d"):format(row.need) or Count(row), ok = row.ok and not s.frozen, source = SeenText(row) }
+            if lines[#lines].source then lines[#lines + 1] = { kind = "sub", text = lines[#lines].source } end
         else
             more = more + 1
         end
@@ -1180,13 +1197,11 @@ ns.PlanPanelUpdate = function(runPanel, compact)
         if isRow then
             row.name:SetText(line.name)
             row.count:SetText(line.count .. (line.ok and (" " .. TICK) or ""))
-            row.info:SetText(line.kind == "row" and (line.reason or "") or (line.source or ""))
-            row.info:SetWidth(line.kind == "row" and 70 or 80)
         else
-            row.name:SetText((line.kind == "head" and "|cffffd060" or "|cff999999") .. line.text .. "|r")
+            row.name:SetText((line.kind == "head" and "|cffffd060" or "|cff999999") .. (line.kind == "sub" and "   " or "") .. line.text .. "|r")
             row.count:SetText("")
-            row.info:SetText("")
         end
+        row.info:SetText("")
         local bar = line.kind == "row" and not line.unknown
         row.barBack:SetShown(line.kind == "row")
         row.bar:SetShown(bar and line.bar > 0)
