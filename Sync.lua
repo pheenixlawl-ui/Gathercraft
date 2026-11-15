@@ -682,7 +682,147 @@ local function SelfHeal(n, at)
     return true
 end
 
-local function HandleNode(mapID, entry, sender, trusted, dry)
+---------------------------------------------------------------------------
+-- An entry that is sent again (v0.1.23 P2)
+--   Sven, 13.11.2026, /gcr perf: 580 messages and 4,460 nodes a minute,
+--   380 ms a minute in the handlers - most of the nodes sent again and
+--   again (six or seven players of 0.1.21 answer one question with the same
+--   nodes). Every entry was taken apart, checked, and searched by distance:
+--   among the known nodes of its kind, then among the waiting reports.
+--   Now the text of an entry ("o1731,o,3000,3000,2770") that led to a known
+--   node or to a waiting report is remembered per zone, with that node or
+--   report. The same text again goes straight to it. What happens then is
+--   the same code as before.
+--   A remembered entry is only as good as the search would be now, so it
+--   goes when the search could end differently:
+--     - a node is added: what is remembered for its kind within twice the
+--       merge radius of it (it could be the nearer one, or the first one);
+--     - a node moved or changed ("update"): everything of that zone;
+--     - anything else (deleted, cleared, imported in bulk): everything;
+--     - a report leaves the waiting list: what pointed to it;
+--     - the waiting list of a zone is another table than it was: not used.
+--   Kept small: after EXACT_MAX remembered entries everything is dropped.
+--   ns.SyncExactOff = true: the lookup is not used (the tests compare the
+--   two ways with it).
+---------------------------------------------------------------------------
+local EXACT_MAX = 6000
+local exact = {}       -- mapID -> entry text -> the known node or the waiting report it led to
+local exactList = setmetatable({}, { __mode = "k" }) -- a waiting report -> the list it was found in
+local exactCount = 0
+
+local function ExactDrop(mapID)
+    if mapID then
+        exact[mapID] = nil
+    else
+        wipe(exact)
+        exactCount = 0
+    end
+end
+
+local function ExactKeep(mapID, entry, what, list)
+    if ns.SyncExactOff then return end
+    if exactCount >= EXACT_MAX then ExactDrop() end
+    local zone = exact[mapID]
+    if not zone then
+        zone = {}
+        exact[mapID] = zone
+    end
+    if zone[entry] == nil then exactCount = exactCount + 1 end
+    zone[entry] = what
+    if list then exactList[what] = list end
+end
+
+-- a report left the waiting list of mapID
+local function ExactGone(mapID, p)
+    local zone = exact[mapID]
+    if not zone then return end
+    for entry, what in pairs(zone) do
+        if what == p then zone[entry] = nil end
+    end
+end
+
+-- Core.lua tells every change of the nodes (NotifyNodesChanged)
+table.insert(ns.nodeListeners, function(kind, mapID, node)
+    if kind == "add" and mapID and node then
+        local zone = exact[mapID]
+        if zone and node.x and node.y then
+            for entry, what in pairs(zone) do
+                if what.id == node.id and ns.Distance(mapID, node.x, node.y, what.x, what.y) <= 2 * MERGE_RADIUS + 1 then
+                    zone[entry] = nil
+                end
+            end
+        elseif zone then
+            ExactDrop(mapID)
+        end
+    elseif kind == "update" and mapID then
+        ExactDrop(mapID)
+    else
+        ExactDrop()
+    end
+end)
+
+-- A node we know was named by `who`: remember that others know it too (for push suppression)
+local function HeardKnown(known, who, mapID)
+    known.heardBy = known.heardBy or {}
+    if not known.heardBy[who] then
+        local names = 0
+        for _ in pairs(known.heardBy) do names = names + 1 end
+        -- enough names known: more of them change nothing (and one
+        -- player repeating himself can't push the count up)
+        if names < HEARD_KEEP then
+            known.heardBy[who] = true
+            known.heard = (known.heard or 0) + 1
+            Counted("confirmed")
+            -- someone new has it: it is real after all
+            if known.parked then Unpark(known, "reported by " .. who, mapID) end
+        end
+    end
+end
+
+-- A waiting report was named by `who`: one more reporter, and with enough of
+-- them (or from guild and friends) it becomes a node
+local function HeardPending(mapID, list, p, who, trusted, dry)
+    if not p.reporters[who] then
+        p.reporters[who] = true
+        p.rc = p.rc + 1
+    end
+
+    if trusted or p.rc >= CONFIRMATIONS then
+        for i, q in ipairs(list) do
+            if q == p then
+                table.remove(list, i)
+                break
+            end
+        end
+        if dry then
+            stress.imported = stress.imported + 1
+        else
+            ExactGone(mapID, p)
+            if ns.OnPendingChanged then ns.OnPendingChanged(mapID, p, "remove") end
+            Import(mapID, p)
+            Counted("new", trusted)
+            Debug(("imported %s in %d (%s)"):format(p.id, mapID, trusted and "trusted" or (p.rc .. " reports")))
+        end
+    end
+end
+
+local function HandleNode(mapID, entry, who, trusted, dry)
+    -- the same entry as before (see above): straight to what it led to
+    if not dry and not ns.SyncExactOff then
+        local zone = exact[mapID]
+        local what = zone and zone[entry]
+        if what then
+            local list = exactList[what]
+            if not list then
+                HeardKnown(what, who, mapID)
+                return
+            elseif list == DB().pending[mapID] then
+                HeardPending(mapID, list, what, who, trusted, dry)
+                return
+            end
+            zone[entry] = nil -- (the waiting list was replaced: search again)
+        end
+    end
     local id, code, xs, ys, items = strsplit(",", entry)
     -- Validation: only real game objects, valid type, plain whole numbers
     -- (tonumber alone lets "nan", "1e3" or hex through)
@@ -694,26 +834,13 @@ local function HandleNode(mapID, entry, sender, trusted, dry)
     if not (id and id:match("^o%d+$") and nodeType and x and y) then return end
     if x > 10000 or y > 10000 then return end
     x, y = x / 10000, y / 10000
-    local who = ShortName(sender)
 
     -- Already known: just remember that others know it too (for push suppression)
     local known = ns.FindNode(mapID, id, x, y, MERGE_RADIUS)
     if known then
         if not dry then
-            known.heardBy = known.heardBy or {}
-            if not known.heardBy[who] then
-                local names = 0
-                for _ in pairs(known.heardBy) do names = names + 1 end
-                -- enough names known: more of them change nothing (and one
-                -- player repeating himself can't push the count up)
-                if names < HEARD_KEEP then
-                    known.heardBy[who] = true
-                    known.heard = (known.heard or 0) + 1
-                    Counted("confirmed")
-                    -- someone new has it: it is real after all
-                    if known.parked then Unpark(known, "reported by " .. who, mapID) end
-                end
-            end
+            ExactKeep(mapID, entry, known)
+            HeardKnown(known, who, mapID)
         end
         return
     end
@@ -743,11 +870,13 @@ local function HandleNode(mapID, entry, sender, trusted, dry)
             if theirs >= PENDING_PER_REPORTER_TOTAL then return end
             if total >= PENDING_MAX_TOTAL and oldest then
                 table.remove(root[oldestMap], oldestIndex)
+                ExactGone(oldestMap, oldest)
                 if ns.OnPendingChanged then ns.OnPendingChanged(oldestMap, oldest, "remove") end
             end
         end
         if #list >= PENDING_MAX_PER_ZONE then
             local gone = table.remove(list, 1) -- oldest unconfirmed report goes
+            if not dry then ExactGone(mapID, gone) end
             if not dry and ns.OnPendingChanged then ns.OnPendingChanged(mapID, gone, "remove") end
         end
         p = { id = id, type = nodeType, x = x, y = y, item = item, reporters = {}, rc = 0, first = time(), by = who }
@@ -756,27 +885,8 @@ local function HandleNode(mapID, entry, sender, trusted, dry)
         -- import (guild, friends) doesn't need one
         if not dry and not trusted and ns.OnPendingChanged then ns.OnPendingChanged(mapID, p, "add") end
     end
-    if not p.reporters[who] then
-        p.reporters[who] = true
-        p.rc = p.rc + 1
-    end
-
-    if trusted or p.rc >= CONFIRMATIONS then
-        for i, q in ipairs(list) do
-            if q == p then
-                table.remove(list, i)
-                break
-            end
-        end
-        if dry then
-            stress.imported = stress.imported + 1
-        else
-            if ns.OnPendingChanged then ns.OnPendingChanged(mapID, p, "remove") end
-            Import(mapID, p)
-            Counted("new", trusted)
-            Debug(("imported %s in %d (%s)"):format(id, mapID, trusted and "trusted" or (p.rc .. " reports")))
-        end
-    end
+    if not dry then ExactKeep(mapID, entry, p, list) end
+    HeardPending(mapID, list, p, who, trusted, dry)
 end
 
 local function OnNodes(body, sender, trusted, dry)
@@ -801,8 +911,9 @@ local function OnNodes(body, sender, trusted, dry)
     -- in a message - that is no answer.
     local a = answering[mapID]
     if a and not dry then AnswerHeard(a, sender, #parts - 1) end
+    local who = ShortName(sender) -- (once a message, not once an entry)
     for i = 2, #parts do
-        HandleNode(mapID, parts[i], sender, trusted, dry)
+        HandleNode(mapID, parts[i], who, trusted, dry)
     end
 end
 
@@ -1153,7 +1264,7 @@ local function DropOldPending(s)
         for i = #list, 1, -1 do
             local maxAge = (ns.HasKnownSpawns and ns.HasKnownSpawns(mapID)) and PENDING_MAX_AGE or PENDING_MAX_AGE_NEW
             if time() - (list[i].first or 0) > maxAge then
-                table.remove(list, i)
+                ExactGone(mapID, table.remove(list, i))
             end
         end
         if #list == 0 then s.pending[mapID] = nil end

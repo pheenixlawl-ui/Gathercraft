@@ -14973,6 +14973,331 @@ step("Minimap pins only near you: on within 400 yd, off beyond 450 yd, kept righ
     Go(saved.map, saved.x, saved.y) advance(4)
     assert(ok, err)
 end)
+step("Sync: a node that is sent again is found by its exact place - same result, less time in the handlers (v0.1.23 P2)", function()
+    -- Sven, 13.11.2026, /gcr perf: 580 messages and 4,460 nodes a minute,
+    -- 380 ms a minute in the handlers. Most of the nodes were sent again and
+    -- again: six or seven players of 0.1.21 answer one zone question with the
+    -- same nodes. Every one of them went through the search by distance -
+    -- the known nodes of its kind in the zone, then the waiting reports.
+    -- Now an entry with the same kind and the same numbers as one seen
+    -- before is looked up by them. What happens with it is the same.
+    local db = ns.db.sync
+    local ZONES = { 1434, 1433, 1431, 1437, 1436 }
+    local saved = { enabled = db.enabled, public = db.public, pending = db.pending, counts = db.counts, blocked = db.blocked,
+        announce = db.announceOn, debug = ns.db.debug, clock = debugprofilestop, nodes = {}, off = ns.SyncExactOff }
+    for _, z in ipairs(ZONES) do saved.nodes[z] = ns.db.nodes[z] end
+    -- a clock finer than os.clock (1 ms on Windows), where the runner has one
+    local okFfi, ffi = pcall(require, "ffi")
+    if okFfi then
+        local okDef = pcall(ffi.cdef, "int QueryPerformanceCounter(int64_t *c); int QueryPerformanceFrequency(int64_t *f);")
+        local c, f = ffi.new("int64_t[1]"), ffi.new("int64_t[1]")
+        if okDef and pcall(function() return ffi.C.QueryPerformanceFrequency(f) end) and tonumber(f[0]) > 0 then
+            local freq = tonumber(f[0])
+            debugprofilestop = function() ffi.C.QueryPerformanceCounter(c) return tonumber(c[0]) * 1000 / freq end
+        end
+    end
+    local function msg(text, who) fire("CHAT_MSG_ADDON", "Gathercraft", text, "CHANNEL", who, nil, nil, nil, "GathercraftSync") end
+    local seed = 11
+    local function Rand() seed = (seed * 1103515245 + 12345) % 2147483648 return seed / 2147483648 end
+    local KINDS = { "o1731", "o1732", "o1735", "o1617", "o1618", "o1619", "o1620", "o2045" }
+    local CODE = { o1731 = "o", o1732 = "o", o1735 = "o", o1617 = "h", o1618 = "h", o1619 = "h", o1620 = "h", o2045 = "h" }
+    -- what the players of a zone know: 150 spots, far from each other (a grid of 15 x 10)
+    local sets = {}
+    for zi, z in ipairs(ZONES) do
+        local set = {}
+        for i = 0, 149 do
+            local id = KINDS[(i + zi) % #KINDS + 1]
+            set[#set + 1] = { id = id, code = CODE[id], xs = 500 + (i % 15) * 600 + math.floor(Rand() * 200), ys = 700 + math.floor(i / 15) * 880 + math.floor(Rand() * 300) }
+        end
+        sets[z] = set
+    end
+    -- what you have: the zone's known spawn points, and every second spot of the 150 as a node of your own
+    local function Fresh()
+        for _, z in ipairs(ZONES) do
+            local list = {}
+            for _, n in ipairs(saved.nodes[z] or {}) do list[#list + 1] = n end
+            for i, e in ipairs(sets[z]) do
+                if i % 2 == 0 then
+                    list[#list + 1] = { id = e.id, name = "Node", type = e.code == "h" and "herb" or "ore", x = e.xs / 10000, y = e.ys / 10000, count = 1, last = 1, item = 2447 }
+                end
+            end
+            ns.db.nodes[z] = list
+        end
+        db.pending, db.counts = {}, nil
+        ns.NotifyNodesChanged()
+        advance(70) -- (the limit per player counts over a minute)
+    end
+    -- every node as it is afterwards, and every report that still waits
+    local function State()
+        local out = {}
+        local function Names(t)
+            local l = {}
+            for k in pairs(t or {}) do l[#l + 1] = tostring(k) end
+            table.sort(l)
+            return table.concat(l, "+")
+        end
+        for _, z in ipairs(ZONES) do
+            for i, n in ipairs(ns.db.nodes[z]) do
+                if n.source ~= "questie" or n.heard then
+                    out[#out + 1] = ("%d#%d %s %.4f %.4f %s h%s [%s] c%s p%s"):format(z, i, tostring(n.id), n.x, n.y, tostring(n.source), tostring(n.heard), Names(n.heardBy), tostring(n.count), tostring(n.parked and 1))
+                end
+            end
+            for i, p in ipairs(db.pending[z] or {}) do
+                out[#out + 1] = ("%d pending#%d %s %.4f %.4f rc%d by %s [%s]"):format(z, i, tostring(p.id), p.x, p.y, p.rc, tostring(p.by), Names(p.reporters))
+            end
+        end
+        local c = db.counts or {}
+        out[#out + 1] = ("counts %s %s %s %s %s"):format(tostring(c.received), tostring(c.new), tostring(c.trusted), tostring(c.public), tostring(c.confirmed))
+        return out
+    end
+    local function Same(a, b, what)
+        assert(#a == #b, ("%s: %d lines without the lookup, %d with it"):format(what, #a, #b))
+        for i = 1, #a do assert(a[i] == b[i], ("%s: without the lookup '%s', with it '%s'"):format(what, a[i], b[i])) end
+    end
+    -- the handler time /gcr perf counted for the last full minute
+    local function HandlerMs()
+        local mark = #log
+        slash("perf")
+        for i = mark + 1, #log do
+            local ms = log[i]:match("time in the receive and send handlers ([%d%.]+) ms")
+            if ms and log[i]:find("last full minute", 1, true) then return tonumber(ms) end
+        end
+        error("/gcr perf: no handler time of the last full minute")
+    end
+    local function Minute(send)
+        advance(60 - GetTime() % 60 + 0.5)
+        local count = 0
+        send(function(text, who)
+            msg(text, who)
+            count = count + 1
+            if count % 40 == 0 then advance(1) end -- (40 messages a second are read)
+        end)
+        advance(60 - GetTime() % 60 + 0.5)
+        return HandlerMs()
+    end
+    -- answers: six players send the 150 spots of each zone, eight to a message,
+    -- turn by turn; every fifth entry of a player is his own reading of the
+    -- place (up to 1.5 yd off), the others are the numbers everybody has
+    local function Answers(deliver)
+        for zi, z in ipairs(ZONES) do
+            local texts = {}
+            for r = 1, 6 do
+                texts[r] = {}
+                local parts = {}
+                for i, e in ipairs(sets[z]) do
+                    local xs, ys = e.xs, e.ys
+                    if (i + r) % 5 == 0 then xs, ys = xs + r % 3 + 1, ys + r % 2 end
+                    parts[#parts + 1] = ("%s,%s,%d,%d,2447"):format(e.id, e.code, xs, ys)
+                    if #parts == 8 or i == #sets[z] then
+                        texts[r][#texts[r] + 1] = "N:" .. z .. ";" .. table.concat(parts, ";")
+                        parts = {}
+                    end
+                end
+            end
+            for m = 1, #texts[1] do
+                for r = 1, 6 do deliver(texts[r][m], ("Answer%d%d-Realm"):format(zi, r)) end
+            end
+        end
+    end
+    -- an evening without questions: 300 harvests of 60 players, one node a
+    -- message, each at its own place; half of them where you know a node
+    local function Harvests(deliver)
+        local s = 99
+        local function R() s = (s * 1103515245 + 12345) % 2147483648 return s / 2147483648 end
+        for k = 1, 300 do
+            local z = ZONES[k % #ZONES + 1]
+            local e = sets[z][math.floor(R() * 150) + 1]
+            local xs, ys = e.xs + math.floor(R() * 7) - 3, e.ys + math.floor(R() * 7) - 3
+            if k % 2 == 0 then xs, ys = math.floor(R() * 9000) + 500, math.floor(R() * 9000) + 500 end
+            deliver(("N:%d;%s,%s,%d,%d,2447"):format(z, e.id, e.code, xs, ys), ("Farmer%d-Realm"):format(k % 60))
+        end
+    end
+    local function Run(send, off)
+        ns.SyncExactOff = off or nil
+        Fresh()
+        local ms = Minute(send)
+        return ms, State()
+    end
+    -- the same once more, a good minute later: by then you know every one of the nodes
+    local function RunAgain(send, off)
+        ns.SyncExactOff = off or nil
+        Fresh()
+        Minute(send)
+        advance(70)
+        local ms = Minute(send)
+        return ms, State()
+    end
+    local ok, err = pcall(function()
+        db.enabled, db.public, db.blocked, db.announceOn, ns.db.debug = true, true, {}, nil, nil
+        for _, z in ipairs(ZONES) do ns.ImportQuestieZone(z, true) saved.nodes[z] = ns.db.nodes[z] end
+        ns.SyncExactOff = nil
+
+        -- The time in the handlers: the best of three minutes each, on the
+        -- mock's clock. And the same result, node by node and report by
+        -- report: what the last of those minutes left behind.
+        local function Best(run, send, off)
+            local best, state
+            for _ = 1, 3 do
+                local ms, left = run(send, off)
+                best, state = math.min(best or ms, ms), left
+            end
+            return best, state
+        end
+        -- three kinds of minute, 570 messages / 4500 nodes each where it is answers:
+        --   again: answers for nodes you all know by now (what Sven's minute mostly was)
+        --   first: answers you hear for the first time - half of the nodes are new and become nodes of yours
+        --   harvests: an evening without questions, 300 messages with a node each
+        local rOff, without3 = Best(RunAgain, Answers, true)
+        local rOn, with3 = Best(RunAgain, Answers, false)
+        local aOff, without = Best(Run, Answers, true)
+        local aOn, with = Best(Run, Answers, false)
+        local hOff, without2 = Best(Run, Harvests, true)
+        local hOn, with2 = Best(Run, Harvests, false)
+        Same(without, with, "answers")
+        Same(without2, with2, "harvests")
+        Same(without3, with3, "the answers again")
+        assert(#with == 751, "test setup: the answers left " .. #with .. " lines (150 nodes in each of 5 zones, and the counts)")
+        local function Less(off, on) return off > 0 and (1 - on / off) * 100 or 0 end
+        note(("MEASURE P2 answers for nodes you know: handlers %.1f ms -> %.1f ms a minute (%d %% less)"):format(rOff, rOn, Less(rOff, rOn)))
+        note(("MEASURE P2 answers heard for the first time (375 new nodes): handlers %.1f ms -> %.1f ms (%d %% less)"):format(aOff, aOn, Less(aOff, aOn)))
+        note(("MEASURE P2 harvests, 300 messages with a node each: handlers %.1f ms -> %.1f ms"):format(hOff, hOn))
+        assert(rOff > 2, ("test setup: the answers take %.1f ms in the handlers - too little to compare"):format(rOff))
+        assert(rOn <= rOff * 0.6, ("answers for nodes you know: %.1f ms in the handlers without the lookup, %.1f ms with it - not 40 %% less"):format(rOff, rOn))
+        assert(aOn <= aOff * 1.1 + 0.5, ("answers heard for the first time: %.1f ms without the lookup, %.1f ms with it - worse"):format(aOff, aOn))
+        assert(hOn <= hOff * 1.25 + 0.3, ("harvests: %.1f ms without the lookup, %.1f ms with it - worse"):format(hOff, hOn))
+    end)
+    ns.SyncExactOff = saved.off
+    debugprofilestop = saved.clock
+    for _, z in ipairs(ZONES) do ns.db.nodes[z] = saved.nodes[z] end
+    db.enabled, db.public, db.pending, db.counts, db.blocked, db.announceOn, ns.db.debug = saved.enabled, saved.public, saved.pending, saved.counts, saved.blocked, saved.announce, saved.debug
+    ns.NotifyNodesChanged()
+    advance(70)
+    assert(ok, err)
+end)
+step("Sync: the lookup by exact place stays right when nodes and reports change under it (v0.1.23 P2)", function()
+    -- What the lookup remembers has to go the moment it is not true any
+    -- more: a node that moved, went or came, a report that was dropped. The
+    -- same story is played with the lookup and without it, and after every
+    -- change the same entry is sent again: both ends have to agree.
+    local db = ns.db.sync
+    local Z = 1434
+    local saved = { enabled = db.enabled, public = db.public, pending = db.pending, counts = db.counts, blocked = db.blocked,
+        announce = db.announceOn, nodes = ns.db.nodes[Z], off = ns.SyncExactOff }
+    local function msg(text, who, chan) fire("CHAT_MSG_ADDON", "Gathercraft", text, chan or "CHANNEL", who, nil, nil, nil, "GathercraftSync") end
+    local function Story(off)
+        ns.SyncExactOff = off or nil
+        local lines = {}
+        local list = {}
+        local function Node(xs, ys, extra)
+            local n = { id = "o1731", name = "Copper Vein", type = "ore", x = xs / 10000, y = ys / 10000, count = 1, last = 1, item = 2770 }
+            for k, v in pairs(extra or {}) do n[k] = v end
+            list[#list + 1] = n
+            return n
+        end
+        local a = Node(3000, 3000)
+        local b = Node(5000, 5000)
+        local parked = Node(7000, 7000, { source = "sync", parked = 1, heard = 1, heardBy = { Old = true } })
+        ns.db.nodes[Z] = list
+        db.pending, db.counts = {}, nil
+        ns.NotifyNodesChanged()
+        advance(70)
+        local n = 0
+        local function Say(xs, ys, who, chan)
+            n = n + 1
+            msg(("N:%d;o1731,o,%d,%d,2770"):format(Z, xs, ys), who or ("P" .. n .. "-Realm"), chan)
+            if n % 30 == 0 then advance(1) end
+        end
+        local function Mark(what)
+            local function Names(t) local l = {} for k in pairs(t or {}) do l[#l + 1] = tostring(k) end table.sort(l) return table.concat(l, "+") end
+            local out = { what }
+            for i, x in ipairs(ns.db.nodes[Z]) do
+                out[#out + 1] = ("n%d %.4f %.4f %s h%s [%s] p%s"):format(i, x.x, x.y, tostring(x.source), tostring(x.heard), Names(x.heardBy), tostring(x.parked and 1))
+            end
+            for i, p in ipairs(db.pending[Z] or {}) do
+                out[#out + 1] = ("w%d %.4f %.4f rc%d %s [%s]"):format(i, p.x, p.y, p.rc, tostring(p.by), Names(p.reporters))
+            end
+            lines[#lines + 1] = table.concat(out, " | ")
+        end
+        -- a known node, said twice by its exact place
+        Say(3000, 3000) Say(3000, 3000) Mark("known twice")
+        -- it moves 40 yd (a harvest shifted it): the same numbers are a new report now
+        a.x = a.x + 0.008
+        ns.NotifyNodesChanged("update", Z, a)
+        Say(3000, 3000) Mark("after the node moved away")
+        -- ... and back: known again, the report it left stays where it is
+        a.x = a.x - 0.008
+        ns.NotifyNodesChanged("update", Z, a)
+        Say(3000, 3000) Mark("after the node moved back")
+        -- the node is deleted: unknown again
+        Say(5000, 5000) Say(5000, 5000)
+        for i = #list, 1, -1 do if list[i] == b then table.remove(list, i) end end
+        ns.NotifyNodesChanged()
+        Say(5000, 5000) Mark("after the node was deleted")
+        -- an unknown place said twice, then a node of yours appears 4 yd from it: the third goes to the node
+        Say(6000, 2000) Say(6000, 2000)
+        local c = Node(6008, 2000)
+        ns.NotifyNodesChanged("add", Z, c)
+        Say(6000, 2000) Mark("a node appeared next to a waiting report")
+        -- a nearer node appears next to a place that was answered by a farther one
+        local far = Node(2000, 6000)
+        ns.NotifyNodesChanged("add", Z, far)
+        Say(2015, 6000) Say(2015, 6000)
+        local nearer = Node(2018, 6000)
+        ns.NotifyNodesChanged("add", Z, nearer)
+        Say(2015, 6000) Mark("a nearer node appeared")
+        -- three strangers: the third makes it a node, the fourth and fifth only know it
+        Say(8000, 3000) Say(8000, 3000) Say(8000, 3000) Say(8000, 3000) Say(8001, 3000) Mark("imported at the third, known after")
+        -- a parked node comes back when somebody new names it, by exact place
+        Say(7000, 7000) Mark("the parked node")
+        -- the same player again and again: counted once
+        Say(4000, 8000, "Echo-Realm") Say(4000, 8000, "Echo-Realm") Say(4000, 8000, "Echo-Realm") Mark("one player three times")
+        -- more reports than a zone keeps (300): the oldest go, and what was dropped is new when it is said again
+        advance(70)
+        for k = 1, 310 do
+            msg(("N:%d;o1735,o,%d,%d,2772"):format(Z, 100 + (k % 31) * 300, 200 + math.floor(k / 31) * 700), ("Flood%d-Realm"):format(k % 20))
+            if k % 30 == 0 then advance(1) end
+        end
+        Mark("310 reports")
+        advance(70)
+        msg(("N:%d;o1735,o,%d,%d,2772"):format(Z, 100 + 1 * 300, 200), "Late-Realm")
+        msg(("N:%d;o1735,o,%d,%d,2772"):format(Z, 100 + 1 * 300, 200), "Later-Realm")
+        Mark("the first of them again")
+        -- old reports are dropped (a week): said again they start from one
+        Say(1000, 9000) Say(1000, 9000)
+        for _, p in ipairs(db.pending[Z]) do if p.x == 0.1 and p.y == 0.9 then p.first = time() - 30 * 24 * 3600 end end
+        ns.DropOldPending()
+        Say(1000, 9000) Mark("after old reports were dropped")
+        -- /gcr sync clear and the guild: taken at once, then known
+        Say(9000, 9000) Say(9000, 9000, "Mate-Realm", "GUILD") Say(9000, 9000) Mark("a guild mate")
+        -- the reports are replaced as a whole (a login does that): nothing is remembered from the old list
+        Say(1500, 1500)
+        db.pending = {}
+        Say(1500, 1500) Mark("a new list of reports")
+        return lines
+    end
+    local ok, err = pcall(function()
+        db.enabled, db.public, db.blocked, db.announceOn = true, true, {}, nil
+        local without = Story(true)
+        local with = Story(false)
+        assert(#without == #with and #with >= 14, "test setup: the two stories differ in length")
+        for i = 1, #with do
+            assert(without[i] == with[i], ("%s - without the lookup: %s ### with it: %s"):format(with[i]:match("^[^|]*"), without[i]:sub(1, 600), with[i]:sub(1, 600)))
+        end
+        -- (the story does what it says: these are the ends it has to reach)
+        local function Has(i, text) assert(with[i]:find(text, 1, true), ("test setup, '%s': no '%s' in %s"):format(with[i]:match("^[^|]*"), text, with[i]:sub(1, 400))) end
+        Has(1, "h2 [P1-Realm+P2-Realm]") Has(2, "w1 0.3000 0.3000 rc1 P3-Realm") Has(3, "h3 [P1-Realm+P2-Realm+P4-Realm]")
+        Has(4, "w2 0.5000 0.5000 rc1 P7-Realm") Has(5, "w3 0.6000 0.2000 rc2 P8-Realm [P8-Realm+P9-Realm]")
+        Has(8, "0.7000 0.7000 sync h2 [Old+P19-Realm] pnil") Has(9, "w4 0.4000 0.8000 rc1 Echo-Realm [Echo-Realm]")
+        Has(11, "rc2 Late-Realm [Late-Realm+Later-Realm]") Has(12, "0.1000 0.9000 rc1 P25-Realm")
+        Has(13, "sync h3 [Mate-Realm+P26-Realm+P28-Realm]") Has(14, "w1 0.1500 0.1500 rc1 P30-Realm")
+    end)
+    ns.SyncExactOff = saved.off
+    ns.db.nodes[Z] = saved.nodes
+    db.enabled, db.public, db.pending, db.counts, db.blocked, db.announceOn = saved.enabled, saved.public, saved.pending, saved.counts, saved.blocked, saved.announce
+    ns.NotifyNodesChanged()
+    advance(70)
+    assert(ok, err)
+end)
 step("Long run (10 min) for leaks", function() slash("run herb") advance(600) slash("stop") end)
 
 io.write("\n--- errors: " .. #errors .. "\n")
