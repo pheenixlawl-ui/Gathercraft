@@ -23579,6 +23579,195 @@ step("Farm for plan: every text in nine languages with the same placeholders, th
     assert(not changelog:find("Farm for plan", 1, true) and not changelog:find("0%.2%.0"), "the changelog names the shopping list or 0.2.0")
     assert(not Read("Welcome.lua"):find("Farm for plan", 1, true), "the \"What's new\" page names the shopping list")
 end)
+step("Farm for plan: no setting is touched, the count follows your real stock both ways, a hidden value is never used (v0.2 B3 T7)", function()
+    -- Concept shopping list 5 (3, 4, 11), tests 6 and 9: a plan run from
+    -- its start to every kind of end changes no option, no CVar and no
+    -- tracking; only the saved run (while it goes) and the gather counts
+    -- (through the listener) are its own.
+    local d = ns.CraftData
+    local COPPER, TIN, VEIN = 2770, 2771, "o1731"
+    local TINVEIN
+    for key, kind in pairs(GathercraftQuestieData.kinds) do
+        if kind[1] == "o" and kind[2] == TIN and (not TINVEIN or key < TINVEIN) then TINVEIN = key end
+    end
+    local Z = 1412
+    local saved = { rank = ns.ProfessionRank, have = d.Have, known = d.Known, skill = ns.GetSkill, targets = ns.db.planTargets, run = ns.db.activeRun,
+        loot = ns.db.kindLoot, secret = issecretvalue, setCVar = SetCVar, tracking = C_Minimap and C_Minimap.SetTracking, summaryOff = ns.db.summaryOff }
+    local W = IdentityWorld()
+    local before = #errors
+    local win = _G.GathercraftSkillPlan
+    if win then win:Hide() end
+    local ok, err = pcall(function()
+        local stock = {}
+        ns.ProfessionRank = function(p) if p == "Mining" then return 1, 75 end end
+        d.Known = function() return {} end
+        d.Have = function(id)
+            if stock[id] == "?" then return nil end
+            return stock[id] or 0
+        end
+        ns.GetSkill = function(t) if t == "ore" then return 100, 300, 100 end end
+        local cvars, trackings = 0, 0
+        SetCVar = function(...) cvars = cvars + 1 return saved.setCVar(...) end
+        if C_Minimap and C_Minimap.SetTracking then C_Minimap.SetTracking = function(...) trackings = trackings + 1 return saved.tracking(...) end end
+        local function Bags() fire("BAG_UPDATE_DELAYED") W.Wait(1) end
+        local function Row(item)
+            local s = ns.PlanRunState()
+            for _, r in ipairs((s and s.rows) or {}) do if r.item == item then return r end end
+        end
+        local F = ns.PlanFilter("Mining", 75)
+        W.Set({ W.Node(VEIN, "Copper Vein", 100, { type = "ore" }), W.Node(VEIN, "Copper Vein", 200, { type = "ore" }), W.Node(TINVEIN, "Tin Vein", 300, { type = "ore" }) })
+        W.At(0)
+
+        -- ---- the settings (test 9): the same before and after everything a plan run can do
+        local SETTINGS = { "miniPinAlpha", "hideGreyNodes", "worldPinsHidden", "miniPinsHidden", "routeGoal", "disabledZones", "disabledKinds", "disabledContinents",
+            "mapFollowsZones", "chestsHidden", "routeLineHidden", "routeLineMiniHidden", "panelCompact", "runPanelHidden", "advisorMode", "routeMode", "tooltipPrices",
+            "summaryOff", "arriveDist", "pinSize", "language", "planTargets" }
+        local function Flat(v, depth)
+            if type(v) ~= "table" then return tostring(v) end
+            local keys = {}
+            for k in pairs(v) do keys[#keys + 1] = tostring(k) end
+            table.sort(keys)
+            local parts = {}
+            for _, k in ipairs(keys) do
+                local val = v[k]
+                if val == nil then val = v[tonumber(k)] end
+                parts[#parts + 1] = k .. "=" .. ((depth or 0) < 3 and Flat(val, (depth or 0) + 1) or "...")
+            end
+            return "{" .. table.concat(parts, ",") .. "}"
+        end
+        local function Settings()
+            local t = {}
+            for _, key in ipairs(SETTINGS) do t[key] = Flat(ns.db[key]) end
+            return t
+        end
+        -- (every key of the saved data that is not a list of nodes or one of the run's own two: nothing new appears)
+        local function Keys()
+            local t = {}
+            for k in pairs(ns.db) do t[#t + 1] = tostring(k) end
+            table.sort(t)
+            return table.concat(t, " ")
+        end
+        stock[COPPER], stock[TIN] = 10, 0
+        ns.db.kindLoot = ns.db.kindLoot or {}
+        -- (an ordinary run with one gather first: what every run and the recorder write is there then)
+        ns.StartRun("ore", Z) W.Wait(1)
+        W.At(200)
+        local c0 = W.Cast("Copper Vein", 2575) W.Wait(2) W.Done(c0, 2575) W.Loot(1731, COPPER, "T7A000") fire("LOOT_CLOSED") W.Wait(4)
+        ns.StopRun(true) advance(1)
+        W.At(0)
+        local set0, keys0 = Settings(), Keys()
+        local function Unchanged(what)
+            local now = Settings()
+            for _, key in ipairs(SETTINGS) do
+                assert(now[key] == set0[key], ("%s: the setting %s changed from %s to %s"):format(what, key, set0[key], now[key]))
+            end
+            assert(cvars == 0 and trackings == 0, ("%s: %d CVar(s) set, tracking set %d time(s)"):format(what, cvars, trackings))
+        end
+        -- start, run, a gather, the window of the run, the list of zones
+        ns.StartRun(F, Z) W.Wait(1) advance(2)
+        assert(ns.run and ns.run.plan, "test setup: no plan run")
+        Unchanged("after the start")
+        assert(ns.db.activeRun and ns.db.activeRun.filter == F, "the saved run while it goes")
+        W.At(100)
+        local c = W.Cast("Copper Vein", 2575) W.Wait(2) W.Done(c, 2575) W.Loot(1731, COPPER, "T7A001") fire("LOOT_CLOSED") W.Wait(4)
+        stock[COPPER] = 12 Bags()
+        ns.PlanZoneListShow("Mining", 75) advance(20)
+        _G.GathercraftPlanZones:Hide()
+        Unchanged("during the run")
+        -- a stop by the player
+        ns.StopRun() advance(1)
+        Unchanged("after a stop")
+        assert(ns.db.activeRun == nil, "a saved run after the stop")
+        -- taken up after a reload, then the end with everything gathered
+        ns.StartRun(F, Z) W.Wait(1)
+        local keep = { filter = ns.db.activeRun.filter, zone = ns.db.activeRun.zone }
+        ns.StopRun(true)
+        ns.db.activeRun = keep
+        ns.PlanRunResume(keep) W.Wait(1)
+        Unchanged("after the reload")
+        stock[COPPER], stock[TIN] = 500, 500 Bags()
+        assert(ns.run == nil and ns.db.activeRun == nil, "test setup: no end")
+        Unchanged("after the end with everything gathered")
+        -- a blocked end
+        stock[COPPER], stock[TIN] = 500, 0
+        ns.StartRun(F, Z) W.Wait(1)
+        assert(ns.run, "test setup: no run for tin")
+        ns.GetSkill = function(t) if t == "ore" then return 10, 300, 10 end end
+        W.Wait(40) Bags()
+        assert(ns.run == nil and (ns.PlanRunLastEnd()).kind == "blocked", "test setup: no blocked end")
+        ns.GetSkill = function(t) if t == "ore" then return 100, 300, 100 end end
+        Unchanged("after a blocked end")
+        -- an unknown format, by hand and saved
+        slash("run plan:v2:mining:75")
+        ns.db.activeRun = { filter = "plan:mining:75", zone = Z }
+        ns.PlanRunResume(ns.db.activeRun)
+        Unchanged("after an unknown format")
+        assert(Keys() == keys0, "the saved data has other keys than before: " .. Keys() .. " | before: " .. keys0)
+        for _, name in ipairs({ "GathercraftPlanZones", "GathercraftPlanHint", "GathercraftRunSummary", "GathercraftPlanGathered" }) do if _G[name] then _G[name]:Hide() end end
+
+        -- ---- the count follows what you really have, up and down (test 6)
+        stock[COPPER], stock[TIN] = 100, 0
+        ns.StartRun(F, Z) W.Wait(1)
+        local run = ns.run
+        assert(run and Row(COPPER).have == 100 and not Row(COPPER).ok, "test setup: 100 of 120 copper")
+        -- more of it without a gather (the mailbox, a trade): counted, ticked, out of the route
+        stock[COPPER] = 130 Bags()
+        assert(Row(COPPER).have == 130 and Row(COPPER).ok, "copper from the mailbox: " .. tostring(Row(COPPER).have))
+        for _, p in ipairs(ns.run.points) do assert(p.node.id ~= VEIN, "a copper vein is in the route although the copper is there") end
+        assert(ns.PlanGlowFor({ id = VEIN, type = "ore" }) == 0, "a copper vein glows although the copper is there")
+        -- sold or thrown away: the tick goes, it is farmed again
+        stock[COPPER] = 40 Bags()
+        assert(ns.run and Row(COPPER).have == 40 and not Row(COPPER).ok, "copper sold: " .. tostring(Row(COPPER).have) .. ", ticked " .. tostring(Row(COPPER).ok))
+        local back = false
+        for _, p in ipairs(ns.run.points) do if p.node.id == VEIN then back = true end end
+        assert(back and ns.PlanGlowFor({ id = VEIN, type = "ore" }) == 1, "the copper veins are not back in the route after the copper was sold")
+        -- the same sum (bank in, bank out: the count is the whole of it): nothing moves, no new plan
+        local published = 0
+        local function Count() published = published + 1 end
+        table.insert(ns.skillPlanListeners, Count)
+        fire("BANKFRAME_OPENED") fire("PLAYERBANKSLOTS_CHANGED") Bags() fire("BANKFRAME_CLOSED") W.Wait(1)
+        for i = #ns.skillPlanListeners, 1, -1 do if ns.skillPlanListeners[i] == Count then table.remove(ns.skillPlanListeners, i) end end
+        assert(published == 0 and Row(COPPER).have == 40, "bank events with the same counts made " .. published .. " new plan(s)")
+        -- a count that cannot be read (a bank never opened): "?", never 0, never an end
+        stock[COPPER], stock[TIN] = "?", 500
+        Bags()
+        assert(ns.run and Row(COPPER).have == nil and not Row(COPPER).ok, "a count that cannot be read: " .. tostring(Row(COPPER).have))
+        ns.StopRun(true)
+
+        -- ---- a hidden value is never looked at (contract 11): not as a node's ID, not as an item of the loot
+        local SECRET = setmetatable({}, { __eq = function() error("a hidden value was compared", 2) end, __lt = function() error("a hidden value was compared", 2) end,
+            __le = function() error("a hidden value was compared", 2) end, __tostring = function() error("a hidden value was made a text", 2) end,
+            __concat = function() error("a hidden value was put into a text", 2) end })
+        issecretvalue = function(v) return rawequal(v, SECRET) end
+        local loot0 = Flat(ns.db.kindLoot)
+        -- (the listener of the gather counts alone: the recorder never hands a hidden item on, the other listeners need not expect one)
+        local counter
+        for _, f in ipairs(ns.gatherListeners) do
+            ns.db.kindLoot.oT7probe = nil
+            pcall(f, { id = "oT7probe", type = "ore", name = "Probe" }, { items = { { id = 990900, qty = 1 } } })
+            if ns.db.kindLoot.oT7probe then counter = f end
+        end
+        ns.db.kindLoot.oT7probe = nil
+        assert(counter, "test setup: the listener of the gather counts was not found")
+        local function Tell(node, p) counter(node, p) end
+        local n0 = ns.db.kindLoot[VEIN] and ns.db.kindLoot[VEIN].n or 0
+        Tell({ id = VEIN, type = "ore", name = "Copper Vein" }, { items = { { id = SECRET, qty = 1 }, { id = 2835, qty = SECRET } } })
+        local e = ns.db.kindLoot[VEIN]
+        assert(e and e.n == n0 + 1 and e.items[2835] and not rawget(e.items, SECRET), "a hidden item ID was kept, or the readable one was not")
+        for id in pairs(e.items) do assert(type(id) == "number", "something that is no number is kept as an item") end
+        assert(ns.PlanNodeMatches({ id = SECRET, type = "ore" }, { [COPPER] = true }) == false and ns.PlanBaseItem(SECRET) == nil, "a hidden node ID was used")
+        assert(ns.PlanGlowFor({ id = SECRET, type = "ore" }) == nil, "test setup: a glow without a run")
+        assert(#errors == before, "an error: " .. tostring(errors[#errors]))
+    end)
+    issecretvalue, SetCVar = saved.secret, saved.setCVar
+    if C_Minimap and saved.tracking then C_Minimap.SetTracking = saved.tracking end
+    if ns.run then ns.StopRun(true) end
+    ns.ProfessionRank, d.Have, d.Known, ns.GetSkill, ns.db.planTargets = saved.rank, saved.have, saved.known, saved.skill, saved.targets
+    ns.db.activeRun, ns.db.kindLoot, ns.db.summaryOff = saved.run, saved.loot, saved.summaryOff
+    for _, name in ipairs({ "GathercraftPlanZones", "GathercraftPlanHint", "GathercraftRunSummary", "GathercraftPlanGathered", "GathercraftSkillPlan" }) do if _G[name] then _G[name]:Hide() end end
+    W.Restore()
+    if not ok then error(err, 0) end
+end)
 -- (end of the "Farm for plan" steps, v0.2 building block 3)
 step("Long run (10 min) for leaks", function() slash("run herb") advance(600) slash("stop") end)
 step("Test mock: OnUpdate runs for the same frames in the same order as going over every frame (tools only)", function()

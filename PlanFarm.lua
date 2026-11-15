@@ -88,13 +88,14 @@ local function CountGather(node, p)
     if type(node) ~= "table" or type(p) ~= "table" then return end
     if node.type ~= "herb" and node.type ~= "ore" then return end
     local key = node.id
-    if type(key) ~= "string" or key == "" or ns.AnySecret("plan loot", key) then return end
+    -- (asked whether it is hidden BEFORE it is compared with anything)
+    if ns.AnySecret("plan loot", key) or type(key) ~= "string" or key == "" then return end
     if type(p.items) ~= "table" or #p.items == 0 then return end -- loot nobody could read is no observation
     local main = ns.PlanBaseItem(key)
     local once = {}
     for _, it in ipairs(p.items) do
         local id = type(it) == "table" and it.id
-        if type(id) == "number" and not ns.AnySecret("plan loot", id) and id > 0 and id ~= main then once[id] = true end
+        if not ns.AnySecret("plan loot", id) and type(id) == "number" and id > 0 and id ~= main then once[id] = true end
     end
     local db = ns.db
     if type(db) ~= "table" then return end
