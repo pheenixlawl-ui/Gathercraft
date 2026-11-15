@@ -84,16 +84,15 @@ local function ProfessionSlots()
     local places, profs = Counted(GetProfessions())
     for i = 1, places do
         local index = profs[i]
-        if index ~= nil then
-            if ns.AnySecret("skills", index) then
+        -- (asked whether it is hidden first, compared after - R1-N2)
+        if ns.AnySecret("skills", index) then
+            unclear = true
+        elseif index ~= nil then
+            local name, _, rank, maxRank, _, _, skillLine, modifier = GetProfessionInfo(index)
+            if ns.AnySecret("skills", skillLine) then
                 unclear = true
-            else
-                local name, _, rank, maxRank, _, _, skillLine, modifier = GetProfessionInfo(index)
-                if ns.AnySecret("skills", skillLine) then
-                    unclear = true
-                elseif skillLine ~= nil then
-                    out[#out + 1] = { place = i, name = name, rank = rank, maxRank = maxRank, line = skillLine, modifier = modifier }
-                end
+            elseif skillLine ~= nil then
+                out[#out + 1] = { place = i, name = name, rank = rank, maxRank = maxRank, line = skillLine, modifier = modifier }
             end
         end
     end

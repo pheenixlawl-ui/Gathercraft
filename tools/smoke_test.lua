@@ -16300,6 +16300,85 @@ step("Auction house: an answer that comes after the timeout belongs to the scan 
     p.lastScanStart, p.scanned, p.items, p.qty, p.seen, p.history = keep.last, keep.scanned, keep.items, keep.qty, keep.seen, keep.history
     assert(ok, err)
 end)
+step("Professions: every place of the game's list is asked whether it is hidden before anything else is done with it (v0.1.23 R1-N2)", function()
+    -- Codex, round 1 (N2): a place of GetProfessions was compared with nil
+    -- first and asked whether it is hidden second. The line's number and the
+    -- skill were asked first already; the place follows the same pattern.
+    -- (Lua tells nobody about a comparison with nil, so the test cannot
+    -- count that one: it counts that the game is asked about every place,
+    -- the empty one too - which only happens when the asking comes first -
+    -- and reads the order in the source.)
+    local keep = { gp = GetProfessions, gi = GetProfessionInfo, secret = issecretvalue }
+    local SECRET = {}
+    local LINES = {
+        [11] = { "Alchimie", 120, 150, 171 }, [12] = { "Kräuterkunde", 270, 300, 182 }, [14] = { "Angeln", 127, 150, 356 },
+        [15] = { "Kochkunst", 141, 150, 185 }, [16] = { "Erste Hilfe", 144, 225, 129 }, [17] = { "Bergbau", 225, 300, 186 },
+    }
+    local ok, err = pcall(function()
+        local asked, infos = {}, 0
+        -- (what is asked: the value, and how many values were looked up in the game's list before)
+        issecretvalue = function(...)
+            assert(select("#", ...) == 1, "issecretvalue was asked about " .. select("#", ...) .. " values")
+            local v = ...
+            asked[#asked + 1] = { v = v, infos = infos }
+            return rawequal(v, SECRET)
+        end
+        GetProfessionInfo = function(i)
+            assert(not rawequal(i, SECRET), "the game was asked for the profession at a hidden place")
+            infos = infos + 1
+            local l = LINES[i]
+            if not l then return nil end
+            return l[1], 134400, l[2], l[3], 0, 0, l[4], 0
+        end
+        local function Places(...)
+            local n, list = select("#", ...), { ... }
+            GetProfessions = function() return unpack(list, 1, n) end
+            asked, infos = {}, 0
+            local slots, unclear, places = ns.ProfessionSlots()
+            assert(places == n, ("test setup: %s places, the list has %d"):format(tostring(places), n))
+            return slots, unclear, n, list
+        end
+        -- 1. seven places, the third empty: the game is asked about all seven
+        local function AskedAbout(list, n)
+            local count, empty = 0, 0
+            for i = 1, n do
+                local v, found = list[i], false
+                for _, a in ipairs(asked) do
+                    if rawequal(a.v, v) then found = true break end
+                end
+                if found then count = count + 1 end
+                if v == nil and found then empty = empty + 1 end
+            end
+            return count, empty
+        end
+        local slots, unclear, n, list = Places(11, 12, nil, 14, 15, 16, 17)
+        local count, empty = AskedAbout(list, n)
+        assert(count == 7 and empty == 1, ("seven places, one empty: asked whether hidden about %d of them (the empty one: %d)"):format(count, empty))
+        assert(#slots == 6 and unclear == false, ("seven places, one empty: %d read, unclear %s"):format(#slots, tostring(unclear)))
+        assert(slots[3].place == 4 and slots[3].line == 356 and slots[6].place == 7 and slots[6].line == 186, "the places after the empty one are not read as before")
+        -- 2. a hidden place: asked about, never looked up, the others are read
+        slots, unclear, n, list = Places(SECRET, 12, nil, 14, 15, 16, 17)
+        count = AskedAbout(list, n)
+        assert(count == 7, ("a hidden place: asked whether hidden about %d of 7"):format(count))
+        assert(#slots == 5 and unclear == true and slots[1].place == 2, ("a hidden place: %d read, unclear %s"):format(#slots, tostring(unclear)))
+        -- 3. the first thing asked is the first place - before any profession is looked up
+        assert(asked[1] and rawequal(asked[1].v, SECRET) and asked[1].infos == 0, "the first place is not what is asked first")
+        -- 4. all places empty (a character without professions): nothing read, nothing unclear, no error
+        slots, unclear = Places(nil, nil, nil, nil, nil, nil)
+        assert(#slots == 0 and unclear == false, "no professions: " .. #slots .. " read, unclear " .. tostring(unclear))
+        assert(#asked == 6, ("six empty places: asked whether hidden %d times"):format(#asked))
+        -- 5. the order in the source: asked first, compared with nil after
+        local f = assert(io.open(ROOT .. "/Skills.lua"))
+        local src = f:read("*a") f:close()
+        local body = src:match("local function ProfessionSlots%(%)(.-)\nend\n")
+        assert(body, "test setup: ProfessionSlots is not found in Skills.lua")
+        local askAt = body:find('ns.AnySecret("skills", index)', 1, true)
+        local nilAt = body:find("index ~= nil", 1, true) or body:find("index == nil", 1, true)
+        assert(askAt and nilAt and askAt < nilAt, "Skills.lua: the place is compared with nil before it is asked whether it is hidden")
+    end)
+    GetProfessions, GetProfessionInfo, issecretvalue = keep.gp, keep.gi, keep.secret
+    assert(ok, err)
+end)
 step("Long run (10 min) for leaks", function() slash("run herb") advance(600) slash("stop") end)
 
 io.write("\n--- errors: " .. #errors .. "\n")
