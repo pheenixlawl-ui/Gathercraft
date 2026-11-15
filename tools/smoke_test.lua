@@ -22765,6 +22765,392 @@ step("Farm for plan: one zone - the one you stand in or the one you click in the
     advance(15)
     if not ok then error(err, 0) end
 end)
+step("Farm for plan: the plan's nodes glow and the rest steps back - a factor worked out at the pin every time, gone with the run (v0.2 B3 T4)", function()
+    -- Concept shopping list 4.9, tests 11 and 16; Sven E2, E7; the order's
+    -- extra test (pins that come and go while the run goes).
+    assert(type(ns.PlanGlowFor) == "function" and type(ns.PlanPinsChanged) == "function" and type(ns.PinHiddenGrey) == "function",
+        "no ns.PlanGlowFor / PlanPinsChanged / PinHiddenGrey")
+    local data = GathercraftQuestieData
+    local COPPER, TIN, STONE, VEIN = 2770, 2771, 2835, "o1731"
+    local TINVEIN
+    for key, kind in pairs(data.kinds) do
+        if kind[1] == "o" and kind[2] == TIN and (not TINVEIN or key < TINVEIN) then TINVEIN = key end
+    end
+    local Z = 1412
+    local saved = { planFor = ns.SkillPlanFor, skill = ns.GetSkill, loot = ns.db.kindLoot, grey = ns.db.hideGreyNodes, world = ns.db.worldPinsHidden, mini = ns.db.miniPinsHidden,
+        alpha = ns.db.miniPinAlpha, run = ns.db.activeRun, glow = ns.PlanGlowFor, base = ns.PlanBaseKinds, seen = ns.PlanSeen, herb = PROFS[1][2], ore = PROFS[2][2], oreMax = PROFS[2][3] }
+    local W = IdentityWorld()
+    local hbd = LibStub("HereBeDragons-Pins-2.0")
+    local addWorld, addMini = hbd.AddWorldMapIconMap, hbd.AddMinimapIconMap
+    local worldPin, miniPin = {}, {}
+    hbd.AddWorldMapIconMap = function(self, ref, frame, mapID, ...)
+        if ref == "Gathercraft" and mapID == Z and frame.node then worldPin[frame.node] = frame end
+        return addWorld(self, ref, frame, mapID, ...)
+    end
+    hbd.AddMinimapIconMap = function(self, ref, frame, mapID, ...)
+        if ref == "Gathercraft" and mapID == Z and frame.node then miniPin[frame.node] = frame end
+        return addMini(self, ref, frame, mapID, ...)
+    end
+    local before = #errors
+    local ok, err = pcall(function()
+        PROFS[2][2], PROFS[2][3] = 70, 300 -- Mining 70: copper and tin can be gathered, nothing is grey
+        ns.GetSkill = saved.skill
+        ns.db.hideGreyNodes, ns.db.worldPinsHidden, ns.db.miniPinsHidden, ns.db.miniPinAlpha = false, false, false, 1
+        local given
+        ns.SkillPlanFor = function() if type(given) == "table" then return given end return nil, given end
+        local revision = 500
+        local function Plan(items)
+            revision = revision + 1
+            local res = { prof = "Mining", from = 1, target = 75, status = "ok", valid = true, complete = true, reliable = true, revision = revision, items = {} }
+            for id, m in pairs(items) do res.items[id] = { need = m[1], have = m[2], haveKnown = m[2] ~= nil, missing = math.max(0, m[1] - (m[2] or 0)) } end
+            given = res
+        end
+        local function Look() fire("BAG_UPDATE_DELAYED") W.Wait(1) end
+        local F = ns.PlanFilter("Mining", 75)
+        -- the nodes: two copper veins of your own, a tin vein, a herb, a known spot two kinds share
+        -- (copper and tin from the spawn data at one place), a herb on cooldown
+        local function N(id, name, x, kind, extra)
+            local n = W.Node(id, name, x, { type = kind })
+            for k, v in pairs(extra or {}) do n[k] = v end
+            return n
+        end
+        local copper1, copper2 = N(VEIN, "Copper Vein", 100, "ore"), N(VEIN, "Copper Vein", 200, "ore")
+        local tin = N(TINVEIN, "Tin Vein", 300, "ore")
+        local herb = N("o1618", "Peacebloom", 400, "herb")
+        local cold = N("o1617", "Silverleaf", 500, "herb", { emptyUntil = time() + 600 })
+        local sharedC = N(VEIN, "Copper Vein", 600, "ore", { source = "questie" })
+        local sharedT = N(TINVEIN, "Tin Vein", 600, "ore", { source = "questie" })
+        -- (since 0.1.23 a minimap pin exists only for a node within 400 yd of
+        -- you: you stand among the nodes, the farthest is 350 yd away)
+        local function Set(list)
+            for k in pairs(worldPin) do worldPin[k] = nil end
+            for k in pairs(miniPin) do miniPin[k] = nil end
+            W.Set(list)
+            W.At(250)
+            advance(4)
+        end
+        local ALL = { copper1, copper2, tin, herb, cold, sharedC, sharedT }
+        Set({ copper1, copper2, tin, herb, cold, sharedC, sharedT })
+        local function Pins()
+            local list = {}
+            for node, pin in pairs(worldPin) do if pin.node == node then list[#list + 1] = pin end end
+            for node, pin in pairs(miniPin) do if pin.node == node then list[#list + 1] = pin end end
+            return list
+        end
+        local function Alphas()
+            local t = {}
+            for _, pin in ipairs(Pins()) do t[pin] = pin:GetAlpha() end
+            return t
+        end
+        local function Ring(pin) local c = pin.ring.__color or { 1, 1, 1 } return ("%s %.2f %.2f %.2f"):format(pin.ring.__tex or "?", c[1], c[2], c[3]) end
+        local function Rings()
+            local t = {}
+            for _, pin in ipairs(Pins()) do t[pin] = Ring(pin) end
+            return t
+        end
+        local function Same(a, b, what)
+            for pin, v in pairs(a) do
+                if pin.node and b[pin] ~= nil then
+                    local same = type(v) == "number" and math.abs(v - b[pin]) < 1e-6 or v == b[pin]
+                    assert(same, ("%s: the pin of %s (%s) is %s, was %s"):format(what, tostring(pin.node.name), pin.isMini and "minimap" or "world map", tostring(b[pin]), tostring(v)))
+                end
+            end
+        end
+        local shared = worldPin[sharedC] or worldPin[sharedT]
+        assert(worldPin[copper1] and worldPin[tin] and worldPin[herb] and shared and miniPin[copper1], "test setup: the pins are not there")
+        assert(shared.others and #shared.others == 1, "test setup: the known copper and tin at one place are not one pin")
+        local alpha0, ring0 = Alphas(), Rings()
+        assert(#Pins() >= 10, "test setup: only " .. #Pins() .. " pins")
+        assert(ns.PlanGlowFor(copper1) == nil, "a glow without a plan run")
+
+        -- ---- the run: copper is the plan's material
+        local GOLD = "1.00 0.82 0.10"
+        Plan({ [COPPER] = { 60, 0 } })
+        ns.StartRun(F, Z) W.Wait(1)
+        assert(ns.run and ns.run.plan, "test setup: no plan run")
+        local target = ns.run.target
+        local function Check(what, glows, weak)
+            local n = 0
+            for _, pin in ipairs(Pins()) do
+                local node, a0 = pin.node, alpha0[pin]
+                if a0 then
+                    local want
+                    if node == ns.run.target or node == target then
+                        want = 0 -- the run's target: its normal pins step aside for the target pin
+                    elseif glows[node] or (pin.others and glows[pin.others[1]]) then
+                        want = a0
+                        assert(not pin.ring:IsShown() or Ring(pin):find(GOLD, 1, true), what .. ": the ring of a plan node (" .. node.name .. ") is not gold: " .. Ring(pin))
+                    elseif weak and weak[node.id] then
+                        want = a0 * 0.65
+                    else
+                        want = a0 * 0.35
+                        assert(Ring(pin) == ring0[pin], what .. ": the ring of a node that is not of the plan changed (" .. node.name .. ", x " .. tostring(node.x) .. ", " .. (pin.isMini and "minimap" or "world map") .. "): " .. Ring(pin) .. ", was " .. tostring(ring0[pin]))
+                    end
+                    assert(math.abs(pin:GetAlpha() - want) < 1e-6, ("%s: %s (%s) has alpha %.3f, want %.3f (%.3f before the run)"):format(what, node.name, pin.isMini and "minimap" or "world map", pin:GetAlpha(), want, a0))
+                    n = n + 1
+                end
+            end
+            assert(n >= 10, what .. ": only " .. n .. " pins checked")
+        end
+        -- (the shared spot glows through its copper, whichever of the two kinds the pin shows)
+        Check("copper", { [copper1] = true, [copper2] = true, [sharedC] = true, [sharedT] = true })
+        assert(ns.PlanGlowFor(copper1) == 1 and ns.PlanGlowFor(tin) == 0 and ns.PlanGlowFor(herb) == 0, "the glow of single nodes")
+        -- nothing of it is kept at a pin
+        for _, pin in ipairs(Pins()) do
+            for k in pairs(pin) do
+                assert(not tostring(k):lower():find("plan") and not tostring(k):lower():find("glow"), "something of the plan is kept at a pin: " .. tostring(k))
+            end
+        end
+        -- the plan needs tin instead: the glow moves, at once
+        Plan({ [COPPER] = { 60, 60 }, [TIN] = { 10, 0 } })
+        Look()
+        target = ns.run.target
+        Check("tin", { [tin] = true, [sharedC] = true, [sharedT] = true })
+        -- a shared spot where only the SECOND kind is the plan's: it glows all the same
+        local primary = shared.node
+        assert((primary == sharedC and shared.others[1] == sharedT) or (primary == sharedT and shared.others[1] == sharedC), "test setup: the shared pin")
+        Plan({ [COPPER] = { 60, primary == sharedC and 60 or 0 }, [TIN] = { 10, primary == sharedT and 10 or 0 } })
+        Look()
+        target = ns.run.target
+        assert(ns.PlanGlowFor(primary) == 0 and ns.PlanGlowFor(shared.others[1]) == 1, "test setup: only the second kind of the spot is wanted")
+        if shared.node ~= target and shared.others[1] ~= target then
+            assert(math.abs(shared:GetAlpha() - alpha0[shared]) < 1e-6, "a shared spot whose second kind is the plan's is dimmed: " .. shared:GetAlpha())
+        end
+
+        -- ---- seen: a kind a wanted material without a base was found at glows weaker and is no target
+        ns.PlanSeen = function(item) if item == STONE then return { { id = "o1618", seen = 7, n = 23 } } end return saved.seen(item) end
+        Plan({ [COPPER] = { 60, 0 }, [STONE] = { 20, 0 } })
+        Look()
+        target = ns.run.target
+        Check("seen", { [copper1] = true, [copper2] = true, [sharedC] = true, [sharedT] = true }, { o1618 = true }) -- (every Peacebloom: the kind was seen, not one node)
+        assert(ns.PlanGlowFor(herb) == 2, "the glow of a kind a material was seen at: " .. tostring(ns.PlanGlowFor(herb)))
+        for _, p in ipairs(ns.run.points) do assert(p.node ~= herb, "a node that was only seen is in the route") end
+        -- the stone is there now: the weaker glow goes - the pins are told at once (not with their next round)
+        local told, keepTold = 0, ns.PlanPinsChanged
+        ns.PlanPinsChanged = function(...) told = told + 1 return keepTold(...) end
+        Plan({ [COPPER] = { 60, 0 }, [STONE] = { 20, 20 } })
+        Look()
+        ns.PlanPinsChanged = keepTold
+        assert(told == 1, "what was seen changed and the pins were told " .. told .. " time(s), want 1")
+        target = ns.run.target
+        Check("seen, covered", { [copper1] = true, [copper2] = true, [sharedC] = true, [sharedT] = true })
+        ns.PlanSeen = saved.seen
+
+        -- ---- pins that come and go while the run goes: the right factor at once, nothing left behind
+        local late = N(TINVEIN, "Tin Vein", 700, "ore")
+        local lateCopper = N(VEIN, "Copper Vein", 800, "ore")
+        table.insert(ns.db.nodes[Z], late)
+        table.insert(ns.db.nodes[Z], lateCopper)
+        ns.NotifyNodesChanged("add", Z, late) ns.NotifyNodesChanged("add", Z, lateCopper)
+        advance(4)
+        assert(worldPin[late] and worldPin[late].node == late and worldPin[lateCopper], "test setup: no pins for the nodes that came")
+        local plain = worldPin[copper1]:GetAlpha() -- (an own node, not on cooldown, of the plan: as without a run)
+        if lateCopper ~= ns.run.target then
+            assert(math.abs(worldPin[lateCopper]:GetAlpha() - 1) < 1e-6 and Ring(worldPin[lateCopper]):find(GOLD, 1, true), "a plan node that came during the run does not glow: " .. worldPin[lateCopper]:GetAlpha())
+        end
+        assert(math.abs(worldPin[late]:GetAlpha() - 0.35) < 1e-6, "a node that came during the run and is not of the plan: alpha " .. worldPin[late]:GetAlpha() .. ", want 0.35")
+        -- the pin of a node that went is used again for another node: no old factor on it
+        local usedPin = worldPin[late]
+        for i = #ns.db.nodes[Z], 1, -1 do if ns.db.nodes[Z][i] == late then table.remove(ns.db.nodes[Z], i) end end
+        ns.NotifyNodesChanged() advance(4)
+        local reused
+        for node, pin in pairs(worldPin) do if pin == usedPin and pin.node == node and node ~= late then reused = node end end
+        local now = Alphas()
+        for _, pin in ipairs(Pins()) do
+            local node = pin.node
+            if node ~= ns.run.target and node.id == VEIN and not node.source and not pin.others then
+                assert(math.abs(pin:GetAlpha() - (pin.isMini and 1 or 1)) < 1e-6, "after the pins were built anew a copper vein is dimmed: " .. pin:GetAlpha())
+            end
+        end
+        ns.StopRun(true)
+        advance(1)
+
+        -- ---- the minimap pins of 0.1.23 come and go as you walk (only within 400 yd):
+        -- a pin made or taken away during the run has the factor of now, nothing stays
+        Set({ copper1, copper2, tin, herb })
+        Plan({ [COPPER] = { 60, 0 } })
+        ns.StartRun(F, Z) W.Wait(1)
+        assert(ns.run and ns.run.plan, "test setup: no plan run")
+        local function Mini(n) local pin = miniPin[n] return pin and pin.node == n and pin or nil end
+        local function Shown(n)
+            local pin = Mini(n)
+            return pin and pin.__registered ~= false and pin or nil
+        end
+        assert(Mini(copper1) and Mini(tin), "test setup: no minimap pins near you")
+        -- walk away: their minimap pins go
+        for k in pairs(miniPin) do miniPin[k] = nil end
+        local hbdKeepRem = hbd.RemoveMinimapIcon
+        local removed = {}
+        hbd.RemoveMinimapIcon = function(self, ref, icon, ...)
+            if ref == "Gathercraft" and icon.node then removed[icon.node] = icon end
+            return hbdKeepRem(self, ref, icon, ...)
+        end
+        W.At(1500) advance(4)
+        assert(removed[copper1] and removed[tin], "test setup: the minimap pins did not go when you walked 1,250 yd away")
+        -- the plan changes while you are away: now tin is wanted, copper is not
+        Plan({ [COPPER] = { 60, 60 }, [TIN] = { 10, 0 } })
+        fire("BAG_UPDATE_DELAYED") W.Wait(1)
+        -- back: new minimap pins (from the pool: maybe the very frames that went) - with the factor of NOW
+        W.At(250) advance(4)
+        hbd.RemoveMinimapIcon = hbdKeepRem
+        local mc, mt, mh = Mini(copper1), Mini(tin), Mini(herb)
+        assert(mc and mt and mh, "the minimap pins did not come back when you came back")
+        local miniAlpha = ns.db.miniPinAlpha or 1
+        if tin ~= ns.run.target then
+            assert(math.abs(mt:GetAlpha() - miniAlpha) < 1e-6, "a minimap pin made during the run for the plan's tin is dimmed: " .. mt:GetAlpha())
+        end
+        if copper1 ~= ns.run.target then
+            assert(math.abs(mc:GetAlpha() - 0.35 * miniAlpha) < 1e-6, "a minimap pin made during the run for copper (no longer wanted) has alpha " .. mc:GetAlpha() .. ", want 0.35")
+        end
+        assert(math.abs(mh:GetAlpha() - 0.35 * miniAlpha) < 1e-6, "a minimap pin made during the run for a herb has alpha " .. mh:GetAlpha() .. ", want 0.35")
+        -- and nothing of it is at the new pins
+        for _, pin in ipairs({ mc, mt, mh }) do
+            for k in pairs(pin) do
+                assert(not tostring(k):lower():find("plan") and not tostring(k):lower():find("glow"), "something of the plan is kept at a new minimap pin: " .. tostring(k))
+            end
+        end
+        -- the run ends: the same frames have their alpha without a factor at once
+        ns.StopRun(true) advance(1)
+        assert(math.abs(mh:GetAlpha() - miniAlpha) < 1e-6 and (Mini(tin) == mt and math.abs(mt:GetAlpha() - miniAlpha) < 1e-6), "after the run a minimap pin made during it keeps a factor")
+        -- walk away and back once more without a run: no factor on any pin that comes
+        W.At(1500) advance(4)
+        W.At(250) advance(4)
+        for _, n in ipairs({ copper1, tin, herb }) do
+            local pin = Mini(n)
+            assert(pin and math.abs(pin:GetAlpha() - miniAlpha) < 1e-6, "without a run a minimap pin that came has alpha " .. tostring(pin and pin:GetAlpha()) .. " (" .. n.name .. ")")
+        end
+
+        -- ---- gone with the run, however it ends: every pin as before
+        for k in pairs(worldPin) do worldPin[k] = nil end
+        for k in pairs(miniPin) do miniPin[k] = nil end
+        Set({ copper1, copper2, tin, herb, cold, sharedC, sharedT })
+        alpha0, ring0 = Alphas(), Rings()
+        local function Dimmed()
+            for _, pin in ipairs(Pins()) do
+                if pin.node == tin and math.abs(pin:GetAlpha() - (alpha0[pin] or 1) * 0.35) < 1e-6 then return true end
+            end
+            return false
+        end
+        local function Started(what)
+            Plan({ [COPPER] = { 60, 0 } })
+            ns.StartRun(F, Z) W.Wait(1)
+            assert(ns.run and ns.run.plan and Dimmed(), what .. ": test setup, the run does not dim")
+        end
+        local function Clean(what)
+            assert(ns.PlanGlowFor(copper1) == nil, what .. ": a glow is left")
+            Same(alpha0, Alphas(), what)
+            Same(ring0, Rings(), what)
+        end
+        Started("stop") ns.StopRun() Clean("after a stop by the player")
+        if _G.GathercraftRunSummary then _G.GathercraftRunSummary:Hide() end
+        Started("success") Plan({ [COPPER] = { 60, 60 } }) Look() assert(ns.run == nil, "test setup: no end") Clean("after the end with everything gathered")
+        Started("blocked") PROFS[2][2] = 1 Plan({ [COPPER] = { 60, 60 }, [TIN] = { 10, 0 } }) W.Wait(40) Look()
+        assert(ns.run == nil and (ns.PlanRunLastEnd()).kind == "blocked", "test setup: no blocked end")
+        PROFS[2][2] = 70 advance(4)
+        if _G.GathercraftPlanHint then _G.GathercraftPlanHint:Hide() end
+        Clean("after a blocked end")
+        Started("new run") ns.StartRun("herb", Z) W.Wait(1)
+        assert(ns.run and not ns.run.plan and ns.PlanGlowFor(copper1) == nil, "another run started and the plan's glow stays")
+        for _, pin in ipairs(Pins()) do
+            if pin.node == tin and alpha0[pin] then assert(math.abs(pin:GetAlpha() - alpha0[pin]) < 1e-6, "another run started: the tin vein is still dimmed") end
+        end
+        ns.StopRun(true) advance(1)
+        Clean("after another run")
+        -- a reload: the pins are built anew, the saved run is taken up - the glow is there, and gone with its end
+        Started("reload")
+        local keep = { filter = ns.db.activeRun.filter, zone = ns.db.activeRun.zone }
+        ns.StopRun(true)
+        ns.NotifyNodesChanged() advance(4)
+        alpha0, ring0 = Alphas(), Rings()
+        ns.db.activeRun = keep
+        assert(ns.PlanRunResume(keep), "test setup: the run was not taken up")
+        W.Wait(1)
+        assert(Dimmed(), "after the reload the run does not dim")
+        ns.StopRun(true)
+        Clean("after the run taken up again was stopped")
+        -- a change of zone: the minimap pins are another zone's - no factor without a run, the factor with one
+        Started("zone")
+        player.map = 1413 fire("ZONE_CHANGED_NEW_AREA") advance(4)
+        player.map = Z fire("ZONE_CHANGED_NEW_AREA") W.At(250) advance(4)
+        assert(Dimmed(), "after a change of zone and back the run does not dim")
+        ns.StopRun(true) advance(4)
+        for _, pin in ipairs(Pins()) do
+            if pin.node == tin or pin.node == herb then assert(pin:GetAlpha() > 0.36, "after a change of zone and a stop a pin is still dimmed: " .. pin.node.name .. " " .. pin:GetAlpha()) end
+        end
+
+        -- ---- the run's target and what is switched off stay as they are
+        Set({ copper1, copper2, tin, herb, cold, sharedC, sharedT })
+        Started("target")
+        local t = ns.run.target
+        assert(t and worldPin[t] and worldPin[t]:GetAlpha() == 0, "the normal pin of the run's target is not hidden under the target pin")
+        ns.StopRun(true)
+        -- "Hide grey nodes": a grey node of the plan stays off the map, and the run says how many
+        PROFS[2][2], PROFS[2][3] = 200, 300 -- copper is grey with Mining 200
+        ns.db.hideGreyNodes = true
+        Set({ copper1, copper2, tin, herb })
+        assert(not worldPin[copper1] and ns.PinHiddenGrey(copper1) and not ns.PinHiddenGrey(herb), "test setup: the grey copper veins are not hidden")
+        Plan({ [COPPER] = { 60, 0 } })
+        ns.StartRun(F, Z) W.Wait(1)
+        local s = ns.PlanRunState()
+        assert(s and s.hidden == 2, "plan nodes hidden: " .. tostring(s and s.hidden) .. ", want 2")
+        ns.NotifyNodesChanged() advance(6) -- (the pins are built anew during the run)
+        assert(not (worldPin[copper1] and worldPin[copper1].node == copper1), "the plan run put a hidden grey node on the map")
+        assert(ns.db.hideGreyNodes == true, "the plan run changed the option")
+        ns.StopRun(true)
+        ns.db.hideGreyNodes = false
+        PROFS[2][2] = 70
+        -- pins switched off: the plan run switches nothing on
+        ns.db.worldPinsHidden, ns.db.miniPinsHidden = true, true
+        Set({ copper1, copper2, tin, herb })
+        assert(not worldPin[copper1] and not miniPin[copper1], "test setup: pins although they are off")
+        Plan({ [COPPER] = { 60, 0 } })
+        ns.StartRun(F, Z) W.Wait(4)
+        assert(not worldPin[copper1] and not miniPin[copper1] and ns.db.worldPinsHidden == true and ns.db.miniPinsHidden == true, "the plan run switched pins on")
+        ns.StopRun(true)
+        ns.db.worldPinsHidden, ns.db.miniPinsHidden = false, false
+
+        -- ---- load (test 11): a round over every pin with the factor; the sets behind it are not built per pin
+        local many = {}
+        for i = 1, 1500 do
+            many[i] = { id = (i % 3 == 0) and TINVEIN or (i % 3 == 1) and VEIN or "o1618", name = "Node", type = (i % 3 == 2) and "herb" or "ore",
+                x = 0.05 + (i % 50) * 0.018, y = 0.05 + math.floor(i / 50) * 0.03, count = 1, last = 1 }
+        end
+        Set(many)
+        local function Round(n)
+            local t0 = debugprofilestop()
+            for _ = 1, n do ns.PlanPinsChanged() end
+            return (debugprofilestop() - t0) / n
+        end
+        Round(3)
+        local without = Round(20)
+        Plan({ [COPPER] = { 60, 0 }, [STONE] = { 20, 0 } })
+        ns.StartRun(F, Z) W.Wait(1)
+        local builds = 0
+        ns.PlanBaseKinds = function(...) builds = builds + 1 return saved.base(...) end
+        ns.PlanSeen = function(...) builds = builds + 1 return saved.seen(...) end
+        Round(3)
+        local with = Round(20)
+        assert(builds == 0, "the plan's sets were asked for " .. builds .. " time(s) while the pins were drawn - built per pin?")
+        ns.PlanBaseKinds, ns.PlanSeen = saved.base, saved.seen
+        local pinCount = 0
+        for _ in pairs(worldPin) do pinCount = pinCount + 1 end
+        note(("MEASURE T4 a round over %d world pins (and the minimap's): %.2f ms without a plan run, %.2f ms with one"):format(pinCount, without, with))
+        assert(pinCount >= 1400, "test setup: only " .. pinCount .. " pins")
+        assert(with <= without * 3 + 2, ("a round over the pins with a plan run takes %.2f ms, without %.2f ms"):format(with, without))
+        ns.StopRun(true)
+        assert(#errors == before, "an error: " .. tostring(errors[#errors]))
+    end)
+    hbd.AddWorldMapIconMap, hbd.AddMinimapIconMap = addWorld, addMini
+    ns.SkillPlanFor, ns.GetSkill, ns.PlanGlowFor, ns.PlanBaseKinds, ns.PlanSeen = saved.planFor, saved.skill, saved.glow, saved.base, saved.seen
+    if ns.run then ns.StopRun(true) end
+    for _, name in ipairs({ "GathercraftPlanZones", "GathercraftPlanHint", "GathercraftRunSummary" }) do if _G[name] then _G[name]:Hide() end end
+    PROFS[1][2], PROFS[2][2], PROFS[2][3] = saved.herb, saved.ore, saved.oreMax
+    ns.db.kindLoot, ns.db.hideGreyNodes, ns.db.worldPinsHidden, ns.db.miniPinsHidden, ns.db.miniPinAlpha, ns.db.activeRun = saved.loot, saved.grey, saved.world, saved.mini, saved.alpha, saved.run
+    player.map = Z
+    W.Restore()
+    advance(5)
+    if not ok then error(err, 0) end
+end)
 -- (end of the "Farm for plan" steps, v0.2 building block 3)
 step("Long run (10 min) for leaks", function() slash("run herb") advance(600) slash("stop") end)
 step("Test mock: OnUpdate runs for the same frames in the same order as going over every frame (tools only)", function()

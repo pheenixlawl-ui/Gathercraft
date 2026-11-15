@@ -323,6 +323,35 @@ local function PinLevel(pin)
     return best
 end
 
+-- A plan run ("Farm for plan", PlanFarm.lua) lights the nodes of its
+-- materials and dims the rest - as a factor worked out HERE, every time a
+-- pin gets its alpha or its ring colour, from the run as it is now. Nothing
+-- of it is kept at the pin: pins are taken from a pool and used again, and
+-- minimap pins come and go. No plan run: no factor, nothing changes.
+--   1: a node of a material the plan still needs (any kind at a shared spot)
+--   2: a kind your own gathers found such a material at ("seen"): weaker
+--   0: everything else, dimmed
+local PLAN_DIM_ALPHA, PLAN_SEEN_ALPHA = 0.35, 0.65
+local PLAN_GOLD = { 1, 0.82, 0.1 }
+local function PlanGlow(pin)
+    local glowFor = ns.PlanGlowFor
+    if not glowFor then return nil end
+    local glow = glowFor(pin.node)
+    if glow == nil or glow == 1 then return glow end
+    local others = pin.others or (pin.othersOf and pin.othersOf.others)
+    for _, o in ipairs(others or {}) do
+        local g = glowFor(o)
+        if g == 1 then return 1 end
+        if g == 2 then glow = 2 end
+    end
+    if pin.othersOf and pin.othersOf.node then
+        local g = glowFor(pin.othersOf.node)
+        if g == 1 then return 1 end
+        if g == 2 then glow = 2 end
+    end
+    return glow
+end
+
 -- The ring in the trainer colour (pins with a ring only). Call after Decorate.
 local function Tint(pin)
     if not pin or pin.isTarget then return end
@@ -330,6 +359,12 @@ local function Tint(pin)
     if not (pin.ring and pin.ring:IsShown()) then return end
     local level = PinLevel(pin)
     pin.level = level
+    if PlanGlow(pin) == 1 then
+        -- a node of the plan: a gold ring (the level stays what it is)
+        pin.ring:SetTexture(RING_WHITE)
+        pin.ring:SetVertexColor(PLAN_GOLD[1], PLAN_GOLD[2], PLAN_GOLD[3])
+        return
+    end
     local kind = not level and pin.ringOnly and KIND_TINT[pin.node and pin.node.type]
     if level or kind then
         local c = level and SKILL_TINT[level] or kind
@@ -363,6 +398,9 @@ local PENDING_ALPHA = 0.5 -- unconfirmed reports from other players
 local PARKED_ALPHA = 0.25 -- parked by self-healing (Sync.lua): always empty so far
 -- Minimap opacity (Options): all minimap node pins, not the run target
 local function Fade(pin, alpha)
+    -- (the plan run's factor only ever multiplies: a hidden pin stays hidden)
+    local glow = PlanGlow(pin)
+    if glow == 0 then alpha = alpha * PLAN_DIM_ALPHA elseif glow == 2 then alpha = alpha * PLAN_SEEN_ALPHA end
     pin:SetAlpha(alpha * (pin.isMini and (ns.db.miniPinAlpha or 1) or 1))
 end
 local function SetAlpha(pin)
@@ -701,6 +739,26 @@ local function UpdateAlpha()
             SetAlpha(pins.mini)
         end
     end
+end
+
+-- The plan run began, ended or needs other materials: every pin gets its
+-- ring and its alpha anew, now (not with the next round a few seconds on)
+ns.PlanPinsChanged = function()
+    for _, pins in pairs(pinsByNode) do
+        if pins.world then
+            Tint(pins.world)
+            SetAlpha(pins.world)
+        end
+        if pins.mini then
+            Tint(pins.mini)
+            SetAlpha(pins.mini)
+        end
+    end
+end
+-- a grey node the option "Hide grey nodes" keeps off the map (for the plan
+-- run's line "N plan nodes hidden": the plan switches nothing on)
+ns.PinHiddenGrey = function(n)
+    return (HideGrey() and NodeLevel(n) == "grey") and true or false
 end
 
 -- Unconfirmed reports in zones without known spawn points (new Forever

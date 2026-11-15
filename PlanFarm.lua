@@ -253,6 +253,7 @@ local lastEnd     -- how the last plan run ended: { kind, prof, target, zone, ro
 local ends = 0    -- counts every end (success or blocked)
 local resuming = false
 local RefreshZoneList -- (part 3)
+local SetGlow         -- (part 4)
 
 -- who of this file reads the skill plan right now ("run", "list", "ask"):
 -- with nobody, and the window closed, nothing is worked out
@@ -521,6 +522,9 @@ ns.PlanRunRefresh = function(run)
         pr.wanted = plan.wanted
         run.pointsDirty = true
     end
+    -- what glows follows the plan: the pins are told when it changed
+    local glowChanged = SetGlow and SetGlow(plan)
+    if (not same or glowChanged) and ns.PlanPinsChanged then ns.PlanPinsChanged() end
 end
 
 -- Route.lua, in every planning of a plan run, before the route's own ways
@@ -592,12 +596,16 @@ ns.PlanRunBegun = function(spec)
     -- (a run has begun: the list of zones has done its work)
     local zones = _G.GathercraftPlanZones
     if zones and zones:IsShown() then zones:Hide() end
+    -- everything that is not of the plan steps back at once
+    if ns.PlanPinsChanged then ns.PlanPinsChanged() end
 end
 
 -- Route.lua, StopRun of a plan run (whoever stopped it)
 ns.PlanRunStopped = function()
     pr = nil
     Runner("run", false)
+    -- no plan run, no factor: every pin is as it was
+    if ns.PlanPinsChanged then ns.PlanPinsChanged() end
 end
 
 -- Core.lua, after a reload: the saved plan run goes on - or, with a format
@@ -683,7 +691,7 @@ ns.PlanRunState = function()
     -- frozen: the rows are the ones read last, the plan is not known right now
     return { prof = pr.prof, target = pr.target, zone = pr.zone, filter = pr.filter, state = pr.state or "waiting", why = plan.why,
         rows = known.rows, offMap = known.offMap, reasons = plan.reasons, candidates = plan.candidates, wanted = pr.wanted,
-        frozen = pr.state == "invalid" }
+        frozen = pr.state == "invalid", hidden = pr.hidden or 0 }
 end
 -- how the last plan run ended and how many ended at all (tests, the windows)
 ns.PlanRunLastEnd = function() return lastEnd, ends end
@@ -978,4 +986,48 @@ ns.PlanFarmStart = function(prof, target)
     end
     ns.StartRun(filter, zone)
     return ns.run ~= nil and ns.run.plan ~= nil
+end
+
+---------------------------------------------------------------------------
+-- Part 4 - what glows (concept 4.9, Sven E2, E7)
+--
+-- While a plan run goes, Pins.lua asks for every pin, every time it sets
+-- the pin's alpha or ring: is this node one of the plan (1), one a wanted
+-- material was seen at (2), or neither (0)? Without a plan run the answer
+-- is nil and the pins are as they always are. Nothing is kept at a pin.
+-- The sets behind the answer are built when the plan's materials change,
+-- never per pin.
+---------------------------------------------------------------------------
+ns.PlanGlowFor = function(node)
+    if not pr then return nil end
+    local id = node and node.id
+    if not id or node.type == "chest" then return 0 end
+    local item = ns.PlanBaseItem(id)
+    if item and pr.wanted[item] then return 1 end
+    if pr.seenKinds and pr.seenKinds[id] then return 2 end
+    return 0
+end
+
+-- The kinds an open material without a base was seen at (part 1), and how
+-- many of the plan's nodes in the run's zone "Hide grey nodes" keeps off
+-- the map. Worked out with the plan's materials (PlanRunRefresh).
+SetGlow = function(plan)
+    local kinds, changed = {}, false
+    for _, row in ipairs(plan.offMap or {}) do
+        if not row.ok then
+            for _, s in ipairs(row.seen or {}) do kinds[s.id] = true end
+        end
+    end
+    local old = pr.seenKinds or {}
+    for id in pairs(kinds) do if not old[id] then changed = true end end
+    for id in pairs(old) do if not kinds[id] then changed = true end end
+    pr.seenKinds = kinds
+    local hidden = 0
+    if ns.PinHiddenGrey then
+        for _, n in ipairs((ns.db.nodes and ns.db.nodes[pr.zone]) or {}) do
+            if ns.PlanNodeMatches(n, plan.wanted) and ns.PinHiddenGrey(n) then hidden = hidden + 1 end
+        end
+    end
+    pr.hidden = hidden
+    return changed
 end
