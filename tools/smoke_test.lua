@@ -15882,6 +15882,320 @@ step("Professions: read from the game's list by their number, every place of it 
     fire("SKILL_LINES_CHANGED") advance(7)
     assert(ok, err)
 end)
+step("Auction house: the prices are worked out in short steps however the auctions are spread, and are the same as before (v0.1.23 R1-M1)", function()
+    -- Codex, round 1 (M1): 300,000 auctions spread evenly over 20,000 items
+    -- were read in steps of 8 ms - but 100 items, or 80 % of the auctions on
+    -- five items, held the game for 48-63 ms in one step: the prices of 50
+    -- items were worked out before the clock was looked at, and all offers
+    -- of one item were copied and sorted in one go.
+    local AHX = C_AuctionHouse
+    ns.GetPrice(2447) -- (the price store of this realm is made when it is first asked)
+    local p = ns.db.prices[next(ns.db.prices)]
+    local keep = { rep = AHX.ReplicateItems, num = AHX.GetNumReplicateItems, info = AHX.GetReplicateItemInfo, off = ns.db.autoScanOff,
+        last = p.lastScanStart, scanned = p.scanned, items = p.items, qty = p.qty, seen = p.seen, history = {}, debug = ns.db.debug,
+        after = C_Timer.After, clock = debugprofilestop, instant = C_Item.GetItemInfoInstant }
+    for id, text in pairs(p.history) do keep.history[id] = text end -- (the scans below write into it)
+    -- the test items (100000 and up) are trade goods: those have a price history
+    C_Item.GetItemInfoInstant = function(id, ...)
+        if type(id) == "number" and id >= 100000 then return id, "Trade Goods", "", "", 134400, 7, 0 end
+        return keep.instant(id, ...)
+    end
+
+    -- MarketPrice as it was in 4d93718, word for word: what the new one is compared with
+    local f = assert(io.open(ROOT .. "/Prices.lua"))
+    local src = f:read("*a") f:close()
+    local MARKET_MIN, MARKET_SHARE = tonumber(src:match("\nlocal MARKET_MIN = ([%d%.]+)")), tonumber(src:match("\nlocal MARKET_SHARE = ([%d%.]+)"))
+    local HISTORY_DAYS = tonumber(src:match("\nlocal HISTORY_DAYS = (%d+)"))
+    assert(MARKET_MIN and MARKET_SHARE and HISTORY_DAYS, "test setup: the numbers of the market price are not found in Prices.lua")
+    local function OldMarketPrice(list)
+        -- list = { unitPrice, count, unitPrice, count, ... }
+        local entries, total = {}, 0
+        for i = 1, #list, 2 do
+            entries[#entries + 1] = { list[i], list[i + 1] }
+            total = total + list[i + 1]
+        end
+        table.sort(entries, function(a, b) return a[1] < b[1] end)
+        -- with less stock than that, what is there counts: the loop runs out
+        local want, seen = math.max(MARKET_MIN, total * MARKET_SHARE), 0
+        for _, e in ipairs(entries) do
+            seen = seen + e[2]
+            if seen >= want then return math.floor(e[1] + 0.5), total end
+        end
+        return math.floor(entries[#entries][1] + 0.5), total
+    end
+
+    local okFfi, ffi = pcall(require, "ffi")
+    local clock = function() return os.clock() * 1000 end
+    if okFfi then
+        pcall(ffi.cdef, "int QueryPerformanceCounter(int64_t *c); int QueryPerformanceFrequency(int64_t *f);")
+        local c, fr = ffi.new("int64_t[1]"), ffi.new("int64_t[1]")
+        if pcall(function() return ffi.C.QueryPerformanceFrequency(fr) end) and tonumber(fr[0]) > 0 then
+            local freq = tonumber(fr[0])
+            clock = function() ffi.C.QueryPerformanceCounter(c) return tonumber(c[0]) * 1000 / freq end
+        end
+    end
+    local function Said(mark)
+        local out = {}
+        for i = mark + 1, #log do if log[i]:find("^PRINT") then out[#out + 1] = log[i] end end
+        return out
+    end
+    local function Free() p.lastScanStart = 0 end -- the 15 minutes are over
+    local function Close() fire("AUCTION_HOUSE_CLOSED") advance(1) end
+    local day = math.floor(time() / 86400)
+
+    -- an auction house: Info(i) gives id, count, buyout of auction i (from 0),
+    -- or what the game gives for an auction that has no id, count or buyout
+    local function House(n, Info)
+        AHX.ReplicateItems = function() end
+        AHX.GetNumReplicateItems = function() return n end
+        AHX.GetReplicateItemInfo = function(i)
+            if i >= n then return nil end
+            local id, count, buyout, broken = Info(i)
+            if broken then error("no such auction") end
+            return "Item", 1, count, 1, true, 1, 0, 0, 0, buyout, 0, false, nil, "Seller", nil, 0, id, true
+        end
+    end
+    -- what 4d93718 made of it: price and stock of every item, from the old MarketPrice
+    local function Expected(n, Info)
+        local acc, out, items = {}, {}, 0
+        for i = 0, n - 1 do
+            local id, count, buyout, broken = Info(i)
+            if not broken and id and count and count > 0 and buyout and buyout > 0 then
+                local list = acc[id]
+                if not list then list = {} acc[id] = list items = items + 1 end
+                list[#list + 1] = buyout / count
+                list[#list + 1] = count
+            end
+        end
+        for id, list in pairs(acc) do
+            local price, total = OldMarketPrice(list)
+            out[id] = { price, total }
+        end
+        return out, items
+    end
+    -- the history an item has after a scan today (HistoryWith of 4d93718: the
+    -- days kept, today's price last)
+    local function ExpectedHistory(before, price)
+        local kept = {}
+        for d, v in (before or ""):gmatch("(%d+):(%d+)") do
+            if tonumber(d) ~= day and tonumber(d) > day - HISTORY_DAYS then kept[#kept + 1] = d .. ":" .. v end
+        end
+        kept[#kept + 1] = day .. ":" .. price
+        return table.concat(kept, ";")
+    end
+    local function SamePrices(what, want, wantItems, historyBefore)
+        local got = 0
+        for id, price in pairs(p.items) do
+            got = got + 1
+            local w = want[id]
+            assert(w, ("%s: a price for item %d that has no auction"):format(what, id))
+            assert(price == w[1], ("%s: item %d has the price %s, it was %s"):format(what, id, tostring(price), tostring(w[1])))
+            assert(p.qty[id] == w[2], ("%s: item %d has the stock %s, it was %s"):format(what, id, tostring(p.qty[id]), tostring(w[2])))
+            assert(p.seen[id] and p.seen[id] > 0, ("%s: item %d was not seen"):format(what, id))
+            local h = ExpectedHistory(historyBefore and historyBefore[id], w[1])
+            assert(p.history[id] == h, ("%s: item %d has the history %s, it was %s"):format(what, id, tostring(p.history[id]), h))
+        end
+        assert(got == wantItems, ("%s: prices for %d of %d items"):format(what, got, wantItems))
+    end
+
+    -- one scan of the house, every step of it timed: the event with the list,
+    -- and every timer with no wait that follows
+    local function Scan(n, incomplete)
+        Free()
+        fire("AUCTION_HOUSE_SHOW") advance(1)
+        local steps, worst, total, peak = 0, 0, 0, 0
+        local function Timed(fn)
+            local t0 = clock()
+            fn()
+            local ms = clock() - t0
+            steps, total = steps + 1, total + ms
+            if ms > worst then worst = ms end
+            local kb = collectgarbage("count")
+            if kb > peak then peak = kb end
+        end
+        C_Timer.After = function(s, fn) if s == 0 then keep.after(s, function() Timed(fn) end) else keep.after(s, fn) end end
+        p.scanned = 0
+        Timed(function() fire("REPLICATE_ITEM_LIST_UPDATE") end)
+        advance(60)
+        C_Timer.After = keep.after
+        -- (a scan with an auction that could not be read is no full scan: it leaves no time of a scan)
+        assert((p.scanned > 0) == not incomplete, ("the scan of %d auctions: scanned at %s"):format(n, tostring(p.scanned)))
+        return worst, steps, total, peak
+    end
+
+    local ok, err = pcall(function()
+        AuctionHouseFrame = AuctionHouseFrame or CreateFrame("Frame", "AuctionHouseFrame", UIParent)
+        ns.db.autoScanOff, ns.db.debug = nil, nil
+        Close()
+        local N = 300000
+        local CASES = {
+            -- Codex's three: the same 300,000 auctions (count, unit price), spread differently
+            { "20,000 items, evenly", function(i)
+                local count = i % 20 + 1
+                return 100000 + (i * 7919) % 20000, count, (100 + i % 37) * count
+            end },
+            { "100 items, evenly", function(i)
+                local count = i % 20 + 1
+                return 100000 + (i * 7919) % 100, count, (100 + i % 37) * count
+            end },
+            { "20,000 items, 80 % of the auctions on five", function(i)
+                local count = i % 20 + 1
+                local id = i < 240000 and (100000 + i % 5) or (100005 + i % 19995)
+                return id, count, (100 + i % 37) * count
+            end },
+            -- and the worst there is for one item: every auction is of one item, and no two have the same unit price
+            { "one item, 300,000 different prices", function(i)
+                return 100000, 1, 100 + (i * 7919) % N
+            end },
+        }
+        for c, case in ipairs(CASES) do
+            local what, Info = case[1], case[2]
+            House(N, Info)
+            local want, wantItems = Expected(N, Info)
+            -- an item with a history: an old day falls out, yesterday's stays
+            local before = { [100000] = (day - 20) .. ":55;" .. (day - 1) .. ":77", [100003] = (day - 2) .. ":66" }
+            p.history = {}
+            for id, text in pairs(before) do p.history[id] = text end
+            collectgarbage() collectgarbage()
+            local base = collectgarbage("count")
+            local worst, steps, total, peak = Scan(N)
+            SamePrices(what, want, wantItems, before)
+            Close()
+            for _ = 1, 2 do
+                local w, s, t, k = Scan(N)
+                if w < worst then worst, steps, total, peak = w, s, t, k end
+                Close()
+            end
+            SamePrices(what .. " (scanned again)", want, wantItems, before)
+            note(("MEASURE M1 %s: %d steps, %.0f ms in all, the longest step %.1f ms, %.1f MiB more at most between the steps"):format(
+                what, steps, total, worst, (peak - base) / 1024))
+            assert(worst < 16, ("%s: the longest step of the scan takes %.1f ms"):format(what, worst))
+            if c == 1 then assert(steps >= 200, ("300,000 auctions were read in %d steps"):format(steps)) end
+        end
+
+        -- what is left out and what cannot be read counts as before: auctions
+        -- without an id, a count or a buyout are not offers, and one that
+        -- cannot be read makes the scan incomplete (the other old prices stay)
+        do
+            local M = 30000
+            local function Info(i)
+                if i == 17 then return nil, nil, nil, true end
+                if i % 1000 == 3 then return nil, 2, 500 end
+                if i % 1000 == 5 then return 100001, 0, 500 end
+                if i % 1000 == 7 then return 100002, 2, 0 end
+                local count = i % 9 + 1
+                return 100000 + (i * 31) % 40, count, (200 + (i * 13) % 501) * count + i % count
+            end
+            House(M, Info)
+            local want, wantItems = Expected(M, Info)
+            p.items, p.qty, p.seen, p.history = { [2447] = 123 }, { [2447] = 9 }, { [2447] = 1 }, {}
+            ns.db.debug = true
+            local mark = #log
+            Scan(M, true)
+            ns.db.debug = nil
+            assert(p.items[2447] == 123 and p.qty[2447] == 9, "a scan with an auction that could not be read threw an old price away")
+            p.items[2447], p.qty[2447], p.seen[2447] = nil, nil, nil
+            SamePrices("auctions left out, one unreadable", want, wantItems)
+            local line
+            for i = mark + 1, #log do if log[i]:find("SCAN read 30000 of 30000", 1, true) then line = log[i] end end
+            assert(line and line:find(("%d items, skipped 30 without itemID, 30 with count 0, 30 with buyout 0, 1 could not be read"):format(wantItems), 1, true),
+                "the count of what was left out: " .. tostring(line))
+            local said = Said(mark)
+            assert(#said == 1 and said[1]:find((ns.L["Scan incomplete: %d auctions could not be read, old prices kept (%d updated)."]):format(1, wantItems), 1, true),
+                ("the incomplete scan said %d lines: %s"):format(#said, tostring(said[1])))
+            Close()
+        end
+
+        -- a clock that goes on by 1 ms each time it is looked at: no step looks
+        -- at it more often than a step is long (and once more to see that it is
+        -- over) - the last step of the reading and the first of the prices are
+        -- not one long step, and one item with many offers is not one step.
+        -- This does not hang on how fast the machine of the test is.
+        local function Stepped(M, Info, closeAt)
+            House(M, Info)
+            local want, wantItems = Expected(M, Info)
+            p.history = {}
+            Free()
+            fire("AUCTION_HOUSE_SHOW") advance(1)
+            local tick, worst, pricing, closed = 0, 0, 0, false
+            debugprofilestop = function() tick = tick + 1 return tick end
+            local reads, readNum = 0, AHX.GetReplicateItemInfo
+            AHX.GetReplicateItemInfo = function(i) reads = reads + 1 return readNum(i) end
+            local function Timed(fn)
+                local t0 = tick
+                -- (every auction is read: this step works out prices)
+                if reads >= M + 1 then
+                    pricing = pricing + 1
+                    if pricing == closeAt then closed = true fire("AUCTION_HOUSE_CLOSED") end
+                end
+                fn()
+                if tick - t0 > worst then worst = tick - t0 end
+            end
+            C_Timer.After = function(s, fn) if s == 0 then keep.after(s, function() Timed(fn) end) else keep.after(s, fn) end end
+            p.scanned = 0
+            local mark = #log
+            Timed(function() fire("REPLICATE_ITEM_LIST_UPDATE") end)
+            advance(120)
+            C_Timer.After, debugprofilestop, AHX.GetReplicateItemInfo = keep.after, keep.clock, readNum
+            assert(p.scanned > 0, "the scan with the stepping clock did not end")
+            -- 8 ms a step: the clock is seen at 8 at the latest, and a look or two follow (the end of the reading, the debug line)
+            assert(worst <= 12, ("a step looked at the clock %d times: longer than a step is to be"):format(worst))
+            return pricing, closed, want, wantItems, Said(mark)
+        end
+        do
+            -- one item with 40,000 offers at 40,000 prices and 500 more items;
+            -- the window closes while the prices of the big item are being
+            -- worked out: every auction is read, the scan goes on to its end
+            local M = 60000
+            local pricing, closed, want, wantItems, said = Stepped(M, function(i)
+                if i < 40000 then return 100000, 1, 100 + (i * 7919) % 40000 end
+                return 100001 + i % 500, 1, 300 + i % 91
+            end, 3)
+            assert(closed, ("test setup: the window was never closed while the prices were worked out (%d such steps)"):format(pricing))
+            assert(pricing >= 300, ("one item with 40,000 prices and 500 more items: the prices were worked out in %d steps"):format(pricing))
+            SamePrices("closed while the prices were worked out", want, wantItems)
+            assert(#said == 1 and said[1]:find((ns.L["Auction house scanned: %d auctions, prices for %d items."]):format(M, wantItems), 1, true),
+                ("closed while the prices were worked out: %d lines, %s"):format(#said, tostring(said[1])))
+            Close()
+            -- 5,000 items with three offers each: the clock is looked at after every item
+            pricing, closed, want, wantItems = Stepped(15000, function(i) return 100000 + i % 5000, 1, 300 + i % 91 end)
+            assert(pricing >= 600, ("5,000 items: the prices were worked out in %d steps"):format(pricing))
+            SamePrices("5,000 items", want, wantItems)
+            Close()
+            -- one item with 40,000 offers at one price: putting them together is not one step either
+            pricing, closed, want, wantItems = Stepped(40000, function(i) return 100000, i % 3 + 1, 250 * (i % 3 + 1) end)
+            assert(pricing >= 15, ("one item with 40,000 offers at one price: its price was worked out in %d steps"):format(pricing))
+            SamePrices("40,000 offers at one price", want, wantItems)
+            Close()
+        end
+
+        -- a search (not the full scan) uses the same market price, at once
+        do
+            local list, results = {}, {}
+            for i = 1, 500 do
+                results[i] = { unitPrice = 1000 + (i * 37) % 211, quantity = i % 7 + 1 }
+                list[#list + 1], list[#list + 2] = results[i].unitPrice, results[i].quantity
+            end
+            local keepN, keepI, keepF = AHX.GetNumCommoditySearchResults, AHX.GetCommoditySearchResultInfo, AHX.HasFullCommoditySearchResults
+            AHX.GetNumCommoditySearchResults = function() return #results end
+            AHX.GetCommoditySearchResultInfo = function(_, i) return results[i] end
+            AHX.HasFullCommoditySearchResults = function() return true end
+            fire("AUCTION_HOUSE_SHOW") advance(1)
+            fire("COMMODITY_SEARCH_RESULTS_UPDATED", 100777)
+            AHX.GetNumCommoditySearchResults, AHX.GetCommoditySearchResultInfo, AHX.HasFullCommoditySearchResults = keepN, keepI, keepF
+            local price, total = OldMarketPrice(list)
+            assert(p.items[100777] == price and p.qty[100777] == total,
+                ("a search of 500 results: price %s and stock %s, it was %s and %s"):format(tostring(p.items[100777]), tostring(p.qty[100777]), price, total))
+            Close()
+        end
+    end)
+    C_Timer.After, debugprofilestop, C_Item.GetItemInfoInstant = keep.after, keep.clock, keep.instant
+    fire("AUCTION_HOUSE_CLOSED") advance(1)
+    AHX.ReplicateItems, AHX.GetNumReplicateItems, AHX.GetReplicateItemInfo = keep.rep, keep.num, keep.info
+    ns.db.autoScanOff, ns.db.debug = keep.off, keep.debug
+    p.lastScanStart, p.scanned, p.items, p.qty, p.seen, p.history = keep.last, keep.scanned, keep.items, keep.qty, keep.seen, keep.history
+    assert(ok, err)
+end)
 step("Long run (10 min) for leaks", function() slash("run herb") advance(600) slash("stop") end)
 
 io.write("\n--- errors: " .. #errors .. "\n")

@@ -18,9 +18,12 @@ local SCAN_CHUNK = 1500         -- auctions read per step at most (keeps the gam
 -- ... and a step ends after this many milliseconds (v0.1.23 P5: the scan
 -- starts by itself now, and Sven's auction house had 313,401 auctions - a
 -- step of 1500 is too long on a slow machine). Looked at every SCAN_LOOK
--- auctions; the prices at the end are worked out in steps the same way.
+-- auctions. The prices at the end are worked out in steps of the same
+-- length: there the clock is looked at after every item and every
+-- PRICE_LOOK offers within one item (one item can have tens of thousands).
 local SCAN_STEP_MS = 8
 local SCAN_LOOK = 50
+local PRICE_LOOK = 256
 local FRESH_PRICE = 6 * 3600    -- older own prices count as old: Auctionator goes first
 local MAX_PRICE_AGE = 7 * 86400 -- older own prices: use the fallbacks instead
 local HISTORY_DAYS = 14
@@ -260,21 +263,68 @@ local function UpdateButton()
     end
 end
 
-local function MarketPrice(list)
-    -- list = { unitPrice, count, unitPrice, count, ... }
-    local entries, total = {}, 0
-    for i = 1, #list, 2 do
-        entries[#entries + 1] = { list[i], list[i + 1] }
-        total = total + list[i + 1]
+-- a[1..n], numbers, in rising order - returns the table that has them (a or
+-- one of its own). With pause, a long list is sorted by merging, and pause()
+-- is called every PRICE_LOOK numbers: the full scan works out its prices in
+-- a coroutine and rests there when its step is over.
+local function Sorted(a, n, pause)
+    if not pause or n <= 64 then
+        table.sort(a)
+        return a
     end
-    table.sort(entries, function(a, b) return a[1] < b[1] end)
+    local src, dst, width = a, {}, 1
+    while width < n do
+        for lo = 1, n, 2 * width do
+            local mid, hi = math.min(lo + width, n + 1), math.min(lo + 2 * width, n + 1)
+            local i, j = lo, mid
+            for k = lo, hi - 1 do
+                if i < mid and (j >= hi or not (src[j] < src[i])) then
+                    dst[k] = src[i]
+                    i = i + 1
+                else
+                    dst[k] = src[j]
+                    j = j + 1
+                end
+                if k % PRICE_LOOK == 0 then pause() end
+            end
+        end
+        src, dst, width = dst, src, width * 2
+    end
+    return src
+end
+
+-- The market price: the lowest unit price that has MARKET_MIN items (or
+-- MARKET_SHARE of the stock, if that is more) at or below it; and the stock.
+-- The offers are put together by their unit price first, and only the
+-- different prices are sorted: the answer is the same as from sorting every
+-- offer (offers of one price lie side by side there, and the answer is a
+-- price), with far less work where many offers share few prices.
+-- pause (optional): see Sorted.
+local function MarketPrice(list, pause)
+    -- list = { unitPrice, count, unitPrice, count, ... }
+    local stock, prices, n, total = {}, {}, 0, 0
+    for i = 1, #list, 2 do
+        local price, count = list[i], list[i + 1]
+        local had = stock[price]
+        if had then
+            stock[price] = had + count
+        else
+            n = n + 1
+            prices[n] = price
+            stock[price] = count
+        end
+        total = total + count
+        if pause and (i + 1) % (2 * PRICE_LOOK) == 0 then pause() end
+    end
+    prices = Sorted(prices, n, pause)
     -- with less stock than that, what is there counts: the loop runs out
     local want, seen = math.max(MARKET_MIN, total * MARKET_SHARE), 0
-    for _, e in ipairs(entries) do
-        seen = seen + e[2]
-        if seen >= want then return math.floor(e[1] + 0.5), total end
+    for i = 1, n do
+        seen = seen + stock[prices[i]]
+        if seen >= want then return math.floor(prices[i] + 0.5), total end
+        if pause and i % PRICE_LOOK == 0 then pause() end
     end
-    return math.floor(entries[#entries][1] + 0.5), total
+    return math.floor(prices[n] + 0.5), total
 end
 
 local TRADE_GOODS = 7 -- item class "Tradeskill"
@@ -357,26 +407,49 @@ end
 -- steps (20,000 items in one go would hold the game for a moment), then
 -- everything is put in place at once. Nothing is stored before that: a
 -- scan that ends half way leaves the prices as they were.
+-- (R1-M1) The time of a step is what counts, not the number of items: one
+-- item with 48,000 offers is more work than 5,000 items with three. So the
+-- prices are worked out in a coroutine that rests whenever the step it runs
+-- in has had its SCAN_STEP_MS - after any item, and inside a long one.
+-- stepStart: when the step that is running began (a step = one call from
+-- the game: the event with the list, or a timer of ours).
 local FinishScan
-local function PriceStep()
-    if not scan or scan.state ~= "pricing" then return end
+local stepStart = 0
+local function Rest()
+    if debugprofilestop() - stepStart >= SCAN_STEP_MS then coroutine.yield() end
+end
+local function PriceAll(mine)
     local p = PriceDB()
-    local t0, looked = debugprofilestop(), 0
-    local itemID, list = next(scan.acc, scan.at)
-    while itemID do
-        local price, total = MarketPrice(list)
-        scan.items[itemID], scan.qty[itemID] = price, total
-        scan.hist[itemID] = HistoryWith(p, itemID, price) or false
-        scan.count = scan.count + 1
-        scan.at = itemID
-        looked = looked + 1
-        if looked % SCAN_LOOK == 0 and debugprofilestop() - t0 >= SCAN_STEP_MS then
-            C_Timer.After(0, PriceStep)
-            return
-        end
-        itemID, list = next(scan.acc, itemID)
+    for itemID, list in pairs(mine.acc) do
+        local price, total = MarketPrice(list, Rest)
+        mine.items[itemID], mine.qty[itemID] = price, total
+        mine.hist[itemID] = HistoryWith(p, itemID, price) or false
+        mine.count = mine.count + 1
+        Rest()
     end
-    FinishScan()
+    -- putting the prices in place is work of its own: not at the end of a
+    -- step that is half over already
+    if debugprofilestop() - stepStart >= SCAN_STEP_MS / 2 then coroutine.yield() end
+end
+-- sameStep: called at the end of the last reading step - the time that step
+-- has used counts (is it over, the prices start in the next one)
+local function PriceStep(sameStep)
+    if not scan or scan.state ~= "pricing" then return end
+    if sameStep ~= true then stepStart = debugprofilestop() end
+    local mine = scan
+    mine.pricing = mine.pricing or coroutine.create(PriceAll)
+    local ok, err = coroutine.resume(mine.pricing, mine)
+    if not ok then
+        -- an error of ours: the scan is over (no prices stored), and the error is shown
+        FlushIgnored()
+        scan = nil
+        UpdateButton()
+        error("Gathercraft scan: " .. tostring(err), 0)
+    elseif coroutine.status(mine.pricing) == "dead" then
+        FinishScan()
+    else
+        C_Timer.After(0, PriceStep)
+    end
 end
 
 FinishScan = function()
@@ -431,6 +504,7 @@ local function ReadStep()
     if not scan or scan.state ~= "reading" then return end
     local last = math.min(scan.index + SCAN_CHUNK, scan.total) - 1
     local t0 = debugprofilestop()
+    stepStart = t0
     for i = scan.index, last do
         -- (a step ends when its time is up: the rest is read in the next one)
         if i > scan.index and (i - scan.index) % SCAN_LOOK == 0 and debugprofilestop() - t0 >= SCAN_STEP_MS then
@@ -462,7 +536,7 @@ local function ReadStep()
     if scan.index >= scan.total then
         -- all read: from here on the auction house is not needed any more
         scan.state, scan.items, scan.qty, scan.hist, scan.count = "pricing", {}, {}, {}, 0
-        PriceStep()
+        PriceStep(true)
     else
         C_Timer.After(0, ReadStep)
     end
