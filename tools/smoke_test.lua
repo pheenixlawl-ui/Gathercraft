@@ -22484,8 +22484,285 @@ step("Farm for plan: the run - its filter, what it routes to, when it waits, end
     if win then win:Hide() end
     ns.db.nodes[1413], ns.db.activeRun, ns.db.kindLoot = saved.other, saved.run, saved.loot
     if _G.GathercraftPlanHint then _G.GathercraftPlanHint:Hide() end
+    if _G.GathercraftPlanZones then _G.GathercraftPlanZones:Hide() end
     if _G.GathercraftRunSummary then _G.GathercraftRunSummary:Hide() end
     W.Restore()
+    if not ok then error(err, 0) end
+end)
+step("Farm for plan: one zone - the one you stand in or the one you click in the list of known spots; never another one by itself (v0.2 B3 T3)", function()
+    -- Concept shopping list 4.7, test 13; Sven E6/E9, V11, V12; the order's
+    -- extra test (the list counts without the tooltip option).
+    assert(type(ns.PlanFarmStart) == "function" and type(ns.PlanZoneListShow) == "function" and type(ns.PlanZoneListGo) == "function"
+        and type(ns.PlanZoneListState) == "function", "no ns.PlanFarmStart / PlanZoneListShow / PlanZoneListGo / PlanZoneListState")
+    local L, data = ns.L, GathercraftQuestieData
+    local COPPER, TIN, INCEND, VEIN = 2770, 2771, 3340, "o1731"
+    local function KindsOf(item)
+        local list = {}
+        for key, kind in pairs(data.kinds) do if kind[1] == "o" and kind[2] == item then list[#list + 1] = key end end
+        table.sort(list)
+        return list
+    end
+    local TINVEIN, INC = KindsOf(TIN)[1], KindsOf(INCEND)
+    assert(TINVEIN and #INC >= 2, "test setup: no tin vein, or Incendicite has fewer than two node kinds")
+    local CITY
+    for city, zone in pairs(ns.CITY_ZONE) do if zone == 1412 then CITY = city end end
+    assert(CITY, "test setup: no capital that counts as Mulgore")
+    local WETLANDS, BARRENS = 1437, 1413
+    assert(ns.GetContinent(1412) == ns.GetContinent(BARRENS) and ns.GetContinent(WETLANDS) and ns.GetContinent(WETLANDS) ~= ns.GetContinent(1412), "test setup: the continents of the test zones")
+    local saved = { planFor = ns.SkillPlanFor, skill = ns.GetSkill, here = ns.StartHereRun, candidates = ns.PlanRouteCandidates, tooltip = ns.db.tooltipPrices,
+        barrens = ns.db.nodes[BARRENS], wetlands = ns.db.nodes[WETLANDS], run = ns.db.activeRun, zones = ns.db.disabledZones, counts = ns.SpawnCounts, extra = {} }
+    local W = IdentityWorld()
+    local before = #errors
+    local ok, err = pcall(function()
+        ns.GetSkill = function(t) if t == "ore" then return 300, 300, 300 end end
+        local given, revision = nil, 100
+        ns.SkillPlanFor = function() if type(given) == "table" then return given end return nil, given end
+        local function Plan(items, more)
+            revision = revision + 1
+            local res = { prof = "Mining", from = 1, target = 75, status = "ok", valid = true, complete = true, reliable = true, revision = revision, items = {} }
+            for id, m in pairs(items) do res.items[id] = { need = m[1], have = m[2], haveKnown = m[2] ~= nil, missing = math.max(0, m[1] - (m[2] or 0)) } end
+            for k, v in pairs(more or {}) do res[k] = v end
+            given = res
+            return res
+        end
+        local function NewPlan(items, more)
+            local res = Plan(items, more)
+            for _, f in ipairs(ns.skillPlanListeners) do f(res) end
+            advance(1)
+        end
+        local hereCalls = 0
+        ns.StartHereRun = function(...) hereCalls = hereCalls + 1 return saved.here(...) end
+        -- (the other zones' nodes are out of the way for this step)
+        for mapID, nodes in pairs(ns.db.nodes) do
+            if type(mapID) == "number" and mapID ~= 1412 and mapID ~= BARRENS and mapID ~= WETLANDS then saved.extra[mapID] = { nodes } end
+        end
+        for mapID in pairs(saved.extra) do ns.db.nodes[mapID] = nil end
+        local F = ns.PlanFilter("Mining", 75)
+        local function Ore(id, name, x) return W.Node(id, name, x, { type = "ore" }) end
+        local function ListData() return (ns.PlanZoneListState()) end
+        local function Builds() return (select(2, ns.PlanZoneListState())) end
+        local function Win() return _G.GathercraftPlanZones end
+        local function Open() return Win() ~= nil and Win():IsShown() end
+        local function Close() if Open() then Win():Hide() end end
+        local function ZoneRow(mapID)
+            for i, z in ipairs((ListData() or {}).zones or {}) do if z.mapID == mapID then return z, i end end
+        end
+        local function Places(zone, item)
+            for _, it in ipairs((zone or {}).items or {}) do if it.item == item then return it.places, it.candidates end end
+        end
+        local function Clear()
+            if ns.run then ns.StopRun(true) end
+            Close()
+        end
+        local mark = #log
+        local function Said(text)
+            for i = mark + 1, #log do if log[i]:find(text, 1, true) then return true end end
+            return false
+        end
+
+        Clear()
+        -- ---- a click where there is something to go to: a run in exactly this zone
+        -- copper in Mulgore (where you stand) and more of it in the Barrens next door
+        W.Set({ Ore(VEIN, "Copper Vein", 100), Ore(VEIN, "Copper Vein", 200) })
+        ns.db.nodes[BARRENS] = {}
+        for i = 1, 12 do ns.db.nodes[BARRENS][i] = { id = VEIN, name = "Copper Vein", type = "ore", x = 0.2 + i * 0.01, y = 0.5, count = 1, last = 1 } end
+        ns.NotifyNodesChanged() advance(1)
+        W.At(0)
+        Plan({ [COPPER] = { 60, 0 } })
+        assert(ns.PlanFarmStart("Mining", 75) == true, "no run where there is copper")
+        W.Wait(1)
+        local run = ns.run
+        assert(run and run.plan and run.zone == 1412 and run.filter == F and not run.quick and not run.groupZones and not run.groupDone, "the run is not a run in the zone you stand in")
+        assert(#run.points == 2, "the route has " .. #run.points .. " nodes, want the 2 of this zone (12 more are next door)")
+        for _, p in ipairs(run.points) do assert(p.mapID == 1412, "a node of another zone in the route: " .. tostring(p.mapID)) end
+        assert(not Open() and hereCalls == 0, "the list opened, or the run went through the search for a zone")
+        -- 1 node is enough (not the 8 a run where you are asks for)
+        Clear()
+        W.Set({ Ore(VEIN, "Copper Vein", 100) }) W.At(0)
+        assert(ns.PlanFarmStart("Mining", 75) and ns.run.zone == 1412 and #ns.run.points == 1, "one node to go to is not enough for a run")
+        -- a capital counts as its zone
+        Clear()
+        player.map = CITY
+        assert(ns.PlanFarmStart("Mining", 75) and ns.run.zone == 1412, "from the capital: " .. tostring(ns.run and ns.run.zone))
+        Clear()
+        W.At(0)
+
+        -- ---- a click with nothing to go to here: no run, no other zone - the list opens
+        W.Set({}) W.At(0)
+        mark = #log
+        hereCalls = 0
+        assert(ns.PlanFarmStart("Mining", 75) == false, "a run without a node in this zone")
+        W.Wait(1)
+        assert(ns.run == nil and ns.db.activeRun == nil and hereCalls == 0, "a run started somewhere else (the search of a run where you are?)")
+        assert(Open() and Said(L["not in this zone"]), "the list of zones did not open, or no word why")
+        local z = ZoneRow(BARRENS)
+        local names = {}
+        for i, zz in ipairs(ListData().zones) do names[i] = zz.mapID .. ":" .. zz.candidates end
+        assert(z and #ListData().zones == 1 and not z.here, "the list: " .. #ListData().zones .. " zones (" .. table.concat(names, " ") .. "), want the Barrens")
+        -- the list starts nothing; a turn of the wheel and time work nothing out
+        advance(20) -- (the known spots are counted: the list is worked out once more when they are)
+        assert(not ListData().counting, "the list is still counting after 20 s")
+        local b0 = Builds()
+        Win().__scripts.OnMouseWheel(Win(), -1) Win().__scripts.OnMouseWheel(Win(), 1)
+        fire("BAG_UPDATE_DELAYED") W.Wait(30)
+        assert(ns.run == nil and Open(), "the list started a run by itself")
+        assert(Builds() == b0, "the list was worked out again without a new plan: " .. (Builds() - b0) .. " time(s)")
+        -- a new plan (revision): worked out once
+        NewPlan({ [COPPER] = { 60, 0 }, [TIN] = { 10, 0 } })
+        assert(Builds() == b0 + 1, "a new plan: the list was worked out " .. (Builds() - b0) .. " time(s), want 1")
+        -- "Go": exactly this zone
+        hereCalls = 0
+        assert(ns.PlanZoneListGo(BARRENS) == true, "Go did not start the run")
+        W.Wait(1)
+        run = ns.run
+        assert(run and run.plan and run.zone == BARRENS and ns.db.activeRun.zone == BARRENS and #run.points == 12 and hereCalls == 0 and not Open(), "Go: not a run in the zone clicked")
+        for _, p in ipairs(run.points) do assert(p.mapID == BARRENS, "Go: a node of another zone") end
+        -- in the run: what is left is only in another zone - blocked, the zone never changes, the window offers the list
+        local _, ends0 = ns.PlanRunLastEnd()
+        NewPlan({ [COPPER] = { 60, 60 }, [TIN] = { 10, 0 } })
+        ns.db.nodes[1412] = { Ore(TINVEIN, "Tin Vein", 0), W.Node("o1618", "Peacebloom", 2500, { item = 2447 }) }
+        ns.NotifyNodesChanged() advance(2)
+        fire("BAG_UPDATE_DELAYED") W.Wait(2)
+        local last, ends = ns.PlanRunLastEnd()
+        assert(ns.run == nil and ends == ends0 + 1 and last.kind == "blocked" and last.zone == BARRENS and last.reasons[1].item == TIN and last.reasons[1].reason == "not_in_zone",
+            "tin only in another zone: " .. tostring(last and last.kind))
+        local hint = _G.GathercraftPlanHint
+        assert(hint and hint:IsShown() and not Open(), "the blocked end: no window, or the list opened by itself")
+        hint.zones.__scripts.OnClick(hint.zones)
+        assert(Open() and not hint:IsShown() and ns.run == nil, "the window's button does not open the list")
+        z = ZoneRow(1412)
+        assert(z and z.here and #ListData().zones == 1 and Places(z, TIN) ~= nil or ListData().counting, "the list after the blocked end: not Mulgore with tin")
+        Clear()
+
+        -- ---- the list: your continent only, places counted as the item tooltip counts them, most first, your zone marked
+        ns.db.tooltipPrices = false
+        if ns.ItemTooltipSetEnabled then ns.ItemTooltipSetEnabled(false) end
+        assert(ns.SpawnCountsState() == "off", "test setup: the spawn counts are on although nobody uses them")
+        -- Incendicite: two node kinds at the SAME place in the Wetlands (another continent), and in the Barrens
+        local function Twin(mapID, x)
+            return { id = INC[1], name = "Incendicite Mineral Vein", type = "ore", x = x, y = 0.5, count = 1, last = 1, source = "questie" },
+                { id = INC[2], name = "Incendicite Mineral Vein", type = "ore", x = x, y = 0.5, count = 1, last = 1, source = "questie" }
+        end
+        local a1, a2 = Twin(WETLANDS, 0.3)
+        ns.db.nodes[WETLANDS] = { a1, a2 }
+        local b1, b2 = Twin(BARRENS, 0.6)
+        ns.db.nodes[BARRENS] = { b1, b2 }
+        for i = 1, 3 do ns.db.nodes[BARRENS][#ns.db.nodes[BARRENS] + 1] = { id = VEIN, name = "Copper Vein", type = "ore", x = 0.2 + i * 0.01, y = 0.5, count = 1, last = 1 } end
+        W.Set({ Ore(VEIN, "Copper Vein", 100), Ore(VEIN, "Copper Vein", 200), Ore(VEIN, "Copper Vein", 300), Ore(VEIN, "Copper Vein", 400), Ore(VEIN, "Copper Vein", 500) })
+        W.At(0)
+        Plan({ [COPPER] = { 60, 0 }, [INCEND] = { 5, 0 }, [2840] = { 8, 0 } })
+        assert(ns.PlanZoneListShow("Mining", 75) and Open(), "the list did not open")
+        assert(ns.run == nil, "opening the list started a run")
+        advance(20) -- (the counts are built for the list's own user)
+        assert(ns.SpawnCountsState() == "ready", "the list did not get the spawn counts without the tooltip option: " .. tostring(ns.SpawnCountsState()))
+        local d = ListData()
+        assert(d and d.state == "ok" and not d.counting, "the list is not counted: " .. tostring(d and d.state))
+        assert(#d.zones == 2 and ZoneRow(1412) and ZoneRow(BARRENS) and not ZoneRow(WETLANDS), "the list has " .. #d.zones .. " zones, want Mulgore and the Barrens (the Wetlands are another continent)")
+        -- places, not entries: counted here again from the spawn data and the own nodes
+        local function CountPlaces(item, mapID)
+            local seen, n = {}, 0
+            for id, x, y in (data.zones[mapID] or ""):gmatch("(%d+),(%d+),(%d+)") do
+                local kind = data.kinds["o" .. id]
+                if kind and kind[2] == item and (kind[1] == "o" or kind[1] == "h") and not seen[x .. ":" .. y] then seen[x .. ":" .. y] = true n = n + 1 end
+            end
+            return n
+        end
+        local function Total(item, mapID)
+            for _, zc in ipairs(ns.SpawnCounts(item) or {}) do if zc.mapID == mapID then return zc.total end end
+            return 0
+        end
+        local zb, zm = ZoneRow(BARRENS), ZoneRow(1412)
+        local incPlaces, incCandidates = Places(zb, INCEND)
+        assert(incCandidates == 2, "test setup: the two Incendicite nodes of the Barrens are not both candidates")
+        assert(incPlaces == Total(INCEND, BARRENS) and incPlaces >= CountPlaces(INCEND, BARRENS), "Incendicite in the Barrens: " .. tostring(incPlaces) .. " places, the counts say " .. Total(INCEND, BARRENS))
+        assert(Places(zb, COPPER) == Total(COPPER, BARRENS) and Places(zm, COPPER) == Total(COPPER, 1412), "copper: not the number of known places")
+        assert(Places(zb, 2840) == nil and Places(zm, INCEND) == nil, "a material without a node to go to in the zone is listed")
+        assert(zb.places == Places(zb, INCEND) + Places(zb, COPPER) and zm.places == Places(zm, COPPER), "a zone's number is not the sum of its materials' places")
+        for i = 2, #d.zones do assert(d.zones[i - 1].places >= d.zones[i].places, "the zones are not in order, most places first") end
+        assert(zm.here and not zb.here, "your zone is not the one marked")
+        -- the same place under two node kinds is one place
+        local twoKinds = CountPlaces(INCEND, WETLANDS)
+        local entries = 0
+        for id in (data.zones[WETLANDS] or ""):gmatch("(%d+),%d+,%d+") do
+            local kind = data.kinds["o" .. id]
+            if kind and kind[2] == INCEND then entries = entries + 1 end
+        end
+        assert(entries > twoKinds, "test setup: Incendicite in the Wetlands has no place under two kinds (" .. entries .. " entries, " .. twoKinds .. " places)")
+        Close()
+        assert(ns.SpawnCountsState() == "off", "the list closed and the spawn counts stay on")
+        W.Set({}) player.map, player.x, player.y = WETLANDS, 0.3, 0.5
+        Plan({ [INCEND] = { 5, 0 } })
+        assert(ns.PlanZoneListShow("Mining", 75)) advance(20)
+        d = ListData()
+        local zw = ZoneRow(WETLANDS)
+        assert(zw and #d.zones == 1 and zw.here, "in the Wetlands: " .. #d.zones .. " zones")
+        local p, c = Places(zw, INCEND)
+        assert(c == 2 and p == Total(INCEND, WETLANDS) and p == twoKinds and p < entries, ("Incendicite in the Wetlands: %s places (candidates %s) - want %d, not the %d entries"):format(tostring(p), tostring(c), twoKinds, entries))
+        Close()
+        W.At(0)
+
+        -- ---- what the window shows: nothing, and every zone of the continent
+        Plan({ [COPPER] = { 60, 0 } })
+        ns.db.nodes[BARRENS], ns.db.nodes[WETLANDS] = nil, nil
+        W.Set({})
+        assert(ns.PlanZoneListShow("Mining", 75)) advance(1)
+        local win = Win()
+        assert(#ListData().zones == 0 and win.note:GetText() == L["No known spots for the missing materials yet."] and not win.rows[1]:IsShown(), "the empty list: " .. tostring(win.note:GetText()))
+        assert(win.title:GetText() == L["Where to farm for your plan"] and win.sub:GetText() == L["Known spots for what you still need"], "the list's title")
+        Close()
+        local twenty = {}
+        for mapID = 1400, 1470 do
+            if mapID ~= 1412 and ns.GetContinent(mapID) == ns.GetContinent(1412) then twenty[#twenty + 1] = mapID end
+        end
+        assert(#twenty >= 12, "test setup: only " .. #twenty .. " other zones on the continent")
+        local N = #twenty + 1 -- (with Mulgore: more zones than the window shows at once)
+        for i, mapID in ipairs(twenty) do
+            saved.extra[mapID] = saved.extra[mapID] or { nil }
+            ns.db.nodes[mapID] = {}
+            for k = 1, i do ns.db.nodes[mapID][k] = { id = VEIN, name = "Copper Vein", type = "ore", x = 0.2 + k * 0.01, y = 0.5, count = 1, last = 1 } end
+        end
+        W.Set({ Ore(VEIN, "Copper Vein", 100) }) W.At(0)
+        assert(ns.PlanZoneListShow("Mining", 75)) advance(25)
+        d = ListData()
+        assert(#d.zones == N and not d.counting, "the list has " .. #d.zones .. " zones, want " .. N)
+        local shown = 0
+        for _, row in ipairs(win.rows) do if row:IsShown() then shown = shown + 1 end end
+        assert(shown == 10 and win.rows[1].zone == d.zones[1] and win.note:GetText() == (L["Zones %d-%d of %d (mouse wheel)"]):format(1, 10, N), "many zones: " .. shown .. " rows, note " .. tostring(win.note:GetText()))
+        for _ = 1, 30 do win.__scripts.OnMouseWheel(win, -1) end
+        assert(win.rows[10].zone == d.zones[N] and win.rows[1].zone == d.zones[N - 9], "the wheel does not reach the last zone")
+        for _ = 1, 30 do win.__scripts.OnMouseWheel(win, 1) end
+        assert(win.rows[1].zone == d.zones[1], "the wheel does not come back to the first zone")
+        -- every row: the zone's name, its materials with their places, a Go button that starts that zone
+        local row = win.rows[1]
+        assert(row.name:GetText():find(d.zones[1].name, 1, true) and row.items:GetText():find(ns.ItemName(COPPER) or "?", 1, true) and row.go:GetText() == L["Go"], "a row: " .. tostring(row.name:GetText()) .. " / " .. tostring(row.items:GetText()))
+        row.go.__scripts.OnClick(row.go)
+        W.Wait(1)
+        assert(ns.run and ns.run.zone == d.zones[1].mapID and not Open(), "the Go button of the first row")
+        Clear()
+        -- no plan to go by, a plan on its way: said, no zones
+        given = "skill"
+        assert(ns.PlanZoneListShow("Mining", 75)) advance(1)
+        assert(#ListData().zones == 0 and win.note:GetText() == (L["No plan to go by: %s."]):format(L["your skill can't be read"]), "the list without a plan: " .. tostring(win.note:GetText()))
+        Close()
+        given = "working"
+        assert(ns.PlanZoneListShow("Mining", 75)) advance(1)
+        assert(win.note:GetText() == L["Working out the plan ..."], "the list while the plan is worked out: " .. tostring(win.note:GetText()))
+        Plan({ [COPPER] = { 60, 0 } })
+        ns.PlanRunLook() advance(1)
+        assert(#ListData().zones == N, "the list did not take the plan when it was there")
+        Close()
+        -- asked for something that is no plan
+        assert(ns.PlanZoneListShow("Bergbau", 75) == false and ns.PlanFarmStart("Bergbau", 75) == false and not Open() and ns.run == nil, "a list or a run for something that is no plan")
+        assert(#errors == before, "an error: " .. tostring(errors[#errors]))
+    end)
+    ns.SkillPlanFor, ns.GetSkill, ns.StartHereRun, ns.PlanRouteCandidates, ns.SpawnCounts = saved.planFor, saved.skill, saved.here, saved.candidates, saved.counts
+    if ns.run then ns.StopRun(true) end
+    for _, name in ipairs({ "GathercraftPlanZones", "GathercraftPlanHint" }) do if _G[name] then _G[name]:Hide() end end
+    for mapID, keep in pairs(saved.extra) do ns.db.nodes[mapID] = keep[1] end
+    ns.db.nodes[BARRENS], ns.db.nodes[WETLANDS], ns.db.activeRun, ns.db.tooltipPrices = saved.barrens, saved.wetlands, saved.run, saved.tooltip
+    W.Restore()
+    if ns.ItemTooltipSetEnabled then ns.ItemTooltipSetEnabled(saved.tooltip ~= false) end
+    advance(15)
     if not ok then error(err, 0) end
 end)
 -- (end of the "Farm for plan" steps, v0.2 building block 3)

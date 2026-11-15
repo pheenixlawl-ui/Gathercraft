@@ -252,6 +252,15 @@ local probeFilter
 local lastEnd     -- how the last plan run ended: { kind, prof, target, zone, rows, offMap, reasons }
 local ends = 0    -- counts every end (success or blocked)
 local resuming = false
+local RefreshZoneList -- (part 3)
+
+-- who of this file reads the skill plan right now ("run", "list", "ask"):
+-- with nobody, and the window closed, nothing is worked out
+local readers = {}
+local function Runner(who, on)
+    readers[who] = on and true or nil
+    if ns.SkillPlanRunner then ns.SkillPlanRunner(next(readers) ~= nil) end
+end
 
 local REASON_TEXT = {
     no_skill = "can't gather yet",
@@ -553,17 +562,18 @@ ns.PlanRunBegin = function(filter, zone)
     if not resuming then
         -- asked for now (a click, a command): with everything gathered, nothing
         -- to farm here or no plan to go by there is no run, only why
-        local wasOn = pr ~= nil
-        if ns.SkillPlanRunner then ns.SkillPlanRunner(true) end
+        Runner("ask", true)
         local plan = Evaluate(spec)
-        if not wasOn and ns.SkillPlanRunner and (plan.state == "success" or plan.state == "blocked" or plan.state == "invalid") then ns.SkillPlanRunner(false) end
+        Runner("ask", false)
         if plan.state == "success" then
             ns.Print(plan.status == "done" and L["Target reached: nothing left to farm for your plan."] or L["Everything from the map is gathered for your plan."])
             return nil
         elseif plan.state == "blocked" then
             ns.Print((L["Nothing you can farm for this plan here: %s"]):format(ReasonList(plan.reasons)))
+            -- a material is open and has no node to go to here: the list of
+            -- zones opens (Sven V12) - it starts nothing
             for _, r in ipairs(plan.reasons) do
-                if r.reason == "not_in_zone" and ns.PlanZoneListShow then ns.PlanZoneListShow(prof, target) break end
+                if r.item and ns.PlanZoneListShow then ns.PlanZoneListShow(prof, target) break end
             end
             return nil
         elseif plan.state == "invalid" then
@@ -578,13 +588,16 @@ end
 ns.PlanRunBegun = function(spec)
     pr = { spec = spec, prof = spec.prof, target = spec.target, zone = spec.zone, filter = spec.filter, wanted = {} }
     settle.since, settle.closedAt, settle.lootOpen = nil, nil, false
-    if ns.SkillPlanRunner then ns.SkillPlanRunner(true) end
+    Runner("run", true)
+    -- (a run has begun: the list of zones has done its work)
+    local zones = _G.GathercraftPlanZones
+    if zones and zones:IsShown() then zones:Hide() end
 end
 
 -- Route.lua, StopRun of a plan run (whoever stopped it)
 ns.PlanRunStopped = function()
     pr = nil
-    if ns.SkillPlanRunner then ns.SkillPlanRunner(false) end
+    Runner("run", false)
 end
 
 -- Core.lua, after a reload: the saved plan run goes on - or, with a format
@@ -606,12 +619,14 @@ end
 
 -- Something the plan reads may have changed: one look for a burst of events
 local lookPending = false
+local listWaits = false -- the list of zones waits for a plan that is being worked out
 local function Look()
     lookPending = false
     if pr and ns.run and ns.run.plan == pr.spec and ns.RouteReplan then ns.RouteReplan() end
+    if listWaits and RefreshZoneList then RefreshZoneList() end
 end
 ns.PlanRunLook = function()
-    if not pr or lookPending then return end
+    if not (pr or listWaits) or lookPending then return end
     lookPending = true
     C_Timer.After(LOOK_DELAY, Look)
 end
@@ -645,8 +660,12 @@ watch:SetScript("OnEvent", function(_, event)
     ns.PlanRunLook()
 end)
 -- a new plan (the window worked one out while it was open): looked at
+local OnNewPlan -- (part 3: the list of zones is worked out anew with a new plan)
 if ns.skillPlanListeners then
-    table.insert(ns.skillPlanListeners, function() if pr then ns.PlanRunLook() end end)
+    table.insert(ns.skillPlanListeners, function()
+        if pr then ns.PlanRunLook() end
+        if OnNewPlan then OnNewPlan() end
+    end)
 end
 -- a gather that was booked: its loot is on the way to the bags
 table.insert(ns.gatherListeners, function()
@@ -673,9 +692,290 @@ ns.PlanRunLastEnd = function() return lastEnd, ends end
 ns.PlanRunCheck = function(prof, target, zone)
     local filter = ns.PlanFilter(prof, target)
     if not filter then return { state = "invalid", why = "invalid" } end
-    local wasOn = pr ~= nil
-    if ns.SkillPlanRunner then ns.SkillPlanRunner(true) end
+    Runner("ask", true)
     local plan = Evaluate({ prof = prof, target = target, zone = zone, filter = filter })
-    if not wasOn and ns.SkillPlanRunner then ns.SkillPlanRunner(false) end
+    Runner("ask", false)
     return plan
+end
+
+---------------------------------------------------------------------------
+-- Part 3 - which zone (concept 4.7, Sven E6/E9, V11, V12)
+--
+-- A plan run farms ONE zone: the one you stand in when you click "Farm for
+-- plan" (a capital counts as its zone; one node to go to is enough), or
+-- the one you click in the list "Where to farm for your plan". Nothing
+-- ever picks another zone for you: no jump to the nearest zone, no group
+-- of zones, no change of zone while the run goes.
+--
+-- The list: the zones of your continent that have a node to go to for a
+-- material still open (the rules of R, zone by zone), with the number of
+-- different known places of each such material there - counted as the item
+-- tooltip counts them (SpawnCounts.lua: places, not entries; its own user
+-- "plan", whatever the tooltip option says). Most places first, your zone
+-- marked. No "best", no gold, no distance. It is worked out when it opens
+-- and when the plan has a new revision - not while you point at it.
+---------------------------------------------------------------------------
+local LIST_ROWS = 10      -- zones shown at once (the wheel moves the list)
+local LIST_ITEMS = 3      -- materials named in a row, then "+N more"
+local list                -- the window
+local listSpec            -- { prof, target, filter } while it is shown
+local listData            -- what it shows: { state, why, zones = { ... }, revision }
+local listBuilds = 0      -- how often the list was worked out (tests)
+local listOffset = 0
+
+local function Here()
+    local here = ns.GetPlayerPos and ns.GetPlayerPos()
+    return here and ((ns.CITY_ZONE and ns.CITY_ZONE[here]) or here) or nil
+end
+
+-- The zones for a plan: { state, why, here, zones = { { mapID, name, here, places, candidates,
+-- items = { { item, places (nil: not counted yet), candidates }, ... } }, ... }, counting }
+local function BuildZoneList(spec)
+    listBuilds = listBuilds + 1
+    local plan = ReadPlan(spec.prof, spec.target)
+    local data = { state = plan.state, why = plan.why, zones = {}, revision = plan.revision, here = Here() }
+    if plan.state ~= "read" then return data end
+    data.state = "ok"
+    if not next(plan.wanted) then return data end
+    local continent = data.here and ns.GetContinent and ns.GetContinent(data.here)
+    if not continent then return data end
+    local maps = {}
+    for mapID in pairs(ns.db.nodes or {}) do
+        if type(mapID) == "number" and ns.GetContinent(mapID) == continent then maps[#maps + 1] = mapID end
+    end
+    table.sort(maps)
+    local keepSet, keepFilter = probeSet, probeFilter
+    probeSet, probeFilter = plan.wanted, spec.filter
+    for _, mapID in ipairs(maps) do
+        local points, weights = ns.PlanRouteCandidates(spec.filter, mapID)
+        local per, any = {}, false
+        for _, p in ipairs(points or {}) do
+            if (weights[p.kind] or 1) > 0 then
+                local item = ns.PlanBaseItem(p.node.id)
+                if item and plan.wanted[item] then
+                    per[item] = (per[item] or 0) + 1
+                    any = true
+                end
+            end
+        end
+        if any then
+            local zone = { mapID = mapID, name = ns.GetZoneName(mapID), here = mapID == data.here, places = 0, candidates = 0, items = {} }
+            local ids = {}
+            for item in pairs(per) do ids[#ids + 1] = item end
+            table.sort(ids)
+            for _, item in ipairs(ids) do
+                -- the different known places of the item in this zone (never a sum over its node kinds)
+                local places
+                local counts = ns.SpawnCounts and ns.SpawnCounts(item)
+                if counts then
+                    places = 0
+                    for _, z in ipairs(counts) do if z.mapID == mapID then places = z.total end end
+                else
+                    data.counting = true
+                end
+                zone.items[#zone.items + 1] = { item = item, places = places, candidates = per[item] }
+                zone.places = zone.places + (places or 0)
+                zone.candidates = zone.candidates + per[item]
+            end
+            table.sort(zone.items, function(a, b)
+                if (a.places or 0) ~= (b.places or 0) then return (a.places or 0) > (b.places or 0) end
+                return a.item < b.item
+            end)
+            data.zones[#data.zones + 1] = zone
+        end
+    end
+    probeSet, probeFilter = keepSet, keepFilter
+    table.sort(data.zones, function(a, b)
+        if a.places ~= b.places then return a.places > b.places end
+        if a.candidates ~= b.candidates then return a.candidates > b.candidates end
+        return a.mapID < b.mapID
+    end)
+    return data
+end
+
+local function DrawZoneList()
+    if not (list and list:IsShown() and listData) then return end
+    local data = listData
+    local zones = data.zones
+    if listOffset > math.max(0, #zones - LIST_ROWS) then listOffset = math.max(0, #zones - LIST_ROWS) end
+    list.title:SetText(L["Where to farm for your plan"])
+    list.sub:SetText(L["Known spots for what you still need"])
+    local note
+    if data.state == "waiting" then
+        note = L["Working out the plan ..."]
+    elseif data.state ~= "ok" then
+        note = (L["No plan to go by: %s."]):format(L[INVALID_TEXT[data.why] or INVALID_TEXT.invalid])
+    elseif #zones == 0 then
+        note = L["No known spots for the missing materials yet."]
+    elseif data.counting then
+        note = L["Counting the known spots ..."]
+    elseif #zones > LIST_ROWS then
+        note = (L["Zones %d-%d of %d (mouse wheel)"]):format(listOffset + 1, math.min(#zones, listOffset + LIST_ROWS), #zones)
+    end
+    list.note:SetText(note or "")
+    for i = 1, LIST_ROWS do
+        local row, zone = list.rows[i], zones[listOffset + i]
+        if zone and data.state == "ok" then
+            row.zone = zone
+            row.name:SetText(zone.here and ("%s |cffffd060(%s)|r"):format(zone.name, L["you are here"]) or zone.name)
+            local parts = {}
+            for k = 1, math.min(LIST_ITEMS, #zone.items) do
+                local it = zone.items[k]
+                parts[k] = ("%s %s"):format(ItemLabel(it.item), it.places and tostring(it.places) or "...")
+            end
+            if #zone.items > LIST_ITEMS then parts[#parts + 1] = (L["+%d more"]):format(#zone.items - LIST_ITEMS) end
+            row.items:SetText(table.concat(parts, " · "))
+            row.go:SetText(L["Go"])
+            row:Show()
+        else
+            row.zone = nil
+            row:Hide()
+        end
+    end
+end
+
+RefreshZoneList = function()
+    if not (list and list:IsShown() and listSpec) then
+        listWaits = false
+        return
+    end
+    listData = BuildZoneList(listSpec)
+    listWaits = listData.state == "waiting"
+    DrawZoneList()
+    -- the counts are being built (the first time, or after a node change):
+    -- worked out once more when they are there - asked for once a second,
+    -- which costs nothing
+    if listData.counting and not list.recount then
+        list.recount = true
+        local function Ask()
+            if not (list:IsShown() and listData and listData.counting) then
+                list.recount = nil
+                return
+            end
+            for _, zone in ipairs(listData.zones) do
+                for _, it in ipairs(zone.items) do
+                    if not ns.SpawnCounts(it.item) then
+                        C_Timer.After(1, Ask)
+                        return
+                    end
+                end
+            end
+            list.recount = nil
+            RefreshZoneList()
+        end
+        C_Timer.After(1, Ask)
+    end
+end
+
+-- a new plan while the list is open: worked out anew, once per revision
+OnNewPlan = function()
+    if list and list:IsShown() and listSpec then
+        C_Timer.After(0, function() if list:IsShown() then RefreshZoneList() end end)
+    end
+end
+
+local function CloseZoneList()
+    if list and list:IsShown() then list:Hide() end
+end
+
+-- "Go": a plan run in exactly this zone - the click is the choice
+ns.PlanZoneListGo = function(mapID)
+    local spec = listSpec
+    if not spec or type(mapID) ~= "number" then return false end
+    CloseZoneList()
+    ns.StartRun(spec.filter, mapID)
+    return ns.run ~= nil and ns.run.zone == mapID
+end
+
+-- Opens the list for a plan. It starts nothing.
+ns.PlanZoneListShow = function(prof, target)
+    local filter = ns.PlanFilter(prof, target)
+    if not filter then return false end
+    if not list then
+        list = CreateFrame("Frame", "GathercraftPlanZones", UIParent, "BackdropTemplate")
+        list:SetSize(520, 150 + LIST_ROWS * 24)
+        list:SetPoint("CENTER", 0, 60)
+        if list.SetBackdrop then
+            list:SetBackdrop({ bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background-Dark", edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Gold-Border",
+                tile = true, tileSize = 32, edgeSize = 32, insets = { left = 11, right = 11, top = 11, bottom = 11 } })
+        end
+        list:SetFrameStrata("DIALOG")
+        list:SetClampedToScreen(true)
+        list:EnableMouse(true)
+        list:SetMovable(true)
+        list:RegisterForDrag("LeftButton")
+        list:SetScript("OnDragStart", list.StartMoving)
+        list:SetScript("OnDragStop", list.StopMovingOrSizing)
+        list:Hide()
+        if UISpecialFrames then tinsert(UISpecialFrames, "GathercraftPlanZones") end
+        list.title = list:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+        list.title:SetPoint("TOPLEFT", 24, -22)
+        list.sub = list:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        list.sub:SetPoint("TOPLEFT", list.title, "BOTTOMLEFT", 0, -6)
+        list.rows = {}
+        for i = 1, LIST_ROWS do
+            local row = CreateFrame("Frame", nil, list)
+            row:SetSize(476, 22)
+            row:SetPoint("TOPLEFT", 22, -70 - (i - 1) * 24)
+            row.name = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+            row.name:SetPoint("LEFT", 2, 0)
+            row.name:SetWidth(170)
+            row.name:SetJustifyH("LEFT")
+            row.name:SetWordWrap(false)
+            row.items = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+            row.items:SetPoint("LEFT", 176, 0)
+            row.items:SetWidth(232)
+            row.items:SetJustifyH("LEFT")
+            row.items:SetWordWrap(false)
+            row.go = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
+            row.go:SetSize(60, 20)
+            row.go:SetPoint("RIGHT", 0, 0)
+            row.go:SetScript("OnClick", function() if row.zone then ns.PlanZoneListGo(row.zone.mapID) end end)
+            list.rows[i] = row
+        end
+        list.note = list:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+        list.note:SetPoint("BOTTOMLEFT", 24, 24)
+        list.note:SetWidth(340)
+        list.note:SetJustifyH("LEFT")
+        list.close = CreateFrame("Button", nil, list, "UIPanelButtonTemplate")
+        list.close:SetSize(110, 24)
+        list.close:SetPoint("BOTTOMRIGHT", -22, 18)
+        list.close:SetScript("OnClick", CloseZoneList)
+        if list.EnableMouseWheel then list:EnableMouseWheel(true) end
+        list:SetScript("OnMouseWheel", function(_, delta)
+            local max = math.max(0, #((listData and listData.zones) or {}) - LIST_ROWS)
+            listOffset = math.max(0, math.min(max, listOffset - (delta or 0)))
+            DrawZoneList() -- (only drawn: nothing is worked out for a turn of the wheel)
+        end)
+        list:SetScript("OnHide", function()
+            listSpec, listData, listWaits = nil, nil, false
+            Runner("list", false)
+            if ns.SpawnCountsStop then ns.SpawnCountsStop("plan") end
+        end)
+    end
+    list.close:SetText(L["Close"])
+    listSpec, listOffset = { prof = prof, target = target, filter = filter }, 0
+    Runner("list", true)
+    if ns.SpawnCountsStart then ns.SpawnCountsStart("plan") end
+    list:Show()
+    RefreshZoneList()
+    return true
+end
+
+-- what the list shows (tests, later the windows): the data, how often it
+-- was worked out, the window
+ns.PlanZoneListState = function() return listData, listBuilds, list end
+
+-- "Farm for plan": a run for this plan in the zone you stand in - or, with
+-- nothing to go to here, the list. Never another zone without a click.
+ns.PlanFarmStart = function(prof, target)
+    local filter = ns.PlanFilter(prof, target)
+    local zone = Here()
+    if not filter then return false end
+    if not zone then
+        ns.Print(L["No position available here."])
+        return false
+    end
+    ns.StartRun(filter, zone)
+    return ns.run ~= nil and ns.run.plan ~= nil
 end
