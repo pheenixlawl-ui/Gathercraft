@@ -681,4 +681,7 @@ ns.Locales.esES = {
     ["unknown (not a gathered item)"] = "desconocido (no es un objeto de recolección)",
     ["recipe data"] = "datos de recetas",
     ["Waypoints are not available in this client."] = "Los puntos de ruta no están disponibles en este cliente.",
+    ["Farm for plan"] = "Recolectar para el plan",
+    ["Where to farm"] = "Dónde recolectar",
+    ["The zones of this continent with known spots for what your plan still needs."] = "Las zonas de este continente con puntos conocidos de lo que tu plan aún necesita.",
 }

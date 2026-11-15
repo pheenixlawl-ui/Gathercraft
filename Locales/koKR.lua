@@ -681,4 +681,7 @@ ns.Locales.koKR = {
     ["unknown (not a gathered item)"] = "알 수 없음 (채집 아이템 아님)",
     ["recipe data"] = "제조법 자료",
     ["Waypoints are not available in this client."] = "이 클라이언트에서는 경유지를 사용할 수 없습니다.",
+    ["Farm for plan"] = "계획용 채집",
+    ["Where to farm"] = "채집 장소",
+    ["The zones of this continent with known spots for what your plan still needs."] = "계획에 아직 필요한 재료의 알려진 위치가 있는 이 대륙의 지역입니다.",
 }

@@ -681,4 +681,7 @@ ns.Locales.ruRU = {
     ["unknown (not a gathered item)"] = "неизвестно (не собирается)",
     ["recipe data"] = "данные рецептов",
     ["Waypoints are not available in this client."] = "В этом клиенте нет путевых точек.",
+    ["Farm for plan"] = "Сбор для плана",
+    ["Where to farm"] = "Где собирать",
+    ["The zones of this continent with known spots for what your plan still needs."] = "Зоны этого континента с известными точками того, что ещё нужно по плану.",
 }

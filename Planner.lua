@@ -808,9 +808,56 @@ local function CountText(s)
     return "~" .. (L["%dx"]):format(s.crafts) .. (" (%d-%d)"):format(s.low, s.high)
 end
 
+-- "Farm for plan" and the list of zones (0.2 B3, PlanFarm.lua): a row of
+-- two buttons over the materials, there while a material that has nodes
+-- on the map is still open. What the tooltip says is worked out when the
+-- window is drawn, not while you point at a button.
+local planButtons
+local function ShowPlanButtons(prof, target, y)
+    if not (ns.PlanButtonInfo and ns.PlanFarmStart and ns.PlanZoneListShow) then return 0 end
+    local info = ns.PlanButtonInfo(prof, target)
+    if not info.show then return 0 end
+    if not planButtons then
+        planButtons = CreateFrame("Frame", "GathercraftSkillPlanFarm", content)
+        planButtons:SetSize(500, 26)
+        local farm = CreateFrame("Button", nil, planButtons, "UIPanelButtonTemplate")
+        farm:SetSize(170, 22)
+        farm:SetPoint("LEFT", 4, 0)
+        farm:SetScript("OnClick", function() ns.PlanFarmStart(planButtons.prof, planButtons.target) end)
+        farm:SetScript("OnEnter", function(self)
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            for i, line in ipairs(ns.PlanButtonTooltip(planButtons.info)) do
+                GameTooltip:AddLine(line[1], line[2], line[3], line[4], i == 2)
+            end
+            GameTooltip:Show()
+        end)
+        farm:SetScript("OnLeave", GameTooltip_Hide)
+        local zones = CreateFrame("Button", nil, planButtons, "UIPanelButtonTemplate")
+        zones:SetSize(170, 22)
+        zones:SetPoint("LEFT", farm, "RIGHT", 8, 0)
+        zones:SetScript("OnClick", function() ns.PlanZoneListShow(planButtons.prof, planButtons.target) end)
+        zones:SetScript("OnEnter", function(self)
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            GameTooltip:AddLine(L["Where to farm"], 1, 0.82, 0)
+            GameTooltip:AddLine(L["The zones of this continent with known spots for what your plan still needs."], 1, 1, 1, true)
+            GameTooltip:Show()
+        end)
+        zones:SetScript("OnLeave", GameTooltip_Hide)
+        planButtons.farm, planButtons.zones = farm, zones
+    end
+    planButtons.farm:SetText(L["Farm for plan"])
+    planButtons.zones:SetText(L["Where to farm"])
+    planButtons.prof, planButtons.target, planButtons.info = prof, target, info
+    planButtons:ClearAllPoints()
+    planButtons:SetPoint("TOPLEFT", 0, -y)
+    planButtons:Show()
+    return 26
+end
+
 local haveSaid = {} -- item -> the last debug line about its count
 local function Refresh()
     if not (win and win:IsShown() and Data()) then return end
+    if planButtons then planButtons:Hide() end
     local d = Data()
     local prof = state.prof
     if targetMenu then targetMenu:Hide() end
@@ -1085,6 +1132,8 @@ local function Refresh()
     if preview then
         Line(L["Preview - the amounts below are for the skill seen last, not for your skill now."], nil, GOLD)
     end
+    -- (not while a new plan is on its way, not for a preview: nothing to farm by)
+    if not updating and not preview then y = y + ShowPlanButtons(prof, target, y) end
     local unread = false
     -- the amounts are a planning estimate where a step's number of crafts is
     -- a mean, a varying output was counted with its mean, or extra crafts

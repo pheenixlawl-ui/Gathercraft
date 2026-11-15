@@ -681,4 +681,7 @@ ns.Locales.frFR = {
     ["unknown (not a gathered item)"] = "inconnu (pas un objet de récolte)",
     ["recipe data"] = "données de recettes",
     ["Waypoints are not available in this client."] = "Les points de passage ne sont pas disponibles dans ce client.",
+    ["Farm for plan"] = "Récolter pour le plan",
+    ["Where to farm"] = "Où récolter",
+    ["The zones of this continent with known spots for what your plan still needs."] = "Les zones de ce continent avec des emplacements connus pour ce qu'il manque encore à votre plan.",
 }

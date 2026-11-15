@@ -681,4 +681,7 @@ ns.Locales.zhCN = {
     ["unknown (not a gathered item)"] = "未知（不是采集物品）",
     ["recipe data"] = "配方数据",
     ["Waypoints are not available in this client."] = "此客户端不支持路径点。",
+    ["Farm for plan"] = "为计划采集",
+    ["Where to farm"] = "去哪里采集",
+    ["The zones of this continent with known spots for what your plan still needs."] = "本大陆中有已知采集点、能提供计划仍需材料的区域。",
 }

@@ -23151,6 +23151,289 @@ step("Farm for plan: the plan's nodes glow and the rest steps back - a factor wo
     advance(5)
     if not ok then error(err, 0) end
 end)
+step("Farm for plan: what you see - have / need under the run window, the window when everything is gathered, the buttons in the skill plan (v0.2 B3 T5)", function()
+    -- Concept shopping list 3, 4.3, 4.8, tests 2, 4, 10, 12; Sven E8, V6.
+    assert(type(ns.PlanPanelLines) == "function" and type(ns.PlanPanelUpdate) == "function" and type(ns.PlanRunGathered) == "function"
+        and type(ns.PlanButtonInfo) == "function" and type(ns.PlanButtonTooltip) == "function" and type(ns.PlanRunLabel) == "function",
+        "no ns.PlanPanelLines / PlanPanelUpdate / PlanRunGathered / PlanButtonInfo / PlanButtonTooltip / PlanRunLabel")
+    local L, d = ns.L, ns.CraftData
+    local COPPER, TIN, SILVER, STONE, COAL, VEIN = 2770, 2771, 2775, 2835, 3857, "o1731"
+    local TINVEIN
+    for key, kind in pairs(GathercraftQuestieData.kinds) do
+        if kind[1] == "o" and kind[2] == TIN and (not TINVEIN or key < TINVEIN) then TINVEIN = key end
+    end
+    local Z = 1412
+    local saved = { planFor = ns.SkillPlanFor, skill = ns.GetSkill, seen = ns.PlanSeen, show = ns.ShowSkillPlan, compact = ns.db.panelCompact, hidden = ns.db.runPanelHidden,
+        run = ns.db.activeRun, rank = ns.ProfessionRank, have = d.Have, known = d.Known, targets = ns.db.planTargets, farm = ns.PlanFarmStart, zones = ns.PlanZoneListShow,
+        summaryOff = ns.db.summaryOff, grey = ns.db.hideGreyNodes }
+    local W = IdentityWorld()
+    local before = #errors
+    local panel = _G.GathercraftPanel
+    local ok, err = pcall(function()
+        ns.GetSkill = function(t) if t == "ore" then return 100, 300, 100 end end
+        ns.db.panelCompact, ns.db.runPanelHidden, ns.db.hideGreyNodes = nil, nil, false
+        local given
+        ns.SkillPlanFor = function() if type(given) == "table" then return given end return nil, given end
+        local revision = 700
+        local function Plan(items, more)
+            revision = revision + 1
+            local res = { prof = "Mining", from = 1, target = 75, status = "ok", valid = true, complete = true, reliable = true, revision = revision, items = {} }
+            for id, m in pairs(items) do res.items[id] = { need = m[1], have = m[2], haveKnown = m[2] ~= nil, missing = math.max(0, m[1] - (m[2] or 0)) } end
+            for k, v in pairs(more or {}) do res[k] = v end
+            given = res
+        end
+        local function Look() fire("BAG_UPDATE_DELAYED") W.Wait(1) end
+        local F = ns.PlanFilter("Mining", 75)
+        local function Ore(id, name, x) return W.Node(id, name, x, { type = "ore" }) end
+        W.Set({ Ore(VEIN, "Copper Vein", 100), Ore(VEIN, "Copper Vein", 200), Ore(TINVEIN, "Tin Vein", 300) })
+        W.At(0)
+        local function Lines() return ns.PlanPanelLines() end
+        local function Kind(data, kind)
+            local list = {}
+            for _, l in ipairs(data.lines) do if l.kind == kind then list[#list + 1] = l end end
+            return list
+        end
+        local function Line(data, item)
+            for _, l in ipairs(data.lines) do if l.item == item then return l end end
+        end
+        local function Rows() -- the rows the window shows now
+            local list = {}
+            local f = _G.GathercraftPlanPanel
+            if f and f:IsShown() then
+                for _, row in ipairs(f.rows) do if row:IsShown() then list[#list + 1] = row end end
+            end
+            return list
+        end
+        local function Update() advance(1.5) end -- (the run window draws itself a few times a second)
+        assert(Lines() == nil, "lines of a plan run without one")
+        assert(ns.PlanRunLabel(F) == (L["Plan: %s %d"]):format(d.ProfLabel("Mining"), 75) and ns.PlanRunLabel("item:2770") == nil and ns.PlanRunLabel("plan:v2:mining:75") == nil,
+            "the label of a plan run: " .. tostring(ns.PlanRunLabel(F)))
+        assert(ns.RunFilterLabel(F) == ns.PlanRunLabel(F) and ns.RunFilterLabel("item:2770") == (ns.ItemName(2770) or "item:2770"), "the run window's label")
+
+        -- ---- have / need, the bar, the tick, "?" (test 2)
+        ns.PlanSeen = function(item) if item == STONE then return { { id = VEIN, seen = 7, n = 23 } } end return nil end
+        Plan({ [COPPER] = { 60, 32 }, [TIN] = { 10, nil }, [STONE] = { 20, 5 }, [COAL] = { 8, 8 }, [2840] = { 0, 0 } })
+        ns.StartRun(F, Z) W.Wait(1) Update()
+        assert(ns.run and ns.run.plan, "test setup: no plan run")
+        local data = Lines()
+        assert(data, "no lines: state " .. tostring(ns.PlanRunState()) .. ", run " .. tostring(ns.run) .. ", errors " .. tostring(errors[#errors]))
+        local copper, tin, stone, coal = Line(data, COPPER), Line(data, TIN), Line(data, STONE), Line(data, COAL)
+        assert(copper and copper.kind == "row" and copper.count == "32 / 60" and not copper.ok and not copper.unknown and math.abs(copper.bar - 32 / 60) < 1e-9, "copper: " .. tostring(copper and copper.count))
+        assert(tin and tin.kind == "row" and tin.count == "? / 10" and tin.unknown and not tin.ok and tin.bar == 0 and tin.have == nil, "a count that is not known: " .. tostring(tin and tin.count))
+        assert(stone and stone.kind == "off" and stone.count == "5 / 20" and stone.source == (L["seen in %d of %d recorded gathers"]):format(7, 23), "rough stone: " .. tostring(stone and stone.source))
+        assert(coal and coal.kind == "off" and coal.ok and coal.source == nil, "coal (covered, never seen): " .. tostring(coal and coal.count))
+        assert(Line(data, 2840) == nil, "a material the plan needs 0 of has a line")
+        assert(#Kind(data, "head") == 1 and Kind(data, "head")[1].text == L["Not on the map"] and #Kind(data, "more") == 0 and #Kind(data, "note") == 0, "the head, more and note lines")
+        assert(data.total == 2 and data.done == 0 and data.compact == (L["Plan %d/%d"]):format(0, 2), "the slim line: " .. tostring(data.compact))
+        -- no chance, no amount, no promise in what is said about a seen item
+        for _, word in ipairs({ "%%", "chance", "per hour", "guarant", "cheap" }) do
+            assert(not stone.source:lower():find(word), "the seen line promises something: " .. stone.source)
+        end
+        -- the window: under the run window, one row a line
+        local f = _G.GathercraftPlanPanel
+        assert(f and f:IsShown() and panel:IsShown() and #Rows() == #data.lines, "the plan is not shown under the run window (" .. #Rows() .. " rows, " .. #data.lines .. " lines)")
+        local row1 = Rows()[1]
+        assert(row1.line.item == COPPER and row1.name:GetText() == ns.ItemName(COPPER) and row1.count:GetText() == "32 / 60" and row1.bar:IsShown(), "the first row: " .. tostring(row1.name:GetText()) .. " " .. tostring(row1.count:GetText()))
+        assert(math.abs(row1.bar:GetWidth() - 60 * 32 / 60) < 0.01, "the bar of 32 / 60 is " .. tostring(row1.bar:GetWidth()) .. " wide, want 32 of 60")
+        assert(panel.title:GetText():find(ns.PlanRunLabel(F), 1, true), "the run window's title does not name the plan: " .. tostring(panel.title:GetText()))
+        -- exactly reached, and more than needed: a tick, the bar full
+        -- (a material of the test with a node kind: 990501)
+        local keepBase = ns.PlanBaseKinds
+        ns.PlanBaseKinds = function(item) if item >= 990501 and item <= 990515 then return { VEIN } end return keepBase(item) end
+        Plan({ [COPPER] = { 60, 60 }, [990501] = { 10, 25 }, [TIN] = { 10, 3 }, [SILVER] = { 5, 0 } })
+        Look() Update()
+        data = Lines()
+        assert(data, "test setup: the run ended")
+        copper = Line(data, COPPER)
+        local over = Line(data, 990501)
+        assert(copper.ok and copper.bar == 1 and over.ok and over.bar == 1 and over.count == "25 / 10", "reached or more: no tick or no full bar")
+        assert(data.lines[1].item == TIN and data.lines[2].item == SILVER and not data.lines[1].ok and not data.lines[2].ok and data.lines[3].ok, "what is still open does not come first")
+        assert(Line(data, SILVER).reason == L["not in this zone"] and Line(data, TIN).reason == nil, "why silver has no node here: " .. tostring(Line(data, SILVER).reason))
+        assert(data.done == 2 and data.total == 4 and data.compact == (L["Plan %d/%d"]):format(2, 4), "the slim line: " .. tostring(data.compact))
+        local tick = false
+        for _, row in ipairs(Rows()) do
+            if row.line.item == COPPER then tick = row.count:GetText():find("ReadyCheck-Ready", 1, true) ~= nil end
+            if row.line.item == SILVER then assert(row.info:GetText() == L["not in this zone"] and not row.bar:IsShown(), "the row of silver: " .. tostring(row.info:GetText())) end
+        end
+        assert(tick, "a covered material has no tick in its row")
+        -- what the plan makes itself is no count: only have and need are shown
+        for _, l in ipairs(data.lines) do assert(l.kind ~= "row" or l.have == nil or l.count == (tostring(l.have) .. " / " .. l.need), "a count that is not have / need") end
+
+        -- ---- the slim window: "Plan 2/3"; the run window hidden: nothing of it
+        ns.db.panelCompact = true
+        ns.PanelLayout() Update()
+        assert(not f:IsShown() and panel.title:GetText() == data.compact, "the slim window: " .. tostring(panel.title:GetText()))
+        ns.db.panelCompact = nil
+        ns.PanelLayout() Update()
+        assert(f:IsShown(), "back to the whole window: the plan is not there")
+        ns.db.runPanelHidden = true
+        Update()
+        assert(not panel:IsShown() and not f:IsShown(), "\"Hide the run window\": the plan's rows are shown")
+        ns.db.runPanelHidden = nil
+        Update()
+
+        -- ---- many materials: 6 rows, then "+N more" (Sven E8)
+        local many = {}
+        for i = 1, 14 do many[#many + 1] = 990500 + i end
+        local items = { [COPPER] = { 60, 0 } } -- (copper keeps the run going: it has nodes here)
+        for i, id in ipairs(many) do items[id] = { 10 * i, i } end
+        Plan(items)
+        Look() Update()
+        data = Lines()
+        assert(#Kind(data, "row") == 6 and #Kind(data, "more") == 1 and Kind(data, "more")[1].n == 9 and Kind(data, "more")[1].text == (L["+%d more"]):format(9), "15 materials: " .. #Kind(data, "row") .. " rows")
+        assert(data.total == 15 and #Rows() == 7, "15 materials: " .. #Rows() .. " rows in the window, want 6 and the \"more\" line")
+        -- 6 of the map and some that are not: the cap holds for all together
+        items = { [COPPER] = { 60, 0 } }
+        for i = 1, 3 do items[many[i]] = { 10, 0 } end
+        for i = 1, 5 do items[990600 + i] = { 10, 0 } end
+        Plan(items)
+        Look() Update()
+        data = Lines()
+        assert(#Kind(data, "row") == 4 and #Kind(data, "off") == 2 and #Kind(data, "head") == 1 and Kind(data, "more")[1].n == 3, "4 and 5 materials: " .. #Kind(data, "row") .. " + " .. #Kind(data, "off"))
+        -- one material, nothing that is not on the map: no head
+        Plan({ [COPPER] = { 60, 0 } })
+        Look() Update()
+        data = Lines()
+        assert(#data.lines == 1 and data.lines[1].kind == "row", "one material: " .. #data.lines .. " lines")
+        ns.PlanBaseKinds = keepBase
+
+        -- ---- the plan is not known right now: the rows read last with "?", a line that says so
+        Plan({ [COPPER] = { 60, 32 }, [TIN] = { 10, 4 } })
+        Look() Update()
+        given = "window"
+        Look() Update()
+        data = Lines()
+        copper = Line(data, COPPER)
+        assert(data.frozen and copper and copper.count == "? / 60" and copper.unknown and not copper.ok and copper.bar == 0, "the plan is not known: " .. tostring(copper and copper.count))
+        assert(Kind(data, "note")[1] and Kind(data, "note")[1].text == L["plan unknown right now"] and data.done == 0, "no line that the plan is not known")
+        -- hidden grey nodes of the plan: said
+        Plan({ [COPPER] = { 60, 32 }, [TIN] = { 10, 4 } })
+        ns.db.hideGreyNodes = true
+        local keepGrey = ns.PinHiddenGrey
+        ns.PinHiddenGrey = function(n) return n.id == VEIN end
+        Plan({ [COPPER] = { 60, 33 }, [TIN] = { 10, 4 } })
+        Look() Update()
+        data = Lines()
+        ns.PinHiddenGrey = keepGrey
+        ns.db.hideGreyNodes = false
+        assert(Kind(data, "note")[1] and Kind(data, "note")[1].text == (L["%d plan nodes hidden"]):format(2), "no line about the hidden plan nodes: " .. tostring(Kind(data, "note")[1] and Kind(data, "note")[1].text))
+
+        -- ---- everything gathered: once the window, also with the run window hidden; no run numbers (Sven V6)
+        ns.db.runPanelHidden = true
+        ns.db.summaryOff = nil
+        local shownSkill
+        ns.ShowSkillPlan = function(prof) shownSkill = prof end
+        local g0 = (_G.GathercraftPlanGathered and _G.GathercraftPlanGathered.shown) or 0
+        W.Wait(200) -- (long enough for the run summary of an ordinary run)
+        local summaries, keepSummary = 0, ns.ShowRunSummary
+        ns.ShowRunSummary = function(...) summaries = summaries + 1 return keepSummary(...) end
+        Plan({ [COPPER] = { 60, 60 }, [TIN] = { 10, 12 }, [STONE] = { 20, 5 }, [COAL] = { 8, 8 } })
+        Look()
+        ns.ShowRunSummary = keepSummary
+        assert(summaries == 0, "the end of the plan run asked for the run summary")
+        local g = _G.GathercraftPlanGathered
+        assert(ns.run == nil and g and g:IsShown() and g.shown == g0 + 1, "the window \"Gathered for your plan\" did not come once")
+        local text = g.body:GetText()
+        assert(g.title:GetText() == L["Gathered for your plan"] and text:find(ns.ItemName(COPPER) .. "  60 / 60", 1, true) and text:find(ns.ItemName(TIN) .. "  12 / 10", 1, true), "the window does not say what was gathered: " .. text)
+        assert(text:find(L["Still open, not routable:"], 1, true) and text:find((ns.ItemName(STONE) or "?") .. "  5 / 20", 1, true)
+            and text:find((L["seen in %d of %d recorded gathers"]):format(7, 23), 1, true), "the window does not name what is open and not routable: " .. text)
+        assert(not text:find(ns.ItemName(COAL) or "Coal", 1, true), "a covered material that is not on the map is named as open")
+        for _, word in ipairs({ L["per hour"], L["worth"], "/ h" }) do assert(not text:find(word, 1, true), "run numbers in the window: " .. word) end
+        local summary = _G.GathercraftRunSummary
+        assert(not (summary and summary:IsShown()), "the run summary came with the plan's window")
+        fire("BAG_UPDATE_DELAYED") W.Wait(3)
+        assert(g.shown == g0 + 1, "the window came a second time")
+        g.back.__scripts.OnClick(g.back)
+        assert(shownSkill == "Mining" and not g:IsShown(), "\"Back to skill plan\" does not open the plan of the run's profession: " .. tostring(shownSkill))
+        assert(g.back:GetText() == L["Back to skill plan"], "the button's text")
+        ns.ShowSkillPlan = saved.show
+        ns.db.runPanelHidden = nil
+        -- nothing from the map at all: said
+        Plan({ [COPPER] = { 60, 0 } })
+        ns.StartRun(F, Z) W.Wait(1)
+        Plan({ [COAL] = { 8, 0 } })
+        Look()
+        assert(g:IsShown() and g.shown == g0 + 2 and g.body:GetText():find(L["Your plan needs nothing from the map."], 1, true), "nothing from the map: " .. g.body:GetText())
+        g:Hide()
+        -- a blocked end shows the small window, not this one
+        Plan({ [COPPER] = { 60, 0 } })
+        ns.StartRun(F, Z) W.Wait(1)
+        Plan({ [SILVER] = { 5, 0 } })
+        Look()
+        assert(ns.run == nil and not g:IsShown() and g.shown == g0 + 2 and _G.GathercraftPlanHint:IsShown(), "a blocked end showed the window of a good end")
+        _G.GathercraftPlanHint:Hide()
+        ns.PlanSeen = saved.seen
+        ns.SkillPlanFor = saved.planFor
+
+        -- ---- the skill plan: "Farm for plan" and "Where to farm" while a material of the map is open
+        local profSkill, stock = 1, {}
+        ns.ProfessionRank = function(p) if p == "Mining" then return profSkill, 75 end end
+        d.Known = function() return {} end
+        d.Have = function(id) return stock[id] or 0 end
+        ns.db.planTargets = nil
+        stock[COPPER], stock[TIN] = 20, 0
+        ns.ShowSkillPlan("Mining") W.Wait(1)
+        local win = _G.GathercraftSkillPlan
+        local buttons = _G.GathercraftSkillPlanFarm
+        assert(win and win:IsShown() and buttons and buttons:IsShown(), "no \"Farm for plan\" in the skill plan although copper and tin are open")
+        assert(buttons.farm:GetText() == L["Farm for plan"] and buttons.zones:GetText() == L["Where to farm"], "the buttons' texts")
+        assert(buttons.prof == "Mining" and buttons.target == 75, "the buttons are for " .. tostring(buttons.prof) .. " " .. tostring(buttons.target))
+        -- the tooltip: what is on the map here, what is not here right now, what is not on the map
+        local info = buttons.info
+        assert(info.show and #info.onMap == 2 and info.onMap[1].item == COPPER and #info.blocked == 0, "what the button knows: " .. #info.onMap .. " on the map")
+        local tipLines = {}
+        for _, l in ipairs(ns.PlanButtonTooltip(info)) do tipLines[#tipLines + 1] = l[1] end
+        local tip = table.concat(tipLines, "\n")
+        assert(tip:find(L["On the map here:"], 1, true) and tip:find(ns.ItemName(COPPER) .. "  20 / 120", 1, true) and tip:find(L["Not on the map"], 1, true), "the tooltip: " .. tip)
+        ns.GetSkill = function(t) if t == "ore" then return 10, 300, 10 end end -- tin cannot be gathered
+        fire("BAG_UPDATE_DELAYED") W.Wait(1)
+        stock[COPPER] = 21 fire("BAG_UPDATE_DELAYED") W.Wait(1)
+        info = buttons.info
+        assert(#info.onMap == 1 and #info.blocked == 1 and info.blocked[1].item == TIN and info.blocked[1].reason == "no_skill", "tin without the skill: not under \"not here right now\"")
+        tipLines = {}
+        for _, l in ipairs(ns.PlanButtonTooltip(info)) do tipLines[#tipLines + 1] = l[1] end
+        assert(table.concat(tipLines, "\n"):find(L["Not here right now:"], 1, true) and table.concat(tipLines, "\n"):find(L["can't gather yet"], 1, true), "the tooltip does not say why tin is not here")
+        ns.GetSkill = function(t) if t == "ore" then return 100, 300, 100 end end
+        -- the clicks
+        local asked = {}
+        ns.PlanFarmStart = function(prof, target) asked[#asked + 1] = "farm " .. tostring(prof) .. " " .. tostring(target) end
+        ns.PlanZoneListShow = function(prof, target) asked[#asked + 1] = "zones " .. tostring(prof) .. " " .. tostring(target) end
+        buttons.farm.__scripts.OnClick(buttons.farm)
+        buttons.zones.__scripts.OnClick(buttons.zones)
+        assert(asked[1] == "farm Mining 75" and asked[2] == "zones Mining 75" and #asked == 2, "the buttons' clicks: " .. table.concat(asked, ", "))
+        ns.PlanFarmStart, ns.PlanZoneListShow = saved.farm, saved.zones
+        -- pointing at a button works nothing out
+        local checks, keepCheck = 0, ns.PlanRunCheck
+        ns.PlanRunCheck = function(...) checks = checks + 1 return keepCheck(...) end
+        buttons.farm.__scripts.OnEnter(buttons.farm)
+        buttons.zones.__scripts.OnEnter(buttons.zones)
+        assert(checks == 0, "pointing at the buttons worked the plan's zone out " .. checks .. " time(s)")
+        ns.PlanRunCheck = keepCheck
+        -- everything of the map is there: no button
+        stock[COPPER], stock[TIN] = 500, 500
+        fire("BAG_UPDATE_DELAYED") W.Wait(1)
+        assert(not buttons:IsShown(), "\"Farm for plan\" although nothing of the map is open")
+        -- a real click from the skill plan: the run, its rows, and nothing else changed
+        stock[COPPER], stock[TIN] = 20, 0
+        fire("BAG_UPDATE_DELAYED") W.Wait(1)
+        assert(buttons:IsShown(), "test setup: the buttons are not back")
+        buttons.farm.__scripts.OnClick(buttons.farm) W.Wait(1) Update()
+        assert(ns.run and ns.run.plan and ns.run.zone == Z and ns.run.filter == F, "the click on \"Farm for plan\" started no plan run here")
+        data = Lines()
+        assert(Line(data, COPPER).count == "20 / 120" and Line(data, TIN).count == "0 / 10", "the run window after the click: " .. tostring(Line(data, COPPER).count))
+        ns.StopRun(true)
+        win:Hide()
+        assert(#errors == before, "an error: " .. tostring(errors[#errors]))
+    end)
+    ns.SkillPlanFor, ns.GetSkill, ns.PlanSeen, ns.ShowSkillPlan, ns.PlanFarmStart, ns.PlanZoneListShow = saved.planFor, saved.skill, saved.seen, saved.show, saved.farm, saved.zones
+    ns.ProfessionRank, d.Have, d.Known, ns.db.planTargets = saved.rank, saved.have, saved.known, saved.targets
+    if ns.run then ns.StopRun(true) end
+    for _, name in ipairs({ "GathercraftPlanZones", "GathercraftPlanHint", "GathercraftRunSummary", "GathercraftPlanGathered", "GathercraftSkillPlan" }) do if _G[name] then _G[name]:Hide() end end
+    ns.db.panelCompact, ns.db.runPanelHidden, ns.db.activeRun, ns.db.summaryOff, ns.db.hideGreyNodes = saved.compact, saved.hidden, saved.run, saved.summaryOff, saved.grey
+    if ns.PanelLayout then ns.PanelLayout() end
+    W.Restore()
+    if not ok then error(err, 0) end
+end)
 -- (end of the "Farm for plan" steps, v0.2 building block 3)
 step("Long run (10 min) for leaks", function() slash("run herb") advance(600) slash("stop") end)
 step("Test mock: OnUpdate runs for the same frames in the same order as going over every frame (tools only)", function()

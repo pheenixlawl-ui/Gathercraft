@@ -1031,3 +1031,291 @@ SetGlow = function(plan)
     pr.hidden = hidden
     return changed
 end
+
+---------------------------------------------------------------------------
+-- Part 5 - what you see (concept 3, 4.3, 4.8; Sven E8, V6)
+--
+--   * under the run window: the plan's materials, "have / need" with a
+--     bar, a tick when your real count covers the need, "?" when the count
+--     is not known, why a material has no node here; then "Not on the
+--     map" (what the plan needs and no node kind brings: with have / need
+--     and - if your own gathers found it - "seen in 7 of 23 recorded
+--     gathers", no chance, no amount). At most 6 materials, then "+N
+--     more". In the slim window: "Plan 3/5".
+--   * when everything from the map is gathered: once, the window "Gathered
+--     for your plan" - what was gathered for the plan and what is still
+--     open and not routable. No run numbers (Sven V6). It comes also with
+--     "Hide the run window" on.
+---------------------------------------------------------------------------
+local PANEL_ROWS = 6
+local TICK = "|TInterface\\RaidFrame\\ReadyCheck-Ready:0|t"
+local planPanel, gathered
+
+local function ProfLabelOf(prof)
+    local d = ns.CraftData
+    return (d and d.ProfLabel and d.ProfLabel(prof)) or prof
+end
+
+-- "Plan: Smelting 75" for the run window's title, nil for another filter
+ns.PlanRunLabel = function(filter)
+    local prof, target = ns.PlanFilterParse(filter)
+    if not prof then return nil end
+    return (L["Plan: %s %d"]):format(ProfLabelOf(prof), target)
+end
+
+local function SeenText(row)
+    local s = row.seen and row.seen[1]
+    if not s then return nil end
+    return (L["seen in %d of %d recorded gathers"]):format(s.seen, s.n)
+end
+
+local function Count(row)
+    return ("%s / %d"):format(row.have ~= nil and tostring(row.have) or "?", row.need)
+end
+
+-- What the run window shows for the plan run - plain data, drawn below:
+-- { compact, lines = { { kind = "row" | "off" | "head" | "more" | "note", ... } }, done, total }
+ns.PlanPanelLines = function()
+    local s = ns.PlanRunState()
+    if not s then return nil end
+    local lines, done, total = {}, 0, 0
+    local rows, off = s.rows or {}, s.offMap or {}
+    for _, row in ipairs(rows) do
+        total = total + 1
+        if row.ok and not s.frozen then done = done + 1 end
+    end
+    local shown, more = 0, 0
+    -- what is still open first, then what is ticked
+    for pass = 1, 2 do
+        for _, row in ipairs(rows) do
+            if (pass == 1) == (not row.ok) then
+                if shown < PANEL_ROWS then
+                    shown = shown + 1
+                    local unknown = s.frozen or row.have == nil
+                    lines[#lines + 1] = { kind = "row", item = row.item, name = ItemLabel(row.item), need = row.need, have = (not s.frozen) and row.have or nil,
+                        count = s.frozen and ("? / %d"):format(row.need) or Count(row), ok = row.ok and not s.frozen, unknown = unknown,
+                        bar = (not unknown and row.need > 0) and math.min(row.have, row.need) / row.need or 0,
+                        reason = (not row.ok and row.reason) and ns.PlanReasonText(row.reason) or nil }
+                else
+                    more = more + 1
+                end
+            end
+        end
+    end
+    local offShown = 0
+    for _, row in ipairs(off) do
+        if shown < PANEL_ROWS then
+            if offShown == 0 then lines[#lines + 1] = { kind = "head", text = L["Not on the map"] } end
+            shown, offShown = shown + 1, offShown + 1
+            lines[#lines + 1] = { kind = "off", item = row.item, name = ItemLabel(row.item), need = row.need, have = (not s.frozen) and row.have or nil,
+                count = s.frozen and ("? / %d"):format(row.need) or Count(row), ok = row.ok and not s.frozen, source = SeenText(row) }
+        else
+            more = more + 1
+        end
+    end
+    if more > 0 then lines[#lines + 1] = { kind = "more", n = more, text = (L["+%d more"]):format(more) } end
+    if s.frozen then lines[#lines + 1] = { kind = "note", text = L["plan unknown right now"] } end
+    if (s.hidden or 0) > 0 then lines[#lines + 1] = { kind = "note", text = (L["%d plan nodes hidden"]):format(s.hidden) } end
+    local compact = (L["Plan %d/%d"]):format(done, total)
+    if total > 0 and done == total then compact = compact .. " " .. TICK end
+    return { lines = lines, done = done, total = total, compact = compact, frozen = s.frozen }
+end
+
+local ROW_H, PANEL_W, BAR_W = 16, 340, 60
+local function PanelRow(i)
+    local row = planPanel.rows[i]
+    if row then return row end
+    row = CreateFrame("Frame", nil, planPanel)
+    row:SetSize(PANEL_W - 16, ROW_H)
+    row:SetPoint("TOPLEFT", 8, -6 - (i - 1) * ROW_H)
+    row.name = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    row.name:SetPoint("LEFT", 2, 0)
+    row.name:SetWidth(120)
+    row.name:SetJustifyH("LEFT")
+    row.name:SetWordWrap(false)
+    row.count = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    row.count:SetPoint("LEFT", 124, 0)
+    row.count:SetWidth(58)
+    row.count:SetJustifyH("RIGHT")
+    row.count:SetWordWrap(false)
+    row.barBack = row:CreateTexture(nil, "BACKGROUND")
+    row.barBack:SetPoint("LEFT", 188, 0)
+    row.barBack:SetSize(BAR_W, 8)
+    row.barBack:SetColorTexture(0.2, 0.2, 0.2, 0.8)
+    row.bar = row:CreateTexture(nil, "ARTWORK")
+    row.bar:SetPoint("LEFT", 188, 0)
+    row.bar:SetSize(1, 8)
+    row.bar:SetColorTexture(1, 0.82, 0.1, 1)
+    row.info = row:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    row.info:SetPoint("LEFT", 252, 0)
+    row.info:SetWidth(70)
+    row.info:SetJustifyH("LEFT")
+    row.info:SetWordWrap(false)
+    planPanel.rows[i] = row
+    return row
+end
+
+-- Draws the plan under the run window (UI.lua calls this with every update
+-- of the window). Nothing is worked out here: it shows what the run read.
+ns.PlanPanelUpdate = function(runPanel, compact)
+    local data = ns.PlanPanelLines()
+    if not data or not runPanel or not runPanel:IsShown() or compact then
+        if planPanel and planPanel:IsShown() then planPanel:Hide() end
+        return data and data.compact or nil
+    end
+    if not planPanel then
+        planPanel = CreateFrame("Frame", "GathercraftPlanPanel", runPanel, "BackdropTemplate")
+        planPanel:SetPoint("TOPLEFT", runPanel, "BOTTOMLEFT", 0, 2)
+        if planPanel.SetBackdrop then
+            planPanel:SetBackdrop({ bgFile = "Interface\\Tooltips\\UI-Tooltip-Background", edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+                tile = true, tileSize = 16, edgeSize = 12, insets = { left = 3, right = 3, top = 3, bottom = 3 } })
+            planPanel:SetBackdropColor(0.05, 0.04, 0.03, 0.9)
+        end
+        planPanel.rows = {}
+    end
+    for i, line in ipairs(data.lines) do
+        local row = PanelRow(i)
+        local isRow = line.kind == "row" or line.kind == "off"
+        row.name:SetWidth(isRow and 120 or PANEL_W - 24)
+        if isRow then
+            row.name:SetText(line.name)
+            row.count:SetText(line.count .. (line.ok and (" " .. TICK) or ""))
+            row.info:SetText(line.kind == "row" and (line.reason or "") or (line.source or ""))
+            row.info:SetWidth(line.kind == "row" and 70 or 80)
+        else
+            row.name:SetText((line.kind == "head" and "|cffffd060" or "|cff999999") .. line.text .. "|r")
+            row.count:SetText("")
+            row.info:SetText("")
+        end
+        local bar = line.kind == "row" and not line.unknown
+        row.barBack:SetShown(line.kind == "row")
+        row.bar:SetShown(bar and line.bar > 0)
+        if bar and line.bar > 0 then row.bar:SetWidth(math.max(1, BAR_W * line.bar)) end
+        row.line = line
+        row:Show()
+    end
+    for i = #data.lines + 1, #planPanel.rows do planPanel.rows[i]:Hide() end
+    planPanel:SetSize(PANEL_W, 12 + #data.lines * ROW_H)
+    planPanel:SetShown(#data.lines > 0)
+    return data.compact
+end
+
+-- The end with everything from the map gathered: once, this window
+ns.PlanRunGathered = function(ended)
+    if not gathered then
+        gathered = CreateFrame("Frame", "GathercraftPlanGathered", UIParent, "BackdropTemplate")
+        gathered:SetSize(400, 260)
+        gathered:SetPoint("CENTER", 0, 140)
+        if gathered.SetBackdrop then
+            gathered:SetBackdrop({ bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background-Dark", edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Gold-Border",
+                tile = true, tileSize = 32, edgeSize = 32, insets = { left = 11, right = 11, top = 11, bottom = 11 } })
+        end
+        gathered:SetFrameStrata("DIALOG")
+        gathered:SetClampedToScreen(true)
+        gathered:EnableMouse(true)
+        gathered:SetMovable(true)
+        gathered:RegisterForDrag("LeftButton")
+        gathered:SetScript("OnDragStart", gathered.StartMoving)
+        gathered:SetScript("OnDragStop", gathered.StopMovingOrSizing)
+        gathered:Hide()
+        if UISpecialFrames then tinsert(UISpecialFrames, "GathercraftPlanGathered") end
+        gathered.title = gathered:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+        gathered.title:SetPoint("TOPLEFT", 24, -22)
+        gathered.sub = gathered:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        gathered.sub:SetPoint("TOPLEFT", gathered.title, "BOTTOMLEFT", 0, -6)
+        gathered.body = gathered:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        gathered.body:SetPoint("TOPLEFT", gathered.sub, "BOTTOMLEFT", 0, -10)
+        gathered.body:SetWidth(352)
+        gathered.body:SetJustifyH("LEFT")
+        gathered.body:SetWordWrap(true)
+        gathered.back = CreateFrame("Button", nil, gathered, "UIPanelButtonTemplate")
+        gathered.back:SetSize(170, 24)
+        gathered.back:SetPoint("BOTTOMLEFT", 22, 20)
+        gathered.back:SetScript("OnClick", function()
+            gathered:Hide()
+            if ns.ShowSkillPlan and gathered.prof then ns.ShowSkillPlan(gathered.prof) end
+        end)
+        gathered.close = CreateFrame("Button", nil, gathered, "UIPanelButtonTemplate")
+        gathered.close:SetSize(110, 24)
+        gathered.close:SetPoint("BOTTOMRIGHT", -22, 20)
+        gathered.close:SetScript("OnClick", function() gathered:Hide() end)
+    end
+    gathered.title:SetText(L["Gathered for your plan"])
+    gathered.sub:SetText((L["Plan: %s %d"]):format(ProfLabelOf(ended.prof), ended.target) .. " · " .. ns.GetZoneName(ended.zone))
+    local lines, shown, more = {}, 0, 0
+    for _, row in ipairs(ended.rows or {}) do
+        if shown < PANEL_ROWS then
+            shown = shown + 1
+            lines[#lines + 1] = ("%s  %s %s"):format(ItemLabel(row.item), Count(row), TICK)
+        else
+            more = more + 1
+        end
+    end
+    if #(ended.rows or {}) == 0 then lines[#lines + 1] = L["Your plan needs nothing from the map."] end
+    local open = {}
+    for _, row in ipairs(ended.offMap or {}) do if not row.ok then open[#open + 1] = row end end
+    if #open > 0 then
+        lines[#lines + 1] = " "
+        lines[#lines + 1] = "|cffffd060" .. L["Still open, not routable:"] .. "|r"
+        for _, row in ipairs(open) do
+            if shown < PANEL_ROWS then
+                shown = shown + 1
+                local seen = SeenText(row)
+                lines[#lines + 1] = ("%s  %s%s"):format(ItemLabel(row.item), Count(row), seen and ("  |cff999999" .. seen .. "|r") or "")
+            else
+                more = more + 1
+            end
+        end
+    end
+    if more > 0 then lines[#lines + 1] = "|cff999999" .. (L["+%d more"]):format(more) .. "|r" end
+    gathered.body:SetText(table.concat(lines, "\n"))
+    gathered.back:SetText(L["Back to skill plan"])
+    gathered.close:SetText(L["Close"])
+    gathered.prof = ended.prof
+    gathered.shown = (gathered.shown or 0) + 1
+    gathered.lines = lines
+    gathered:Show()
+end
+
+-- For the skill plan's buttons: what "Farm for plan" would find where you
+-- stand - { show (a material of the map is open), state, onMap = { rows },
+-- blocked = { { item, reason } }, offMap = { rows } }. Worked out when the
+-- window is drawn, not while you point at the button.
+ns.PlanButtonInfo = function(prof, target)
+    local zone = Here()
+    if not ns.PlanFilter(prof, target) or not zone then return { show = false, state = "invalid" } end
+    local plan = ns.PlanRunCheck(prof, target, zone)
+    local info = { state = plan.state, why = plan.why, onMap = {}, blocked = {}, offMap = {}, show = false }
+    for _, row in ipairs(plan.rows or {}) do
+        if not row.ok then
+            info.show = true
+            if row.reason then info.blocked[#info.blocked + 1] = row else info.onMap[#info.onMap + 1] = row end
+        end
+    end
+    for _, row in ipairs(plan.offMap or {}) do
+        if not row.ok then info.offMap[#info.offMap + 1] = row end
+    end
+    return info
+end
+-- the lines of the button's tooltip: { { text, r, g, b }, ... }
+ns.PlanButtonTooltip = function(info)
+    local lines = { { L["Farm for plan"], 1, 0.82, 0 }, { L["Starts a farm run for what your plan still needs, in the zone you are in."], 1, 1, 1 } }
+    local function Section(head, rows, text)
+        if #rows == 0 then return end
+        lines[#lines + 1] = { head, 1, 0.82, 0 }
+        for i, row in ipairs(rows) do
+            if i > PANEL_ROWS then
+                lines[#lines + 1] = { (L["+%d more"]):format(#rows - PANEL_ROWS), 0.6, 0.6, 0.6 }
+                break
+            end
+            lines[#lines + 1] = { text(row), 1, 1, 1 }
+        end
+    end
+    Section(L["On the map here:"], info.onMap or {}, function(row) return ("%s  %s"):format(ItemLabel(row.item), Count(row)) end)
+    Section(L["Not here right now:"], info.blocked or {}, function(row) return ("%s  %s  (%s)"):format(ItemLabel(row.item), Count(row), ns.PlanReasonText(row.reason)) end)
+    Section(L["Not on the map"] .. ":", info.offMap or {}, function(row)
+        local seen = SeenText(row)
+        return ("%s  %s%s"):format(ItemLabel(row.item), Count(row), seen and ("  (" .. seen .. ")") or "")
+    end)
+    return lines
+end

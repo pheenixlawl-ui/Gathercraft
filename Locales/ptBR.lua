@@ -681,4 +681,7 @@ ns.Locales.ptBR = {
     ["unknown (not a gathered item)"] = "desconhecido (não é item de coleta)",
     ["recipe data"] = "dados de receitas",
     ["Waypoints are not available in this client."] = "Pontos de rota não estão disponíveis neste cliente.",
+    ["Farm for plan"] = "Coletar para o plano",
+    ["Where to farm"] = "Onde coletar",
+    ["The zones of this continent with known spots for what your plan still needs."] = "As zonas deste continente com pontos conhecidos para o que seu plano ainda precisa.",
 }

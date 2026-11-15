@@ -710,4 +710,7 @@ ns.Locales.deDE = {
     ["unknown (not a gathered item)"] = "unbekannt (kein Sammelgut)",
     ["recipe data"] = "Rezeptdaten",
     ["Waypoints are not available in this client."] = "Wegpunkte gibt es in diesem Client nicht.",
+    ["Farm for plan"] = "Für den Plan farmen",
+    ["Where to farm"] = "Wo farmen",
+    ["The zones of this continent with known spots for what your plan still needs."] = "Die Gebiete dieses Kontinents mit bekannten Fundorten für das, was dein Plan noch braucht.",
 }

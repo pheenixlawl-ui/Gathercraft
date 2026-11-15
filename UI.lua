@@ -61,6 +61,8 @@ end
 
 -- "item:2770" (a skill plan's farm run) reads as the item's name
 ns.RunFilterLabel = function(filter)
+    -- a plan run ("Farm for plan"): "Plan: Smelting 75"
+    if filter and filter:sub(1, 5) == "plan:" and ns.PlanRunLabel then return ns.PlanRunLabel(filter) or filter end
     local item = filter and tonumber(filter:match("^item:(%d+)$"))
     if item then return ns.ItemName and ns.ItemName(item) or filter end
     return filter
@@ -290,6 +292,8 @@ end
 
 local function UpdatePanel()
     local run = ns.run
+    -- (the plan's materials under the window belong to a plan run only)
+    if ns.PlanPanelUpdate and not (run and run.plan) then ns.PlanPanelUpdate(nil) end
     if not run then
         RunStats()
         local f = ns.FishingSession and ns.FishingSession()
@@ -314,6 +318,7 @@ local function UpdatePanel()
     -- "Hide the run window" (Options): arrow, target ring and minimap guide on
     if ns.db.runPanelHidden then
         if panel:IsShown() then panel:Hide() end
+        if ns.PlanPanelUpdate then ns.PlanPanelUpdate(nil) end
         return
     end
     skipButton:Show()
@@ -352,9 +357,15 @@ local function UpdatePanel()
         else
             nextText:SetText((L["|cffaaaaaaWaiting for respawns · round %d|r"]):format(run.round or 1))
         end
+        if run.plan and run.held then nextText:SetText("|cffaaaaaa" .. L["Waiting for your plan ..."] .. "|r") end
         skipButton:Disable()
     end
     if not panel:IsShown() then panel:Show() end
+    -- a plan run: its materials under the window; in the slim line "Plan 3/5"
+    if run.plan and ns.PlanPanelUpdate then
+        local slim = ns.PlanPanelUpdate(panel, ns.db.panelCompact)
+        if slim and ns.db.panelCompact then title:SetText(slim) end
+    end
 end
 
 ---------------------------------------------------------------------------

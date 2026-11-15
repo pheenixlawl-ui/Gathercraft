@@ -681,4 +681,7 @@ ns.Locales.itIT = {
     ["unknown (not a gathered item)"] = "sconosciuto (non è un oggetto da raccolta)",
     ["recipe data"] = "dati delle ricette",
     ["Waypoints are not available in this client."] = "I punti di riferimento non sono disponibili in questo client.",
+    ["Farm for plan"] = "Raccogli per il piano",
+    ["Where to farm"] = "Dove raccogliere",
+    ["The zones of this continent with known spots for what your plan still needs."] = "Le zone di questo continente con punti noti per ciò che serve ancora al tuo piano.",
 }

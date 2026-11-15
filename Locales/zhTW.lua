@@ -681,4 +681,7 @@ ns.Locales.zhTW = {
     ["unknown (not a gathered item)"] = "未知（不是採集物品）",
     ["recipe data"] = "配方資料",
     ["Waypoints are not available in this client."] = "此用戶端不支援路徑點。",
+    ["Farm for plan"] = "為計畫採集",
+    ["Where to farm"] = "去哪裡採集",
+    ["The zones of this continent with known spots for what your plan still needs."] = "本大陸中有已知採集點、能提供計畫仍需材料的區域。",
 }
