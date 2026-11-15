@@ -16196,6 +16196,110 @@ step("Auction house: the prices are worked out in short steps however the auctio
     p.lastScanStart, p.scanned, p.items, p.qty, p.seen, p.history = keep.last, keep.scanned, keep.items, keep.qty, keep.seen, keep.history
     assert(ok, err)
 end)
+step("Auction house: an answer that comes after the timeout belongs to the scan it was for - quiet after opening, said after a click (v0.1.23 R1-N1)", function()
+    -- Codex, round 1 (N1): the scan started by opening the window got no
+    -- answer in time (quiet), the answer came late and was read as a new
+    -- scan - one that did not know it had started by itself. The window
+    -- closed while it was read, and chat said "Auction house closed, scan
+    -- cancelled." for a scan nobody had asked for.
+    local AHX = C_AuctionHouse
+    ns.GetPrice(2447) -- (the price store of this realm is made when it is first asked)
+    local p = ns.db.prices[next(ns.db.prices)]
+    local keep = { rep = AHX.ReplicateItems, num = AHX.GetNumReplicateItems, info = AHX.GetReplicateItemInfo, off = ns.db.autoScanOff,
+        last = p.lastScanStart, scanned = p.scanned, items = p.items, qty = p.qty, seen = p.seen, history = {}, debug = ns.db.debug }
+    for id, text in pairs(p.history) do keep.history[id] = text end
+    local N, calls = 3000, 0 -- (more than one step of reading: 1,500 auctions a step at most)
+    local function Said(mark)
+        local out = {}
+        for i = mark + 1, #log do if log[i]:find("^PRINT") then out[#out + 1] = log[i] end end
+        return out
+    end
+    local function Free() p.lastScanStart = 0 end -- the 15 minutes are over
+    local function Close() fire("AUCTION_HOUSE_CLOSED") advance(1) end
+    local ok, err = pcall(function()
+        AHX.ReplicateItems = function() calls = calls + 1 end
+        AHX.GetNumReplicateItems = function() return N end
+        AHX.GetReplicateItemInfo = function(i)
+            if i >= N then return nil end
+            return "Item", 1, 2, 1, true, 1, 0, 0, 0, (100 + i % 7) * 2, 0, false, nil, "Seller", nil, 0, 100000 + i % 30, true
+        end
+        AuctionHouseFrame = AuctionHouseFrame or CreateFrame("Frame", "AuctionHouseFrame", UIParent)
+        ns.db.autoScanOff, ns.db.debug = nil, nil
+        Close()
+        advance(140) -- (what the addon has to say once after a login is said by now: not a line of the scan)
+
+        -- 1. started by opening the window: no answer, then the answer, then
+        -- the window closes while it is read - nothing of it in chat
+        Free()
+        calls = 0
+        local mark = #log
+        fire("AUCTION_HOUSE_SHOW") advance(1)
+        assert(calls == 1, "test setup: opening the window started " .. calls .. " scans")
+        advance(130) -- no answer: the scan gives up (quietly)
+        assert(#Said(mark) == 0, "no answer after opening, said in chat: " .. tostring(Said(mark)[1]))
+        p.scanned = 0
+        fire("REPLICATE_ITEM_LIST_UPDATE") -- the late answer: the first 1,500 are read at once
+        fire("AUCTION_HOUSE_CLOSED") advance(2)
+        assert(p.scanned == 0, "test setup: the window closed while the late answer was read, and the scan went on")
+        local said = Said(mark)
+        assert(#said == 0, ("the late answer of a scan that started by itself, window closed: %d lines in chat, %s"):format(#said, tostring(said[1])))
+
+        -- 2. the same after a click (here: /gcr scan): everything is said, as before
+        ns.db.autoScanOff = true
+        Free()
+        calls = 0
+        fire("AUCTION_HOUSE_SHOW") advance(1)
+        assert(calls == 0, "test setup: the switch is off and opening the window started a scan")
+        mark = #log
+        slash("scan")
+        assert(calls == 1, "test setup: /gcr scan started " .. calls .. " scans")
+        advance(130)
+        local function Has(lines, text)
+            for _, l in ipairs(lines) do if l:find(text, 1, true) then return true end end
+        end
+        assert(Has(Said(mark), ns.L["The auction house didn't answer. Try again later."]), "no answer after /gcr scan: not said in chat")
+        mark = #log
+        fire("REPLICATE_ITEM_LIST_UPDATE")
+        fire("AUCTION_HOUSE_CLOSED") advance(2)
+        assert(Has(Said(mark), ns.L["Auction house closed, scan cancelled."]), "the late answer of /gcr scan, window closed: not said in chat")
+        ns.db.autoScanOff = nil
+
+        -- 3. a late answer that is read to the end says its result once, whoever started the scan
+        Free()
+        calls = 0
+        mark = #log
+        fire("AUCTION_HOUSE_SHOW") advance(1)
+        advance(130)
+        p.scanned = 0
+        fire("REPLICATE_ITEM_LIST_UPDATE") advance(5)
+        said = Said(mark)
+        assert(p.scanned > 0 and #said == 1 and said[1]:find((ns.L["Auction house scanned: %d auctions, prices for %d items."]):format(N, 30), 1, true),
+            ("the late answer read to the end: %d lines, %s"):format(#said, tostring(said[1])))
+        Close()
+
+        -- 4. the next scan is its own: a click after a quiet one that gave up
+        -- is a click (its late answer, closed while read, is said)
+        Free()
+        fire("AUCTION_HOUSE_SHOW") advance(1) -- starts by itself
+        advance(130)                          -- gives up quietly
+        Close()                               -- (closing ends the wait for the late answer)
+        ns.db.autoScanOff = true
+        Free()
+        fire("AUCTION_HOUSE_SHOW") advance(1)
+        slash("scan")
+        advance(130)
+        mark = #log
+        fire("REPLICATE_ITEM_LIST_UPDATE")
+        fire("AUCTION_HOUSE_CLOSED") advance(2)
+        assert(Has(Said(mark), ns.L["Auction house closed, scan cancelled."]), "a click after a quiet scan: its late answer is treated as quiet")
+        ns.db.autoScanOff = nil
+    end)
+    fire("AUCTION_HOUSE_CLOSED") advance(1)
+    AHX.ReplicateItems, AHX.GetNumReplicateItems, AHX.GetReplicateItemInfo = keep.rep, keep.num, keep.info
+    ns.db.autoScanOff, ns.db.debug = keep.off, keep.debug
+    p.lastScanStart, p.scanned, p.items, p.qty, p.seen, p.history = keep.last, keep.scanned, keep.items, keep.qty, keep.seen, keep.history
+    assert(ok, err)
+end)
 step("Long run (10 min) for leaks", function() slash("run herb") advance(600) slash("stop") end)
 
 io.write("\n--- errors: " .. #errors .. "\n")

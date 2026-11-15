@@ -218,7 +218,11 @@ end
 local AH = C_AuctionHouse
 local ahOpen = false
 local scan -- running scan: { state, started, index, total, acc, noItem, noCount, noBuyout }
-local lateAnswer = false -- the scan timed out: its answer still counts while the window is open
+-- the scan timed out: its answer still counts while the window is open.
+-- "auto" when that scan had started by itself, "asked" after a click
+-- or /gcr scan (R1-N1): the scan that reads the late answer is the same
+-- kind, so a quiet one stays quiet
+local lateAnswer = false
 local scanButton
 
 local function Cooldown()
@@ -551,6 +555,7 @@ local function OnReplicateReady()
     if not scan and lateAnswer and ahOpen then
         ns.Debug("SCAN the answer came after the timeout, reading it")
         scan = NewScan()
+        scan.auto = lateAnswer == "auto" or nil
     end
     lateAnswer = false
     if not scan or scan.state ~= "waiting" then
@@ -618,7 +623,7 @@ local function StartScan(auto)
     C_Timer.After(SCAN_TIMEOUT, function()
         if scan == mine and scan.state == "waiting" then
             ns.Debug(("SCAN timeout: no answer after %d s"):format(SCAN_TIMEOUT))
-            lateAnswer = true
+            lateAnswer = mine.auto and "auto" or "asked"
             ScanFailed(L["The auction house didn't answer. Try again later."])
         end
     end)
