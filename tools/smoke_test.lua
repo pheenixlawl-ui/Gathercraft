@@ -15779,6 +15779,125 @@ step("Auction house: opening it starts the scan by itself - quiet when it cannot
     p.lastScanStart, p.scanned, p.items, p.qty, p.seen, p.history = keep.last, keep.scanned, keep.items, keep.qty, keep.seen, keep.history
     assert(ok, err)
 end)
+step("Professions: read from the game's list by their number, every place of it - no profession window, no skill list (v0.1.23 P6)", function()
+    -- Sven, 14.11.2026, Forever client: there is no GetNumSkillLines, and
+    -- GetProfessions gives 7 values (Herbalism 270/300 is line 182, Mining
+    -- 225/300 line 186, First Aid 129, Fishing 356, Cooking 185). The skill
+    -- plan knew a crafting skill only after its window had been open, and
+    -- the gathering skills were looked for in the first six places only.
+    local keep = { gp = GetProfessions, gi = GetProfessionInfo, gn = GetNumSkillLines, gs = GetSkillLineInfo, secret = issecretvalue,
+        recipes = ns.db.recipes, locale = GetLocale }
+    local SECRET = {}
+    -- the client's own names, as a German client says them: they must not matter
+    local LINES = {
+        [11] = { "Alchimie", 120, 150, 171 }, [12] = { "Kräuterkunde", 270, 300, 182 }, [14] = { "Angeln", 127, 150, 356 },
+        [15] = { "Kochkunst", 141, 150, 185 }, [16] = { "Erste Hilfe", 144, 225, 129 }, [17] = { "Bergbau", 225, 300, 186 },
+    }
+    local function Seven() return 11, 12, nil, 14, 15, 16, 17 end
+    local function Info(i)
+        local l = LINES[i]
+        if not l then return nil end
+        return l[1], 134400, l[2], l[3], 0, 0, l[4], 0
+    end
+    local function Said(mark, text)
+        for i = mark + 1, #log do if log[i]:find(text, 1, true) then return log[i] end end
+    end
+    local ok, err = pcall(function()
+        -- a character that never opened a profession window, in a client without the old skill list
+        ns.db.recipes = nil
+        GetNumSkillLines, GetSkillLineInfo = nil, nil
+        GetProfessions, GetProfessionInfo = Seven, Info
+        fire("SKILL_LINES_CHANGED") advance(2)
+
+        -- 1. the seventh place counts: Mining stands there
+        local rank, maxRank = ns.GetSkill("ore")
+        assert(rank == 225 and maxRank == 300, ("Mining in the seventh place: %s/%s"):format(tostring(rank), tostring(maxRank)))
+        assert(ns.GetSkill("herb") == 270 and ns.GetSkill("fish") == 127, "the places before it are read as before")
+
+        -- 2. the skill plan's question, for a crafting profession whose window was never open
+        local r, m = ns.ProfessionRank("Alchemy")
+        assert(r == 120 and m == 150, ("Alchemy without its window: %s/%s"):format(tostring(r), tostring(m)))
+        for prof, want in pairs({ Herbalism = 270, Fishing = 127, Cooking = 141, ["First Aid"] = 144, Mining = 225 }) do
+            assert(ns.ProfessionRank(prof) == want, ("%s: %s, want %d"):format(prof, tostring(ns.ProfessionRank(prof)), want))
+        end
+        assert(ns.ProfessionRank("Tailoring") == nil, "a profession you do not have has a skill")
+        -- ... each of the twelve by its number, whatever the client calls it
+        local IDS = { Alchemy = 171, Blacksmithing = 164, Enchanting = 333, Engineering = 202, Leatherworking = 165, Tailoring = 197,
+            Mining = 186, Herbalism = 182, Skinning = 393, Fishing = 356, Cooking = 185, ["First Aid"] = 129 }
+        for prof, id in pairs(IDS) do
+            LINES[20] = { "???", 77, 150, id }
+            GetProfessions = function() return nil, 20 end
+            local got, gotMax = ns.ProfessionRank(prof)
+            assert(got == 77 and gotMax == 150, ("%s (line %d): %s/%s"):format(prof, id, tostring(got), tostring(gotMax)))
+            for other in pairs(IDS) do
+                if other ~= prof then assert(ns.ProfessionRank(other) == nil, ("line %d is also read as %s"):format(id, other)) end
+            end
+        end
+        GetProfessions = Seven
+
+        -- 3. hidden values are never compared: no error, and nothing made up
+        issecretvalue = function(v) return v == SECRET end
+        GetProfessions = function() return SECRET, 12, nil, 14, 15, 16, 17 end
+        assert(ns.ProfessionRank("Alchemy") == nil, "a hidden place is read as a profession")
+        assert(ns.ProfessionRank("Mining") == 225, "a hidden place hides the others")
+        GetProfessions = Seven
+        GetProfessionInfo = function(i)
+            if i == 11 then return "Alchimie", 134400, 120, 150, 0, 0, SECRET, 0 end
+            return Info(i)
+        end
+        assert(ns.ProfessionRank("Alchemy") == nil and ns.ProfessionRank("Mining") == 225, "a hidden line number")
+        do
+            -- the place with the hidden number is left out and said to be unclear
+            local slots, unclear = ns.ProfessionSlots()
+            assert(unclear == true, "a hidden line number is not said to be unclear")
+            assert(#slots == 5, ("a hidden line number: %d places read, want the 5 others"):format(#slots))
+            for _, slot in ipairs(slots) do assert(slot.line ~= SECRET, "the hidden line number is handed on") end
+        end
+        GetProfessionInfo = function(i)
+            if i == 11 then return "Alchimie", 134400, SECRET, SECRET, 0, 0, 171, 0 end
+            return Info(i)
+        end
+        assert(ns.ProfessionRank("Alchemy") == nil, "a hidden skill is given out")
+        GetProfessionInfo = Info
+        issecretvalue = keep.secret
+
+        -- 4. /gcr crafttest names them: place, name, skill, number, and what it is read as
+        local mark = #log
+        slash("crafttest")
+        local line = Said(mark, "professions (GetProfessions, 7 places)")
+        assert(line, "/gcr crafttest does not list the professions of the game's list")
+        for _, part in ipairs({ "1: Alchimie 120/150 line 171 = Alchemy", "2: Kräuterkunde 270/300 line 182 = Herbalism", "7: Bergbau 225/300 line 186 = Mining",
+            "4: Angeln 127/150 line 356 = Fishing", "5: Kochkunst 141/150 line 185 = Cooking", "6: Erste Hilfe 144/225 line 129 = First Aid" }) do
+            assert(line:find(part, 1, true), ("/gcr crafttest: no '%s' in: %s"):format(part, line))
+        end
+        assert(Said(mark, "skill list: not in this client"), "/gcr crafttest does not say that this client has no skill list")
+        -- a line number we do not know is shown as it is
+        LINES[11][4] = 999
+        mark = #log
+        slash("crafttest")
+        assert(Said(mark, "1: Alchimie 120/150 line 999 = not recognised"), "an unknown line number is not shown as that")
+        LINES[11][4] = 171
+        -- a client without the list says so
+        GetProfessions, GetProfessionInfo = nil, nil
+        mark = #log
+        slash("crafttest")
+        assert(Said(mark, "professions (GetProfessions): not in this client"), "/gcr crafttest without GetProfessions")
+        assert(ns.ProfessionRank("Alchemy") == nil, "no list, no window: a skill from nowhere")
+        GetProfessions, GetProfessionInfo = Seven, Info
+
+        -- 5. the game's list comes first: what the window showed last is only what is left without it
+        ns.db.recipes = nil
+        GetProfessions = function() return nil, 12 end
+        assert(ns.ProfessionRank("Alchemy") == nil, "test setup")
+        GetProfessions = Seven
+        assert(ns.ProfessionRank("Alchemy") == 120, "the list is not asked first")
+    end)
+    issecretvalue = keep.secret
+    GetProfessions, GetProfessionInfo, GetNumSkillLines, GetSkillLineInfo, GetLocale = keep.gp, keep.gi, keep.gn, keep.gs, keep.locale
+    ns.db.recipes = keep.recipes
+    fire("SKILL_LINES_CHANGED") advance(7)
+    assert(ok, err)
+end)
 step("Long run (10 min) for leaks", function() slash("run herb") advance(600) slash("stop") end)
 
 io.write("\n--- errors: " .. #errors .. "\n")

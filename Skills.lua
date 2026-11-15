@@ -69,27 +69,45 @@ local function Remember(nodeType, rank, maxRank, modifier)
     return rank, maxRank, effective
 end
 
+-- The game's own list of your professions (v0.1.23 P6): every place of it.
+-- Most clients give six (prof1, prof2, archaeology, fishing, cooking, first
+-- aid; some may be nil); the Forever client gives seven (Sven, 14.11.2026) -
+-- so the places are counted, not assumed. A place or a line number that is
+-- hidden is never compared: it makes the answer "unclear".
+-- Returns the readable places { place, name, rank, maxRank, line, modifier }
+-- (rank, maxRank and name as the game gave them: they may be hidden), whether
+-- something was hidden, and how many places there are (nil: no such list).
+local function Counted(...) return select("#", ...), { ... } end
+local function ProfessionSlots()
+    local out, unclear = {}, false
+    if not (GetProfessions and GetProfessionInfo) then return out, unclear, nil end
+    local places, profs = Counted(GetProfessions())
+    for i = 1, places do
+        local index = profs[i]
+        if index ~= nil then
+            if ns.AnySecret("skills", index) then
+                unclear = true
+            else
+                local name, _, rank, maxRank, _, _, skillLine, modifier = GetProfessionInfo(index)
+                if ns.AnySecret("skills", skillLine) then
+                    unclear = true
+                elseif skillLine ~= nil then
+                    out[#out + 1] = { place = i, name = name, rank = rank, maxRank = maxRank, line = skillLine, modifier = modifier }
+                end
+            end
+        end
+    end
+    return out, unclear, places
+end
+ns.ProfessionSlots = ProfessionSlots
+
 -- found, unclear, rank, maxRank, effective: found = a line readable as this
 -- profession; unclear = some line could be it but can't be read
 local function FindProfession(nodeType)
-    local unclear = false
-    if GetProfessions and GetProfessionInfo then
-        -- prof1, prof2, archaeology, fishing, cooking, first aid (some may be nil)
-        local profs = { GetProfessions() }
-        for i = 1, 6 do
-            local index = profs[i]
-            if index then
-                if ns.AnySecret("skills", index) then
-                    unclear = true
-                else
-                    local _, _, rank, maxRank, _, _, skillLine, modifier = GetProfessionInfo(index)
-                    if ns.AnySecret("skills", skillLine) then
-                        unclear = true
-                    elseif skillLine == SKILL_LINE[nodeType] then
-                        return true, false, Remember(nodeType, rank, maxRank, modifier)
-                    end
-                end
-            end
+    local slots, unclear = ProfessionSlots()
+    for _, slot in ipairs(slots) do
+        if slot.line == SKILL_LINE[nodeType] then
+            return true, false, Remember(nodeType, slot.rank, slot.maxRank, slot.modifier)
         end
     end
     if GetNumSkillLines and GetSkillLineInfo then

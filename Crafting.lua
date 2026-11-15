@@ -1266,8 +1266,14 @@ local function CraftTest()
         print(("  %d. %s: profit %s (sells %s, costs %s)"):format(i, r.name, r.missing and "?" or ns.Money(r.profit),
             ValueText(r), CostText(r)))
     end
+    -- (v0.1.23 P6) the game's list of your professions: name, skill, the line's number
+    if ns.ProfessionLines then
+        for _, line in ipairs(ns.ProfessionLines()) do print(line) end
+    end
     -- (v0.1.22 R2) which profession each line of the skill list is read as
-    if ns.SkillListLines then
+    if not (GetNumSkillLines and GetSkillLineInfo) then
+        print("  skill list: not in this client")
+    elseif ns.SkillListLines then
         for _, line in ipairs(ns.SkillListLines()) do print(line) end
     end
 end
@@ -1821,10 +1827,43 @@ local function SkillListLines()
     return out
 end
 
--- Your skill in a profession: the skill list, else what the profession
--- window showed last time
+-- The professions by the number of their skill line: the same in every
+-- language (v0.1.23 P6). Seen live in the Forever client (Sven, 14.11.2026):
+-- 182, 186, 129, 356, 185. The others are the game's usual numbers, not
+-- seen there yet - /gcr crafttest shows the number of each of yours.
+local PROF_LINE = {
+    [171] = "Alchemy", [164] = "Blacksmithing", [333] = "Enchanting", [202] = "Engineering", [165] = "Leatherworking",
+    [197] = "Tailoring", [186] = "Mining", [182] = "Herbalism", [393] = "Skinning", [356] = "Fishing", [185] = "Cooking",
+    [129] = "First Aid",
+}
+
+-- for /gcr crafttest: the game's list of your professions, place by place
+local function ProfessionLines()
+    local slots, unclear, places = {}, false, nil
+    if ns.ProfessionSlots then slots, unclear, places = ns.ProfessionSlots() end
+    if not places then return { "  professions (GetProfessions): not in this client" } end
+    local parts = {}
+    for _, s in ipairs(slots) do
+        local name, rank, maxRank = ns.Readable(s.name, "skills"), ns.Readable(s.rank, "skills"), ns.Readable(s.maxRank, "skills")
+        parts[#parts + 1] = ("%d: %s %s/%s line %s = %s"):format(s.place, tostring(name or "(hidden)"), tostring(rank or "?"),
+            tostring(maxRank or "?"), tostring(s.line), PROF_LINE[s.line] or "not recognised")
+    end
+    return { ("  professions (GetProfessions, %d places): %s%s"):format(places, #parts > 0 and table.concat(parts, ", ") or "-",
+        unclear and " (some hidden)" or "") }
+end
+
+-- Your skill in a profession: the game's list of your professions (by the
+-- line's number, no window needed), else the skill list, else what the
+-- profession window showed last time
 local SKILL_TYPE = { Mining = "ore", Cooking = "cook", ["First Aid"] = "aid" }
 ns.ProfessionRank = function(prof)
+    if ns.ProfessionSlots then
+        for _, slot in ipairs(ns.ProfessionSlots()) do
+            if PROF_LINE[slot.line] == prof and not ns.AnySecret("skills", slot.rank, slot.maxRank) and slot.rank then
+                return slot.rank, slot.maxRank
+            end
+        end
+    end
     if SKILL_TYPE[prof] and ns.GetSkill then
         local rank, maxRank = ns.GetSkill(SKILL_TYPE[prof])
         if rank then return rank, maxRank end
@@ -1852,6 +1891,7 @@ ns.CraftData = {
 }
 ns.CraftTest = CraftTest
 ns.SkillListLines = SkillListLines
+ns.ProfessionLines = ProfessionLines
 
 -- /gcr trainertest : what this client tells us at a trainer (window open)
 ns.TrainerTest = function()
