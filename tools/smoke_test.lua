@@ -24012,6 +24012,93 @@ step("Skill plan 2.0: the skill comes from the game's own list by its number - a
     if _G.GathercraftSkillPlan then _G.GathercraftSkillPlan:Hide() end
     if not ok then error(err, 0) end
 end)
+step("Item tooltip: the auction house scan that starts on opening (0.1.23) gives the tooltip its price - kind, age, quantity, the 14 days (v0.2 on 0.1.23)", function()
+    -- Sven, 16.11.2026: the item tooltip of 0.2 and the scan that starts
+    -- when the auction house opens (0.1.23 P5, in short steps R1-M1) must go
+    -- together: the scan's prices are market prices with their quantity,
+    -- the tooltip shows them at once - its caches know a new price by the
+    -- price revision - and its 14 days count the scan's day.
+    local L, AHX = ns.L, C_AuctionHouse
+    ns.GetPrice(2447)
+    local p = ns.db.prices[next(ns.db.prices)]
+    local HERB, ORE = 2447, 2770
+    local keep = { rep = AHX.ReplicateItems, num = AHX.GetNumReplicateItems, info = AHX.GetReplicateItemInfo, off = ns.db.autoScanOff,
+        last = p.lastScanStart, scanned = p.scanned, items = p.items, qty = p.qty, seen = p.seen, meta = p.meta, option = ns.db.tooltipPrices,
+        shift = IsShiftKeyDown, atr = Auctionator, tsm = TSM_API }
+    keep.history = {}
+    for id, text in pairs(p.history) do keep.history[id] = text end
+    local before = #errors
+    local ok, err = pcall(function()
+        Auctionator, TSM_API = nil, nil -- (our own price only: no other addon's price in the line)
+        ns.db.tooltipPrices, ns.db.autoScanOff = true, nil
+        IsShiftKeyDown = function() return false end
+        local fx = TT.Load("tdp", true)
+        fx.Event("PLAYER_LOGIN") advance(10)
+        assert(fx.State() == "ready", "test setup: the tooltip is not ready: " .. fx.State())
+        local tip = fx.game
+        local function Line()
+            local lines = fx.Hover(tip, HERB)
+            for _, l in ipairs(lines) do
+                local plain = TT.Plain(l)
+                if plain:find(L["AH price"], 1, true) then return plain end
+            end
+        end
+        -- before: no price of our own for Peacebloom
+        p.items[HERB], p.qty[HERB], p.seen[HERB], p.meta[HERB], p.history[HERB] = nil, nil, nil, nil, nil
+        local first = Line()
+        assert(first and first:find(L["unknown – scan at the auction house"], 1, true), "test setup: Peacebloom has a price before the scan: " .. tostring(first))
+        local rev0 = ns.PriceRev()
+        -- the auction house opens; the scan starts by itself and is answered: 300 auctions of Peacebloom, 100 of copper ore
+        local auctions = {}
+        for i = 1, 400 do auctions[i] = { id = i <= 300 and HERB or ORE, count = i % 5 + 1, unit = i <= 300 and (40 + i % 3) or 90 } end
+        local calls = 0
+        AHX.ReplicateItems = function() calls = calls + 1 end
+        AHX.GetNumReplicateItems = function() return #auctions end
+        AHX.GetReplicateItemInfo = function(i)
+            local a = auctions[i + 1]
+            if not a then return nil end
+            return "Item", 1, a.count, 1, true, 1, 0, 0, 0, a.unit * a.count, 0, false, nil, "Seller", nil, 0, a.id, true
+        end
+        AuctionHouseFrame = AuctionHouseFrame or CreateFrame("Frame", "AuctionHouseFrame", UIParent)
+        fire("AUCTION_HOUSE_CLOSED") advance(1)
+        p.lastScanStart = 0
+        fire("AUCTION_HOUSE_SHOW") advance(1)
+        assert(calls == 1, "the scan did not start when the window opened")
+        p.scanned = 0
+        fire("REPLICATE_ITEM_LIST_UPDATE") advance(3)
+        assert(p.scanned and p.scanned > 0 and p.items[HERB], "the scan's answer was not read")
+        assert(ns.PriceRev() ~= rev0, "the scan's prices did not count up the price revision - the tooltip would keep its old lines")
+        -- the scan's price is a market price with its quantity
+        local info = ns.PriceInfo(HERB)
+        local listed = 0
+        for i = 1, 300 do listed = listed + auctions[i].count end
+        assert(info and info.own and info.kind == "market" and info.qty == listed and info.age and info.age < 60,
+            ("the scan's price: kind %s, quantity %s (want %d), age %s"):format(tostring(info and info.kind), tostring(info and info.qty), listed, tostring(info and info.age)))
+        -- the tooltip shows it at once: own scan, just now, how many - without the old "unknown"
+        local line = Line()
+        assert(line and line:find(TT.Plain(ns.Money(p.items[HERB])), 1, true) and line:find(L["own scan"], 1, true), "the tooltip after the scan: " .. tostring(line))
+        assert(line:find((L["%s listed"]):format(tostring(listed)), 1, true) or line:find(tostring(listed), 1, true), "the tooltip does not say how many were listed: " .. tostring(line))
+        assert(not line:find(L["unknown – scan at the auction house"], 1, true), "the tooltip still says to scan: " .. tostring(line))
+        -- the 14 days count the scan's day
+        local today = math.floor(time() / 86400)
+        local window = ns.PriceHistoryWindow(HERB, today)
+        assert(#window >= 1 and window[#window][1] == today and window[#window][2] == p.items[HERB], "the scan's day is not in the 14 days")
+        local lines14
+        for _, l in ipairs(fx.Hover(tip, HERB)) do if TT.Plain(l):find(L["14 days"], 1, true) then lines14 = TT.Plain(l) end end
+        assert(lines14 and lines14:find(L["1 day with data"], 1, true), "the tooltip's 14 days after the first scan: " .. tostring(lines14))
+        -- the window closes before the next scan: the price stays, the tooltip says nothing else
+        fire("AUCTION_HOUSE_CLOSED") advance(1)
+        assert(Line() == line, "the tooltip changed when the window closed: " .. tostring(Line()))
+        assert(#errors == before, "an error: " .. tostring(errors[#errors]))
+    end)
+    AHX.ReplicateItems, AHX.GetNumReplicateItems, AHX.GetReplicateItemInfo = keep.rep, keep.num, keep.info
+    ns.db.autoScanOff, p.lastScanStart, p.scanned, p.items, p.qty, p.seen, p.meta = keep.off, keep.last, keep.scanned, keep.items, keep.qty, keep.seen, keep.meta
+    for id in pairs(p.history) do p.history[id] = nil end
+    for id, text in pairs(keep.history) do p.history[id] = text end
+    ns.db.tooltipPrices, IsShiftKeyDown, Auctionator, TSM_API = keep.option, keep.shift, keep.atr, keep.tsm
+    fire("AUCTION_HOUSE_CLOSED") advance(1)
+    if not ok then error(err, 0) end
+end)
 -- (end of the "Farm for plan" steps, v0.2 building block 3)
 step("Long run (10 min) for leaks", function() slash("run herb") advance(600) slash("stop") end)
 step("Test mock: OnUpdate runs for the same frames in the same order as going over every frame (tools only)", function()
