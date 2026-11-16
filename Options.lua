@@ -53,7 +53,7 @@ close:SetPoint("TOPRIGHT", -2, -2)
 -- Layout: a list of sections on the left, the chosen section on the right
 -- (one column, a title and a short line on what it is about)
 ---------------------------------------------------------------------------
-local TITLE_FONT = "Fonts\\MORPHEUS.TTF"
+local TITLE_FONT = ns.TitleFont
 local GOLD = { 1, 0.82, 0.30 }
 local EMBER = { 0.42, 0.10, 0.04 }
 local NAV_W, NAV_H, NAV_GAP = 160, 30, 4

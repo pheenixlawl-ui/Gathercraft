@@ -32,6 +32,9 @@ local function GameLanguage()
     return ALIASES[loc] or loc
 end
 
+-- Use the client's UI font for translatable headings.
+ns.TitleFont = (GameFontNormal and GameFontNormal:GetFont()) or STANDARD_TEXT_FONT
+
 -- the languages this client can show
 function ns.UsableLanguages()
     local out, game = {}, GameLanguage()

@@ -11,7 +11,7 @@ local L = ns.L or setmetatable({}, { __index = function(_, k) return k end })
 --                 or party chat only when you click the button
 ---------------------------------------------------------------------------
 local MEDIA = "Interface\\AddOns\\" .. ADDON_NAME .. "\\Media\\"
-local TITLE_FONT = "Fonts\\MORPHEUS.TTF"
+local TITLE_FONT = ns.TitleFont
 local GOLD = { 1, 0.82, 0.30 }
 local SUMMARY_MIN_SECONDS = 120 -- shorter runs (a quick try) get no summary
 local SUMMARY_MIN_NODES = 1

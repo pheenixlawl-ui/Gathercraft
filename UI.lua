@@ -9,7 +9,7 @@ local L = ns.L or setmetatable({}, { __index = function(_, k) return k end })
 ---------------------------------------------------------------------------
 local HBD = LibStub and LibStub("HereBeDragons-2.0", true)
 local MEDIA = "Interface\\AddOns\\" .. ADDON_NAME .. "\\Media\\"
-local TITLE_FONT = "Fonts\\MORPHEUS.TTF"
+local TITLE_FONT = ns.TitleFont
 local GOLD = { 1, 0.82, 0.30 }
 local ARRIVE_YARDS = 12
 local FILTER_LABELS = { herb = "Herbs", ore = "Ores", both = "Herbs + Ores", chest = "Chests" }

@@ -16,7 +16,8 @@ local TAB_W, TAB_H, TAB_GAP, ROW_GAP = 117, 30, 6, 6
 local TAB_TOP = -76              -- first row of tabs, below the title
 local PAGE_WIDTH = WIDTH - 36 - 16 -- usable width of a section
 local ICON = "Interface\\AddOns\\" .. ADDON_NAME .. "\\Media\\Icon"
-local TITLE_FONT = "Fonts\\MORPHEUS.TTF"
+local TITLE_FONT = ns.TitleFont
+local LOGO_FONT = "Fonts\\MORPHEUS.TTF"
 local BAR_TEXTURE = "Interface\\TargetingFrame\\UI-StatusBar"
 local TYPE_ICONS = {
     herb = "Interface\\Icons\\INV_Misc_Flower_02",
@@ -77,7 +78,7 @@ emblem:SetPoint("TOPLEFT", -16, 16)
 emblem:SetTexture(ICON)
 
 local titleBig = main:CreateFontString(nil, "OVERLAY")
-titleBig:SetFont(TITLE_FONT, 34, "OUTLINE")
+titleBig:SetFont(LOGO_FONT, 34, "OUTLINE")
 titleBig:SetTextColor(unpack(GOLD))
 titleBig:SetShadowColor(0, 0, 0, 1)
 titleBig:SetShadowOffset(2, -2)
@@ -85,7 +86,7 @@ titleBig:SetPoint("TOPLEFT", 72, -14)
 titleBig:SetText("G")
 
 local titleRest = main:CreateFontString(nil, "OVERLAY")
-titleRest:SetFont(TITLE_FONT, 25, "OUTLINE")
+titleRest:SetFont(LOGO_FONT, 25, "OUTLINE")
 titleRest:SetTextColor(unpack(GOLD))
 titleRest:SetShadowColor(0, 0, 0, 1)
 titleRest:SetShadowOffset(2, -2)
