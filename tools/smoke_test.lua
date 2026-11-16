@@ -19495,6 +19495,12 @@ step("Auction house: the prices are worked out in short steps however the auctio
     end
     local function Free() p.lastScanStart = 0 end -- the 15 minutes are over
     local function Close() fire("AUCTION_HOUSE_CLOSED") advance(1) end
+    -- (the step takes about 20 minutes of the mock's clock and compares the
+    -- history of one UTC day: in a long run - on dev-0.2 many steps come
+    -- before it - the clock can stand just before a midnight here. Then it is
+    -- moved past it first, so the whole step lies within one day.)
+    local toMidnight = 86400 - time() % 86400
+    if toMidnight < 3600 then advance(toMidnight + 60) end
     local day = math.floor(time() / 86400)
 
     -- an auction house: Info(i) gives id, count, buyout of auction i (from 0),
