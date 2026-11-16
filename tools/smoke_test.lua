@@ -23628,8 +23628,20 @@ step("Farm for plan: no setting is touched, the count follows your real stock bo
             return stock[id] or 0
         end
         ns.GetSkill = function(t) if t == "ore" then return 100, 300, 100 end end
-        local cvars, trackings = 0, 0
-        SetCVar = function(...) cvars = cvars + 1 return saved.setCVar(...) end
+        -- CVars: the gathering help of ANY run may set some while the run goes
+        -- and takes them back with its end. So a plan run is held against an
+        -- ordinary run: the same CVars while it goes, none of them left after.
+        local cvar, trackings = {}, 0
+        SetCVar = function(k, v, ...) cvar[tostring(k)] = tostring(v) return saved.setCVar(k, v, ...) end
+        local function CVars()
+            local keys = {}
+            for k in pairs(cvar) do keys[#keys + 1] = k end
+            table.sort(keys)
+            local parts = {}
+            for _, k in ipairs(keys) do parts[#parts + 1] = k .. "=" .. cvar[k] end
+            return table.concat(parts, " ")
+        end
+        local cvarsInRun, cvarsAfter
         if C_Minimap and C_Minimap.SetTracking then C_Minimap.SetTracking = function(...) trackings = trackings + 1 return saved.tracking(...) end end
         local function Bags() fire("BAG_UPDATE_DELAYED") W.Wait(1) end
         local function Row(item)
@@ -23673,9 +23685,11 @@ step("Farm for plan: no setting is touched, the count follows your real stock bo
         ns.db.kindLoot = ns.db.kindLoot or {}
         -- (an ordinary run with one gather first: what every run and the recorder write is there then)
         ns.StartRun("ore", Z) W.Wait(1)
+        cvarsInRun = CVars()
         W.At(200)
         local c0 = W.Cast("Copper Vein", 2575) W.Wait(2) W.Done(c0, 2575) W.Loot(1731, COPPER, "T7A000") fire("LOOT_CLOSED") W.Wait(4)
         ns.StopRun(true) advance(1)
+        cvarsAfter = CVars()
         W.At(0)
         local set0, keys0 = Settings(), Keys()
         local function Unchanged(what)
@@ -23683,7 +23697,12 @@ step("Farm for plan: no setting is touched, the count follows your real stock bo
             for _, key in ipairs(SETTINGS) do
                 assert(now[key] == set0[key], ("%s: the setting %s changed from %s to %s"):format(what, key, set0[key], now[key]))
             end
-            assert(cvars == 0 and trackings == 0, ("%s: %d CVar(s) set, tracking set %d time(s)"):format(what, cvars, trackings))
+            assert(trackings == 0, ("%s: tracking set %d time(s)"):format(what, trackings))
+            if ns.run then
+                assert(what ~= "after the start" or CVars() == cvarsInRun, ("%s: the CVars are not those of an ordinary run: %s | ordinary: %s"):format(what, CVars(), cvarsInRun))
+            else
+                assert(CVars() == cvarsAfter, ("%s: the CVars are not as after an ordinary run: %s | ordinary: %s"):format(what, CVars(), cvarsAfter))
+            end
         end
         -- start, run, a gather, the window of the run, the list of zones
         ns.StartRun(F, Z) W.Wait(1) advance(2)
