@@ -12688,10 +12688,14 @@ step("What's new: 0.1.23 after an update, in this language and all translations"
     -- the numbers the changelog names are the ones of the options and the texts
     assert(ns.L["Your skill: ? (open your profession window once)"], "the skill plan's line for an unknown skill")
     assert(changelog:find("\"Your skill: ?\"", 1, true), "CHANGELOG: the plan's line is not named as the plan shows it")
-    -- the date comes with the release itself: the heading is the version
-    -- alone, or the version and a date
+    -- the release (Sven, 16.11.2026): the heading carries the date
     local heading = changelog:match("^(## v0%.1%.23[^\r\n]*)")
-    assert(heading == "## v0.1.23" or heading:match("^## v0%.1%.23 – %d%d%d%d%-%d%d%-%d%d$"), "CHANGELOG heading: " .. tostring(heading))
+    assert(heading == "## v0.1.23 – 2026-11-16", "CHANGELOG heading: " .. tostring(heading))
+    -- what the profession numbers mean in another language is not seen in
+    -- the game yet: said as "should", with a request to report it
+    assert(changelog:find("Professions are now detected by their ID, so the German 'Alchimie' name should no longer matter – please report if it still does.", 1, true),
+        "CHANGELOG: the German client is not said as \"should\"")
+    assert(not changelog:find("the same in every language", 1, true), "CHANGELOG still promises the same in every language")
     local function said(text)
         for _, l in ipairs(log) do if l:find(text, 1, true) then return l end end
     end
