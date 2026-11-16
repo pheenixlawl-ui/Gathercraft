@@ -23939,6 +23939,79 @@ step("Farm for plan: a big plan is worked out in parts for the run too - it wait
     advance(2)
     if not ok then error(err, 0) end
 end)
+step("Skill plan 2.0: the skill comes from the game's own list by its number - a German client, no skill list, no profession window (v0.2 on 0.1.23)", function()
+    -- Sven, 16.11.2026: since 0.1.23 the professions are read with
+    -- GetProfessions by the number of their skill line. Skill plan 2.0 must
+    -- get the skill that way too: the German client names Alchemy
+    -- "Alchimie", there is no skill list in the Forever client, and no
+    -- profession window was opened. The numbers are the ones Sven saw live:
+    -- Alchemy 171, Herbalism 182, Mining 186, First Aid 129, Fishing 356,
+    -- Cooking 185, Leatherworking 165, Skinning 393.
+    local L = ns.L
+    local keep = { gp = GetProfessions, gi = GetProfessionInfo, gn = GetNumSkillLines, gl = GetSkillLineInfo, skill = ns.GetSkill }
+    local mine = ns.db.recipes[next(ns.db.recipes)]
+    local saved = { alchemy = mine.Alchemy, leather = mine.Leatherworking, cooking = mine.Cooking, aid = mine["First Aid"], targets = ns.db.planTargets }
+    local function Texts(text)
+        for _, o in ipairs(allFrames) do
+            local t = o.GetText and o:GetText()
+            if type(t) == "string" and o.IsShown and o:IsShown() and t:find(text, 1, true) then return t end
+        end
+    end
+    local ok, err = pcall(function()
+        -- the German client's list: names as the game gives them, the numbers of the lines
+        local slots = {
+            { "Alchimie", 120, 150, 171 }, { "Kräuterkunde", 130, 150, 182 }, nil, { "Angeln", 200, 225, 356 },
+            { "Kochkunst", 80, 150, 185 }, { "Erste Hilfe", 90, 150, 129 }, { "Lederverarbeitung", 140, 150, 165 },
+        }
+        GetProfessions = function() return 1, 2, nil, 4, 5, 6, 7 end
+        GetProfessionInfo = function(i)
+            local s = slots[i]
+            if s then return s[1], 0, s[2], s[3], 0, 0, s[4], 0 end
+        end
+        GetNumSkillLines, GetSkillLineInfo = nil, nil -- (the Forever client has no skill list)
+        ns.GetSkill = function() return nil end      -- (and nothing else knows a skill)
+        mine.Alchemy, mine.Leatherworking, mine.Cooking, mine["First Aid"] = nil, nil, nil, nil -- no profession window seen
+        -- every profession of the list, by its number: the skill read NOW
+        for prof, want in pairs({ Alchemy = 120, Cooking = 80, ["First Aid"] = 90, Leatherworking = 140 }) do
+            local state, rank, maxRank, _, source = ns.SkillPlanSkillState(prof)
+            assert(state == "learned" and rank == want and maxRank == 150 and source == "current",
+                ("%s: %s %s/%s (%s), want learned %d/150, read now"):format(prof, tostring(state), tostring(rank), tostring(maxRank), tostring(source), want))
+        end
+        -- a profession that is not in the list: never a skill NOW out of nothing
+        -- (one seen last in a step before this one may be there: said to be that)
+        local state, _, _, _, source = ns.SkillPlanSkillState("Tailoring")
+        assert(not (state == "learned" and source == "current"), "Tailoring is not in the list but has a skill now: " .. tostring(state) .. " " .. tostring(source))
+        -- the window: the plan of "Alchimie" with its skill, not "open your profession window once"
+        ns.db.planTargets = nil
+        ns.ShowSkillPlan("Alchemy") advance(1)
+        assert(Texts((L["Your skill: %d / %d"]):format(120, 150)), "the skill plan does not show 120 / 150 for \"Alchimie\" from the game's list")
+        assert(not Texts(L["Your skill: ? (open your profession window once)"]), "the skill plan still asks to open the profession window")
+        local result = ns.SkillPlanResult()
+        assert(result and result.prof == "Alchemy" and result.from == 120 and result.reliable and result.skillSource == "current",
+            "the plan is not from the skill read now: " .. tostring(result and result.from) .. " " .. tostring(result and result.skillSource))
+        if _G.GathercraftSkillPlan then _G.GathercraftSkillPlan:Hide() end
+        -- what was read is kept as the skill seen last: with the list gone the plan is a preview of it, never "current"
+        mine.Alchemy = { list = {}, rank = nil }
+        ns.SkillPlanSkillState("Alchemy") -- (reads the list again: keeps 120 as seen last)
+        assert(mine.Alchemy.rank == 120, "the skill read by its number is not kept as the one seen last: " .. tostring(mine.Alchemy.rank))
+        GetProfessions = function() return nil, nil, nil, nil, nil, nil, nil end
+        local s2, r2, _, _, src2 = ns.SkillPlanSkillState("Alchemy")
+        assert(s2 == "learned" and r2 == 120 and src2 == "lastSeen", "without the list: " .. tostring(s2) .. " " .. tostring(r2) .. " " .. tostring(src2) .. ", want the skill seen last")
+        -- a hidden value in the list is never taken
+        local SECRET = setmetatable({}, { __eq = function() error("a hidden value was compared") end })
+        local keepSecret = issecretvalue
+        issecretvalue = function(v) return rawequal(v, SECRET) end
+        GetProfessions = function() return 1 end
+        GetProfessionInfo = function() return "Alchimie", 0, SECRET, 150, 0, 0, 171, 0 end
+        local okS, s3, r3, _, _, src3 = pcall(ns.SkillPlanSkillState, "Alchemy")
+        issecretvalue = keepSecret
+        assert(okS and not (s3 == "learned" and src3 == "current"), "a hidden skill in the list was taken as the skill now: " .. tostring(s3) .. " " .. tostring(src3))
+    end)
+    GetProfessions, GetProfessionInfo, GetNumSkillLines, GetSkillLineInfo, ns.GetSkill = keep.gp, keep.gi, keep.gn, keep.gl, keep.skill
+    mine.Alchemy, mine.Leatherworking, mine.Cooking, mine["First Aid"], ns.db.planTargets = saved.alchemy, saved.leather, saved.cooking, saved.aid, saved.targets
+    if _G.GathercraftSkillPlan then _G.GathercraftSkillPlan:Hide() end
+    if not ok then error(err, 0) end
+end)
 -- (end of the "Farm for plan" steps, v0.2 building block 3)
 step("Long run (10 min) for leaks", function() slash("run herb") advance(600) slash("stop") end)
 step("Test mock: OnUpdate runs for the same frames in the same order as going over every frame (tools only)", function()
