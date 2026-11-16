@@ -486,6 +486,9 @@ ns.SkillPlanBusy = function() return job ~= nil end
 ---------------------------------------------------------------------------
 ns.SkillPlanRunner = function(on)
     runnerOn = on and true or false
+    -- the last reader is gone and the window is closed: what was begun (or
+    -- finished and not taken yet) is dropped - nothing goes on, nothing waits
+    if not runnerOn and not WindowShown() then DropJob() end
 end
 ns.SkillPlanFor = function(prof, target)
     if not runnerOn then return nil, "off" end

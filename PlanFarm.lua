@@ -567,9 +567,11 @@ ns.PlanRunBegin = function(filter, zone)
     if not resuming then
         -- asked for now (a click, a command): with everything gathered, nothing
         -- to farm here or no plan to go by there is no run, only why
+        -- (the question reads the plan; when the run begins it goes on reading
+        -- the same calculation - PlanRunBegun - else the question is over)
         Runner("ask", true)
         local plan = Evaluate(spec)
-        Runner("ask", false)
+        if plan.state == "success" or plan.state == "blocked" or plan.state == "invalid" then Runner("ask", false) end
         if plan.state == "success" then
             ns.Print(plan.status == "done" and L["Target reached: nothing left to farm for your plan."] or L["Everything from the map is gathered for your plan."])
             return nil
@@ -594,6 +596,7 @@ ns.PlanRunBegun = function(spec)
     pr = { spec = spec, prof = spec.prof, target = spec.target, zone = spec.zone, filter = spec.filter, wanted = {} }
     settle.since, settle.closedAt, settle.lootOpen = nil, nil, false
     Runner("run", true)
+    Runner("ask", false)
     -- (a run has begun: the list of zones has done its work)
     local zones = _G.GathercraftPlanZones
     if zones and zones:IsShown() then zones:Hide() end

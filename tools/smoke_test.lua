@@ -23121,20 +23121,42 @@ step("Farm for plan: the plan's nodes glow and the rest steps back - a factor wo
             for _ = 1, n do ns.PlanPinsChanged() end
             return (debugprofilestop() - t0) / n
         end
-        Round(3)
-        local without = Round(20)
+        local function Median(list)
+            local s = {}
+            for i, v in ipairs(list) do s[i] = v end
+            table.sort(s)
+            return s[(#s + 1) / 2]
+        end
         Plan({ [COPPER] = { 60, 0 }, [STONE] = { 20, 0 } })
         ns.StartRun(F, Z) W.Wait(1)
         local builds = 0
         ns.PlanBaseKinds = function(...) builds = builds + 1 return saved.base(...) end
         ns.PlanSeen = function(...) builds = builds + 1 return saved.seen(...) end
+        -- the same pins by turns without the factor (what the pins are asked
+        -- says "no plan run") and with it, nine times each: the medians are
+        -- compared. Never one after the other, never again until it fits.
+        -- (Nine, not five: next to other work a round is now and then held
+        -- up for 40 ms - seen 16.11.2026 with 20 test runs at once.)
+        local glowFor = ns.PlanGlowFor
+        local function NoRun() return nil end
         Round(3)
-        local with = Round(20)
+        local offs, ons = {}, {}
+        for i = 1, 9 do
+            collectgarbage("collect")
+            ns.PlanGlowFor = NoRun
+            offs[i] = Round(5)
+            collectgarbage("collect")
+            ns.PlanGlowFor = glowFor
+            ons[i] = Round(5)
+        end
+        local without, with = Median(offs), Median(ons)
         assert(builds == 0, "the plan's sets were asked for " .. builds .. " time(s) while the pins were drawn - built per pin?")
         ns.PlanBaseKinds, ns.PlanSeen = saved.base, saved.seen
         local pinCount = 0
         for _ in pairs(worldPin) do pinCount = pinCount + 1 end
-        note(("MEASURE T4 a round over %d world pins (and the minimap's): %.2f ms without a plan run, %.2f ms with one"):format(pinCount, without, with))
+        note(("MEASURE T4 a round over %d world pins (and the minimap's), 9 by turns each way: without the factor %s ms | with it %s ms; medians %.2f and %.2f ms"):format(
+            pinCount, table.concat((function() local s = {} for i, v in ipairs(offs) do s[i] = ("%.1f"):format(v) end return s end)(), " "),
+            table.concat((function() local s = {} for i, v in ipairs(ons) do s[i] = ("%.1f"):format(v) end return s end)(), " "), without, with))
         assert(pinCount >= 1400, "test setup: only " .. pinCount .. " pins")
         assert(with <= without * 3 + 2, ("a round over the pins with a plan run takes %.2f ms, without %.2f ms"):format(with, without))
         ns.StopRun(true)
@@ -23766,6 +23788,136 @@ step("Farm for plan: no setting is touched, the count follows your real stock bo
     ns.db.activeRun, ns.db.kindLoot, ns.db.summaryOff = saved.run, saved.loot, saved.summaryOff
     for _, name in ipairs({ "GathercraftPlanZones", "GathercraftPlanHint", "GathercraftRunSummary", "GathercraftPlanGathered", "GathercraftSkillPlan" }) do if _G[name] then _G[name]:Hide() end end
     W.Restore()
+    if not ok then error(err, 0) end
+end)
+step("Farm for plan: a big plan is worked out in parts for the run too - it waits, decides nothing, then goes on with the same plan (v0.2 B3 T8)", function()
+    -- The harness' clock for the plan calculation stands still, so every
+    -- other step gets its plan in one part. In the game a big plan takes
+    -- several frames (Codex round 2, R2-M4): the plan run and the list of
+    -- zones must wait for it - the second reader of concept 4.1.
+    local d, core = ns.CraftData, ns.PlanCore
+    local saved = { clock = ns.SkillPlanClock, rank = ns.ProfessionRank, have = d.Have, known = d.Known, skill = ns.GetSkill, compute = core.Compute,
+        targets = ns.db.planTargets, run = ns.db.activeRun }
+    local W = IdentityWorld()
+    local before = #errors
+    local win = _G.GathercraftSkillPlan
+    if win then win:Hide() end
+    local published = 0
+    local function Count() published = published + 1 end
+    table.insert(ns.skillPlanListeners, Count)
+    local ok, err = pcall(function()
+        local bonus = 0
+        ns.ProfessionRank = function(p) if p == "Alchemy" then return 1, 300 end end
+        d.Known = function() return {} end
+        d.Have = function() return bonus end
+        ns.GetSkill = function(t) if t == "herb" or t == "ore" then return 300, 300, 300 end end
+        ns.db.planTargets = nil
+        local starts, rests = 0, 0
+        core.Compute = function(input, pause)
+            starts = starts + 1
+            if not pause then return saved.compute(input) end
+            return saved.compute(input, function() rests = rests + 1 pause() end)
+        end
+        -- the plan in one go: what it needs from the map
+        local whole = core.Result(saved.compute(ns.SkillPlanSnapshot("Alchemy", 1, 300)))
+        local first
+        local ids = {}
+        for id in pairs(whole.items) do ids[#ids + 1] = id end
+        table.sort(ids)
+        for _, id in ipairs(ids) do
+            if whole.items[id].need > 0 and ns.PlanBaseKinds(id) and not first then first = id end
+        end
+        assert(whole.status == "ok" and first, "test setup: the Alchemy plan to 300 needs nothing from the map")
+        local kind = ns.PlanBaseKinds(first)[1]
+        W.Set({ W.Node(kind, "Herb", 100, { type = "herb" }), W.Node(kind, "Herb", 200, { type = "herb" }) })
+        W.At(0)
+        local F = ns.PlanFilter("Alchemy", 300)
+        -- a clock that goes on: a part ends after about 400 resting places
+        local now = 0
+        ns.SkillPlanClock = function() now = now + 0.01 return now end
+
+        -- ---- start: the plan is not there yet - the run waits, steers to nothing, ends nothing
+        starts, rests = 0, 0
+        local pub0 = published
+        local _, ends0 = ns.PlanRunLastEnd()
+        ns.StartRun(F, 1412)
+        local run = ns.run
+        assert(run and run.plan and ns.SkillPlanBusy() and starts == 1, "the run did not start with the plan on its way (worked out in one go? starts " .. starts .. ")")
+        local firstPart = rests
+        assert(firstPart > 100 and firstPart < 2000, "the first part went over " .. firstPart .. " resting places")
+        local s = ns.PlanRunState()
+        assert(s.state == "waiting" and run.target == nil and run.held and published == pub0, "while the plan is worked out: state " .. tostring(s.state) .. ", " .. (published - pub0) .. " plan(s) given out")
+        assert(select(2, ns.PlanRunLastEnd()) == ends0 and ns.db.activeRun and ns.db.activeRun.filter == F, "the run ended or is not saved while it waits for its plan")
+        -- the frames after it: part by part, then the run has its plan and goes
+        advance(2)
+        assert(not ns.SkillPlanBusy() and starts == 1 and rests > firstPart * 3, ("the rest was not worked out in parts (%d resting places, %d in the first)"):format(rests, firstPart))
+        s = ns.PlanRunState()
+        assert(ns.run == run and s.state == "active" and run.target and not run.held and published == pub0 + 1, "with the finished plan: state " .. tostring(s.state) .. ", " .. (published - pub0) .. " plan(s)")
+        -- it is the plan the calculation in one go gives: the same materials, need and have
+        local rows = 0
+        for _, row in ipairs(s.rows) do
+            local m = whole.items[row.item]
+            assert(m and m.need == row.need and row.have == 0, "the run's row of item " .. row.item .. " is not the plan's: " .. tostring(row.need) .. " / " .. tostring(m and m.need))
+            rows = rows + 1
+        end
+        local want = 0
+        for _, id in ipairs(ids) do if whole.items[id].need > 0 and ns.PlanBaseKinds(id) then want = want + 1 end end
+        assert(rows == want and rows >= 5, "the run has " .. rows .. " materials of the map, the plan in one go " .. want)
+
+        -- ---- a new state while the run goes: the run keeps going with what it read, then takes the new plan
+        starts = 0
+        bonus = 3
+        fire("BAG_UPDATE_DELAYED")
+        advance(0.3)
+        assert(ns.SkillPlanBusy() and starts == 1, "the new state did not begin a new calculation in parts")
+        s = ns.PlanRunState()
+        assert(s.state == "waiting" and ns.run == run and run.target and s.rows[1].have == 0, "while the new plan is worked out: state " .. tostring(s.state) .. " (the route should go on with the rows read last)")
+        advance(2)
+        s = ns.PlanRunState()
+        assert(not ns.SkillPlanBusy() and s.state == "active" and s.rows[1].have == 3, "the new plan did not reach the run: have " .. tostring(s.rows[1].have))
+
+        -- ---- stopped while a plan is worked out: nothing goes on, nothing is given out
+        starts = 0
+        bonus = 4
+        fire("BAG_UPDATE_DELAYED")
+        advance(0.3)
+        assert(ns.SkillPlanBusy(), "test setup: no calculation on its way")
+        local pub1 = published
+        ns.StopRun(true)
+        local restsAtStop = rests
+        advance(3)
+        assert(not ns.SkillPlanBusy() and published == pub1, "the calculation went on after the run was stopped (" .. (published - pub1) .. " plan(s) given out)")
+        assert(rests - restsAtStop < firstPart * 2, "after the stop the calculation went over " .. (rests - restsAtStop) .. " more resting places")
+
+        -- ---- the list of zones waits for the plan in the same way
+        bonus = 5
+        assert(ns.PlanZoneListShow("Alchemy", 300), "the list did not open")
+        local data = (ns.PlanZoneListState())
+        local list = _G.GathercraftPlanZones
+        assert(ns.SkillPlanBusy() and data.state == "waiting" and list.note:GetText() == ns.L["Working out the plan ..."] and ns.run == nil, "the list while the plan is worked out: " .. tostring(data.state))
+        advance(3)
+        data = (ns.PlanZoneListState())
+        local mulgore = false
+        for _, zone in ipairs(data.zones) do if zone.mapID == 1412 and zone.here and zone.candidates >= 1 then mulgore = true end end
+        -- (other zones of the continent may have nodes of the herb from steps before this one)
+        assert(not ns.SkillPlanBusy() and data.state == "ok" and mulgore, "the list did not take the finished plan: " .. tostring(data.state) .. ", " .. #data.zones .. " zones")
+        -- closed while a plan is worked out: nothing goes on
+        list:Hide()
+        bonus = 6
+        assert(ns.PlanZoneListShow("Alchemy", 300) and ns.SkillPlanBusy(), "test setup: the list opened again and no plan is on its way")
+        list:Hide()
+        local pub2 = published
+        advance(3)
+        assert(not ns.SkillPlanBusy() and published == pub2, "a calculation went on for the closed list")
+        assert(#errors == before, "an error: " .. tostring(errors[#errors]))
+    end)
+    for i = #ns.skillPlanListeners, 1, -1 do if ns.skillPlanListeners[i] == Count then table.remove(ns.skillPlanListeners, i) end end
+    ns.SkillPlanClock, ns.ProfessionRank, d.Have, d.Known, ns.GetSkill, core.Compute = saved.clock, saved.rank, saved.have, saved.known, saved.skill, saved.compute
+    if ns.run then ns.StopRun(true) end
+    for _, name in ipairs({ "GathercraftPlanZones", "GathercraftPlanHint", "GathercraftRunSummary", "GathercraftPlanGathered" }) do if _G[name] then _G[name]:Hide() end end
+    ns.db.planTargets, ns.db.activeRun = saved.targets, saved.run
+    W.Restore()
+    advance(2)
     if not ok then error(err, 0) end
 end)
 -- (end of the "Farm for plan" steps, v0.2 building block 3)
