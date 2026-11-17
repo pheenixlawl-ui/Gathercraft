@@ -560,9 +560,10 @@ ns.PlanRunJudge = function(run, points, weights)
     end
     if plan.state == "active" then
         -- a state that is decided: what is done in it may be marked done (R1-M3)
+        -- (both numbers of "Plan x/y": while it waits, the whole count stays, R2-N1)
         local done = 0
         for _, row in ipairs(plan.rows or {}) do if row.ok then done = done + 1 end end
-        pr.confirmedDone = done
+        pr.confirmedDone, pr.confirmedTotal = done, #(plan.rows or {})
         return "go"
     end
     -- waiting or no plan to go by: nothing is decided and nothing ends. The
@@ -729,7 +730,7 @@ ns.PlanRunState = function()
     -- frozen: the rows are the ones read last, the plan is not known right now
     return { prof = pr.prof, target = pr.target, zone = pr.zone, filter = pr.filter, state = pr.state or "waiting", why = plan.why,
         rows = known.rows, offMap = known.offMap, reasons = plan.reasons, candidates = plan.candidates, wanted = pr.wanted,
-        frozen = pr.state == "invalid", hidden = pr.hidden or 0, confirmedDone = pr.confirmedDone or 0 }
+        frozen = pr.state == "invalid", hidden = pr.hidden or 0, confirmedDone = pr.confirmedDone or 0, confirmedTotal = pr.confirmedTotal }
 end
 -- how the last plan run ended and how many ended at all (tests, the windows)
 ns.PlanRunLastEnd = function() return lastEnd, ends end
@@ -1182,13 +1183,17 @@ ns.PlanPanelLines = function()
     -- (0.2 B3 R1-M3) a tick, in a row or in the slim line, only from a state
     -- that is decided: while the run waits for the bags or for its plan the
     -- numbers and bars of what was read stay, but nothing is marked done -
-    -- the count of done ones is the one of the last decided state
+    -- "Plan x/y" is the count of the last decided state, both numbers
+    -- (R2-N1: the rows read meanwhile may be more or fewer)
     local decided = s.state == "active"
     for _, row in ipairs(rows) do
         total = total + 1
         if row.ok and decided then done = done + 1 end
     end
-    if not decided then done = math.min(s.confirmedDone or 0, total) end
+    if not decided then
+        total = s.confirmedTotal or total
+        done = math.min(s.confirmedDone or 0, total)
+    end
     local shown, more = 0, 0
     -- what is still open first, then what is ticked
     for pass = 1, 2 do

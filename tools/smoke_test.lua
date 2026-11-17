@@ -25069,6 +25069,74 @@ step("Farm for plan: a run and the list of zones that both need a new, big plan 
     advance(2)
     if not ok then error(err, 0) end
 end)
+step("Farm for plan: while the run waits, \"Plan x/y\" is the whole count of the last decided state - both numbers; a new count comes with the next decision (v0.2 B3 R2-N1)", function()
+    -- Codex round 2 of block 3, R2-N1: an active plan with two materials,
+    -- one covered - "Plan 1/2". The loot window opens and the plan read next
+    -- has only one material: while the run waits the window said "Plan 1/1"
+    -- (the done ones kept, the number of all from the rows not decided yet).
+    local given
+    local saved = { planFor = ns.SkillPlanFor, skill = ns.GetSkill, run = ns.db.activeRun, compact = ns.db.panelCompact, hidden = ns.db.runPanelHidden }
+    local W = IdentityWorld()
+    local before = #errors
+    local ok, err = pcall(function()
+        ns.db.panelCompact, ns.db.runPanelHidden = nil, nil
+        ns.GetSkill = function(t) if t == "ore" then return 300, 300, 300 end end
+        local revision = 9500
+        local function Plan(items)
+            revision = revision + 1
+            given = { prof = "Mining", from = 1, target = 75, status = "ok", valid = true, complete = true, reliable = true, revision = revision, items = {} }
+            for item, m in pairs(items) do
+                given.items[item] = { need = m[1], have = m[2], haveKnown = true, missing = math.max(0, m[1] - m[2]) }
+            end
+        end
+        ns.SkillPlanFor = function() return given end
+        W.Set({ W.Node("o1731", "Copper Vein", 100, { type = "ore" }), W.Node("o1732", "Tin Vein", 200, { type = "ore" }),
+            W.Node("o1735", "Iron Deposit", 300, { type = "ore" }) })
+        W.At(0)
+        local TICK = "ReadyCheck-Ready"
+        local PLAN = ns.L["Plan %d/%d"]
+        -- active: copper covered, tin open
+        Plan({ [2770] = { 60, 60 }, [2771] = { 10, 0 } })
+        ns.StartRun(ns.PlanFilter("Mining", 75), 1412) W.Wait(1) advance(1.5)
+        local a = ns.PlanPanelLines()
+        assert(ns.run and ns.PlanRunState().state == "active" and a.done == 1 and a.total == 2, "test setup: not an active run at Plan 1/2: " .. tostring(a and a.compact))
+        -- the loot window opens; the plan read next has only the copper
+        fire("LOOT_OPENED")
+        Plan({ [2770] = { 60, 60 } })
+        fire("BAG_UPDATE_DELAYED") W.Wait(0.5) advance(1)
+        assert(ns.run and ns.PlanRunState().state == "waiting", "test setup: the run does not wait: " .. tostring(ns.PlanRunState() and ns.PlanRunState().state))
+        local b = ns.PlanPanelLines()
+        assert(b.done == 1 and b.total == 2 and b.compact == PLAN:format(1, 2),
+            ("while waiting the count is %d/%d (%s) - want the last decided one, 1/2"):format(b.done, b.total, b.compact))
+        assert(not b.compact:find(TICK, 1, true), "while waiting the slim line has the tick: " .. b.compact)
+        ns.db.panelCompact = true
+        ns.PanelLayout() advance(1.5)
+        local panel = _G.GathercraftPanel
+        assert(panel.title:GetText() == PLAN:format(1, 2), "while waiting the slim window says " .. tostring(panel.title:GetText()) .. ", want Plan 1/2")
+        ns.db.panelCompact = nil
+        ns.PanelLayout() advance(0.5)
+        -- still waiting, the plan read now has three materials: still 1/2
+        Plan({ [2770] = { 60, 60 }, [2771] = { 10, 0 }, [2772] = { 5, 0 } })
+        fire("BAG_UPDATE_DELAYED") W.Wait(0.5) advance(1)
+        assert(ns.PlanRunState().state == "waiting", "test setup: the run no longer waits")
+        b = ns.PlanPanelLines()
+        assert(b.done == 1 and b.total == 2, ("still waiting, three materials read: %d/%d, want 1/2"):format(b.done, b.total))
+        -- the loot window closes: decided - the new count
+        fire("LOOT_CLOSED") W.Wait(3)
+        local c = ns.PlanPanelLines()
+        assert(ns.run and ns.PlanRunState().state == "active" and c.done == 1 and c.total == 3 and c.compact == PLAN:format(1, 3),
+            ("decided again: %s, want active at Plan 1/3"):format(tostring(c and c.compact)))
+        ns.StopRun(true)
+        assert(#errors == before, "an error: " .. tostring(errors[#errors]))
+    end)
+    ns.SkillPlanFor, ns.GetSkill = saved.planFor, saved.skill
+    if ns.run then ns.StopRun(true) end
+    for _, name in ipairs({ "GathercraftPlanZones", "GathercraftPlanHint", "GathercraftRunSummary", "GathercraftPlanGathered" }) do if _G[name] then _G[name]:Hide() end end
+    ns.db.activeRun, ns.db.panelCompact, ns.db.runPanelHidden = saved.run, saved.compact, saved.hidden
+    if ns.PanelLayout then ns.PanelLayout() end
+    W.Restore()
+    if not ok then error(err, 0) end
+end)
 -- (end of the "Farm for plan" steps, v0.2 building block 3)
 step("Long run (10 min) for leaks", function() slash("run herb") advance(600) slash("stop") end)
 step("Test mock: OnUpdate runs for the same frames in the same order as going over every frame (tools only)", function()
