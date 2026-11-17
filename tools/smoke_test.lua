@@ -5012,9 +5012,10 @@ step("Skill plan: the nearest trainer of your faction, sure before unsure, worke
         end
         -- areas of this test: 9001 Zone1413, 9002 Zone1440, 9003 Zone1412 (Kalimdor), 9004 Zone1420 (another continent)
         GathercraftAreaMaps = setmetatable({ [9001] = 1413, [9002] = 1440, [9003] = 1412, [9004] = 1420 }, { __index = saved.maps })
+        -- (the nearer one has the higher NPC ID: not the first, the nearest)
         GathercraftTrainers = { Alchemy = {
-            [901] = "Near Horde|2|H|9001:5000:5000",
-            [902] = "Far Horde|2|AH|9002:5000:5000",
+            [901] = "Far Horde|2|AH|9002:5000:5000",
+            [902] = "Near Horde|2|H|9001:5000:5000",
             [903] = "Alliance Next Door|2|A|9003:5100:5000",
             [904] = "Over The Sea|2|H|9004:5000:5000",
         } }
@@ -5045,8 +5046,11 @@ step("Skill plan: the nearest trainer of your faction, sure before unsure, worke
         assert(Tip(sub):find(L["Place from the Questie database: the NPC may not be there right now."], 1, true) and Tip(train) == Tip(sub), "the tooltip does not name the source")
         -- (2) nothing worked out while you point at it, nor on a redraw where you are
         local searches = ns.PlacesSearches
+        local lookups, keep = 0, ns.PlacesTrainer
+        ns.PlacesTrainer = function(...) lookups = lookups + 1 return keep(...) end
         for _ = 1, 5 do Tip(sub) Tip(train) end
-        assert(ns.PlacesSearches == searches, "the trainer is searched while you point at the row")
+        ns.PlacesTrainer = keep
+        assert(ns.PlacesSearches == searches and lookups == 0, "the trainer is looked up while you point at the row (" .. lookups .. ")")
         Draw({ 61, 75 })
         assert(ns.PlacesSearches == searches, "the trainer is searched again where you are")
         -- a bigger move: searched again; a zone change: searched again
@@ -5056,6 +5060,20 @@ step("Skill plan: the nearest trainer of your faction, sure before unsure, worke
         fire("ZONE_CHANGED_NEW_AREA")
         Draw({ 63, 75 })
         assert(ns.PlacesSearches == searches + 2, "a zone change: not searched again")
+        -- Journeyman from a trainer whose title names no rank ("Alchemy Trainer"): no hint
+        GathercraftTrainers = { Alchemy = { [908] = "Untitled|0|H|9001:5000:5000" } }
+        fire("ZONE_CHANGED_NEW_AREA")
+        Draw({ 63, 75 })
+        train, sub = Sub()
+        assert(sub.left:GetText():find("Untitled", 1, true) and not sub.left:GetText():find(L["May not teach this rank."], 1, true)
+            and not Tip(sub):find(L["May not teach this rank."], 1, true), "Journeyman: a hint from a title without a rank")
+        GathercraftTrainers = { Alchemy = {
+            [901] = "Far Horde|2|AH|9002:5000:5000",
+            [902] = "Near Horde|2|H|9001:5000:5000",
+            [903] = "Alliance Next Door|2|A|9003:5100:5000",
+            [904] = "Over The Sea|2|H|9004:5000:5000",
+        } }
+        fire("ZONE_CHANGED_NEW_AREA")
         -- (3) the Alliance: the one next door
         UnitFactionGroup = function() return "Alliance", "Alliance" end
         Draw({ 64, 75 })
@@ -5067,12 +5085,12 @@ step("Skill plan: the nearest trainer of your faction, sure before unsure, worke
         Draw({ 65, 75 })
         train, sub = Sub()
         assert(sub.left:GetText():find((L["Nearest trainer: %s (%s)"]):format("Over The Sea", ns.GetZoneName(1420)), 1, true), "the trainer of your continent: " .. sub.left:GetText())
-        GathercraftTrainers = { Alchemy = { [901] = "Near Horde|2|H|9001:5000:5000", [902] = "Far Horde|2|AH|9002:5000:5000" } }
+        GathercraftTrainers = { Alchemy = { [901] = "Far Horde|2|AH|9002:5000:5000", [902] = "Near Horde|2|H|9001:5000:5000" } }
         fire("ZONE_CHANGED_NEW_AREA")
         Draw({ 66, 75 })
         train, sub = Sub()
-        assert(sub.left:GetText():find((L["Trainer on another continent: %s (%s)"]):format("Near Horde", ns.GetZoneName(1413)), 1, true),
-            "none on your continent: " .. sub.left:GetText())
+        assert(sub.left:GetText():find((L["Trainer on another continent: %s (%s)"]):format("Far Horde", ns.GetZoneName(1440)), 1, true),
+            "none on your continent: not the first by ID, its zone named: " .. sub.left:GetText())
         -- (5) Expert: a trainer whose title names Journeyman is not taken; one whose title names
         -- no rank is marked; a sure one on your continent comes first
         player.map, player.x, player.y = 1412, 0.5, 0.5
@@ -5160,8 +5178,11 @@ step("Skill plan: the nearest vendor of a recipe, else the first as before (0.2 
         assert(Tip(row):find((L["Sold by %s (%s)."]):format("The Nearest", ns.GetZoneName(1413)), 1, true)
             and Tip(row):find(L["Place from the Questie database: the NPC may not be there right now."], 1, true), "the vendor's tooltip: " .. Tip(row))
         local searches = ns.PlacesSearches
+        local lookups, keep = 0, ns.PlacesVendor
+        ns.PlacesVendor = function(...) lookups = lookups + 1 return keep(...) end
         for _ = 1, 5 do Tip(row) end
-        assert(ns.PlacesSearches == searches, "the vendor is searched while you point at the row")
+        ns.PlacesVendor = keep
+        assert(ns.PlacesSearches == searches and lookups == 0, "the vendor is looked up while you point at the row (" .. lookups .. ")")
         -- (2) none on your continent: the first by ID with a place, as before
         player.map = 1420
         fire("ZONE_CHANGED_NEW_AREA")
