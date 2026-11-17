@@ -22516,9 +22516,15 @@ step("Farm for plan: one zone - the one you stand in or the one you click in the
     local WETLANDS, BARRENS = 1437, 1413
     assert(ns.GetContinent(1412) == ns.GetContinent(BARRENS) and ns.GetContinent(WETLANDS) and ns.GetContinent(WETLANDS) ~= ns.GetContinent(1412), "test setup: the continents of the test zones")
     local saved = { planFor = ns.SkillPlanFor, skill = ns.GetSkill, here = ns.StartHereRun, candidates = ns.PlanRouteCandidates, tooltip = ns.db.tooltipPrices,
-        barrens = ns.db.nodes[BARRENS], wetlands = ns.db.nodes[WETLANDS], run = ns.db.activeRun, zones = ns.db.disabledZones, counts = ns.SpawnCounts, extra = {} }
+        barrens = ns.db.nodes[BARRENS], wetlands = ns.db.nodes[WETLANDS], run = ns.db.activeRun, zones = ns.db.disabledZones, counts = ns.SpawnCounts, extra = {},
+        spawnZones = ns.db.spawnZones }
     local W = IdentityWorld()
     local before = #errors
+    -- (this step is about the zones with nodes: every zone with shipped spawn
+    -- points counts as loaded here, so the list knows only the nodes this
+    -- step sets. The zones not loaded yet: R1-M5, its own step.)
+    ns.db.spawnZones = {}
+    for mapID in pairs(GathercraftQuestieData.zones) do ns.db.spawnZones[mapID] = true end
     local ok, err = pcall(function()
         ns.GetSkill = function(t) if t == "ore" then return 300, 300, 300 end end
         local given, revision = nil, 100
@@ -22766,6 +22772,7 @@ step("Farm for plan: one zone - the one you stand in or the one you click in the
     for _, name in ipairs({ "GathercraftPlanZones", "GathercraftPlanHint" }) do if _G[name] then _G[name]:Hide() end end
     for mapID, keep in pairs(saved.extra) do ns.db.nodes[mapID] = keep[1] end
     ns.db.nodes[BARRENS], ns.db.nodes[WETLANDS], ns.db.activeRun, ns.db.tooltipPrices = saved.barrens, saved.wetlands, saved.run, saved.tooltip
+    ns.db.spawnZones = saved.spawnZones
     W.Restore()
     if ns.ItemTooltipSetEnabled then ns.ItemTooltipSetEnabled(saved.tooltip ~= false) end
     advance(15)
@@ -24437,6 +24444,126 @@ step("Farm for plan: an incomplete plan farms on while something of the map is o
     for _, name in ipairs({ "GathercraftPlanZones", "GathercraftPlanHint", "GathercraftRunSummary", "GathercraftPlanGathered" }) do if _G[name] then _G[name]:Hide() end end
     ns.db.activeRun = saved.run
     W.Restore()
+    if not ok then error(err, 0) end
+end)
+step("Farm for plan: the list of zones knows the zones with shipped spawn points that are not loaded yet; Go loads one and farms there (v0.2 B3 R1-M5)", function()
+    -- Codex round 1 of block 3, M5: only Mulgore loaded, copper needed - the
+    -- Barrens with 53 known places were not in the list until they were
+    -- loaded. The candidates of a zone not loaded yet come from the spawn
+    -- points shipped with the addon (the same data the counts use), with the
+    -- same rules: what you can gather, your continent, zones switched off;
+    -- places counted once. No world scan, nothing is loaded before "Go".
+    local data = GathercraftQuestieData
+    local COPPER = 2770
+    local given
+    local saved = { planFor = ns.SkillPlanFor, skill = ns.GetSkill, run = ns.db.activeRun, tooltip = ns.db.tooltipPrices, zones = ns.db.disabledZones }
+    local W = IdentityWorld()
+    local before = #errors
+    -- a zone of Mulgore's continent with shipped copper places that is not loaded: no nodes, not imported
+    local function HasCopper(mapID)
+        for id in (data.zones[mapID] or ""):gmatch("(%d+),%d+,%d+") do
+            if ns.PlanBaseItem("o" .. id) == COPPER then return true end
+        end
+    end
+    -- two zones of Mulgore's continent with shipped copper places, made "not loaded" for this
+    -- step (steps before may have loaded every zone: their nodes and their mark are put aside)
+    local target, other
+    for mapID in pairs(data.zones) do
+        if type(mapID) == "number" and mapID ~= 1412 and ns.GetContinent(mapID) == ns.GetContinent(1412) and HasCopper(mapID) then
+            if not target or mapID < target then other, target = target, mapID elseif not other or mapID < other then other = mapID end
+        end
+    end
+    local keepNodes, keepMarks, keepImport = {}, {}, ns.ImportQuestieZone
+    local imported = {}
+    local ok, err = pcall(function()
+        assert(target and other, "test setup: no two zones of Kalimdor with shipped copper places")
+        ns.db.spawnZones = ns.db.spawnZones or {}
+        for _, z in ipairs({ target, other }) do keepMarks[z] = ns.db.spawnZones[z] ns.db.spawnZones[z] = nil end
+        -- (the importer loads a zone once a session: one loaded by a step before gives its nodes
+        -- back here, as the import would have)
+        ns.ImportQuestieZone = function(mapID, quiet)
+            imported[#imported + 1] = mapID
+            local n = keepImport(mapID, quiet)
+            if n == 0 and keepNodes[mapID] and #keepNodes[mapID] > 0 then
+                ns.db.nodes[mapID], ns.db.spawnZones[mapID] = keepNodes[mapID], true
+                ns.NotifyNodesChanged()
+                n = #keepNodes[mapID]
+            end
+            return n
+        end
+        ns.GetSkill = function(t) if t == "ore" then return 300, 300, 300 end end
+        ns.SkillPlanFor = function() return given end
+        given = { prof = "Mining", from = 1, target = 75, status = "ok", valid = true, complete = true, reliable = true, revision = 9600,
+            items = { [COPPER] = { need = 60, have = 0, haveKnown = true, missing = 60 } } }
+        W.Set({}) W.At(0) -- (Mulgore: nothing of copper here)
+        -- the other zones' nodes out of the way: only Mulgore is loaded
+        for mapID, nodes in pairs(ns.db.nodes) do
+            if type(mapID) == "number" and mapID ~= 1412 then keepNodes[mapID] = nodes end
+        end
+        for mapID in pairs(keepNodes) do ns.db.nodes[mapID] = nil end
+        ns.NotifyNodesChanged() advance(1)
+        ns.db.tooltipPrices = false
+        if ns.ItemTooltipSetEnabled then ns.ItemTooltipSetEnabled(false) end
+        assert(ns.PlanZoneListShow("Mining", 75), "the list did not open")
+        advance(20)
+        local list = (ns.PlanZoneListState())
+        local row
+        for _, z in ipairs(list.zones) do if z.mapID == target then row = z end end
+        assert(row, ("the list has %d zones and not %s (%d), whose copper is shipped but not loaded"):format(#list.zones, ns.GetZoneName(target), target))
+        -- its number: the different known places, as the counts say - not a sum over the kinds
+        local places
+        for _, zc in ipairs(ns.SpawnCounts(COPPER) or {}) do if zc.mapID == target then places = zc.total end end
+        local copperPlaces
+        for _, it in ipairs(row.items) do if it.item == COPPER then copperPlaces = it.places end end
+        assert(places and places > 0 and copperPlaces == places, ("%s: %s places in the list, the counts say %s"):format(ns.GetZoneName(target), tostring(copperPlaces), tostring(places)))
+        -- nothing was loaded to find it
+        assert(not ns.db.nodes[target] or #ns.db.nodes[target] == 0, "the list loaded the zone")
+        assert(not (ns.db.spawnZones and ns.db.spawnZones[target]), "the list marked the zone as loaded")
+        -- what you cannot gather is no candidate there either: Mining not learned (Herbalism is)
+        ns.GetSkill = function(t) if t == "herb" then return 300, 300, 300 end end
+        _G.GathercraftPlanZones:Hide()
+        given.revision = 9601
+        assert(ns.PlanZoneListShow("Mining", 75)) advance(20)
+        list = (ns.PlanZoneListState())
+        for _, z in ipairs(list.zones) do assert(z.mapID ~= target, "a zone whose copper you cannot gather is listed") end
+        ns.GetSkill = function(t) if t == "ore" then return 300, 300, 300 end end
+        _G.GathercraftPlanZones:Hide()
+        given.revision = 9602
+        assert(ns.PlanZoneListShow("Mining", 75)) advance(20)
+        -- Go: the zone is loaded as a run there would load it, and the run farms exactly there
+        imported = {}
+        assert(ns.PlanZoneListGo(target), "Go did not start the run")
+        assert(#imported == 1 and imported[1] == target, "Go did not load exactly the zone it starts: " .. table.concat(imported, " "))
+        W.Wait(1)
+        assert(ns.run and ns.run.plan and ns.run.zone == target and ns.db.activeRun.zone == target, "Go: the run is not in " .. ns.GetZoneName(target))
+        assert(ns.db.nodes[target] and #ns.db.nodes[target] > 0, "Go did not load the zone")
+        assert(#ns.run.points > 0, "Go: the run has no node to go to")
+        for _, p in ipairs(ns.run.points) do assert(p.mapID == target, "Go: a node of another zone in the route") end
+        assert(not (ns.db.nodes[other] and #ns.db.nodes[other] > 0), "Go loaded another zone too")
+        ns.StopRun(true)
+        -- the time it takes to open the list with every zone of the continent shipped and none loaded
+        _G.GathercraftPlanZones:Hide()
+        ns.db.nodes[target] = nil
+        if ns.db.spawnZones then ns.db.spawnZones[target] = nil end
+        local t0 = debugprofilestop()
+        given.revision = 9603
+        assert(ns.PlanZoneListShow("Mining", 75))
+        local ms = debugprofilestop() - t0
+        advance(20)
+        list = (ns.PlanZoneListState())
+        note(("MEASURE M5 the list opened with %d zones of the continent from the shipped data: %.1f ms (the mock, not the game)"):format(#list.zones, ms))
+        assert(#errors == before, "an error: " .. tostring(errors[#errors]))
+    end)
+    ns.SkillPlanFor, ns.GetSkill, ns.ImportQuestieZone = saved.planFor, saved.skill, keepImport
+    if ns.run then ns.StopRun(true) end
+    for _, name in ipairs({ "GathercraftPlanZones", "GathercraftPlanHint", "GathercraftRunSummary", "GathercraftPlanGathered" }) do if _G[name] then _G[name]:Hide() end end
+    for mapID, nodes in pairs(keepNodes) do ns.db.nodes[mapID] = nodes end
+    if target then ns.db.nodes[target] = keepNodes[target] end
+    for z, mark in pairs(keepMarks) do ns.db.spawnZones[z] = mark end
+    ns.db.activeRun, ns.db.tooltipPrices = saved.run, saved.tooltip
+    W.Restore()
+    if ns.ItemTooltipSetEnabled then ns.ItemTooltipSetEnabled(saved.tooltip ~= false) end
+    advance(15)
     if not ok then error(err, 0) end
 end)
 -- (end of the "Farm for plan" steps, v0.2 building block 3)

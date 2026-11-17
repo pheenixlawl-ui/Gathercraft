@@ -776,6 +776,38 @@ end
 
 -- The zones for a plan: { state, why, here, zones = { { mapID, name, here, places, candidates,
 -- items = { { item, places (nil: not counted yet), candidates }, ... } }, ... }, counting }
+-- (R1-M5) The herb and ore places shipped with the addon for a zone that is
+-- not loaded yet (Data/QuestieNodes.lua, the data the spawn counts read):
+-- read once a zone, then given out as nodes of the wanted materials only.
+-- Nothing is put into ns.db.nodes - that is what "Go" does, as any run.
+local shippedPlaces = {}
+local function ShippedNodes(mapID, wanted)
+    local data = GathercraftQuestieData
+    local packed = data and data.zones and data.zones[mapID]
+    if not packed then return nil end
+    local places = shippedPlaces[mapID]
+    if not places then
+        places = {}
+        for id, x, y in packed:gmatch("(%d+),(%d+),(%d+)") do
+            local oid = "o" .. id
+            local item = ns.PlanBaseItem(oid)
+            if item then places[#places + 1] = { oid, tonumber(x) / 10000, tonumber(y) / 10000, item } end
+        end
+        shippedPlaces[mapID] = places
+    end
+    local out = {}
+    for _, e in ipairs(places) do
+        if wanted[e[4]] then
+            local kind = data.kinds[e[1]]
+            out[#out + 1] = { id = e[1], type = kind[1] == "h" and "herb" or "ore", name = kind[3], x = e[2], y = e[3], count = 0, item = e[4], source = "questie", last = 0 }
+        end
+    end
+    return out
+end
+local function Loaded(mapID)
+    return (ns.db.spawnZones and ns.db.spawnZones[mapID]) or not (GathercraftQuestieData and GathercraftQuestieData.zones and GathercraftQuestieData.zones[mapID])
+end
+
 local function BuildZoneList(spec)
     listBuilds = listBuilds + 1
     local plan = ReadPlan(spec.prof, spec.target)
@@ -785,15 +817,27 @@ local function BuildZoneList(spec)
     if not next(plan.wanted) then return data end
     local continent = data.here and ns.GetContinent and ns.GetContinent(data.here)
     if not continent then return data end
-    local maps = {}
+    -- the zones with nodes, and those with shipped spawn points that are not
+    -- loaded yet (R1-M5)
+    local maps, seen = {}, {}
     for mapID in pairs(ns.db.nodes or {}) do
-        if type(mapID) == "number" and ns.GetContinent(mapID) == continent then maps[#maps + 1] = mapID end
+        if type(mapID) == "number" and ns.GetContinent(mapID) == continent then maps[#maps + 1] = mapID seen[mapID] = true end
+    end
+    for mapID in pairs((GathercraftQuestieData and GathercraftQuestieData.zones) or {}) do
+        if type(mapID) == "number" and not seen[mapID] and ns.GetContinent(mapID) == continent then maps[#maps + 1] = mapID end
     end
     table.sort(maps)
     local keepSet, keepFilter = probeSet, probeFilter
     probeSet, probeFilter = plan.wanted, spec.filter
     for _, mapID in ipairs(maps) do
-        local points, weights = ns.PlanRouteCandidates(spec.filter, mapID)
+        local nodes
+        if not Loaded(mapID) then
+            -- your own nodes there and the shipped places
+            nodes = {}
+            for _, n in ipairs(ns.db.nodes[mapID] or {}) do nodes[#nodes + 1] = n end
+            for _, n in ipairs(ShippedNodes(mapID, plan.wanted) or {}) do nodes[#nodes + 1] = n end
+        end
+        local points, weights = ns.PlanRouteCandidates(spec.filter, mapID, nodes)
         local per, any = {}, false
         for _, p in ipairs(points or {}) do
             if (weights[p.kind] or 1) > 0 then
@@ -929,6 +973,9 @@ ns.PlanZoneListGo = function(mapID)
     local spec = listSpec
     if not spec or type(mapID) ~= "number" then return false end
     CloseZoneList()
+    -- a zone not loaded yet: its shipped spawn points are loaded, as a run
+    -- from "Best place to farm" does it (R1-M5)
+    if not Loaded(mapID) and ns.ImportQuestieZone then ns.ImportQuestieZone(mapID, true) end
     ns.StartRun(spec.filter, mapID)
     return ns.run ~= nil and ns.run.zone == mapID
 end

@@ -2410,11 +2410,24 @@ ns.ARRIVE_LIMITS = { ARRIVE_MIN, ARRIVE_MAX, ARRIVE_DEFAULT }
 
 ns.StartRun = StartRun
 -- for PlanFarm.lua: the nodes a plan run would take in this zone and the
--- weight of their kinds (1: you can gather it, 0: not); nil without a position
-ns.PlanRouteCandidates = function(filter, zone)
+-- weight of their kinds (1: you can gather it, 0: not); nil without a
+-- position. nodes: the zone's nodes when they are not in ns.db.nodes yet
+-- (its shipped spawn points, 0.2 B3 R1-M5) - taken by the same rules.
+ns.PlanRouteCandidates = function(filter, zone, nodes)
     local px, _, instance = PlayerWorld()
     if not px then return nil end
-    local points = CollectPoints(filter, instance, zone, false)
+    local points
+    if nodes then
+        points = {}
+        for _, n in ipairs(nodes) do
+            if NodeTaken(n, zone, filter, false) then
+                local wx, wy, inst = WorldPos(n, zone)
+                if wx and inst == instance then points[#points + 1] = { node = n, mapID = zone, wx = wx, wy = wy } end
+            end
+        end
+    else
+        points = CollectPoints(filter, instance, zone, false)
+    end
     local weights = KindWeights(points)
     for key, w in pairs(weights) do weights[key] = w > 0 and 1 or 0 end
     return points, weights
