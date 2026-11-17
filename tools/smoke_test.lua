@@ -5203,6 +5203,181 @@ step("Skill plan: the nearest vendor of a recipe, else the first as before (0.2 
     if _G.GathercraftSkillPlan then _G.GathercraftSkillPlan:Hide() end
     if not ok then error(err, 0) end
 end)
+step("Skill plan: an open window follows where you are - after a zone change or a longer way the nearest trainer and vendor again, text and click, and the plan is not worked out again (0.2 places, R3 B-M1)", function()
+    -- Codex round 3 of the places, B-M1: the window was left open, you went
+    -- to another zone - the row still named the trainer of before, and a
+    -- click set his waypoint. Now the rows of places follow you, with
+    -- nothing drawn by the test: only the real zone event, or walking, and
+    -- time. The plan itself is not worked out again because you move.
+    local L, core, d = ns.L, ns.PlanCore, ns.CraftData
+    local saved = { rank = ns.ProfessionRank, have = d.Have, known = d.Known, price = ns.GetPrice, cost = d.ReagentCost, filter = ns.CraftFilter, compute = core.Compute,
+        targets = ns.db.planTargets, waypoint = ns.SetWaypoint, trainers = GathercraftTrainers, sources = GathercraftRecipeSources, maps = GathercraftAreaMaps,
+        map = player.map, x = player.x, y = player.y, faction = UnitFactionGroup }
+    local function Rows()
+        local list = {}
+        for _, o in ipairs(allFrames) do
+            if o.left and o.mid and o.right and o:IsShown() and o.__pts and o.__pts.TOPLEFT then list[#list + 1] = o end
+        end
+        table.sort(list, function(a, b) return a.__pts.TOPLEFT[2] > b.__pts.TOPLEFT[2] end)
+        return list
+    end
+    local function Tip(row)
+        local lines = {}
+        if row and row.tip then row.tip({ AddLine = function(_, t) lines[#lines + 1] = t end }) end
+        return table.concat(lines, "\n")
+    end
+    local ok, err = pcall(function()
+        local ranks, price, computed = { Alchemy = { 60, 75 } }, 10, 0
+        ns.ProfessionRank = function(p) local r = ranks[p] if r then return r[1], r[2] end end
+        d.Have = function() return 0 end
+        d.Known = function() return {} end
+        ns.GetPrice = function() return price, "AH scan" end
+        d.ReagentCost = function() return price, "AH scan" end
+        ns.CraftFilter = function() return "Alchemy" end
+        ns.db.planTargets = nil
+        local way
+        ns.SetWaypoint = function(mapID, x, y) way = { mapID, x, y } return true end
+        -- a plan with a training step at 75 (the trainers), or one with a recipe to buy (the vendors)
+        local vendorPlan = false
+        core.Compute = function(input)
+            computed = computed + 1
+            local _ = input.prices[9801] -- (what it read: a price - a changed one makes a new plan)
+            if vendorPlan then
+                return saved.compute({ prof = input.prof, skill = 1, target = 6, professions = {}, caps = {}, nodes = {}, stock = {}, recipeItemPrices = { [99901] = 500 },
+                    recipes = { [input.prof] = { { prof = input.prof, key = "V", name = "Recipe V", product = 9840, made = 1, req = 1, yellow = 6, grey = 6,
+                        reagents = { { id = 9841, n = 1 } }, learn = "vendor", recipeItem = 99901 } } },
+                    prices = { [9841] = { status = "known", copper = 10 } } })
+            end
+            return saved.compute({ prof = input.prof, skill = 60, target = 80, maxRank = 75, caps = { 75 }, professions = {}, nodes = {}, stock = {},
+                recipeItemPrices = {}, recipes = { [input.prof] = { { prof = input.prof, key = "A", name = "Recipe A", product = 9800, made = 1, req = 1, yellow = 500, grey = 500,
+                    reagents = { { id = 9801, n = 1 } }, learn = "known" } } }, prices = { [9801] = { status = "known", copper = 10 } } })
+        end
+        -- areas: 9001 Zone1413, 9002 Zone1440, 9003 Zone1412 (Kalimdor), 9004 Zone1420 (another continent)
+        GathercraftAreaMaps = setmetatable({ [9001] = 1413, [9002] = 1440, [9003] = 1412, [9004] = 1420 }, { __index = saved.maps })
+        UnitFactionGroup = function() return "Horde", "Horde" end
+        local function Sub()
+            local train
+            for i, row in ipairs(Rows()) do
+                if (row.left:GetText() or ""):find((L["Train the next rank at your trainer (needed at %d)."]):format(75), 1, true) then
+                    train = row
+                    return train, Rows()[i + 1]
+                end
+            end
+            error("test setup: no training step")
+        end
+        local function Trainer(name, mapID)
+            return (L["Nearest trainer: %s (%s)"]):format(name, ns.GetZoneName(mapID))
+        end
+
+        -- (1) a zone change, the window open: the trainer of where you are now - text, tooltip, click
+        GathercraftTrainers = { Alchemy = {
+            [902] = "Near Horde|2|H|9001:5000:5000",
+            [904] = "Over The Sea|2|H|9004:5000:5000",
+        } }
+        player.map, player.x, player.y = 1412, 0.5, 0.5
+        fire("ZONE_CHANGED_NEW_AREA")
+        ns.ShowSkillPlan("Alchemy") advance(1)
+        local train, sub = Sub()
+        assert(sub and sub.left:GetText():find(Trainer("Near Horde", 1413), 1, true), "test setup: " .. tostring(sub and sub.left:GetText()))
+        sub.click()
+        assert(way and way[1] == 1413, "test setup: the trainer's waypoint")
+        -- (a price changed, without an event of the window: the plan would be worked out
+        -- anew if it were asked again - moving must not ask it)
+        price = 11
+        local before = computed
+        player.map, player.x, player.y = 1420, 0.4, 0.5
+        fire("ZONE_CHANGED_NEW_AREA")
+        advance(2)
+        train, sub = Sub()
+        assert(sub.left:GetText():find(Trainer("Over The Sea", 1420), 1, true), "a zone change, the window open: still " .. sub.left:GetText())
+        way = nil
+        sub.click()
+        assert(way and way[1] == 1420 and math.abs(way[2] - 0.5) < 1e-9, "a zone change: the click sets the waypoint of before (" .. tostring(way and way[1]) .. ")")
+        way = nil
+        train.click()
+        assert(way and way[1] == 1420, "a zone change: the training row's click sets the waypoint of before")
+        assert(Tip(sub):find(Trainer("Over The Sea", 1420), 1, true) and Tip(train) == Tip(sub), "a zone change: the tooltip names the trainer of before")
+        assert(computed == before, "the plan was worked out again because you moved (" .. (computed - before) .. ")")
+        -- pointing at it still looks nothing up
+        local searches = ns.PlacesSearches
+        for _ = 1, 5 do Tip(sub) Tip(train) end
+        assert(ns.PlacesSearches == searches, "the trainer is looked up while you point at the row")
+        -- staying there: nothing looked up again
+        advance(3)
+        assert(ns.PlacesSearches == searches, "standing still: the places are looked up again (" .. (ns.PlacesSearches - searches) .. ")")
+        -- the plan itself is still brought up to date by its own events
+        fire("BAG_UPDATE_DELAYED")
+        advance(1)
+        assert(computed == before + 1, "test setup: the changed price did not make a new plan with the next event (" .. (computed - before) .. ")")
+
+        -- (2) a longer way on the same map, no zone event: the trainer nearer now
+        GathercraftTrainers = { Alchemy = {
+            [910] = "West Horde|2|H|9003:1000:5000",
+            [911] = "East Horde|2|H|9003:9000:5000",
+        } }
+        player.map, player.x, player.y = 1412, 0.3, 0.5
+        fire("ZONE_CHANGED_NEW_AREA")
+        ns.ShowSkillPlan("Alchemy") advance(1)
+        train, sub = Sub()
+        assert(sub.left:GetText():find(Trainer("West Horde", 1412), 1, true), "test setup: " .. sub.left:GetText())
+        before, searches = computed, ns.PlacesSearches
+        player.x = 0.32 -- (100 yards: not a move that counts)
+        advance(2)
+        assert(ns.PlacesSearches == searches, "100 yards: the places are looked up again")
+        -- (choosing a target meanwhile: its menu stays open)
+        local menu = assert(_G.GathercraftSkillPlanTargetMenu, "test setup: no target menu")
+        menu:Show()
+        player.x = 0.7 -- (2000 yards)
+        advance(2)
+        train, sub = Sub()
+        assert(sub.left:GetText():find(Trainer("East Horde", 1412), 1, true), "a longer way, the window open: still " .. sub.left:GetText())
+        assert(menu:IsShown(), "the rows of places drawn again: the target menu was closed")
+        menu:Hide()
+        way = nil
+        sub.click()
+        assert(way and way[1] == 1412 and math.abs(way[2] - 0.9) < 1e-9, "a longer way: the click sets the waypoint of before")
+        assert(computed == before, "the plan was worked out again because you walked (" .. (computed - before) .. ")")
+
+        -- (3) the vendor of a recipe, a zone change: the vendor of where you are now - text, tooltip, click
+        vendorPlan = true
+        ranks.Alchemy = { 1, 75 }
+        GathercraftRecipeSources = setmetatable({ items = { [99901] = "V:802,806" }, npcs = {
+            [802] = "The Nearest|9001|AH|5000|5000",
+            [806] = "Sea Vendor|9004|H|5000|5000",
+        } }, { __index = saved.sources })
+        player.map, player.x, player.y = 1412, 0.5, 0.5
+        fire("ZONE_CHANGED_NEW_AREA")
+        ns.ShowSkillPlan("Alchemy") advance(1)
+        local function Learn()
+            for _, o in ipairs(Rows()) do
+                if o.left:GetText() == "Recipe V" then return o end
+            end
+        end
+        local row = Learn()
+        assert(row and row.right:GetText():find("The Nearest", 1, true), "test setup: " .. tostring(row and row.right:GetText()))
+        way = nil
+        row.click()
+        assert(way and way[1] == 1413, "test setup: the vendor's waypoint")
+        before = computed
+        player.map, player.x, player.y = 1420, 0.4, 0.5
+        fire("ZONE_CHANGED_NEW_AREA")
+        advance(2)
+        row = Learn()
+        assert(row and row.right:GetText():find("Sea Vendor", 1, true), "a zone change: the vendor of before: " .. tostring(row and row.right:GetText()))
+        way = nil
+        row.click()
+        assert(way and way[1] == 1420, "a zone change: the vendor's click sets the waypoint of before")
+        assert(Tip(row):find((L["Sold by %s (%s)."]):format("Sea Vendor", ns.GetZoneName(1420)), 1, true), "a zone change: the vendor's tooltip: " .. Tip(row))
+        assert(computed == before, "the plan was worked out again because you moved (vendor, " .. (computed - before) .. ")")
+    end)
+    ns.ProfessionRank, d.Have, d.Known, ns.GetPrice, ns.CraftFilter, core.Compute = saved.rank, saved.have, saved.known, saved.price, saved.filter, saved.compute
+    d.ReagentCost = saved.cost
+    ns.db.planTargets, ns.SetWaypoint, GathercraftTrainers, GathercraftRecipeSources, GathercraftAreaMaps = saved.targets, saved.waypoint, saved.trainers, saved.sources, saved.maps
+    player.map, player.x, player.y, UnitFactionGroup = saved.map, saved.x, saved.y, saved.faction
+    fire("ZONE_CHANGED_NEW_AREA")
+    if _G.GathercraftSkillPlan then _G.GathercraftSkillPlan:Hide() end
+    if not ok then error(err, 0) end
+end)
 step("Skill plan 2.0: texts in every language, an internal build mark, nothing published yet (v0.2 A7)", function()
     -- 0.2 is built block by block and published as one release: this build is
     -- marked internal, and what players read about releases is not touched.

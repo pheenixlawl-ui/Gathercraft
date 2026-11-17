@@ -16,7 +16,8 @@ local addonName, ns = ...
 --     a sure one comes before an unsure one.
 --   * worked out when the skill plan is drawn and kept: again only on a zone
 --     change, a bigger move (MOVE yards) or another faction - never while you
---     point at a row.
+--     point at a row. An open skill plan looks once a second whether that
+--     happened (ns.PlacesStale) and then draws its rows of places again.
 --   * no data, no map or no place: nil (the plan says what it said before).
 ---------------------------------------------------------------------------
 local MOVE = 300
@@ -31,22 +32,33 @@ local function Faction()
     return mine == "Alliance" and "A" or mine == "Horde" and "H" or nil
 end
 
--- the cache holds while you stay near where it was made
-local function Fresh()
+-- where you are: map, x, y and your faction's letter
+local function Where()
     local map, x, y
     if ns.GetPlayerPos then map, x, y = ns.GetPlayerPos() end
-    local letter = Faction()
-    local was = here
+    return map, x, y, Faction()
+end
+-- the cache holds while you stay near where it was made
+local function Holds(was, map, x, y, letter)
     local keep = was ~= nil and was.letter == letter and was.map == map
     if keep and was and map and was.x and x then
         local d = HBD and HBD:GetZoneDistance(was.map, was.x, was.y, map, x, y)
         keep = d ~= nil and d <= MOVE
     end
-    if keep and was then return was end
+    return keep
+end
+local function Fresh()
+    local map, x, y, letter = Where()
+    if Holds(here, map, x, y, letter) and here then return here end
     cache = {}
-    was = { map = map, x = x, y = y, letter = letter }
-    here = was
-    return was
+    here = { map = map, x = x, y = y, letter = letter }
+    return here
+end
+-- the places worked out are not for where you are now (a zone change, a
+-- bigger move, another faction): an open skill plan looks them up again
+-- (R3 B-M1). Only looks - it drops nothing.
+function ns.PlacesStale()
+    return not Holds(here, Where())
 end
 
 -- how far a place is from you; nil = not on your continent (or no position)

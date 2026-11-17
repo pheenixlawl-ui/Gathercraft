@@ -891,15 +891,21 @@ local function Ago(seconds)
         or mins < 2880 and (math.floor(mins / 60) .. L[" h ago"]) or (math.floor(mins / 1440) .. L[" days ago"])
 end
 
+-- what the window shows: the plan it was drawn with (its profession, skill
+-- and target), and whether it has rows of places (R3 B-M1)
+local shown
+
 -- where a recipe item is sold: the nearest vendor (Places.lua, from
 -- Data/RecipeSources.lua), else the first as before
 local function VendorOf(recipe)
+    if shown then shown.places = true end
     return recipe.recipeItem and ns.PlacesVendor and ns.PlacesVendor(recipe.recipeItem) or nil
 end
 
 -- the nearest trainer (Places.lua, Data/Trainers.lua): its text, worked out
 -- when the window is drawn; the tooltip and the click only use it
 local function TrainerPlace(prof, need)
+    if shown then shown.places = true end
     local t = ns.PlacesTrainer and ns.PlacesTrainer(prof, need)
     if not t then return nil end
     local text = ((t.far and L["Trainer on another continent: %s (%s)"] or L["Nearest trainer: %s (%s)"])):format(t.name, ns.GetZoneName(t.mapID))
@@ -1025,12 +1031,15 @@ local function ShowPlanButtons(prof, target, y)
 end
 
 local haveSaid = {} -- item -> the last debug line about its count
-local function Refresh()
+-- keep: what the window showed - drawn again with it, the plan not asked for
+-- again (where you are changed, R3 B-M1); nil: the plan of the state as it is
+local function Draw(keep)
+    shown = nil
     if not (win and win:IsShown() and Data()) then return end
     if planButtons then planButtons:Hide() end
     local d = Data()
     local prof = state.prof
-    if targetMenu then targetMenu:Hide() end
+    if targetMenu and not keep then targetMenu:Hide() end -- (you walk while choosing a target: it stays open)
     -- rows one below the other; a line without a right column (hints, notes)
     -- takes the whole width and wraps, so long translations and big amounts
     -- are not cut off: its row grows with the text
@@ -1109,7 +1118,13 @@ local function Refresh()
         skillText:SetText(maxRank and (L["Your skill: %d / %d"]):format(rank, maxRank) or (L["Your skill: %d"]):format(rank))
     end
 
-    local plan, updating, broken = PlanToShow(prof, from, target, lastSeen and "lastSeen" or nil, seenAt)
+    local plan, updating, broken
+    if keep and keep.prof == prof and keep.from == from and keep.target == target and keep.lastSeen == lastSeen then
+        plan, updating, broken = keep.plan, keep.updating, keep.broken
+    else
+        plan, updating, broken = PlanToShow(prof, from, target, lastSeen and "lastSeen" or nil, seenAt)
+    end
+    shown = { prof = prof, from = from, target = target, lastSeen = lastSeen, plan = plan, updating = updating, broken = broken }
     -- The calculation broke (Codex round 3): the window is drawn first - no
     -- "Updating" and no "Working out" stays behind, a line says what happened
     -- - and then the error is raised, once, so it is reported like any other.
@@ -1461,7 +1476,16 @@ local function Refresh()
     Finish(totalLine, note)
     Report()
 end
+local function Refresh() Draw() end
 ns.RefreshSkillPlan = Refresh
+-- Where you are changed while the window is open (a zone change, a longer
+-- way, another faction: Places.lua): its rows of trainers and vendors are
+-- drawn again - text, tooltip and click - with the plan it shows. Nothing is
+-- worked out because you move (R3 B-M1).
+local PLACES_LOOK = 1 -- seconds between two looks
+local function PlacesAgain()
+    if shown and shown.places and ns.PlacesStale and ns.PlacesStale() then Draw(shown) end
+end
 
 local function Build()
     win = ns.MakeCard("GathercraftSkillPlan", 560, 520)
@@ -1590,6 +1614,15 @@ local function Build()
         "SKILL_LINES_CHANGED", "NEW_RECIPE_LEARNED", "TRADE_SKILL_LIST_UPDATE" }) do
         pcall(win.RegisterEvent, win, e)
     end
+    -- where you are can change too: looked at once a second while it is open
+    -- (only shown frames are updated) - its rows of places, never the plan
+    local sinceLook = 0
+    win:SetScript("OnUpdate", function(_, elapsed)
+        sinceLook = sinceLook + (elapsed or 0)
+        if sinceLook < PLACES_LOOK then return end
+        sinceLook = 0
+        PlacesAgain()
+    end)
 end
 
 -- Opens the plan of ONE profession: the one named, else the one chosen on
