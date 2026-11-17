@@ -674,9 +674,12 @@ end)
 -- a new plan (the window worked one out while it was open): looked at
 local OnNewPlan -- (part 3: the list of zones is worked out anew with a new plan)
 if ns.skillPlanListeners then
-    table.insert(ns.skillPlanListeners, function()
-        if pr then ns.PlanRunLook() end
-        if OnNewPlan then OnNewPlan() end
+    -- (a plan of another profession or target is not theirs: it sets
+    -- nothing off - R1-M1)
+    table.insert(ns.skillPlanListeners, function(result)
+        local prof, target = result and result.prof, result and result.target
+        if pr and prof == pr.prof and target == pr.target then ns.PlanRunLook() end
+        if OnNewPlan then OnNewPlan(prof, target) end
     end)
 end
 -- a gather that was booked: its loot is on the way to the bags
@@ -880,8 +883,8 @@ RefreshZoneList = function()
 end
 
 -- a new plan while the list is open: worked out anew, once per revision
-OnNewPlan = function()
-    if list and list:IsShown() and listSpec then
+OnNewPlan = function(prof, target)
+    if list and list:IsShown() and listSpec and (prof == nil or (prof == listSpec.prof and target == listSpec.target)) then
         C_Timer.After(0, function() if list:IsShown() then RefreshZoneList() end end)
     end
 end

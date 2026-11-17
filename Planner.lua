@@ -274,6 +274,28 @@ local function SameReads(old, new)
     return true
 end
 
+-- The finished plans of the readers outside the window (0.2 B3 R1-M1): one
+-- for each profession and target, at most KEPT_PLANS. A plan run and the
+-- list of zones of another profession each find their own plan here, as
+-- long as nothing it read has changed - and so do not set each other's
+-- calculation off again. (The result kept is a copy: what the window marks
+-- as being updated is the window's.)
+local KEPT_PLANS = 4
+local function PlanKey(prof, target) return tostring(prof) .. ":" .. tostring(target) end
+local function Keep(input, sig, plan, result)
+    calc.kept = calc.kept or {}
+    local copy = {}
+    for k, v in pairs(result) do copy[k] = v end
+    copy.updating = nil
+    calc.kept[PlanKey(input.prof, input.target)] = { input = input, sig = sig, plan = plan, result = copy, at = calc.revision }
+    local n, oldest = 0, nil
+    for key, e in pairs(calc.kept) do
+        n = n + 1
+        if not oldest or e.at < calc.kept[oldest].at then oldest = key end
+    end
+    if n > KEPT_PLANS then calc.kept[oldest] = nil end
+end
+
 -- a finished plan becomes THE plan: a new revision, a new result
 local function Publish(input, sig, plan)
     calc.plan, calc.input, calc.sig = plan, input, sig
@@ -282,6 +304,7 @@ local function Publish(input, sig, plan)
     local result = ns.PlanCore.Result(plan)
     result.revision = calc.revision
     calc.result = result
+    Keep(input, sig, plan, result)
     for _, fn in ipairs(ns.skillPlanListeners) do pcall(fn, result) end
 end
 
@@ -507,6 +530,13 @@ ns.SkillPlanFor = function(prof, target)
         DropJob()
         return nil, "skill"
     end
+    -- its own plan, kept, and nothing it read has changed: that one - without
+    -- touching what is worked out for another reader (R1-M1)
+    local kept = calc.kept and calc.kept[PlanKey(prof, target)]
+    if kept then
+        local input = Snapshot(prof, rank, target, source == "lastSeen" and "lastSeen" or nil, seenAt)
+        if kept.sig == Signature(input) and SameReads(kept.input, input) then return kept.result end
+    end
     local plan, updating, broken = PlanToShow(prof, rank, target, source == "lastSeen" and "lastSeen" or nil, seenAt)
     if broken then
         -- reported once, like any other error - after the run has been told
@@ -518,7 +548,8 @@ ns.SkillPlanFor = function(prof, target)
         return nil, "broke"
     end
     if updating or not plan or plan ~= calc.plan then return nil, "working" end
-    return calc.result
+    kept = calc.kept and calc.kept[PlanKey(prof, target)]
+    return (kept and kept.plan == plan) and kept.result or calc.result
 end
 
 -- steps, materials, cost of the missing materials, where the plan got stuck,

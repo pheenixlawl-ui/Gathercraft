@@ -24105,6 +24105,89 @@ step("Item tooltip: the auction house scan that starts on opening (0.1.23) gives
     fire("AUCTION_HOUSE_CLOSED") advance(1)
     if not ok then error(err, 0) end
 end)
+step("Farm for plan: a plan run and the list of zones of another profession do not set each other off (v0.2 B3 R1-M1)", function()
+    -- Codex round 1 of block 3, M1: a Mining run and the list of zones of
+    -- Alchemy, the skill plan closed - every plan the one gave out began the
+    -- other's again (15-30 calculations in 3 s with nothing changed). Now a
+    -- reader is set off only by its own plan; the plans it has are kept, one
+    -- for each profession and target.
+    local d, core = ns.CraftData, ns.PlanCore
+    local saved = { clock = ns.SkillPlanClock, rank = ns.ProfessionRank, have = d.Have, known = d.Known, skill = ns.GetSkill, compute = core.Compute,
+        targets = ns.db.planTargets, run = ns.db.activeRun }
+    local W = IdentityWorld()
+    local before = #errors
+    local win = _G.GathercraftSkillPlan
+    if win then win:Hide() end
+    local ok, err = pcall(function()
+        local stock = {}
+        ns.ProfessionRank = function(p) if p == "Mining" then return 1, 75 elseif p == "Alchemy" then return 1, 300 end end
+        d.Known = function() return {} end
+        d.Have = function(id) return stock[id] or 0 end
+        ns.GetSkill = function(t) if t == "herb" or t == "ore" then return 300, 300, 300 end end
+        ns.db.planTargets = nil
+        local starts = {}
+        core.Compute = function(input, pause)
+            starts[#starts + 1] = input.prof
+            return saved.compute(input, pause)
+        end
+        local function Count(prof) local n = 0 for _, p in ipairs(starts) do if prof == nil or p == prof then n = n + 1 end end return n end
+        -- an herb of the Alchemy plan and the copper veins of the Mining plan, here
+        local whole = core.Result(saved.compute(ns.SkillPlanSnapshot("Alchemy", 1, 300)))
+        local herb
+        for id, m in pairs(whole.items) do if m.need > 0 and ns.PlanBaseKinds(id) and (not herb or id < herb) then herb = id end end
+        assert(herb, "test setup: the Alchemy plan needs nothing from the map")
+        W.Set({ W.Node("o1731", "Copper Vein", 100, { type = "ore" }), W.Node(ns.PlanBaseKinds(herb)[1], "Herb", 200, { type = "herb" }) })
+        W.At(0)
+        local now = 0
+        ns.SkillPlanClock = function() now = now + 0.01 return now end -- (a clock that goes on: big plans in parts)
+        -- the Mining run, then the list of Alchemy - the skill plan stays closed
+        ns.StartRun(ns.PlanFilter("Mining", 75), 1412)
+        assert(ns.run and ns.run.plan, "test setup: no Mining run")
+        assert(ns.PlanZoneListShow("Alchemy", 300), "test setup: the list of Alchemy did not open")
+        advance(5)
+        local settled = Count()
+        -- 3 s with nothing changed: nothing is worked out again
+        starts = {}
+        advance(3)
+        note(("MEASURE M1 a Mining run and the list of Alchemy: %d calculations to settle, then %d in 3 s with nothing changed (%d Mining, %d Alchemy)"):format(
+            settled, Count(), Count("Mining"), Count("Alchemy")))
+        assert(Count() == 0, ("3 s with nothing changed: %d calculations (%d Mining, %d Alchemy) - the two set each other off"):format(Count(), Count("Mining"), Count("Alchemy")))
+        assert(not ns.SkillPlanBusy() and ns.PlanRunState().state == "active" and (ns.PlanZoneListState()).state == "ok",
+            ("the run is %s, the list %s, still working out: %s"):format(tostring(ns.PlanRunState().state), tostring((ns.PlanZoneListState()).state), tostring(ns.SkillPlanBusy())))
+        -- the bags change (copper ore: only the run's plan uses it): the run's plan is worked
+        -- out once more - and then it is quiet again; the list of Alchemy is not built anew for
+        -- the run's new plan (Codex: "the list renews its own job on every plan given out")
+        local builds0 = select(2, ns.PlanZoneListState())
+        stock[2770] = 5
+        fire("BAG_UPDATE_DELAYED") advance(3)
+        local builds = select(2, ns.PlanZoneListState()) - builds0
+        assert(builds == 0, ("after a change that is not the list's the list was built %d times, want 0"):format(builds))
+        local afterBags = Count()
+        assert(afterBags >= 1 and afterBags <= 2 and Count("Mining") <= 1 and Count("Alchemy") <= 1,
+            ("after one change of the bags: %d calculations (%d Mining, %d Alchemy), want at most one each"):format(afterBags, Count("Mining"), Count("Alchemy")))
+        assert(ns.PlanRunState().rows[1].have == 5, "the run did not get the new count")
+        starts = {}
+        builds0 = select(2, ns.PlanZoneListState())
+        advance(3)
+        assert(Count() == 0, "after the change it did not get quiet again: " .. Count() .. " calculations in 3 s")
+        assert(select(2, ns.PlanZoneListState()) == builds0, "the list was built anew with nothing changed")
+        -- the control: both read the same plan - one calculation, nothing set off
+        _G.GathercraftPlanZones:Hide()
+        assert(ns.PlanZoneListShow("Mining", 75), "test setup: the list of Mining did not open")
+        advance(3)
+        starts = {}
+        advance(3)
+        assert(Count() == 0, "the run and the list of the same plan: " .. Count() .. " calculations in 3 s")
+        assert(#errors == before, "an error: " .. tostring(errors[#errors]))
+    end)
+    ns.SkillPlanClock, ns.ProfessionRank, d.Have, d.Known, ns.GetSkill, core.Compute = saved.clock, saved.rank, saved.have, saved.known, saved.skill, saved.compute
+    if ns.run then ns.StopRun(true) end
+    for _, name in ipairs({ "GathercraftPlanZones", "GathercraftPlanHint", "GathercraftRunSummary", "GathercraftPlanGathered" }) do if _G[name] then _G[name]:Hide() end end
+    ns.db.planTargets, ns.db.activeRun = saved.targets, saved.run
+    W.Restore()
+    advance(2)
+    if not ok then error(err, 0) end
+end)
 -- (end of the "Farm for plan" steps, v0.2 building block 3)
 step("Long run (10 min) for leaks", function() slash("run herb") advance(600) slash("stop") end)
 step("Test mock: OnUpdate runs for the same frames in the same order as going over every frame (tools only)", function()
