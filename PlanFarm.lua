@@ -542,7 +542,13 @@ ns.PlanRunJudge = function(run, points, weights)
         Finish(run, plan, plan.state)
         return "end"
     end
-    if plan.state == "active" then return "go" end
+    if plan.state == "active" then
+        -- a state that is decided: what is done in it may be marked done (R1-M3)
+        local done = 0
+        for _, row in ipairs(plan.rows or {}) do if row.ok then done = done + 1 end end
+        pr.confirmedDone = done
+        return "go"
+    end
     -- waiting or no plan to go by: nothing is decided and nothing ends. The
     -- route goes on with the materials read last (Sven V4), if it has a node.
     for _, p in ipairs(points) do
@@ -707,7 +713,7 @@ ns.PlanRunState = function()
     -- frozen: the rows are the ones read last, the plan is not known right now
     return { prof = pr.prof, target = pr.target, zone = pr.zone, filter = pr.filter, state = pr.state or "waiting", why = plan.why,
         rows = known.rows, offMap = known.offMap, reasons = plan.reasons, candidates = plan.candidates, wanted = pr.wanted,
-        frozen = pr.state == "invalid", hidden = pr.hidden or 0 }
+        frozen = pr.state == "invalid", hidden = pr.hidden or 0, confirmedDone = pr.confirmedDone or 0 }
 end
 -- how the last plan run ended and how many ended at all (tests, the windows)
 ns.PlanRunLastEnd = function() return lastEnd, ends end
@@ -1110,10 +1116,16 @@ ns.PlanPanelLines = function()
     if not s then return nil end
     local lines, done, total = {}, 0, 0
     local rows, off = s.rows or {}, s.offMap or {}
+    -- (0.2 B3 R1-M3) a tick, in a row or in the slim line, only from a state
+    -- that is decided: while the run waits for the bags or for its plan the
+    -- numbers and bars of what was read stay, but nothing is marked done -
+    -- the count of done ones is the one of the last decided state
+    local decided = s.state == "active"
     for _, row in ipairs(rows) do
         total = total + 1
-        if row.ok and not s.frozen then done = done + 1 end
+        if row.ok and decided then done = done + 1 end
     end
+    if not decided then done = math.min(s.confirmedDone or 0, total) end
     local shown, more = 0, 0
     -- what is still open first, then what is ticked
     for pass = 1, 2 do
@@ -1123,7 +1135,7 @@ ns.PlanPanelLines = function()
                     shown = shown + 1
                     local unknown = s.frozen or row.have == nil
                     lines[#lines + 1] = { kind = "row", item = row.item, name = ItemLabel(row.item), need = row.need, have = (not s.frozen) and row.have or nil,
-                        count = s.frozen and ("? / %d"):format(row.need) or Count(row), ok = row.ok and not s.frozen, unknown = unknown,
+                        count = s.frozen and ("? / %d"):format(row.need) or Count(row), ok = row.ok and decided, unknown = unknown,
                         bar = (not unknown and row.need > 0) and math.min(row.have, row.need) / row.need or 0,
                         reason = (not row.ok and row.reason) and ns.PlanReasonText(row.reason) or nil }
                     -- (why it has no node here: a line of its own, a column would cut it off)
@@ -1140,7 +1152,7 @@ ns.PlanPanelLines = function()
             if offShown == 0 then lines[#lines + 1] = { kind = "head", text = L["Not on the map"] } end
             shown, offShown = shown + 1, offShown + 1
             lines[#lines + 1] = { kind = "off", item = row.item, name = ItemLabel(row.item), need = row.need, have = (not s.frozen) and row.have or nil,
-                count = s.frozen and ("? / %d"):format(row.need) or Count(row), ok = row.ok and not s.frozen, source = SeenText(row) }
+                count = s.frozen and ("? / %d"):format(row.need) or Count(row), ok = row.ok and decided, source = SeenText(row) }
             if lines[#lines].source then lines[#lines + 1] = { kind = "sub", text = lines[#lines].source } end
         else
             more = more + 1
@@ -1150,7 +1162,7 @@ ns.PlanPanelLines = function()
     if s.frozen then lines[#lines + 1] = { kind = "note", text = L["plan unknown right now"] } end
     if (s.hidden or 0) > 0 then lines[#lines + 1] = { kind = "note", text = (L["%d plan nodes hidden"]):format(s.hidden) } end
     local compact = (L["Plan %d/%d"]):format(done, total)
-    if total > 0 and done == total then compact = compact .. " " .. TICK end
+    if decided and total > 0 and done == total then compact = compact .. " " .. TICK end
     return { lines = lines, done = done, total = total, compact = compact, frozen = s.frozen }
 end
 

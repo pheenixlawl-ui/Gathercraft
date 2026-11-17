@@ -24257,6 +24257,99 @@ step("Farm for plan: frozen while the skill plan shows another profession - and 
     W.Restore()
     if not ok then error(err, 0) end
 end)
+step("Farm for plan: while the run waits for the bags no tick is shown - the numbers stay, the mark of the end comes with the end (v0.2 B3 R1-M3)", function()
+    -- Codex round 1 of block 3, M3: 60 copper ore needed, 0 there; the loot
+    -- window opens and the next look already has 60 - the run rightly
+    -- waits, but the window showed "Plan 1/1" with the tick. Checked here is
+    -- what is SHOWN, not only the state.
+    local given
+    local saved = { planFor = ns.SkillPlanFor, skill = ns.GetSkill, run = ns.db.activeRun, compact = ns.db.panelCompact, hidden = ns.db.runPanelHidden }
+    local W = IdentityWorld()
+    local before = #errors
+    local ok, err = pcall(function()
+        ns.db.panelCompact, ns.db.runPanelHidden = nil, nil
+        ns.GetSkill = function(t) if t == "ore" then return 100, 300, 100 end end
+        local function Plan(have)
+            given = { prof = "Mining", from = 1, target = 75, status = "ok", valid = true, complete = true, reliable = true, revision = 9300 + have,
+                items = { [2770] = { need = 60, have = have, haveKnown = true, missing = math.max(0, 60 - have) } } }
+        end
+        ns.SkillPlanFor = function() return given end
+        W.Set({ W.Node("o1731", "Copper Vein", 100, { type = "ore" }), W.Node("o1731", "Copper Vein", 200, { type = "ore" }) })
+        W.At(0)
+        Plan(0)
+        ns.StartRun(ns.PlanFilter("Mining", 75), 1412) W.Wait(1) advance(1.5)
+        assert(ns.run and ns.PlanRunState().state == "active", "test setup: no run")
+        local panel = _G.GathercraftPanel
+        local TICK = "ReadyCheck-Ready"
+        local function Shown()
+            -- everything the run window and the rows under it show now
+            local texts = { panel.title:GetText() or "" }
+            local f = _G.GathercraftPlanPanel
+            if f and f:IsShown() then
+                for _, row in ipairs(f.rows) do
+                    if row:IsShown() then texts[#texts + 1] = (row.name:GetText() or "") .. " " .. (row.count:GetText() or "") end
+                end
+            end
+            return table.concat(texts, " | ")
+        end
+        local _, ends0 = ns.PlanRunLastEnd()
+        -- the loot window opens; the next look already has all 60
+        fire("LOOT_OPENED")
+        Plan(60)
+        fire("BAG_UPDATE_DELAYED") W.Wait(0.5) advance(1)
+        assert(ns.run and ns.PlanRunState().state == "waiting", "test setup: the run does not wait: " .. tostring(ns.PlanRunState() and ns.PlanRunState().state))
+        local data = ns.PlanPanelLines()
+        local row = data.lines[1]
+        -- the numbers and the bar of what was read stay ...
+        assert(row.count == "60 / 60" and row.bar == 1, "while waiting the numbers are gone: " .. tostring(row.count) .. ", bar " .. tostring(row.bar))
+        -- ... but nothing says "done": no tick in a row, none in the slim line, the count of done ones is the one confirmed
+        assert(not row.ok, "while waiting a row is marked as done")
+        assert(not data.compact:find(TICK, 1, true), "while waiting the slim line has the tick: " .. data.compact)
+        assert(not Shown():find(TICK, 1, true), "while waiting the run window shows a tick: " .. Shown())
+        ns.db.panelCompact = true
+        ns.PanelLayout() advance(1.5)
+        assert(not panel.title:GetText():find(TICK, 1, true), "while waiting the slim window shows a tick: " .. tostring(panel.title:GetText()))
+        assert(panel.title:GetText() == (ns.L["Plan %d/%d"]):format(0, 1), "while waiting the slim window says " .. tostring(panel.title:GetText()) .. ", want Plan 0/1 (the one confirmed)")
+        ns.db.panelCompact = nil
+        ns.PanelLayout() advance(0.5)
+        -- the plan is not known for a moment: no tick either
+        given = nil
+        ns.SkillPlanFor = function() return nil, "window" end
+        fire("BAG_UPDATE_DELAYED") advance(1)
+        assert(not ns.PlanPanelLines().compact:find(TICK, 1, true) and not Shown():find(TICK, 1, true), "while the plan is not known a tick is shown")
+        ns.SkillPlanFor = function() return given end
+        Plan(60)
+        -- the loot window closes: the end, once, silent - and its window says it
+        local g = _G.GathercraftPlanGathered
+        local shown0 = g and g.shown or 0
+        fire("LOOT_CLOSED") W.Wait(3)
+        local last, ends = ns.PlanRunLastEnd()
+        assert(ns.run == nil and ends == ends0 + 1 and last.kind == "success", "the end did not come once: " .. tostring(last and last.kind) .. ", " .. (ends - ends0) .. " end(s)")
+        g = _G.GathercraftPlanGathered
+        assert(g and g:IsShown() and g.shown == shown0 + 1 and g.body:GetText():find(TICK, 1, true), "the end window with the tick did not come once")
+        -- an active run with a material covered and one open: that row is ticked (a confirmed state)
+        g:Hide()
+        given = { prof = "Mining", from = 1, target = 75, status = "ok", valid = true, complete = true, reliable = true, revision = 9400,
+            items = { [2770] = { need = 60, have = 60, haveKnown = true, missing = 0 }, [2771] = { need = 10, have = 0, haveKnown = true, missing = 10 } } }
+        W.Set({ W.Node("o1731", "Copper Vein", 100, { type = "ore" }), W.Node("o1732", "Tin Vein", 200, { type = "ore" }) })
+        ns.StartRun(ns.PlanFilter("Mining", 75), 1412) W.Wait(1) advance(1.5)
+        assert(ns.PlanRunState().state == "active", "test setup: no active run for tin")
+        data = ns.PlanPanelLines()
+        local copper
+        for _, l in ipairs(data.lines) do if l.item == 2770 then copper = l end end
+        assert(copper and copper.ok and Shown():find(TICK, 1, true) and data.done == 1 and data.compact == (ns.L["Plan %d/%d"]):format(1, 2),
+            "an active run does not tick the covered copper: " .. Shown())
+        ns.StopRun(true)
+        assert(#errors == before, "an error: " .. tostring(errors[#errors]))
+    end)
+    ns.SkillPlanFor, ns.GetSkill = saved.planFor, saved.skill
+    if ns.run then ns.StopRun(true) end
+    for _, name in ipairs({ "GathercraftPlanZones", "GathercraftPlanHint", "GathercraftRunSummary", "GathercraftPlanGathered" }) do if _G[name] then _G[name]:Hide() end end
+    ns.db.activeRun, ns.db.panelCompact, ns.db.runPanelHidden = saved.run, saved.compact, saved.hidden
+    if ns.PanelLayout then ns.PanelLayout() end
+    W.Restore()
+    if not ok then error(err, 0) end
+end)
 -- (end of the "Farm for plan" steps, v0.2 building block 3)
 step("Long run (10 min) for leaks", function() slash("run herb") advance(600) slash("stop") end)
 step("Test mock: OnUpdate runs for the same frames in the same order as going over every frame (tools only)", function()
