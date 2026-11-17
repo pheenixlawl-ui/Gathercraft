@@ -24350,6 +24350,95 @@ step("Farm for plan: while the run waits for the bags no tick is shown - the num
     W.Restore()
     if not ok then error(err, 0) end
 end)
+step("Farm for plan: an incomplete plan farms on while something of the map is open, and ends blocked - once, with why - when all of it is there (v0.2 B3 R1-M4)", function()
+    -- Codex round 1 of block 3, M4 - Sven's decision of 16.11.2026, 23:10:
+    -- leave it as built. A plan that is incomplete (complete = false, e.g.
+    -- a recipe is missing) with every material of the map covered ends
+    -- "blocked" with the small window and the reason, and where the plan
+    -- says why, that too. With something of the map still open it is no
+    -- end: the run farms on.
+    local L, d = ns.L, ns.CraftData
+    local given
+    local saved = { planFor = ns.SkillPlanFor, skill = ns.GetSkill, run = ns.db.activeRun, rank = ns.ProfessionRank, have = d.Have, known = d.Known, targets = ns.db.planTargets }
+    local W = IdentityWorld()
+    local before = #errors
+    local ok, err = pcall(function()
+        ns.GetSkill = function(t) if t == "ore" then return 100, 300, 100 end end
+        local function Plan(copper, tin, why)
+            given = { prof = "Mining", from = 1, target = 75, status = "incomplete", valid = true, complete = false, reliable = true, revision = 9500 + copper + tin,
+                items = { [2770] = { need = 60, have = copper, haveKnown = true, missing = math.max(0, 60 - copper) },
+                    [2771] = { need = 10, have = tin, haveKnown = true, missing = math.max(0, 10 - tin) } },
+                why = why }
+        end
+        ns.SkillPlanFor = function() return given end
+        W.Set({ W.Node("o1731", "Copper Vein", 100, { type = "ore" }), W.Node("o1732", "Tin Vein", 200, { type = "ore" }) })
+        W.At(0)
+        local _, ends0 = ns.PlanRunLastEnd()
+        local hint = _G.GathercraftPlanHint
+        local hints0 = hint and hint.shown or 0
+        -- incomplete, copper covered, tin open: the run starts and farms the tin - no end
+        Plan(60, 0)
+        ns.StartRun(ns.PlanFilter("Mining", 75), 1412) W.Wait(1)
+        local s = ns.PlanRunState()
+        assert(ns.run and s.state == "active" and #ns.run.points == 1 and ns.run.points[1].node.id == "o1732",
+            "an incomplete plan with tin still open: the run is " .. tostring(s and s.state) .. " (want active, to the tin vein)")
+        fire("BAG_UPDATE_DELAYED") W.Wait(40) fire("BAG_UPDATE_DELAYED") W.Wait(2)
+        assert(ns.run and ns.PlanRunState().state == "active" and select(2, ns.PlanRunLastEnd()) == ends0, "an incomplete plan with tin open ended")
+        -- the tin is there too: blocked, once, the reason and why the plan is incomplete
+        Plan(60, 10, { { code = "stuck", skill = 65 } })
+        fire("BAG_UPDATE_DELAYED") W.Wait(2)
+        local last, ends = ns.PlanRunLastEnd()
+        assert(ns.run == nil and ends == ends0 + 1 and last.kind == "blocked" and last.reasons[1].reason == "plan_incomplete",
+            "an incomplete plan with all of the map covered: " .. tostring(last and last.kind))
+        hint = _G.GathercraftPlanHint
+        assert(hint and hint:IsShown() and hint.shown == hints0 + 1, "the small window did not come once")
+        local body = hint.body:GetText()
+        assert(body:find(L["the plan is incomplete - see the skill plan"], 1, true), "the window does not say the plan is incomplete: " .. body)
+        -- (a Mining plan gets stuck where mining veins is the way on: the skill plan's own words for it)
+        assert(body:find((L["From %d on: mine veins to go up (farm run for ore)."]):format(65), 1, true), "the window does not say why: " .. body:gsub("\n", " // "))
+        fire("BAG_UPDATE_DELAYED") W.Wait(3)
+        assert(hint.shown == hints0 + 1 and select(2, ns.PlanRunLastEnd()) == ends0 + 1, "a second end or window")
+        hint:Hide()
+        -- asked for with all of it there: no run, the reason in chat - no success
+        local mark = #log
+        ns.StartRun(ns.PlanFilter("Mining", 75), 1412) W.Wait(1)
+        assert(ns.run == nil and select(2, ns.PlanRunLastEnd()) == ends0 + 1, "a run, or an end, for an incomplete plan with everything there")
+        local said = false
+        for i = mark + 1, #log do if log[i]:find(L["the plan is incomplete - see the skill plan"], 1, true) then said = true end end
+        assert(said, "no word that the plan is incomplete")
+        -- without a why: the reason alone
+        Plan(60, 0)
+        ns.StartRun(ns.PlanFilter("Mining", 75), 1412) W.Wait(1)
+        Plan(60, 10)
+        fire("BAG_UPDATE_DELAYED") W.Wait(2)
+        assert(ns.run == nil and hint:IsShown() and hint.body:GetText() == L["the plan is incomplete - see the skill plan"], "without a why: " .. tostring(hint.body:GetText()))
+        hint:Hide()
+        ns.SkillPlanFor = saved.planFor
+        -- the skill plan gives the why with its result: a real plan that gets stuck
+        ns.ProfessionRank = function() return 1, 300 end
+        d.Known = function() return {} end
+        d.Have = function() return 0 end
+        local stuck, seen = nil, {}
+        for _, prof in ipairs({ "Mining", "Leatherworking", "Cooking", "First Aid", "Alchemy", "Tailoring" }) do
+            local plan = ns.SkillPlanCalculate(prof, 1, 300)
+            seen[#seen + 1] = prof .. " " .. tostring(plan.status)
+            for _, diag in ipairs(plan.diagnostics or {}) do if diag.code == "stuck" and not stuck then stuck = diag end end
+            if stuck then break end
+        end
+        assert(stuck, "test setup: no plan to 300 gets stuck: " .. table.concat(seen, ", "))
+        local r = ns.SkillPlanResult()
+        local found
+        for _, w in ipairs(r.why or {}) do if w.code == "stuck" and w.skill == stuck.skill then found = true end end
+        assert(found, "the plan's result does not say where it got stuck")
+        assert(#errors == before, "an error: " .. tostring(errors[#errors]))
+    end)
+    ns.SkillPlanFor, ns.GetSkill, ns.ProfessionRank, d.Have, d.Known, ns.db.planTargets = saved.planFor, saved.skill, saved.rank, saved.have, saved.known, saved.targets
+    if ns.run then ns.StopRun(true) end
+    for _, name in ipairs({ "GathercraftPlanZones", "GathercraftPlanHint", "GathercraftRunSummary", "GathercraftPlanGathered" }) do if _G[name] then _G[name]:Hide() end end
+    ns.db.activeRun = saved.run
+    W.Restore()
+    if not ok then error(err, 0) end
+end)
 -- (end of the "Farm for plan" steps, v0.2 building block 3)
 step("Long run (10 min) for leaks", function() slash("run herb") advance(600) slash("stop") end)
 step("Test mock: OnUpdate runs for the same frames in the same order as going over every frame (tools only)", function()

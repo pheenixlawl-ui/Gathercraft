@@ -336,7 +336,7 @@ local function ReadPlan(prof, target)
         end
     end
     return { state = "read", rows = rows, offMap = offMap, wanted = wanted, revision = result.revision,
-        complete = result.complete == true or result.status == "done", status = result.status }
+        complete = result.complete == true or result.status == "done", status = result.status, why = result.why, prof = prof }
 end
 
 -- why a wanted material has no node to go to in this zone
@@ -373,7 +373,13 @@ local function Evaluate(spec, points, weights, read)
         if plan.complete then
             plan.state = "success"
         else
-            plan.state, plan.reasons = "blocked", { { reason = "plan_incomplete" } }
+            -- Sven's decision of 16.11.2026, 23:10 (Codex B3 round 1, M4): an
+            -- incomplete plan (complete = false, e.g. a recipe is missing)
+            -- with every material of the map covered is no success and no
+            -- freeze: it ends "blocked", with the reason and - where the plan
+            -- says it - why. With something of the map still open the run
+            -- farms on (below).
+            plan.state, plan.reasons = "blocked", { { reason = "plan_incomplete", why = plan.why } }
         end
         return plan
     end
@@ -471,6 +477,16 @@ local function ShowHint(plan)
     for _, r in ipairs(plan.reasons or {}) do
         local text = L[REASON_TEXT[r.reason] or r.reason]
         lines[#lines + 1] = r.item and ("%s: %s"):format(ItemLabel(r.item), text) or text
+        -- why the plan is incomplete, in the skill plan's own words (R1-M4)
+        for _, w in ipairs(r.why or {}) do
+            if w.code == "stuck" and plan.prof == "Mining" and w.skill then
+                lines[#lines + 1] = (L["From %d on: mine veins to go up (farm run for ore)."]):format(w.skill)
+            elseif w.code == "stuck" and w.skill then
+                lines[#lines + 1] = (L["No recipe found for skill %d: visit your trainer, the plan goes on from there."]):format(w.skill)
+            elseif w.code == "cycle" and w.item then
+                lines[#lines + 1] = (L["%s can only be made from itself here: it is not made."]):format(ItemLabel(w.item))
+            end
+        end
     end
     hint.body:SetText(table.concat(lines, "\n"))
     hint.zones:SetText(L["Where to farm"])

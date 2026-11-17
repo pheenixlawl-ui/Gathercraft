@@ -303,6 +303,13 @@ local function Publish(input, sig, plan)
     plan.revision = calc.revision
     local result = ns.PlanCore.Result(plan)
     result.revision = calc.revision
+    -- why a plan is incomplete, as far as it says (for a plan run that ends
+    -- on it, 0.2 B3 R1-M4): where it got stuck, what is made from itself
+    local why = {}
+    for _, diag in ipairs(plan.diagnostics or {}) do
+        if diag.code == "stuck" or diag.code == "cycle" then why[#why + 1] = { code = diag.code, skill = diag.skill, item = diag.item } end
+    end
+    result.why = why
     calc.result = result
     Keep(input, sig, plan, result)
     for _, fn in ipairs(ns.skillPlanListeners) do pcall(fn, result) end
