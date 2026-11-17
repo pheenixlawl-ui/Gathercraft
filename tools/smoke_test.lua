@@ -24837,6 +24837,238 @@ step("Farm for plan: the list of zones knows the zones with shipped spawn points
     advance(15)
     if not ok then error(err, 0) end
 end)
+step("Farm for plan: a run and the list of zones that both need a new, big plan take turns - neither drops the other's calculation, both get theirs, then it is quiet (v0.2 B3 R2-M1)", function()
+    -- Codex round 2 of block 3, R2-M1: a run and the list of zones that both
+    -- need a new plan worked out in parts (no kept plan fits either, after a
+    -- change of the bags): each began its calculation anew over the other's -
+    -- 50 starts in 5 s, run and list "waiting" for good; the same with one
+    -- profession and two targets. Now one calculation runs at a time and
+    -- belongs to its plan; another plan waits its turn (once, however often
+    -- it asks); a finished plan goes to its own plan before the next begins.
+    local d, core = ns.CraftData, ns.PlanCore
+    local saved = { clock = ns.SkillPlanClock, rank = ns.ProfessionRank, have = d.Have, known = d.Known, skill = ns.GetSkill, compute = core.Compute,
+        targets = ns.db.planTargets, run = ns.db.activeRun, all = d.AllRecipes }
+    local W = IdentityWorld()
+    local before = #errors
+    local win = _G.GathercraftSkillPlan
+    if win then win:Hide() end
+    local ok, err = pcall(function()
+        local base = 0
+        local changed = 0 -- (the Alchemy recipes read anew with other numbers: a new state of the Alchemy plans only)
+        d.AllRecipes = function(p)
+            local out = {}
+            for k, v in pairs(saved.all(p)) do out[k] = v end
+            if p == "Alchemy" and changed > 0 then
+                local keys = {}
+                for k in pairs(out) do keys[#keys + 1] = k end
+                table.sort(keys)
+                for i = 1, changed do out[keys[i]] = out[keys[i]]:gsub(":1:", ":2:", 1) end
+            end
+            return out
+        end
+        ns.ProfessionRank = function(p) if p == "Alchemy" or p == "Tailoring" then return 1, 300 end end
+        d.Known = function() return {} end
+        d.Have = function() return base end
+        ns.GetSkill = function(t) if t == "herb" or t == "ore" then return 300, 300, 300 end end
+        ns.db.planTargets = nil
+        -- the herbs of the Alchemy plans, here
+        local nodes, seen = {}, {}
+        for _, target in ipairs({ 250, 300 }) do
+            local whole = core.Result(saved.compute(ns.SkillPlanSnapshot("Alchemy", 1, target)))
+            for id, m in pairs(whole.items) do
+                local kinds = m.need > 0 and ns.PlanBaseKinds(id)
+                if kinds and not seen[id] then
+                    seen[id] = true
+                    nodes[#nodes + 1] = W.Node(kinds[1], "Herb " .. id, 100 + 50 * #nodes, { type = "herb" })
+                end
+            end
+        end
+        assert(#nodes > 0, "test setup: the Alchemy plans need nothing from the map")
+        W.Set(nodes)
+        W.At(0)
+        local starts = {}
+        core.Compute = function(input, pause)
+            starts[#starts + 1] = input.prof .. " " .. tostring(input.target)
+            return saved.compute(input, pause)
+        end
+        local function Count(key) local n = 0 for _, k in ipairs(starts) do if k == key then n = n + 1 end end return n end
+        local now = 0
+        ns.SkillPlanClock = function() now = now + 0.05 return now end -- (a clock that goes on: big plans in many parts)
+        local function Wait(s) for _ = 1, math.floor(s / 0.5 + 0.5) do advance(0.5) end end
+        local function Waiting() return ns.SkillPlanWaiting and ns.SkillPlanWaiting() or 0 end
+        local function Reset()
+            if ns.run then ns.StopRun(true) end
+            if _G.GathercraftPlanZones then _G.GathercraftPlanZones:Hide() end
+            Wait(2)
+        end
+        local function Quiet(what, listOpen)
+            starts = {}
+            Wait(5)
+            local list = (ns.PlanZoneListState())
+            local s = ns.PlanRunState()
+            note(("MEASURE R2-M1 %s: %d calculations in 5 s at rest, run %s, list %s, still working out: %s"):format(what, #starts,
+                tostring(s and s.state), tostring(listOpen and list and list.state or "closed"), tostring(ns.SkillPlanBusy())))
+            assert(#starts == 0, ("%s: %d calculations in 5 s with nothing changed (%s) - want 0"):format(what, #starts, table.concat(starts, ", ")))
+            assert(s and s.state == "active", ("%s: the run is %s, want active"):format(what, tostring(s and s.state)))
+            for _, row in ipairs(s.rows) do
+                assert(row.have == base, ("%s: the run shows %s of %d, the bags hold %d - not the plan of now"):format(what, tostring(row.have), row.item, base))
+            end
+            if listOpen then
+                assert(list and list.state == "ok", ("%s: the list is %s, want ok"):format(what, tostring(list and list.state)))
+            end
+            assert(not ns.SkillPlanBusy(), what .. ": still working out a plan")
+        end
+        -- both readers need a new plan worked out in parts, at the same time
+        local function Both(runProf, runTarget, listProf, listTarget, what, first)
+            Reset()
+            ns.StartRun(ns.PlanFilter(runProf, runTarget), 1412)
+            assert(ns.run, "test setup: no run of " .. runProf)
+            Wait(5)
+            assert(ns.PlanZoneListShow(listProf, listTarget), "test setup: the list did not open")
+            Wait(20)
+            -- the bags change: neither kept plan fits any more; the list is opened anew
+            local runKey, listKey = runProf .. " " .. runTarget, listProf .. " " .. listTarget
+            starts = {}
+            base = base + 1
+            fire("BAG_UPDATE_DELAYED")
+            _G.GathercraftPlanZones:Hide()
+            assert(ns.PlanZoneListShow(listProf, listTarget), "test setup: the list did not open again")
+            assert(ns.SkillPlanBusy() and Count(listKey) == 1, "test setup: the list's plan is not worked out in parts")
+            -- the run asks again and again while the list's plan is worked out: it
+            -- waits its turn, once, and the list's calculation goes on
+            for _ = 1, 5 do assert(ns.SkillPlanFor(runProf, runTarget) == nil, "test setup: the run had its new plan at once") end
+            assert(Count(listKey) == 1 and Count(runKey) == 0,
+                ("%s: the run asked 5 times - %d calculations of %s and %d of %s, want 1 and 0 (the run's asking drops the list's)"):format(what, Count(listKey), listKey, Count(runKey), runKey))
+            assert(Waiting() == 1, ("%s: the run asked 5 times and waits %d times, want once"):format(what, Waiting()))
+            -- the run's own plan changes while it waits (its recipes read anew): it
+            -- still waits once, with the newer state (two professions: the list's
+            -- plan does not read the run's recipes)
+            if runProf ~= listProf then
+                changed = changed + 1
+                assert(ns.SkillPlanFor(runProf, runTarget) == nil, "test setup: the run had its new plan at once")
+                assert(Waiting() == 1 and Count(runKey) == 0, ("%s: the run's state changed while it waited - %d plans wait, want 1"):format(what, Waiting()))
+            end
+            -- the list's calculation finishes before anyone looks
+            advance(0.01)
+            if first == "list" then
+                -- the list takes its plan: then the run's turn comes by itself
+                local listPlan = ns.SkillPlanFor(listProf, listTarget)
+                assert(listPlan and listPlan.target == listTarget and Count(listKey) == 1, what .. ": the list did not get its finished plan")
+                advance(0.01)
+                assert(Count(runKey) == 1 and Waiting() == 0, ("%s: after the list's plan was given out the run's turn did not come (%d calculations of %s, %d waiting)"):format(what, Count(runKey), runKey, Waiting()))
+            else
+                -- the run looks first: the finished plan goes to the list, then the run's turn
+                assert(ns.SkillPlanFor(runProf, runTarget) == nil, "test setup: the run had its new plan before its turn")
+                local listPlan = ns.SkillPlanFor(listProf, listTarget)
+                assert(listPlan and listPlan.prof == listProf and listPlan.target == listTarget and Count(listKey) == 1,
+                    ("%s: the list's finished plan did not go to the list when the run looked first (%d calculations of %s)"):format(what, Count(listKey), listKey))
+            end
+            Wait(20)
+            note(("MEASURE R2-M1 %s: %d calculations to settle (%d %s, %d %s)"):format(what, #starts, Count(runKey), runKey, Count(listKey), listKey))
+            assert(Count(runKey) == 1 and Count(listKey) == 1,
+                ("%s: %d calculations of %s and %d of %s after one change, want one each"):format(what, Count(runKey), runKey, Count(listKey), listKey))
+            Quiet(what, true)
+        end
+        -- 1. Codex's case: Alchemy 300 for the run, Tailoring 300 for the list
+        Both("Alchemy", 300, "Tailoring", 300, "two professions", "list")
+        -- 2. one profession, two targets: Alchemy 300 for the run, 250 for the list
+        Both("Alchemy", 300, "Alchemy", 250, "one profession, two targets", "run")
+        -- 3. the run's plan is kept and fits, the list's is not there yet: only the list's is worked out
+        Reset()
+        starts = {}
+        ns.StartRun(ns.PlanFilter("Alchemy", 300), 1412)
+        assert(ns.run, "test setup: no run of Alchemy")
+        assert(ns.PlanZoneListShow("Tailoring", 275), "test setup: the list did not open")
+        Wait(20)
+        assert(Count("Alchemy 300") == 0 and Count("Tailoring 275") == 1,
+            ("one plan kept, one not there: %d of Alchemy 300 and %d of Tailoring 275 - want 0 and 1"):format(Count("Alchemy 300"), Count("Tailoring 275")))
+        Quiet("one plan kept, one new", true)
+        -- 4. the control: the list closes while both are worked out - the run gets its plan
+        Reset()
+        ns.StartRun(ns.PlanFilter("Alchemy", 300), 1412)
+        Wait(5)
+        assert(ns.PlanZoneListShow("Tailoring", 300), "test setup: the list did not open")
+        Wait(20)
+        base = base + 1
+        fire("BAG_UPDATE_DELAYED")
+        _G.GathercraftPlanZones:Hide()
+        assert(ns.PlanZoneListShow("Tailoring", 300), "test setup: the list did not open again")
+        Wait(1)
+        _G.GathercraftPlanZones:Hide()
+        Wait(20)
+        Quiet("the list closed while both were worked out", false)
+        -- 5. the run's own plan goes out of date while it is worked out: begun
+        -- anew for the same plan, and what is given out is the plan of now -
+        -- the run looks itself, or the list looks first
+        Reset()
+        ns.StartRun(ns.PlanFilter("Alchemy", 300), 1412)
+        Wait(10)
+        assert(ns.PlanZoneListShow("Tailoring", 300), "test setup: the list did not open")
+        Wait(10)
+        local given = {}
+        local function Heard(result)
+            if result and result.prof == "Alchemy" and result.target == 300 then
+                local _, m = next(result.items)
+                given[#given + 1] = m and m.have
+            end
+        end
+        table.insert(ns.skillPlanListeners, Heard)
+        local okInner, errInner = pcall(function()
+            for _, first in ipairs({ "run", "list" }) do
+                base = base + 1
+                fire("BAG_UPDATE_DELAYED")
+                starts = {}
+                advance(0.3)
+                assert(ns.SkillPlanBusy() and Count("Alchemy 300") == 1, "test setup: the run's plan is not on its way")
+                -- the bags change again before the run took its plan
+                base = base + 1
+                given = {}
+                if first == "run" then fire("BAG_UPDATE_DELAYED") else ns.SkillPlanFor("Tailoring", 300) end
+                Wait(20)
+                assert(Count("Alchemy 300") == 2, ("a plan out of date before it was taken (%s looks first): %d calculations, want 2 (begun once anew)"):format(first, Count("Alchemy 300")))
+                for _, have in ipairs(given) do
+                    assert(have == base, ("%s looks first: a plan of before was given out after the bags changed (%s, the bags hold %d)"):format(first, tostring(have), base))
+                end
+                assert(#given >= 1, first .. " looks first: the plan of now was not given out")
+                Quiet("the run's plan out of date, " .. first .. " looks first", true)
+            end
+        end)
+        tDeleteItem(ns.skillPlanListeners, Heard)
+        if not okInner then error(errInner, 0) end
+        -- 6. the window comes first - and the list's calculation is put aside, not
+        -- dropped: half done, or done and not taken yet; it goes on when the window closes
+        for _, how in ipairs({ "half done", "done" }) do
+            Reset()
+            ns.StartRun(ns.PlanFilter("Alchemy", 300), 1412)
+            Wait(5)
+            assert(ns.PlanZoneListShow("Tailoring", 300), "test setup: the list did not open")
+            Wait(20)
+            starts = {}
+            base = base + 1
+            _G.GathercraftPlanZones:Hide()
+            assert(ns.PlanZoneListShow("Tailoring", 300), "test setup: the list did not open again")
+            assert(ns.SkillPlanBusy() and Count("Tailoring 300") == 1, "test setup: the list's plan is not worked out in parts")
+            if how == "done" then advance(0.01) end
+            ns.ShowSkillPlan("Alchemy")
+            win = _G.GathercraftSkillPlan
+            assert(win and win:IsShown() and #starts == Count("Tailoring 300") + 1, "test setup: the window did not work out its plan (" .. table.concat(starts, ", ") .. ")")
+            Wait(2)
+            win:Hide()
+            Wait(20)
+            assert(Count("Tailoring 300") == 1, ("the window came first while the list's plan was %s: %d calculations of the list's plan, want 1 (put aside, not dropped)"):format(how, Count("Tailoring 300")))
+            Quiet("the window came first, the list's plan " .. how, true)
+        end
+        assert(#errors == before, "an error: " .. tostring(errors[#errors]))
+    end)
+    ns.SkillPlanClock, ns.ProfessionRank, d.Have, d.Known, ns.GetSkill, core.Compute = saved.clock, saved.rank, saved.have, saved.known, saved.skill, saved.compute
+    d.AllRecipes = saved.all
+    if ns.run then ns.StopRun(true) end
+    for _, name in ipairs({ "GathercraftPlanZones", "GathercraftPlanHint", "GathercraftRunSummary", "GathercraftPlanGathered", "GathercraftSkillPlan" }) do if _G[name] then _G[name]:Hide() end end
+    ns.db.planTargets, ns.db.activeRun = saved.targets, saved.run
+    W.Restore()
+    advance(2)
+    if not ok then error(err, 0) end
+end)
 -- (end of the "Farm for plan" steps, v0.2 building block 3)
 step("Long run (10 min) for leaks", function() slash("run herb") advance(600) slash("stop") end)
 step("Test mock: OnUpdate runs for the same frames in the same order as going over every frame (tools only)", function()

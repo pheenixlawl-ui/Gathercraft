@@ -364,9 +364,26 @@ ns.SkillPlanResult = function() return calc.result end
 -- 4 ms: a quarter of a frame at 60 frames a second. ns.SkillPlanClock (ms)
 -- stands in for the game's clock in the tests.
 ---------------------------------------------------------------------------
+--
+-- One calculation at a time, in order (0.2 B3 R2-M1): the calculation that
+-- runs belongs to ONE plan - a profession and a target (PlanKey) - and the
+-- state it was begun for.
+--   * another plan that is wanted meanwhile (the plan run and the list of
+--     zones read different plans) does not drop it: it waits its turn - at
+--     most once for each plan, a plan that asks again is the same wait.
+--   * a finished calculation is taken for its own plan - after a fresh look
+--     at the game with what it was begun for - and kept (Keep), before the
+--     next one begins. Out of date by then: begun anew for the same plan, at
+--     the end of the line.
+--   * the plan that runs is dropped or begun anew only for its own plan: a
+--     new state of it (the bags, the skill, a price, the recipes).
+--   * the window comes first: what it shows is worked out at once; a
+--     calculation of another plan is put aside as far as it got and goes on
+--     once the window is closed.
 local BUDGET_MS = 4
-local job -- the calculation that is running: { input, sig, co, deadline, parts, plan (once done), failed (its error) }
-local broke -- the calculation broke for this state: { input, sig, err, reported }
+local job -- the calculation that is running: { key, args, input, sig, co, deadline, parts, plan (once done), failed (its error) }
+local waiting = {} -- the plans that wait their turn, oldest first: calculations like `job`, at most one for each plan
+local broke = {} -- for each plan, the state its calculation broke for: { input, sig, err, reported }
 
 local function Clock()
     local clock = ns.SkillPlanClock or debugprofilestop
@@ -374,8 +391,9 @@ local function Clock()
     return GetTimePreciseSec and GetTimePreciseSec() * 1000 or 0
 end
 
-local function NewJob(input, sig)
-    local j = { input = input, sig = sig, parts = 0 }
+-- args: what the snapshot was taken with (prof, skill, target, source, seenAt)
+local function NewJob(input, sig, args)
+    local j = { key = PlanKey(args[1], args[3]), args = args, input = input, sig = sig, parts = 0 }
     local function Pause()
         if Clock() >= j.deadline then coroutine.yield() end
     end
@@ -394,7 +412,7 @@ local function Part(j, since)
     if not ok then
         j.failed = plan == nil and "the skill plan calculation failed" or plan
         if job == j then job = nil end
-        broke = { input = j.input, sig = j.sig, err = j.failed, reported = false }
+        broke[j.key] = { input = j.input, sig = j.sig, err = j.failed, reported = false }
         return
     end
     if coroutine.status(j.co) == "dead" then j.plan = plan end
@@ -418,15 +436,84 @@ local function Advance()
         ns.PlanRunLook()
     end
 end
-local function Drive(j)
+-- nothing goes on: no window, no reader
+local function DropAll()
+    job = nil
+    waiting = {}
+end
+-- a plan waits its turn: once - a plan that waits already waits on, or with
+-- the newer state if its own changed (R2-M1)
+local function Wait(j)
+    for i, w in ipairs(waiting) do
+        if w.key == j.key then
+            waiting[i] = j
+            return
+        end
+    end
+    waiting[#waiting + 1] = j
+    if #waiting > KEPT_PLANS then table.remove(waiting, 1) end
+end
+local function Waiting(key)
+    for i, w in ipairs(waiting) do
+        if w.key == key then return w, i end
+    end
+end
+local Drive
+-- the next plan in line, when nothing runs - not while the window is open:
+-- it comes first, the line goes on once it is closed (the readers look
+-- again then, R1-M2)
+local function StartNext()
+    if job or not waiting[1] then return end
+    if not WindowShown() then
+        if not runnerOn then
+            DropAll()
+            return
+        end
+        job = table.remove(waiting, 1)
+        Drive(job)
+    end
+end
+-- a plan is wanted for another state now, or not at all: what was begun or
+-- broke for it, or waits, is dropped - only for this plan
+local function Forget(key)
+    broke[key] = nil
+    local _, i = Waiting(key)
+    if i then table.remove(waiting, i) end
+    if job and job.key == key then
+        job = nil
+        StartNext()
+    end
+end
+-- a finished calculation goes to its own plan: a fresh look at the game
+-- with what it was begun for - nothing it read has changed: given out and
+-- kept; else begun anew for the same plan, at the end of the line. Then the
+-- next plan's turn. (Its own reader takes it when it looks, as before; this
+-- is for when another reader looks first.)
+local function Settle(j)
+    job = nil
+    local fresh = Snapshot(unpack(j.args, 1, 5))
+    local sig = Signature(fresh)
+    if sig == j.sig and SameReads(j.input, fresh) then
+        Publish(j.input, j.sig, j.plan)
+    else
+        local again = NewJob(fresh, sig, j.args)
+        again.window = j.window
+        Wait(again)
+    end
+    StartNext()
+end
+Drive = function(j)
+    -- (a calculation put aside and taken up again is driven by its newest call only)
+    j.turn = (j.turn or 0) + 1
+    local turn = j.turn
     C_Timer.After(0, function()
-        if job ~= j then return end
+        if job ~= j or j.turn ~= turn then return end
         if not WindowShown() and not runnerOn then
-            job = nil -- closed and no plan run: nothing goes on
+            DropAll() -- closed and no plan run: nothing goes on
             return
         end
         if j.plan then
-            Advance()
+            Advance() -- (whoever reads the plan looks: its own reader takes it)
             return
         end
         Part(j)
@@ -434,6 +521,7 @@ local function Drive(j)
             -- it broke in this part: the window is drawn without "Updating"
             -- and raises the error
             Advance()
+            StartNext()
             return
         end
         Drive(j)
@@ -444,58 +532,95 @@ end
 -- and - when the calculation broke for this state - what broke: the plan of
 -- this state when it is there; else the last finished plan of this
 -- profession (nil when there is none) while the new one is worked out in
--- parts, or after it broke.
+-- parts, or after it broke. Another plan's calculation that runs meanwhile
+-- is not dropped: this one waits its turn (R2-M1) - unless the window asks.
 local function PlanToShow(prof, skill, target, source, seenAt)
     local began = Clock() -- (taking the snapshot is part of this call's time)
+    local key = PlanKey(prof, target)
+    if job and job.plan and job.key ~= key then Settle(job) end -- (another plan's, finished: its own first)
     local input = Snapshot(prof, skill, target, source, seenAt)
     local sig = Signature(input)
+    -- begun for this very state of this plan, and nothing it read has changed
+    local function Fits(j) return j ~= nil and j.key == key and j.sig == sig and SameReads(j.input, input) end
     if calc.plan and calc.sig == sig and SameReads(calc.input, input) then
-        job, broke = nil, nil -- (whatever was begun or broke was for another state)
+        Forget(key) -- (whatever was begun or broke for this plan was for another state of it)
         calc.result.updating = nil
         return calc.plan, false
     end
     local before = (calc.plan and calc.plan.prof == prof) and calc.plan or nil
-    if broke and broke.sig == sig and SameReads(broke.input, input) then
+    local b = broke[key]
+    if b and b.sig == sig and SameReads(b.input, input) then
         -- it broke for this very state: not begun again. The plan of before
         -- is out of date, and nothing is on its way.
         if calc.result then calc.result.updating = true end
-        return before, false, broke
+        return before, false, b
     end
-    broke = nil
-    local j = job
-    if j and j.sig == sig and SameReads(j.input, input) then
-        -- begun for this very state, and nothing it read has changed
-        if j.plan then
-            job = nil
-            Publish(j.input, j.sig, j.plan)
-            return calc.plan, false
-        end
-    else
-        j = NewJob(input, sig)
-        job = j
-        Part(j, began)
-        if j.failed then
+    broke[key] = nil
+    local window = WindowShown() -- (the window asks: SkillPlanFor does not while it is shown)
+    if job and job.key == key then
+        if Fits(job) then
+            if job.plan then
+                -- finished and not taken yet
+                local j = job
+                job = nil
+                Publish(j.input, j.sig, j.plan)
+                StartNext()
+                return calc.plan, false
+            end
             if calc.result then calc.result.updating = true end
-            return before, false, broke
+            return before, true
         end
-        if j.plan then
-            -- done in its first part (all it read, it read just now)
-            job = nil
-            Publish(j.input, j.sig, j.plan)
-            return calc.plan, false
-        end
-        Drive(j)
+        job = nil -- begun for another state of this plan: begun anew, below
+    elseif job and window then
+        -- the window comes first: a reader's calculation of another plan is
+        -- put aside, as far as it got, and goes on once the window is closed;
+        -- one the window began for what it showed before is dropped, as before
+        if not job.window then table.insert(waiting, 1, job) end
+        job = nil
     end
+    local args = { prof, skill, target, source, seenAt }
+    if job then
+        -- another plan is worked out: this one waits its turn
+        if not Fits((Waiting(key))) then Wait(NewJob(input, sig, args)) end
+        if calc.result then calc.result.updating = true end
+        return before, true
+    end
+    -- this plan's turn: as far as it got while it waited, if that still fits
+    local j, i = Waiting(key)
+    if i then table.remove(waiting, i) end
+    if not Fits(j) then j = NewJob(input, sig, args) end
+    j.window = window
+    job = j
+    Part(j, began)
+    if j.failed then
+        if calc.result then calc.result.updating = true end
+        StartNext()
+        return before, false, broke[key]
+    end
+    if j.plan then
+        -- done in this part (what it read before, it read again just now)
+        job = nil
+        Publish(j.input, j.sig, j.plan)
+        StartNext()
+        return calc.plan, false
+    end
+    Drive(j)
     if calc.result then calc.result.updating = true end
     return before, true
 end
 -- the window shows no plan (no profession, a skill that cannot be read):
--- nothing is worked out for it
-local function DropJob() job = nil end
+-- nothing is worked out for it (a calculation of a reader goes on)
+local function DropJob()
+    if job and job.window then
+        job = nil
+        StartNext()
+    end
+end
 -- the player asks again (opens the window, sets a target): what broke
 -- before may be tried once more
-local function TryAgain() broke = nil end
-ns.SkillPlanBusy = function() return job ~= nil end
+local function TryAgain() broke = {} end
+ns.SkillPlanBusy = function() return job ~= nil or waiting[1] ~= nil end
+ns.SkillPlanWaiting = function() return #waiting end -- (how many plans wait their turn: for the tests)
 
 ---------------------------------------------------------------------------
 -- The second reader: an active plan run (0.2 B3, concept shopping list 4.1,
@@ -518,7 +643,7 @@ ns.SkillPlanRunner = function(on)
     runnerOn = on and true or false
     -- the last reader is gone and the window is closed: what was begun (or
     -- finished and not taken yet) is dropped - nothing goes on, nothing waits
-    if not runnerOn and not WindowShown() then DropJob() end
+    if not runnerOn and not WindowShown() then DropAll() end
 end
 ns.SkillPlanFor = function(prof, target)
     if not runnerOn then return nil, "off" end
@@ -534,9 +659,12 @@ ns.SkillPlanFor = function(prof, target)
     end
     local skillState, rank, _, _, source, seenAt = SkillState(prof)
     if skillState ~= "learned" then
-        DropJob()
+        Forget(PlanKey(prof, target)) -- (only this plan: another reader's goes on, R2-M1)
         return nil, "skill"
     end
+    -- another plan's calculation is finished: it goes to its own plan first
+    -- (R2-M1) - this reader may need nothing worked out and not ask further
+    if job and job.plan and job.key ~= PlanKey(prof, target) then Settle(job) end
     -- its own plan, kept, and nothing it read has changed: that one - without
     -- touching what is worked out for another reader (R1-M1)
     local kept = calc.kept and calc.kept[PlanKey(prof, target)]
