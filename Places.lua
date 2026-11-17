@@ -36,16 +36,17 @@ local function Fresh()
     local map, x, y
     if ns.GetPlayerPos then map, x, y = ns.GetPlayerPos() end
     local letter = Faction()
-    local keep = here and here.letter == letter and here.map == map
-    if keep and map then
-        local d = HBD and HBD:GetZoneDistance(here.map, here.x, here.y, map, x, y)
+    local was = here
+    local keep = was ~= nil and was.letter == letter and was.map == map
+    if keep and was and map and was.x and x then
+        local d = HBD and HBD:GetZoneDistance(was.map, was.x, was.y, map, x, y)
         keep = d ~= nil and d <= MOVE
     end
-    if not keep then
-        cache = {}
-        here = { map = map, x = x, y = y, letter = letter }
-    end
-    return here
+    if keep and was then return was end
+    cache = {}
+    was = { map = map, x = x, y = y, letter = letter }
+    here = was
+    return was
 end
 
 -- how far a place is from you; nil = not on your continent (or no position)
@@ -95,7 +96,7 @@ function ns.PlacesTrainer(prof, need)
     local maps = GathercraftAreaMaps or {}
     local best
     for _, t in ipairs(TrainersOf(prof)) do
-        local friendly = t.friendly ~= "" and (not at.letter or t.friendly:find(at.letter, 1, true))
+        local friendly = t.friendly ~= "" and (not at.letter or string.find(t.friendly, at.letter, 1, true) ~= nil)
         local teaches = not need or t.rank == 0 or t.rank >= need
         if friendly and teaches then
             local unsure = need ~= nil and need >= 3 and t.rank == 0
@@ -126,11 +127,11 @@ function ns.PlacesVendor(recipeItem)
     local packed = recipeItem and src and src.items and src.items[recipeItem]
     local best, named
     for list in (packed or ""):gmatch("V:([%d,]+)") do
-        for id in list:gmatch("%d+") do
-            id = tonumber(id)
+        for text in list:gmatch("%d+") do
+            local id = tonumber(text)
             local npc = src.npcs and src.npcs[id]
             local name, area, friendly, x, y = (npc or ""):match("^([^|]*)|(%d*)|([^|]*)|(%d+)|(%d+)")
-            if name and (not at.letter or friendly == "" or friendly:find(at.letter, 1, true)) then
+            if name and (not at.letter or friendly == "" or string.find(friendly, at.letter, 1, true) ~= nil) then
                 local mapID = maps and area and maps[tonumber(area)]
                 if mapID then
                     local c = { id = id, name = name, mapID = mapID, x = tonumber(x) / 10000, y = tonumber(y) / 10000, unsure = false }
