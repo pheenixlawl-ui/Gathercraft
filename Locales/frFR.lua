@@ -725,4 +725,8 @@ ns.Locales.frFR = {
     ["Plan"] = "Plan",
     ["A plan run has no route preview. Start it from the skill plan."] = "Une tournée de plan n'a pas d'aperçu d'itinéraire. Lancez-la depuis le plan de compétence.",
     ["Waiting for your plan ..."] = "En attente de votre plan ...",
+    ["Nearest trainer: %s (%s)"] = "Maître le plus proche : %s (%s)",
+    ["Trainer on another continent: %s (%s)"] = "Maître sur un autre continent : %s (%s)",
+    ["May not teach this rank."] = "N'enseigne peut-être pas ce rang.",
+    ["Place from the Questie database: the NPC may not be there right now."] = "Lieu tiré de la base de données de Questie : le PNJ n'y est peut-être pas en ce moment.",
 }

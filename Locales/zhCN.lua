@@ -725,4 +725,8 @@ ns.Locales.zhCN = {
     ["Plan"] = "计划",
     ["A plan run has no route preview. Start it from the skill plan."] = "计划路线没有路线预览。请从技能规划中启动。",
     ["Waiting for your plan ..."] = "正在等待计划 ...",
+    ["Nearest trainer: %s (%s)"] = "最近的训练师：%s（%s）",
+    ["Trainer on another continent: %s (%s)"] = "另一大陆上的训练师：%s（%s）",
+    ["May not teach this rank."] = "可能不教授这一级。",
+    ["Place from the Questie database: the NPC may not be there right now."] = "位置来自Questie数据库：该NPC现在可能不在那里。",
 }

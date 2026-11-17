@@ -52,6 +52,10 @@ docs/icon.png, docs/banner.png) as the name or branding of your own version.
   above); vendors, quest rewards and NPC names and zones from the Questie
   database, used on the same terms as above. Converted by
   tools/import_recipe_sources.py.
+- **Data/Trainers.lua** - profession trainers (names, places, factions) from the
+  Questie database, used on the same terms as above. Converted (filtered to the
+  trainers of the skill plan's professions, their rank read from the English
+  title) by tools/import_trainers.py.
 - **Libs/HereBeDragons** - HereBeDragons by Nevcairiel, BSD license, bundled
   with CallbackHandler-1.0 (BSD) and LibStub (public domain).
 - **Libs/LibDataBroker-1.1** - LibDataBroker by tekkub, under its own license.

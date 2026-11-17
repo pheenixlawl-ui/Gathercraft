@@ -725,4 +725,8 @@ ns.Locales.ruRU = {
     ["Plan"] = "План",
     ["A plan run has no route preview. Start it from the skill plan."] = "У маршрута по плану нет предпросмотра. Запустите его из плана навыка.",
     ["Waiting for your plan ..."] = "Ожидание плана ...",
+    ["Nearest trainer: %s (%s)"] = "Ближайший наставник: %s (%s)",
+    ["Trainer on another continent: %s (%s)"] = "Наставник на другом континенте: %s (%s)",
+    ["May not teach this rank."] = "Возможно, не обучает этому уровню.",
+    ["Place from the Questie database: the NPC may not be there right now."] = "Место из базы данных Questie: НИП может сейчас там не быть.",
 }

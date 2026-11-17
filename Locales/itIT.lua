@@ -725,4 +725,8 @@ ns.Locales.itIT = {
     ["Plan"] = "Piano",
     ["A plan run has no route preview. Start it from the skill plan."] = "Un giro del piano non ha anteprima del percorso. Avvialo dal piano abilità.",
     ["Waiting for your plan ..."] = "In attesa del tuo piano ...",
+    ["Nearest trainer: %s (%s)"] = "Istruttore più vicino: %s (%s)",
+    ["Trainer on another continent: %s (%s)"] = "Istruttore in un altro continente: %s (%s)",
+    ["May not teach this rank."] = "Potrebbe non insegnare questo grado.",
+    ["Place from the Questie database: the NPC may not be there right now."] = "Luogo dal database di Questie: il PNG potrebbe non trovarsi lì in questo momento.",
 }

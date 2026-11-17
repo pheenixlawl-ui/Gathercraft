@@ -754,4 +754,8 @@ ns.Locales.deDE = {
     ["Plan"] = "Plan",
     ["A plan run has no route preview. Start it from the skill plan."] = "Für einen Plan-Lauf gibt es keine Routenvorschau. Starte ihn aus dem Skill-Plan.",
     ["Waiting for your plan ..."] = "Warte auf deinen Plan ...",
+    ["Nearest trainer: %s (%s)"] = "Nächster Lehrer: %s (%s)",
+    ["Trainer on another continent: %s (%s)"] = "Lehrer auf einem anderen Kontinent: %s (%s)",
+    ["May not teach this rank."] = "Bildet diesen Rang vielleicht nicht aus.",
+    ["Place from the Questie database: the NPC may not be there right now."] = "Ort aus der Questie-Datenbank: Der NPC steht vielleicht gerade nicht dort.",
 }

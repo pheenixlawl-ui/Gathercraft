@@ -725,4 +725,8 @@ ns.Locales.koKR = {
     ["Plan"] = "계획",
     ["A plan run has no route preview. Start it from the skill plan."] = "계획 경로는 미리보기가 없습니다. 숙련도 계획에서 시작하세요.",
     ["Waiting for your plan ..."] = "계획을 기다리는 중 ...",
+    ["Nearest trainer: %s (%s)"] = "가장 가까운 전문기술 상급자: %s (%s)",
+    ["Trainer on another continent: %s (%s)"] = "다른 대륙의 전문기술 상급자: %s (%s)",
+    ["May not teach this rank."] = "이 단계를 가르치지 않을 수 있습니다.",
+    ["Place from the Questie database: the NPC may not be there right now."] = "Questie 데이터베이스의 위치: NPC가 지금 그곳에 없을 수 있습니다.",
 }

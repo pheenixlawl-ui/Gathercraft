@@ -725,4 +725,8 @@ ns.Locales.zhTW = {
     ["Plan"] = "計畫",
     ["A plan run has no route preview. Start it from the skill plan."] = "計畫路線沒有路線預覽。請從技能規劃中啟動。",
     ["Waiting for your plan ..."] = "正在等待計畫 ...",
+    ["Nearest trainer: %s (%s)"] = "最近的訓練師：%s（%s）",
+    ["Trainer on another continent: %s (%s)"] = "另一塊大陸上的訓練師：%s（%s）",
+    ["May not teach this rank."] = "可能不教授這一級。",
+    ["Place from the Questie database: the NPC may not be there right now."] = "位置來自Questie資料庫：該NPC現在可能不在那裡。",
 }

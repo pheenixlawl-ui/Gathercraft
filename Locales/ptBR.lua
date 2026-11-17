@@ -725,4 +725,8 @@ ns.Locales.ptBR = {
     ["Plan"] = "Plano",
     ["A plan run has no route preview. Start it from the skill plan."] = "Uma rota de plano não tem prévia. Inicie-a pelo plano de perícia.",
     ["Waiting for your plan ..."] = "Aguardando seu plano ...",
+    ["Nearest trainer: %s (%s)"] = "Instrutor mais próximo: %s (%s)",
+    ["Trainer on another continent: %s (%s)"] = "Instrutor em outro continente: %s (%s)",
+    ["May not teach this rank."] = "Talvez não ensine este nível.",
+    ["Place from the Questie database: the NPC may not be there right now."] = "Local do banco de dados do Questie: o PNJ pode não estar lá agora.",
 }

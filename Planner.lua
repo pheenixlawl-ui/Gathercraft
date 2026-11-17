@@ -790,6 +790,28 @@ local function VendorOf(recipe)
     return named
 end
 
+-- the nearest trainer (Places.lua, Data/Trainers.lua): its text, worked out
+-- when the window is drawn; the tooltip and the click only use it
+local function TrainerPlace(prof, need)
+    local t = ns.PlacesTrainer and ns.PlacesTrainer(prof, need)
+    if not t then return nil end
+    local text = ((t.far and L["Trainer on another continent: %s (%s)"] or L["Nearest trainer: %s (%s)"])):format(t.name, ns.GetZoneName(t.mapID))
+    return { place = t, text = text, zone = ns.GetZoneName(t.mapID) }
+end
+local function PlaceTip(tt, p)
+    tt:AddLine(p.text, 0.9, 0.9, 0.9, true)
+    if p.place.unsure then tt:AddLine(L["May not teach this rank."], 1, 0.5, 0.4, true) end
+    tt:AddLine(L["Place from the Questie database: the NPC may not be there right now."], 0.6, 0.6, 0.6, true)
+    tt:AddLine(L["Click: set a waypoint."], 0.6, 0.6, 0.6, true)
+end
+local function PlaceClick(p)
+    return function()
+        if ns.SetWaypoint and ns.SetWaypoint(p.place.mapID, p.place.x, p.place.y) then
+            ns.Print((L["Waypoint set: %s (%s)."]):format(p.place.name, p.zone))
+        end
+    end
+end
+
 local function Row(i)
     local row = rows[i]
     if row then return row end
@@ -1044,8 +1066,17 @@ local function Refresh()
         local t = trainAt[at]
         if not t then return end
         trainAt[at] = nil
-        Line(t.assumed and (L["Train the next rank at your trainer (at ~%d, cap assumed)."]):format(at)
+        local row = Line(t.assumed and (L["Train the next rank at your trainer (at ~%d, cap assumed)."]):format(at)
             or (L["Train the next rank at your trainer (needed at %d)."]):format(at), nil, GOLD)
+        -- where: the nearest trainer who can teach the next rank
+        local p = TrainerPlace(prof, ns.PlacesRankAfter(at))
+        if p then
+            local sub = Line("    " .. p.text .. (p.place.unsure and ("  |cffff7070" .. L["May not teach this rank."] .. "|r") or ""), nil, GREY)
+            for _, r in ipairs({ row, sub }) do
+                r.tip = function(tt) PlaceTip(tt, p) end
+                r.click = PlaceClick(p)
+            end
+        end
     end
     local gaps = false
     for _, s in ipairs(plan.steps) do
@@ -1123,6 +1154,14 @@ local function Refresh()
             if entry.how == "trainer" then
                 row = Line(r.name, ("%s  %s"):format((L["%s trainer"]):format(d.ProfLabel(prof)),
                     entry.cost and ns.Money(entry.cost) or ("|cffff7070" .. L["fee unknown"] .. "|r")))
+                local p = TrainerPlace(prof, ns.PlacesRankOf(r.req or 1))
+                if p then
+                    row.tip = function(tt)
+                        tt:AddLine(r.name, 1, 1, 1)
+                        PlaceTip(tt, p)
+                    end
+                    row.click = PlaceClick(p)
+                end
             else
                 local vendor = VendorOf(r)
                 local cost = entry.cost and ns.Money(entry.cost) or L["|cffff7070no price|r"]
