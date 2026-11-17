@@ -25378,6 +25378,79 @@ step("Farm for plan: while the run waits, \"Plan x/y\" is the whole count of the
     W.Restore()
     if not ok then error(err, 0) end
 end)
+step("Skill plan: a finished plan another reader settles first is looked at with the skill as it is now - its rank, where it was read, whether it can be read (v0.2 B3 R3 A-N1)", function()
+    -- Codex round 3 of block 3, A-N1: Alchemy was worked out from skill 1 for
+    -- the run; the skill rose to 2, and the list of another plan looked first.
+    -- The fresh look saw the change, but what was begun anew was begun with
+    -- the skill of before, and given out "from 1". Now the fresh look and
+    -- what is begun anew take the skill as it is now: its rank, whether it is
+    -- read now or only seen last, and - not read at all - nothing.
+    local d, core = ns.CraftData, ns.PlanCore
+    local saved = { rank = ns.ProfessionRank, have = d.Have, known = d.Known, compute = core.Compute, look = ns.PlanRunLook, lines = GetNumSkillLines }
+    local published = {}
+    local skill = { rank = 1, source = nil, readable = true }
+    local function Heard(r)
+        if r.prof == "Alchemy" then
+            published[#published + 1] = { from = r.from, source = r.skillSource, rank = skill.rank, now = skill.source or "current", readable = skill.readable }
+        end
+    end
+    local ok, err = pcall(function()
+        ns.ProfessionRank = function(p)
+            if p == "Alchemy" then
+                if not skill.readable then return nil end -- (no skill given, and the list cannot be read: below)
+                if skill.source then return skill.rank, nil, "lastSeen", time() - 60 end
+                return skill.rank, 300
+            end
+            if p == "Tailoring" then return 1, 300 end
+        end
+        -- (a skill seen last, or none: the list of skills cannot be read either)
+        GetNumSkillLines = function() if skill.source or not skill.readable then return 0 end return saved.lines() end
+        d.Have = function() return 0 end
+        d.Known = function() return {} end
+        core.Compute = function(input, pause)
+            if pause then coroutine.yield() end -- (two parts: finished in the frame after the first)
+            return saved.compute(input)
+        end
+        ns.PlanRunLook = function() end -- (the run does not look by itself: the list looks first)
+        table.insert(ns.skillPlanListeners, Heard)
+        ns.SkillPlanRunner(true)
+        local function Settled(rank, change)
+            skill.rank, skill.source, skill.readable = rank, nil, true
+            published = {}
+            ns.SkillPlanFor("Alchemy", 75)
+            advance(0.01) -- (finished, not taken)
+            change()
+            for _ = 1, 8 do ns.SkillPlanFor("Tailoring", 75) advance(0.02) end
+            return published
+        end
+        -- (1) Codex's case: from 1, the skill 2 meanwhile - given out from 2
+        local list = Settled(1, function() skill.rank = 2 end)
+        assert(#list > 0, "test setup: nothing given out")
+        for _, p in ipairs(list) do
+            assert(p.from == p.rank, ("given out from the skill of before: from %s, the skill is %s"):format(tostring(p.from), tostring(p.rank)))
+        end
+        -- (2) read when it was begun, only seen last now: given out as a plan from the skill seen last
+        list = Settled(3, function() skill.source = "lastSeen" end)
+        assert(#list > 0, "test setup: nothing given out (seen last)")
+        for _, p in ipairs(list) do
+            assert(p.source == p.now and p.from == p.rank, ("given out as a skill %s, it is %s now"):format(tostring(p.source), tostring(p.now)))
+        end
+        -- (3) it cannot be read now: nothing given out from the skill of before, nothing left over
+        list = Settled(4, function() skill.readable = false end)
+        for _, p in ipairs(list) do
+            assert(p.readable, "given out from skill " .. tostring(p.from) .. " while it cannot be read")
+        end
+        assert(not ns.SkillPlanBusy(), "a skill that cannot be read: something is still worked out or waits")
+        -- read again: its own reader gets its plan from the skill now
+        skill.readable, published = true, {}
+        for _ = 1, 4 do ns.SkillPlanFor("Alchemy", 75) advance(0.02) end
+        assert(#published > 0 and published[#published].from == 4, "read again: no plan from the skill now")
+    end)
+    ns.SkillPlanRunner(false)
+    tDeleteItem(ns.skillPlanListeners, Heard)
+    ns.ProfessionRank, d.Have, d.Known, core.Compute, ns.PlanRunLook, GetNumSkillLines = saved.rank, saved.have, saved.known, saved.compute, saved.look, saved.lines
+    if not ok then error(err, 0) end
+end)
 -- (end of the "Farm for plan" steps, v0.2 building block 3)
 step("Long run (10 min) for leaks", function() slash("run herb") advance(600) slash("stop") end)
 step("Test mock: OnUpdate runs for the same frames in the same order as going over every frame (tools only)", function()

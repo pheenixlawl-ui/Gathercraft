@@ -488,15 +488,25 @@ end
 -- with what it was begun for - nothing it read has changed: given out and
 -- kept; else begun anew for the same plan, at the end of the line. Then the
 -- next plan's turn. (Its own reader takes it when it looks, as before; this
--- is for when another reader looks first.)
+-- is for when another reader looks first.) The look takes the skill of the
+-- profession as it is now - its rank, read now or seen last - not the one it
+-- was begun with; one that cannot be read (or is not learned) now: nothing is
+-- given out or begun, its reader looks itself again (R3 A-N1).
 local function Settle(j)
     job = nil
-    local fresh = Snapshot(unpack(j.args, 1, 5))
+    local prof, target = j.args[1], j.args[3]
+    local skillState, rank, _, _, source, seenAt = SkillState(prof)
+    if skillState ~= "learned" then
+        StartNext()
+        return
+    end
+    local args = { prof, rank, target, source == "lastSeen" and "lastSeen" or nil, seenAt }
+    local fresh = Snapshot(unpack(args, 1, 5))
     local sig = Signature(fresh)
     if sig == j.sig and SameReads(j.input, fresh) then
         Publish(j.input, j.sig, j.plan)
     else
-        local again = NewJob(fresh, sig, j.args)
+        local again = NewJob(fresh, sig, args)
         again.window = j.window
         Wait(again)
     end
