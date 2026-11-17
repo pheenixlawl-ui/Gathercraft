@@ -2,8 +2,9 @@ local addonName, ns = ...
 
 ---------------------------------------------------------------------------
 -- Where to learn (0.2, the places of trainers and vendors): the nearest
--- trainer of a profession for your faction (Data/Trainers.lua, from the
--- Questie database, converted when the file is made).
+-- trainer of a profession for your faction (Data/Trainers.lua) and the
+-- nearest vendor of a recipe item (Data/RecipeSources.lua), both from the
+-- Questie database, converted when the files are made.
 --
 --   * the nearest by straight line on your continent; else one on another
 --     continent (sure before unsure, then the lowest NPC ID: the zone is
@@ -109,6 +110,40 @@ function ns.PlacesTrainer(prof, need)
         end
     end
     if best then best.far = best.d == nil end
+    cache[key] = best or false
+    return best
+end
+
+-- The nearest vendor of a recipe item (Data/RecipeSources.lua): on your
+-- continent the nearest, else the first by NPC ID as before; a vendor
+-- without a known map only by name. { name, mapID, x, y, far } or nil
+function ns.PlacesVendor(recipeItem)
+    local at = Fresh()
+    local key = "v:" .. tostring(recipeItem)
+    if cache[key] ~= nil then return cache[key] or nil end
+    ns.PlacesSearches = ns.PlacesSearches + 1
+    local src, maps = GathercraftRecipeSources, GathercraftAreaMaps
+    local packed = recipeItem and src and src.items and src.items[recipeItem]
+    local best, named
+    for list in (packed or ""):gmatch("V:([%d,]+)") do
+        for id in list:gmatch("%d+") do
+            id = tonumber(id)
+            local npc = src.npcs and src.npcs[id]
+            local name, area, friendly, x, y = (npc or ""):match("^([^|]*)|(%d*)|([^|]*)|(%d+)|(%d+)")
+            if name and (not at.letter or friendly == "" or friendly:find(at.letter, 1, true)) then
+                local mapID = maps and area and maps[tonumber(area)]
+                if mapID then
+                    local c = { id = id, name = name, mapID = mapID, x = tonumber(x) / 10000, y = tonumber(y) / 10000, unsure = false }
+                    c.d = Distance(at, mapID, c.x, c.y)
+                    if Better(c, best) then best = c end
+                elseif not named or id < named.id then
+                    named = { id = id, name = name }
+                end
+            end
+        end
+    end
+    if best then best.far = best.d == nil end
+    best = best or named
     cache[key] = best or false
     return best
 end

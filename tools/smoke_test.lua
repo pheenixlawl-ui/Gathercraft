@@ -4828,12 +4828,10 @@ step("Skill plan 2.0: the window - one profession, skill read, target menu, have
             local name, area, friendly = (npc or ""):match("^([^|]*)|(%d*)|([^|]*)|")
             -- (a vendor both sides can buy from, so the test does not depend on the faction)
             local both = friendly == "" or (friendly and friendly:find("A", 1, true) and friendly:find("H", 1, true))
-            if name and name ~= "" and both and GathercraftAreaMaps[tonumber(area)] and (not recipeItem or item < recipeItem) then
-                local first = true
-                for other in packed:gmatch("V:([%d,]+)") do
-                    for n in other:gmatch("%d+") do if tonumber(n) < tonumber(id) then first = false end end
-                end
-                if first then recipeItem, vendorName = item, name end
+            -- (a recipe with one vendor: which of several is shown is the step of the 0.2 places)
+            local one = packed:match("^V:%d+$") or packed:match("^V:%d+|") and not packed:find("V:%d+,")
+            if name and name ~= "" and both and one and GathercraftAreaMaps[tonumber(area)] and (not recipeItem or item < recipeItem) then
+                recipeItem, vendorName = item, name
             end
         end
         assert(recipeItem, "test setup: no vendor recipe in the shipped data")
@@ -5107,6 +5105,78 @@ step("Skill plan: the nearest trainer of your faction, sure before unsure, worke
     end)
     ns.ProfessionRank, d.Have, d.Known, ns.GetPrice, ns.CraftFilter, core.Compute = saved.rank, saved.have, saved.known, saved.price, saved.filter, saved.compute
     ns.db.planTargets, ns.SetWaypoint, GathercraftTrainers, GathercraftAreaMaps = saved.targets, saved.waypoint, saved.trainers, saved.maps
+    player.map, player.x, player.y, UnitFactionGroup = saved.map, saved.x, saved.y, saved.faction
+    fire("ZONE_CHANGED_NEW_AREA")
+    if _G.GathercraftSkillPlan then _G.GathercraftSkillPlan:Hide() end
+    if not ok then error(err, 0) end
+end)
+step("Skill plan: the nearest vendor of a recipe, else the first as before (0.2 places, part 2)", function()
+    local L, core, d = ns.L, ns.PlanCore, ns.CraftData
+    local saved = { rank = ns.ProfessionRank, have = d.Have, known = d.Known, price = ns.GetPrice, filter = ns.CraftFilter, compute = core.Compute,
+        targets = ns.db.planTargets, waypoint = ns.SetWaypoint, sources = GathercraftRecipeSources, maps = GathercraftAreaMaps,
+        map = player.map, x = player.x, y = player.y, faction = UnitFactionGroup }
+    local function Learn()
+        for _, o in ipairs(allFrames) do
+            if o.left and o.right and o:IsShown() and o.left:GetText() == "Recipe V" then return o end
+        end
+    end
+    local function Tip(row)
+        local lines = {}
+        if row and row.tip then row.tip({ AddLine = function(_, t) lines[#lines + 1] = t end }) end
+        return table.concat(lines, "\n")
+    end
+    local ok, err = pcall(function()
+        local ranks = {}
+        ns.ProfessionRank = function(p) local r = ranks[p] if r then return r[1], r[2] end end
+        d.Have = function() return 0 end
+        d.Known = function() return {} end
+        ns.GetPrice = function() return 10, "AH scan" end
+        ns.CraftFilter = function() return "Alchemy" end
+        ns.db.planTargets = nil
+        core.Compute = function(input)
+            return saved.compute({ prof = input.prof, skill = 1, target = 6, professions = {}, caps = {}, nodes = {}, stock = {}, recipeItemPrices = { [99901] = 500 },
+                recipes = { [input.prof] = { { prof = input.prof, key = "V", name = "Recipe V", product = 9840, made = 1, req = 1, yellow = 6, grey = 6,
+                    reagents = { { id = 9841, n = 1 } }, learn = "vendor", recipeItem = 99901 } } },
+                prices = { [9841] = { status = "known", copper = 10 } } })
+        end
+        GathercraftAreaMaps = setmetatable({ [9001] = 1413, [9002] = 1440, [9003] = 1412 }, { __index = saved.maps })
+        GathercraftRecipeSources = setmetatable({ items = { [99901] = "V:801,802,803,804" }, npcs = {
+            [801] = "First By ID|9002|H|5000|5000",
+            [802] = "The Nearest|9001|AH|5000|5000",
+            [803] = "Alliance Next Door|9003|A|5100|5000",
+            [804] = "No Map Yet|77777|H|5000|5000",
+        } }, { __index = saved.sources })
+        player.map, player.x, player.y = 1412, 0.5, 0.5
+        UnitFactionGroup = function() return "Horde", "Horde" end
+        fire("ZONE_CHANGED_NEW_AREA")
+        local function Draw(r) ranks.Alchemy = r ns.ShowSkillPlan("Alchemy") advance(1) return Learn() end
+        -- (1) three of your faction with a place: the nearest; the other faction's nearer one: not taken
+        local row = Draw({ 1, 75 })
+        assert(row and row.right:GetText():find("The Nearest", 1, true), "not the nearest vendor: " .. tostring(row and row.right:GetText()))
+        local way
+        ns.SetWaypoint = function(mapID, x, y) way = { mapID, x, y } return true end
+        row.click()
+        assert(way and way[1] == 1413, "the waypoint is not the nearest vendor's")
+        assert(Tip(row):find((L["Sold by %s (%s)."]):format("The Nearest", ns.GetZoneName(1413)), 1, true)
+            and Tip(row):find(L["Place from the Questie database: the NPC may not be there right now."], 1, true), "the vendor's tooltip: " .. Tip(row))
+        local searches = ns.PlacesSearches
+        for _ = 1, 5 do Tip(row) end
+        assert(ns.PlacesSearches == searches, "the vendor is searched while you point at the row")
+        -- (2) none on your continent: the first by ID with a place, as before
+        player.map = 1420
+        fire("ZONE_CHANGED_NEW_AREA")
+        row = Draw({ 2, 75 })
+        assert(row and row.right:GetText():find("First By ID", 1, true), "none on your continent: not the first as before: " .. tostring(row and row.right:GetText()))
+        -- (3) no place known for any: the first by name as before, no waypoint
+        GathercraftRecipeSources = setmetatable({ items = { [99901] = "V:804,805" }, npcs = { [804] = "No Map Yet|77777|H|5000|5000", [805] = "No Map Either|0|H|0|0" } },
+            { __index = saved.sources })
+        fire("ZONE_CHANGED_NEW_AREA")
+        row = Draw({ 3, 75 })
+        assert(row and row.right:GetText():find("No Map Yet", 1, true) and not row.click
+            and Tip(row):find((L["Sold by %s (%s)."]):format("No Map Yet", L["place unknown"]), 1, true), "no place known: not the first as before")
+    end)
+    ns.ProfessionRank, d.Have, d.Known, ns.GetPrice, ns.CraftFilter, core.Compute = saved.rank, saved.have, saved.known, saved.price, saved.filter, saved.compute
+    ns.db.planTargets, ns.SetWaypoint, GathercraftRecipeSources, GathercraftAreaMaps = saved.targets, saved.waypoint, saved.sources, saved.maps
     player.map, player.x, player.y, UnitFactionGroup = saved.map, saved.x, saved.y, saved.faction
     fire("ZONE_CHANGED_NEW_AREA")
     if _G.GathercraftSkillPlan then _G.GathercraftSkillPlan:Hide() end

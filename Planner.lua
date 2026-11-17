@@ -763,31 +763,10 @@ local function Ago(seconds)
         or mins < 2880 and (math.floor(mins / 60) .. L[" h ago"]) or (math.floor(mins / 1440) .. L[" days ago"])
 end
 
--- where a recipe item is sold (Data/RecipeSources.lua: vendor, area, place)
+-- where a recipe item is sold: the nearest vendor (Places.lua, from
+-- Data/RecipeSources.lua), else the first as before
 local function VendorOf(recipe)
-    local src, maps = GathercraftRecipeSources, GathercraftAreaMaps
-    local packed = recipe.recipeItem and src and src.items and src.items[recipe.recipeItem]
-    if not packed then return end
-    local mine = UnitFactionGroup and UnitFactionGroup("player")
-    local letter = mine == "Alliance" and "A" or mine == "Horde" and "H" or nil
-    local ids = {}
-    for list in packed:gmatch("V:([%d,]+)") do
-        for id in list:gmatch("%d+") do ids[#ids + 1] = tonumber(id) end
-    end
-    table.sort(ids)
-    local named
-    for _, id in ipairs(ids) do
-        local npc = src.npcs and src.npcs[id]
-        local name, area, friendly, x, y = (npc or ""):match("^([^|]*)|(%d*)|([^|]*)|(%d+)|(%d+)")
-        if name and (not letter or friendly == "" or friendly:find(letter, 1, true)) then
-            local mapID = maps and area and maps[tonumber(area)]
-            if mapID then
-                return { name = name, mapID = mapID, x = tonumber(x) / 10000, y = tonumber(y) / 10000 }
-            end
-            named = named or { name = name }
-        end
-    end
-    return named
+    return recipe.recipeItem and ns.PlacesVendor and ns.PlacesVendor(recipe.recipeItem) or nil
 end
 
 -- the nearest trainer (Places.lua, Data/Trainers.lua): its text, worked out
@@ -1164,12 +1143,14 @@ local function Refresh()
                 end
             else
                 local vendor = VendorOf(r)
+                local vendorZone = vendor and vendor.mapID and ns.GetZoneName(vendor.mapID)
                 local cost = entry.cost and ns.Money(entry.cost) or L["|cffff7070no price|r"]
                 row = Line(r.name, ("%s  %s"):format(vendor and vendor.name or L["vendor"], cost))
                 row.tip = function(tt)
                     tt:AddLine(r.name, 1, 1, 1)
                     if vendor and vendor.mapID then
-                        tt:AddLine((L["Sold by %s (%s)."]):format(vendor.name, ns.GetZoneName(vendor.mapID)), 0.9, 0.9, 0.9, true)
+                        tt:AddLine((L["Sold by %s (%s)."]):format(vendor.name, vendorZone), 0.9, 0.9, 0.9, true)
+                        tt:AddLine(L["Place from the Questie database: the NPC may not be there right now."], 0.6, 0.6, 0.6, true)
                         tt:AddLine(L["Click: set a waypoint."], 0.6, 0.6, 0.6, true)
                     elseif vendor then
                         tt:AddLine((L["Sold by %s (%s)."]):format(vendor.name, L["place unknown"]), 0.9, 0.9, 0.9, true)
@@ -1180,7 +1161,7 @@ local function Refresh()
                 if vendor and vendor.mapID then
                     row.click = function()
                         if ns.SetWaypoint and ns.SetWaypoint(vendor.mapID, vendor.x, vendor.y) then
-                            ns.Print((L["Waypoint set: %s (%s)."]):format(vendor.name, ns.GetZoneName(vendor.mapID)))
+                            ns.Print((L["Waypoint set: %s (%s)."]):format(vendor.name, vendorZone))
                         end
                     end
                 end
