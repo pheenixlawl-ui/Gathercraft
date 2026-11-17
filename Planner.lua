@@ -1411,6 +1411,12 @@ local function Build()
     noteText:SetWidth(500)
     noteText:SetJustifyH("LEFT")
     win:SetScript("OnShow", Refresh)
+    -- closed: the window no longer decides what is planned - a plan run or
+    -- the list of zones it held up reads its own plan again at once, not
+    -- only with the next bag event or step (0.2 B3 R1-M2)
+    win:HookScript("OnHide", function()
+        if runnerOn and ns.PlanReadersWake then ns.PlanReadersWake() end
+    end)
     -- what the plan read can change while it is open (loot, crafting, the
     -- bank, a skill point, a new recipe): looked at again, once for a burst
     -- of events - and calculated again only when something really changed.
@@ -1452,5 +1458,8 @@ local function ShowSkillPlan(prof)
     TryAgain()
     -- (showing it refreshes it - OnShow; an open window is refreshed here)
     if win:IsShown() then Refresh() else win:Show() end
+    -- another profession in the window: a reader it held up may be free
+    -- again (the run's own), or held up now - either way it looks (R1-M2)
+    if runnerOn and ns.PlanReadersWake then ns.PlanReadersWake() end
 end
 ns.ShowSkillPlan = ShowSkillPlan

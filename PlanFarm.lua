@@ -642,6 +642,15 @@ ns.PlanRunLook = function()
     lookPending = true
     C_Timer.After(LOOK_DELAY, Look)
 end
+-- The skill plan window closed or shows another profession (Planner.lua):
+-- the plan run and a list of zones that had no plan to go by look again,
+-- once for a burst (0.2 B3 R1-M2)
+ns.PlanReadersWake = function()
+    local zones = _G.GathercraftPlanZones
+    local data = zones and zones:IsShown() and (ns.PlanZoneListState())
+    if data and data.state ~= "ok" then listWaits = true end
+    ns.PlanRunLook()
+end
 
 local watch = CreateFrame("Frame")
 for _, e in ipairs({ "BAG_UPDATE_DELAYED", "BANKFRAME_OPENED", "BANKFRAME_CLOSED", "PLAYERBANKSLOTS_CHANGED", "PLAYERREAGENTBANKSLOTS_CHANGED",

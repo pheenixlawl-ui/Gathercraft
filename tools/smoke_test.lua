@@ -24188,6 +24188,75 @@ step("Farm for plan: a plan run and the list of zones of another profession do n
     advance(2)
     if not ok then error(err, 0) end
 end)
+step("Farm for plan: frozen while the skill plan shows another profession - and free again when it closes or shows the run's own, with no bag event (v0.2 B3 R1-M2)", function()
+    -- Codex round 1 of block 3, M2: a Mining run, Alchemy in the skill plan
+    -- (the run freezes, as Sven decided on 16.11.), three copper ore come in;
+    -- the window closes and you stand still - the run stayed "invalid" with
+    -- 0 instead of 3 for 40 s. Now closing the window, or showing the run's
+    -- own profession again, lets the run read its plan at once.
+    local d = ns.CraftData
+    local saved = { rank = ns.ProfessionRank, have = d.Have, known = d.Known, skill = ns.GetSkill, targets = ns.db.planTargets, run = ns.db.activeRun }
+    local W = IdentityWorld()
+    local before = #errors
+    local win = _G.GathercraftSkillPlan
+    if win then win:Hide() end
+    local ok, err = pcall(function()
+        local stock = {}
+        ns.ProfessionRank = function(p) if p == "Mining" then return 1, 75 elseif p == "Alchemy" then return 1, 300 end end
+        d.Known = function() return {} end
+        d.Have = function(id) return stock[id] or 0 end
+        ns.GetSkill = function(t) if t == "herb" or t == "ore" then return 300, 300, 300 end end
+        ns.db.planTargets = nil
+        W.Set({ W.Node("o1731", "Copper Vein", 100, { type = "ore" }), W.Node("o1731", "Copper Vein", 200, { type = "ore" }) })
+        W.At(0)
+        local function Copper()
+            local s = ns.PlanRunState()
+            for _, r in ipairs((s and s.rows) or {}) do if r.item == 2770 then return r end end
+        end
+        ns.StartRun(ns.PlanFilter("Mining", 75), 1412) W.Wait(1)
+        assert(ns.run and ns.PlanRunState().state == "active" and Copper().have == 0, "test setup: no Mining run with 0 copper")
+        -- Alchemy in the skill plan: the run freezes; three copper ore come in meanwhile
+        ns.ShowSkillPlan("Alchemy") advance(1)
+        win = _G.GathercraftSkillPlan
+        stock[2770] = 3
+        fire("BAG_UPDATE_DELAYED") advance(1)
+        local s = ns.PlanRunState()
+        assert(s.state == "invalid" and s.why == "window" and s.frozen, "test setup: the run is not frozen: " .. tostring(s.state) .. " " .. tostring(s.why))
+        -- the window closes - and nothing else happens: no bag event, no step
+        win:Hide()
+        advance(2)
+        s = ns.PlanRunState()
+        assert(s.state == "active" and Copper().have == 3, ("2 s after the window closed, with no bag event: the run is %s with %s copper - want active with 3"):format(tostring(s.state), tostring(Copper() and Copper().have)))
+        -- the same with the window left open: back to the run's own profession
+        ns.ShowSkillPlan("Alchemy") advance(1)
+        stock[2770] = 7
+        fire("BAG_UPDATE_DELAYED") advance(1)
+        assert(ns.PlanRunState().state == "invalid", "test setup: not frozen again")
+        ns.ShowSkillPlan("Mining")
+        advance(2)
+        s = ns.PlanRunState()
+        assert(win:IsShown() and s.state == "active" and Copper().have == 7, ("2 s after the window showed Mining again: the run is %s with %s copper - want active with 7"):format(tostring(s.state), tostring(Copper() and Copper().have)))
+        -- the run's own profession in the window, closed: nothing breaks, nothing changes
+        win:Hide() advance(2)
+        assert(ns.PlanRunState().state == "active" and Copper().have == 7, "closing the window on the run's own profession changed the run")
+        -- and the list of zones of a profession the window shows otherwise: free again too
+        ns.ShowSkillPlan("Alchemy") advance(1)
+        assert(ns.PlanZoneListShow("Mining", 75), "test setup: the list did not open")
+        advance(1)
+        local data = (ns.PlanZoneListState())
+        assert(data.state == "invalid" and data.why == "window", "test setup: the list is not held by the window: " .. tostring(data.state))
+        win:Hide() advance(2)
+        data = (ns.PlanZoneListState())
+        assert(data.state == "ok", "2 s after the window closed the list still says: " .. tostring(data.state) .. " " .. tostring(data.why))
+        assert(#errors == before, "an error: " .. tostring(errors[#errors]))
+    end)
+    ns.ProfessionRank, d.Have, d.Known, ns.GetSkill = saved.rank, saved.have, saved.known, saved.skill
+    if ns.run then ns.StopRun(true) end
+    for _, name in ipairs({ "GathercraftPlanZones", "GathercraftPlanHint", "GathercraftRunSummary", "GathercraftPlanGathered", "GathercraftSkillPlan" }) do if _G[name] then _G[name]:Hide() end end
+    ns.db.planTargets, ns.db.activeRun = saved.targets, saved.run
+    W.Restore()
+    if not ok then error(err, 0) end
+end)
 -- (end of the "Farm for plan" steps, v0.2 building block 3)
 step("Long run (10 min) for leaks", function() slash("run herb") advance(600) slash("stop") end)
 step("Test mock: OnUpdate runs for the same frames in the same order as going over every frame (tools only)", function()
