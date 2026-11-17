@@ -3,10 +3,13 @@
 Builds Data/Trainers.lua: the profession trainers of the skill plan's professions,
 with the rank their English title names, their faction and their places.
 
-    python tools/import_trainers.py <QuestieDB>/data/Forever -o Data/Trainers.lua
+    python tools/import_trainers.py <QuestieDB>/data/Forever --commit <QuestieDB commit> -o Data/Trainers.lua
 
 Source: QuestieDB (https://github.com/Questie/QuestieDB), used under the terms of the
-GPLv3 with the permission of the Questie team - credited in NOTICE.md.
+GPLv3 with the permission of the Questie team - credited in NOTICE.md. The commit the
+data is from is named in the file's head (--commit). Data/Trainers.lua as shipped is
+made from commit 3f10ca075123d3aeb110315adc17dc85d7c20f5e, the same source as the
+vendors of Data/RecipeSources.lua.
 
 What is taken:
   * NPCs with the trainer flag (npcFlags 16) whose English title (subName) names a
@@ -65,8 +68,11 @@ def main():
     here = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "Data")
     ap.add_argument("--maps", default=os.path.join(here, "AreaMaps.lua"))
     ap.add_argument("--sources", default=os.path.join(here, "RecipeSources.lua"))
+    ap.add_argument("--commit", required=True, help="the QuestieDB commit the data is from (named in the file's head)")
     ap.add_argument("-o", "--out", default="Trainers.lua")
     args = ap.parse_args()
+    if not re.fullmatch(r"[0-9a-f]{40}", args.commit):
+        sys.exit("--commit: the whole QuestieDB commit hash (40 hex digits), not %r" % args.commit)
 
     maps = {int(a) for a, _ in re.findall(r"\[(\d+)\] = (\d+)", open(args.maps, encoding="utf-8").read())}
     sources = open(args.sources, encoding="utf-8").read()
@@ -118,6 +124,7 @@ def main():
         "-- Profession trainers: names, places and factions from the Questie database",
         "-- (QuestieDB, https://github.com/Questie/QuestieDB; Questie: https://github.com/Questie/Questie),",
         "-- used under the terms of the GPLv3 with the permission of the Questie team. See their LICENSE.md.",
+        "-- Source: QuestieDB commit %s, data/Forever/foreverNpcDB.lua." % args.commit,
         "-- The rank is read from the trainer's English title when this file is made:",
         "-- 1 Apprentice, 2 Journeyman, 3 Expert, 4 Artisan, 5 Master, 0 = the title names no rank.",
         "-- [profession] = { [npc] = \"name|rank|friendly to (A/H)|areaID:x*100:y*100;...\" }",

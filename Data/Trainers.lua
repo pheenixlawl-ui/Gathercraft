@@ -2,6 +2,7 @@
 -- Profession trainers: names, places and factions from the Questie database
 -- (QuestieDB, https://github.com/Questie/QuestieDB; Questie: https://github.com/Questie/Questie),
 -- used under the terms of the GPLv3 with the permission of the Questie team. See their LICENSE.md.
+-- Source: QuestieDB commit 3f10ca075123d3aeb110315adc17dc85d7c20f5e, data/Forever/foreverNpcDB.lua.
 -- The rank is read from the trainer's English title when this file is made:
 -- 1 Apprentice, 2 Journeyman, 3 Expert, 4 Artisan, 5 Master, 0 = the title names no rank.
 -- [profession] = { [npc] = "name|rank|friendly to (A/H)|areaID:x*100:y*100;..." }

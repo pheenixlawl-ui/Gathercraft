@@ -4948,6 +4948,14 @@ step("Trainer places: Data/Trainers.lua from the Questie database, rank from the
     f = assert(io.open(ROOT .. "/NOTICE.md"))
     local notice = f:read("*a") f:close()
     assert(notice:find("**Data/Trainers.lua**", 1, true) and notice:find("tools/import_trainers.py", 1, true), "NOTICE.md does not name Data/Trainers.lua")
+    -- the source as it was when the file was made: the QuestieDB commit, in the head and in the README (R3 B-N2)
+    local head = text:match("^(.-)\nGathercraftTrainers = {") or ""
+    assert(head:find("\n-- Source: QuestieDB commit 3f10ca075123d3aeb110315adc17dc85d7c20f5e, data/Forever/foreverNpcDB.lua.\n", 1, true),
+        "the file's head does not name the QuestieDB commit it was made from")
+    f = assert(io.open(ROOT .. "/README.md"))
+    local readme = f:read("*a") f:close()
+    assert(readme:find("`Data/Trainers.lua`", 1, true) and readme:find("`tools/import_trainers.py`", 1, true)
+        and readme:find("3f10ca0", 1, true), "the README does not name the trainer places and their source")
     local data = assert(GathercraftTrainers, "no GathercraftTrainers")
     local count = 0
     for _, prof in ipairs({ "Alchemy", "Blacksmithing", "Enchanting", "Engineering", "Leatherworking", "Tailoring", "Cooking", "First Aid", "Mining" }) do
