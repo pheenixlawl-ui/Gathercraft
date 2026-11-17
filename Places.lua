@@ -18,6 +18,7 @@ local addonName, ns = ...
 --     change, a bigger move (MOVE yards) or another faction - never while you
 --     point at a row. An open skill plan looks once a second whether that
 --     happened (ns.PlacesStale) and then draws its rows of places again.
+--   * your faction cannot be read: only an NPC friendly to both factions.
 --   * no data, no map or no place: nil (the plan says what it said before).
 ---------------------------------------------------------------------------
 local MOVE = 300
@@ -30,6 +31,13 @@ local function Faction()
     local mine = UnitFactionGroup and UnitFactionGroup("player")
     if ns.AnySecret and ns.AnySecret("faction", mine) then return nil end
     return mine == "Alliance" and "A" or mine == "Horde" and "H" or nil
+end
+-- friendly to you: an NPC friendly to your faction ("A", "H" or "AH"); your
+-- faction cannot be read (none, a hidden value): only one friendly to both -
+-- never one that may be hostile (R3 B-N1)
+local function Friendly(friendly, letter)
+    if letter then return string.find(friendly, letter, 1, true) ~= nil end
+    return string.find(friendly, "A", 1, true) ~= nil and string.find(friendly, "H", 1, true) ~= nil
 end
 
 -- where you are: map, x, y and your faction's letter
@@ -108,7 +116,7 @@ function ns.PlacesTrainer(prof, need)
     local maps = GathercraftAreaMaps or {}
     local best
     for _, t in ipairs(TrainersOf(prof)) do
-        local friendly = t.friendly ~= "" and (not at.letter or string.find(t.friendly, at.letter, 1, true) ~= nil)
+        local friendly = Friendly(t.friendly, at.letter)
         local teaches = not need or t.rank == 0 or t.rank >= need
         if friendly and teaches then
             local unsure = need ~= nil and need >= 3 and t.rank == 0
@@ -143,7 +151,8 @@ function ns.PlacesVendor(recipeItem)
             local id = tonumber(text)
             local npc = src.npcs and src.npcs[id]
             local name, area, friendly, x, y = (npc or ""):match("^([^|]*)|(%d*)|([^|]*)|(%d+)|(%d+)")
-            if name and (not at.letter or friendly == "" or string.find(friendly, at.letter, 1, true) ~= nil) then
+            -- (a vendor whose faction the data does not name: as before, while yours can be read)
+            if name and (at.letter and friendly == "" or Friendly(friendly, at.letter)) then
                 local mapID = maps and area and maps[tonumber(area)]
                 if mapID then
                     local c = { id = id, name = name, mapID = mapID, x = tonumber(x) / 10000, y = tonumber(y) / 10000, unsure = false }

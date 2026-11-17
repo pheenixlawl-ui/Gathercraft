@@ -5378,6 +5378,64 @@ step("Skill plan: an open window follows where you are - after a zone change or 
     if _G.GathercraftSkillPlan then _G.GathercraftSkillPlan:Hide() end
     if not ok then error(err, 0) end
 end)
+step("Places: your faction cannot be read - only a trainer or vendor friendly to both factions, else none; never one of a single faction (0.2 places, R3 B-N1)", function()
+    -- Codex round 3 of the places, B-N1: a faction that cannot be read (none,
+    -- or a hidden value) let every trainer and vendor through - also the
+    -- nearer one of the other faction. Now only one friendly to both, else
+    -- no place at all (the plan says what it said before, no waypoint).
+    local saved = { faction = UnitFactionGroup, secret = ns.AnySecret, trainers = GathercraftTrainers, sources = GathercraftRecipeSources, maps = GathercraftAreaMaps,
+        map = player.map, x = player.x, y = player.y }
+    local ok, err = pcall(function()
+        GathercraftAreaMaps = setmetatable({ [9001] = 1412 }, { __index = saved.maps })
+        player.map, player.x, player.y = 1412, 0.5, 0.5
+        local both = { Alchemy = {
+            [1] = "Alliance Only|3|A|9001:5000:5000",
+            [2] = "Horde Only|3|H|9001:5100:5000",
+            [3] = "Both Factions|3|AH|9001:7000:5000",
+        } }
+        local single = { Alchemy = { [1] = "Alliance Only|3|A|9001:5000:5000", [2] = "Horde Only|3|H|9001:5100:5000" } }
+        local function Vendors(npcs)
+            local ids = {}
+            for id in pairs(npcs) do ids[#ids + 1] = id end
+            table.sort(ids)
+            GathercraftRecipeSources = setmetatable({ items = { [99901] = "V:" .. table.concat(ids, ",") }, npcs = npcs }, { __index = saved.sources })
+        end
+        local function Look()
+            fire("ZONE_CHANGED_NEW_AREA")
+            local t, v = ns.PlacesTrainer("Alchemy", 3), ns.PlacesVendor(99901)
+            return t and t.name, v and v.name
+        end
+        -- the faction is read: yours, the nearest (as before)
+        UnitFactionGroup = function() return "Horde", "Horde" end
+        GathercraftTrainers = both
+        Vendors({ [801] = "Alliance Only|9001|A|5000|5000", [802] = "Horde Only|9001|H|5100|5000", [803] = "Both Factions|9001|AH|7000|5000" })
+        local t, v = Look()
+        assert(t == "Horde Only" and v == "Horde Only", "test setup: the Horde's own: " .. tostring(t) .. ", " .. tostring(v))
+        for _, case in ipairs({
+            { "none", function() return nil end, saved.secret },
+            { "a hidden value", function() return "Horde", "Horde" end, function(where, ...) if where == "faction" then return true end return saved.secret(where, ...) end },
+        }) do
+            UnitFactionGroup, ns.AnySecret = case[2], case[3]
+            -- one friendly to both: that one, though the others are nearer
+            GathercraftTrainers = both
+            Vendors({ [801] = "Alliance Only|9001|A|5000|5000", [802] = "Horde Only|9001|H|5100|5000", [803] = "Both Factions|9001|AH|7000|5000" })
+            t, v = Look()
+            assert(t == "Both Factions", "faction " .. case[1] .. ": the trainer " .. tostring(t))
+            assert(v == "Both Factions", "faction " .. case[1] .. ": the vendor " .. tostring(v))
+            -- none friendly to both: no place - not one of a single faction, not by name either
+            GathercraftTrainers = single
+            Vendors({ [801] = "Alliance Only|9001|A|5000|5000", [804] = "No Faction Known|9001||5000|5000", [805] = "Horde No Map|77777|H|5000|5000" })
+            t, v = Look()
+            assert(t == nil, "faction " .. case[1] .. ": a trainer of a single faction: " .. tostring(t))
+            assert(v == nil, "faction " .. case[1] .. ": a vendor that may be hostile: " .. tostring(v))
+            ns.AnySecret = saved.secret
+        end
+    end)
+    UnitFactionGroup, ns.AnySecret, GathercraftTrainers, GathercraftRecipeSources, GathercraftAreaMaps = saved.faction, saved.secret, saved.trainers, saved.sources, saved.maps
+    player.map, player.x, player.y = saved.map, saved.x, saved.y
+    fire("ZONE_CHANGED_NEW_AREA")
+    if not ok then error(err, 0) end
+end)
 step("Skill plan 2.0: texts in every language, an internal build mark, nothing published yet (v0.2 A7)", function()
     -- 0.2 is built block by block and published as one release: this build is
     -- marked internal, and what players read about releases is not touched.
