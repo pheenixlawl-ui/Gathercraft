@@ -265,6 +265,8 @@ local function Runner(who, on)
 end
 
 local REASON_TEXT = {
+    no_herbalism = "needs Herbalism",
+    no_mining = "needs Mining",
     no_skill = "can't gather yet",
     not_in_zone = "not in this zone",
     kinds_off = "node types switched off",
@@ -339,6 +341,17 @@ local function ReadPlan(prof, target)
         complete = result.complete == true or result.status == "done", status = result.status, why = result.why, prof = prof }
 end
 
+-- the gathering profession a material needs that this character lacks:
+-- "no_herbalism" / "no_mining", or nil (herb, ore: what it has)
+local function Lacks(item, herb, ore)
+    local kinds = Kinds()
+    for _, key in ipairs(ns.PlanBaseKinds(item) or {}) do
+        local kind = kinds and kinds[key]
+        if kind and kind[1] == "h" and not herb then return "no_herbalism" end
+        if kind and kind[1] == "o" and not ore then return "no_mining" end
+    end
+end
+
 -- why a wanted material has no node to go to in this zone
 local function ReasonFor(item, zone)
     local kinds = {}
@@ -404,8 +417,21 @@ local function Evaluate(spec, points, weights, read)
         end
     end
     plan.candidates = candidates
+    -- (0.2 live test N2) a material of a gathering profession this character
+    -- surely does not have: its line says so, before any other reason. The
+    -- run goes on as before and shows the spots (useful to know where); only
+    -- a sure read counts - right after login nothing is said.
+    local herb, ore, known = false, false, nil
+    if ns.GatherProfessions then herb, ore, known = ns.GatherProfessions() end
     for _, row in ipairs(plan.rows) do
-        if not row.ok and not has[row.item] then row.reason = ReasonFor(row.item, spec.zone) end
+        if not row.ok then
+            local lacks = known and Lacks(row.item, herb, ore)
+            if lacks then
+                row.reason = lacks
+            elseif not has[row.item] then
+                row.reason = ReasonFor(row.item, spec.zone)
+            end
+        end
     end
     if candidates == 0 then
         plan.state, plan.reasons = "blocked", {}

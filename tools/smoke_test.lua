@@ -23828,6 +23828,26 @@ step("Farm for plan: what you see - have / need under the run window, the window
         assert(coal and coal.kind == "off" and coal.ok and coal.source == nil, "coal (covered, never seen): " .. tostring(coal and coal.count))
         assert(Line(data, 2840) == nil, "a material the plan needs 0 of has a line")
         assert(#Kind(data, "head") == 1 and Kind(data, "head")[1].text == L["Not on the map"] and #Kind(data, "more") == 0 and #Kind(data, "note") == 0, "the head, more and note lines")
+        -- (0.2 live test N2) a character that surely has no Mining: each open ore
+        -- line says so, in a line of its own; the run goes on and shows the
+        -- spots. Not known for sure (right after login): nothing is said.
+        do
+            local gp = ns.GatherProfessions
+            ns.GatherProfessions = function() return true, false, true end
+            fire("BAG_UPDATE_DELAYED") W.Wait(1) Update()
+            local n2 = Lines()
+            local c2 = Line(n2, COPPER)
+            local sub
+            for i, l in ipairs(n2.lines) do if l == c2 then sub = n2.lines[i + 1] end end
+            assert(c2 and c2.reason == L["needs Mining"] and sub and sub.kind == "sub" and sub.text == L["needs Mining"], "copper without Mining: " .. tostring(c2 and c2.reason))
+            assert(Line(n2, TIN).reason == L["needs Mining"], "tin without Mining: " .. tostring(Line(n2, TIN).reason))
+            assert(ns.run and ns.run.plan, "the run ended because the character has no Mining")
+            ns.GatherProfessions = function() return true, false, nil end
+            fire("BAG_UPDATE_DELAYED") W.Wait(1) Update()
+            assert(Line(Lines(), COPPER).reason ~= L["needs Mining"], "Mining not known for sure, and still \"needs Mining\"")
+            ns.GatherProfessions = gp
+            fire("BAG_UPDATE_DELAYED") W.Wait(1) Update()
+        end
         assert(data.total == 2 and data.done == 0 and data.compact == (L["Plan %d/%d"]):format(0, 2), "the slim line: " .. tostring(data.compact))
         -- no chance, no amount, no promise in what is said about a seen item
         for _, word in ipairs({ "%%", "chance", "per hour", "guarant", "cheap" }) do
@@ -24003,6 +24023,19 @@ step("Farm for plan: what you see - have / need under the run window, the window
         tipLines = {}
         for _, l in ipairs(ns.PlanButtonTooltip(info)) do tipLines[#tipLines + 1] = l[1] end
         assert(table.concat(tipLines, "\n"):find(L["Not here right now:"], 1, true) and table.concat(tipLines, "\n"):find(L["can't gather yet"], 1, true), "the tooltip does not say why tin is not here")
+        -- (0.2 live test N2) no Mining for sure: the button's tooltip says it for each ore
+        do
+            local gp = ns.GatherProfessions
+            ns.GatherProfessions = function() return true, false, true end
+            stock[COPPER] = 22 fire("BAG_UPDATE_DELAYED") W.Wait(1)
+            info = buttons.info
+            assert(#info.blocked == 2 and info.blocked[1].reason == "no_mining" and info.blocked[2].reason == "no_mining", "without Mining: " .. #info.blocked .. " lines with a reason")
+            tipLines = {}
+            for _, l in ipairs(ns.PlanButtonTooltip(info)) do tipLines[#tipLines + 1] = l[1] end
+            assert(select(2, table.concat(tipLines, "\n"):gsub(L["needs Mining"], "", 1e9)) == 2, "the tooltip does not say \"needs Mining\" for both ores: " .. table.concat(tipLines, " / "))
+            ns.GatherProfessions = gp
+            stock[COPPER] = 21 fire("BAG_UPDATE_DELAYED") W.Wait(1)
+        end
         ns.GetSkill = function(t) if t == "ore" then return 100, 300, 100 end end
         -- the clicks
         local asked = {}
@@ -24059,7 +24092,7 @@ step("Farm for plan: every text in nine languages with the same placeholders, th
     for block in farm:gmatch("local [RI][EN][AV][SA][OL][NI]D?_TEXT = (%b{})") do
         for text in block:gmatch('= "(.-)"') do Key(text) looked = looked + 1 end
     end
-    assert(looked == 11, "test setup: " .. looked .. " reasons found in PlanFarm.lua, want 11")
+    assert(looked == 13, "test setup: " .. looked .. " reasons found in PlanFarm.lua, want 13 (with needs Herbalism / Mining, 0.2 live test N2)")
     local others = { ["Plan"] = "Route.lua", ["A plan run has no route preview. Start it from the skill plan."] = "Route.lua", ["Waiting for your plan ..."] = "UI.lua" }
     for key, file in pairs(others) do
         assert(Read(file):find('L["' .. key .. '"]', 1, true), "the text is not in " .. file .. ": " .. key)
@@ -24116,7 +24149,7 @@ step("Farm for plan: every text in nine languages with the same placeholders, th
         for _, key in ipairs({ "Where to farm for your plan", "Gathered for your plan" }) do Fits(lang, "title", t[key], TITLE) end
         Fits(lang, "the window of a blocked end", t["Nothing left to farm for your plan here"], 60)
         -- the lines under the run window
-        for _, key in ipairs({ "can't gather yet", "not in this zone", "node types switched off", "parked" }) do Fits(lang, "reason line", "   " .. t[key], LINE) end
+        for _, key in ipairs({ "can't gather yet", "not in this zone", "node types switched off", "parked", "needs Herbalism", "needs Mining" }) do Fits(lang, "reason line", "   " .. t[key], LINE) end
         Fits(lang, "seen line", "   " .. t["seen in %d of %d recorded gathers"]:format(999, 9999), LINE)
         Fits(lang, "head", t["Not on the map"], LINE)
         Fits(lang, "more", t["+%d more"]:format(99), LINE)
