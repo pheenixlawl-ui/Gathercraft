@@ -26049,6 +26049,97 @@ step("Disenchant test: an equipment slot's lock is shown with its item, not kept
     if not ok then pcall(slash, "detest off") end
     if not ok then error(err, 0) end
 end)
+step("Saved run: only the character that saved it takes it up again - a plan run and a normal run; another character leaves it as it is (0.2 live test N1)", function()
+    -- Sven's live test 18.11.: the saved data is the same for every character
+    -- of the account. A plan run of the shaman went on on the druid; a normal
+    -- run of the druid (Burning Steppes) was taken up on the shaman
+    -- (Kalimdor): no nodes there, StopRun - and the saved run was gone, for
+    -- the druid too. Now a saved run notes its character (the player's GUID)
+    -- and only that character takes it up; another one leaves it as it is
+    -- (no message), and its StopRun does not remove it.
+    local saved = { guid = UnitGUID, run = ns.db.activeRun, start = ns.StartRun, resume = ns.PlanRunResume, debug = ns.db.debug }
+    local SHAMAN, DRUID = "Player-5826-0A1B2C3D", "Player-5826-0F0E0D0C"
+    local me = SHAMAN
+    local calls = {}
+    local function Login()
+        calls = {}
+        fire("PLAYER_LOGIN")
+        advance(3)
+    end
+    local ok, err = pcall(function()
+        UnitGUID = function(u) if u == "player" then return me end return saved.guid(u) end
+        if ns.run then ns.StopRun(true) end
+        -- a run notes whose it is
+        player.map, player.x, player.y = 1412, 0.45, 0.72
+        ns.StartRun("herb", 1412)
+        assert(ns.run and ns.db.activeRun and ns.db.activeRun.owner == SHAMAN, "the saved run does not note its character: " .. tostring(ns.db.activeRun and ns.db.activeRun.owner))
+        ns.StopRun(true)
+        assert(ns.db.activeRun == nil, "your own StopRun leaves your saved run")
+        -- what is taken up: watched, not done
+        ns.StartRun = function(...) calls[#calls + 1] = { "run", ... } end
+        ns.PlanRunResume = function(s) calls[#calls + 1] = { "plan", s } return true end
+        local PLAN = { filter = "plan:v1:alchemy:75:1", zone = 1412, owner = SHAMAN }
+        local NORMAL = { filter = "herb", zone = 1416, owner = DRUID }
+        for _, case in ipairs({ { PLAN, SHAMAN, DRUID, "plan" }, { NORMAL, DRUID, SHAMAN, "run" } }) do
+            local entry, owner, other, kind = case[1], case[2], case[3], case[4]
+            -- the same character: taken up
+            ns.db.activeRun, me = entry, owner
+            Login()
+            assert(#calls == 1 and calls[1][1] == kind, kind .. " run, the same character: not taken up")
+            -- another character: not taken up, the saved run stays as it was
+            ns.db.activeRun, me = entry, other
+            Login()
+            assert(#calls == 0, kind .. " run of another character taken up")
+            assert(ns.db.activeRun == entry and entry.owner == owner, kind .. " run of another character: not left as it was")
+            -- its stop (the stop command with no run of its own) leaves it too
+            ns.StopRun()
+            assert(ns.db.activeRun == entry, kind .. " run: another character's StopRun removed it")
+            -- back to its character: taken up
+            me = owner
+            Login()
+            assert(#calls == 1 and calls[1][1] == kind, kind .. " run, back to its character: not taken up")
+        end
+        -- the player's GUID cannot be read (nil or a hidden value): nothing taken up, nothing removed
+        local SECRET = newproxy(true)
+        local keepSecret = issecretvalue
+        for _, unreadable in ipairs({ false, true }) do
+            ns.db.activeRun = NORMAL
+            me = unreadable and SECRET or nil
+            issecretvalue = function(v) return rawequal(v, SECRET) end
+            Login()
+            issecretvalue = keepSecret
+            assert(#calls == 0 and ns.db.activeRun == NORMAL, "the GUID can't be read: taken up or removed")
+        end
+        -- a run saved by a version before (no character): whose it is can't be told -
+        -- it is not taken up (it might be another character's) and goes
+        me = SHAMAN
+        ns.db.activeRun = { filter = "herb", zone = 1412 }
+        Login()
+        assert(#calls == 0 and ns.db.activeRun == nil, "a saved run without its character: taken up or kept")
+        -- the whole way, a normal run: the druid's run stays while the shaman plays, the druid gets it back
+        ns.StartRun, ns.PlanRunResume = saved.start, saved.resume
+        me = DRUID
+        ns.StartRun("herb", 1412)
+        local druidRun = ns.db.activeRun
+        me = SHAMAN
+        ns.run = nil -- (logged out: no run in memory, the saved one only)
+        Login()
+        assert(ns.run == nil and ns.db.activeRun == druidRun, "the druid's run on the shaman: taken up or gone")
+        me = DRUID
+        Login()
+        assert(ns.run and ns.run.filter == "herb" and ns.db.activeRun and ns.db.activeRun.owner == DRUID, "the druid did not get its run back")
+        ns.StopRun(true)
+        -- another character starts its own run: that one is saved (the one saved before is replaced)
+        ns.db.activeRun, me = druidRun, SHAMAN
+        ns.StartRun("herb", 1412)
+        assert(ns.db.activeRun and ns.db.activeRun.owner == SHAMAN and ns.db.activeRun ~= druidRun, "the shaman's own run was not saved")
+        ns.StopRun(true)
+    end)
+    UnitGUID, ns.StartRun, ns.PlanRunResume, ns.db.debug = saved.guid, saved.start, saved.resume, saved.debug
+    if ns.run then pcall(ns.StopRun, true) end
+    ns.db.activeRun = saved.run
+    if not ok then error(err, 0) end
+end)
 step("Long run (10 min) for leaks", function() slash("run herb") advance(600) slash("stop") end)
 step("Test mock: OnUpdate runs for the same frames in the same order as going over every frame (tools only)", function()
     -- The mock's advance() goes over the frames that have an OnUpdate only

@@ -1296,7 +1296,10 @@ local function StopRun(silent, summary)
     -- what the run brought: a summary when you stop it (or it gives up),
     -- not when a new run replaces it
     local snapshot = (not silent or summary) and ns.run and ns.RunSnapshot and ns.RunSnapshot()
-    ns.db.activeRun = nil
+    -- the saved run goes - unless another character saved it: that one stays
+    -- for it (Core.lua takes it up only on its own character)
+    local saved = ns.db.activeRun
+    if saved and (saved.owner == nil or saved.owner == ns.PlayerKey()) then ns.db.activeRun = nil end
     if ticker then
         ticker:Cancel()
         ticker = nil
@@ -2054,7 +2057,8 @@ local function StartRun(filter, zone, quick)
         loopMode = (not plan and LoopMode()) or nil, -- a fixed round instead of planning live
         plan = plan, -- a plan run: { prof, target } (PlanFarm.lua)
     }
-    ns.db.activeRun = { filter = filter, zone = zone, quick = quick or nil }
+    -- (with the character that started it: only that one takes it up again)
+    ns.db.activeRun = { filter = filter, zone = zone, quick = quick or nil, owner = ns.PlayerKey() }
     ns.run.bonusSig = BonusSignature()
     Plan()
     local run = ns.run

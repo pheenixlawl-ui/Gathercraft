@@ -196,6 +196,15 @@ function ns.AnySecret(where, ...)
 end
 local Readable, AnySecret = ns.Readable, ns.AnySecret
 
+-- The character playing, for what is saved per character in the data every
+-- character of the account shares (the saved run): its GUID ("Player-..."),
+-- which stays with the character (a rename keeps it; name and realm don't).
+-- nil when it can't be read.
+function ns.PlayerKey()
+    local guid = Readable(UnitGUID and UnitGUID("player"), "player GUID")
+    if type(guid) == "string" and guid ~= "" then return guid end
+end
+
 local function TypeTag(nodeType)
     if not nodeType then return "" end
     return " " .. (TYPE_COLORS[nodeType] or "") .. "[" .. nodeType .. "]|r"
@@ -1353,10 +1362,26 @@ frame:SetScript("OnEvent", function(self, event, ...)
             Print(L["Debug mode is ON (/gcr debug to turn off)."])
             ShowDebugTab()
         end
-        -- Resume a run that was active before reload/logout
+        -- Resume a run that was active before reload/logout - only on the
+        -- character that saved it. (The saved data is the same for every
+        -- character of the account: Sven's live test 18.11. - a plan run of
+        -- one character went on on another, and a normal run taken up on a
+        -- character on another continent found no nodes, stopped and was
+        -- gone.) Another character leaves it as it is, without a word.
         if ns.db.activeRun then
             C_Timer.After(2, function()
                 local saved = ns.db.activeRun
+                if saved and saved.owner == nil then
+                    -- saved by a version before 0.2 (no character noted):
+                    -- whose it is can't be told - not taken up, it goes
+                    ns.db.activeRun = nil
+                    Debug("saved run of an older version (no character noted): not taken up")
+                    return
+                end
+                if saved and saved.owner ~= ns.PlayerKey() then
+                    Debug("saved run of another character: left for it")
+                    return
+                end
                 if saved and type(saved.filter) == "string" and saved.filter:sub(1, 5) == "plan:" then
                     -- a plan run (PlanFarm.lua): checked there, never another route instead
                     if ns.PlanRunResume then ns.PlanRunResume(saved) else ns.db.activeRun = nil end
