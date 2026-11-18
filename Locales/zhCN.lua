@@ -698,6 +698,7 @@ ns.Locales.zhCN = {
     ["Counting the known spots ..."] = "正在统计已知采集点 ...",
     ["Zones %d-%d of %d (mouse wheel)"] = "区域 %d-%d / %d（鼠标滚轮）",
     ["you are here"] = "当前位置",
+    ["(here)"] = "（此处）",
     ["+%d more"] = "还有 +%d 项",
     ["Plan: %s %d"] = "计划：%s %d",
     ["seen in %d of %d recorded gathers"] = "见于 %d 次（共记录 %d 次采集）",

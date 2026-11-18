@@ -698,6 +698,7 @@ ns.Locales.ruRU = {
     ["Counting the known spots ..."] = "Подсчёт известных точек ...",
     ["Zones %d-%d of %d (mouse wheel)"] = "Зоны %d-%d из %d (колесо мыши)",
     ["you are here"] = "вы здесь",
+    ["(here)"] = "(здесь)",
     ["+%d more"] = "ещё +%d",
     ["Plan: %s %d"] = "План: %s %d",
     ["seen in %d of %d recorded gathers"] = "встречено в %d из %d записанных сборов",

@@ -864,15 +864,20 @@ local function BuildZoneList(spec)
                 else
                     data.counting = true
                 end
-                zone.items[#zone.items + 1] = { item = item, places = places, candidates = per[item] }
-                zone.places = zone.places + (places or 0)
-                zone.candidates = zone.candidates + per[item]
+                -- (0.2 live test N3) a material with no known place here is not
+                -- listed for this zone ("Silverleaf 0"); while counting it is
+                if places ~= 0 then
+                    zone.items[#zone.items + 1] = { item = item, places = places, candidates = per[item] }
+                    zone.places = zone.places + (places or 0)
+                    zone.candidates = zone.candidates + per[item]
+                end
             end
             table.sort(zone.items, function(a, b)
                 if (a.places or 0) ~= (b.places or 0) then return (a.places or 0) > (b.places or 0) end
                 return a.item < b.item
             end)
-            data.zones[#data.zones + 1] = zone
+            -- a zone only with at least one material to name
+            if #zone.items > 0 then data.zones[#data.zones + 1] = zone end
         end
     end
     probeSet, probeFilter = keepSet, keepFilter
@@ -909,13 +914,25 @@ local function DrawZoneList()
         if zone and data.state == "ok" then
             row.zone = zone
             row.name:SetText(zone.here and ("|cffffd060%s|r"):format(zone.name) or zone.name)
-            local parts = {}
-            for k = 1, math.min(LIST_ITEMS, #zone.items) do
-                local it = zone.items[k]
-                parts[k] = ("%s %s"):format(ItemLabel(it.item), it.places and tostring(it.places) or "...")
+            -- (0.2 live test N3) your zone: a short mark (the long one cut the
+            -- materials off); as many materials as the line holds, measured by
+            -- the game, the rest "+N more" - at least one (the tooltip has all)
+            local mark = zone.here and ("|cffffd060%s|r "):format(L["(here)"]) or ""
+            local function Text(n)
+                local parts = {}
+                for k = 1, n do
+                    local it = zone.items[k]
+                    parts[k] = ("%s %s"):format(ItemLabel(it.item), it.places and tostring(it.places) or "...")
+                end
+                if #zone.items > n then parts[#parts + 1] = (L["+%d more"]):format(#zone.items - n) end
+                return mark .. table.concat(parts, " · ")
             end
-            if #zone.items > LIST_ITEMS then parts[#parts + 1] = (L["+%d more"]):format(#zone.items - LIST_ITEMS) end
-            row.items:SetText((zone.here and ("|cffffd060(%s)|r "):format(L["you are here"]) or "") .. table.concat(parts, " · "))
+            local n = math.min(LIST_ITEMS, #zone.items)
+            row.items:SetText(Text(n))
+            while n > 1 and (row.items:GetStringWidth() or 0) > (row.items:GetWidth() or 0) do
+                n = n - 1
+                row.items:SetText(Text(n))
+            end
             row.go:SetText(L["Go"])
             row:Show()
         else

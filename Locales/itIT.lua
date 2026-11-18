@@ -698,6 +698,7 @@ ns.Locales.itIT = {
     ["Counting the known spots ..."] = "Conteggio dei punti noti ...",
     ["Zones %d-%d of %d (mouse wheel)"] = "Zone %d-%d di %d (rotellina)",
     ["you are here"] = "sei qui",
+    ["(here)"] = "(qui)",
     ["+%d more"] = "+%d altri",
     ["Plan: %s %d"] = "Piano: %s %d",
     ["seen in %d of %d recorded gathers"] = "visto in %d di %d raccolte registrate",

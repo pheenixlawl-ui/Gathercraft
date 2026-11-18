@@ -23172,6 +23172,10 @@ step("Farm for plan: one zone - the one you stand in or the one you click in the
         local a1, a2 = Twin(WETLANDS, 0.3)
         ns.db.nodes[WETLANDS] = { a1, a2 }
         local b1, b2 = Twin(BARRENS, 0.6)
+        -- (your own nodes there: the shipped spawn data has no Incendicite in the
+        -- Barrens, so as "questie" nodes they would be 0 known places - and a
+        -- material with 0 known places is not listed, 0.2 live test N3)
+        b1.source, b2.source = nil, nil
         ns.db.nodes[BARRENS] = { b1, b2 }
         for i = 1, 3 do ns.db.nodes[BARRENS][#ns.db.nodes[BARRENS] + 1] = { id = VEIN, name = "Copper Vein", type = "ore", x = 0.2 + i * 0.01, y = 0.5, count = 1, last = 1 } end
         W.Set({ Ore(VEIN, "Copper Vein", 100), Ore(VEIN, "Copper Vein", 200), Ore(VEIN, "Copper Vein", 300), Ore(VEIN, "Copper Vein", 400), Ore(VEIN, "Copper Vein", 500) })
@@ -23206,6 +23210,57 @@ step("Farm for plan: one zone - the one you stand in or the one you click in the
         assert(zb.places == Places(zb, INCEND) + Places(zb, COPPER) and zm.places == Places(zm, COPPER), "a zone's number is not the sum of its materials' places")
         for i = 2, #d.zones do assert(d.zones[i - 1].places >= d.zones[i].places, "the zones are not in order, most places first") end
         assert(zm.here and not zb.here, "your zone is not the one marked")
+        -- (0.2 live test N3) the rows as they are drawn: your zone with the short
+        -- mark "(here)" (the long one cut the materials off); as many materials as
+        -- fit the line, the rest "+N more" - none cut off in the middle
+        local function Plain(s) return ((s or ""):gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")) end
+        local MARK_HERE = L["(here)"]
+        local function RowOf(mapID)
+            for _, r in ipairs(Win().rows) do if r:IsShown() and r.zone and r.zone.mapID == mapID then return r end end
+        end
+        local rm, rb = RowOf(1412), RowOf(BARRENS)
+        assert(rm and rb, "test setup: the two rows are not shown")
+        assert(Plain(rm.items:GetText()):sub(1, #MARK_HERE + 1) == MARK_HERE .. " " and not Plain(rm.items:GetText()):find(L["you are here"], 1, true),
+            "your zone's row: " .. Plain(rm.items:GetText()))
+        assert(not Plain(rb.items:GetText()):find(MARK_HERE, 1, true), "another zone with the mark: " .. Plain(rb.items:GetText()))
+        local keepWidth, keepString = rb.items.GetWidth, rb.items.GetStringWidth
+        rb.items.GetStringWidth = function(self) return #Plain(self:GetText()) * 6 end
+        rb.items.GetWidth = function() return 60 end
+        Close()
+        assert(ns.PlanZoneListShow("Mining", 75)) advance(20)
+        local narrow = Plain(rb.items:GetText())
+        local shownItems = select(2, narrow:gsub(" · ", "")) + 1 - (narrow:find((L["+%d more"]):format(1), 1, true) and 1 or 0)
+        assert(shownItems == 1 and narrow:find((L["+%d more"]):format(#zb.items - 1), 1, true), "a narrow row: " .. narrow)
+        rb.items.GetWidth = function() return 400 end
+        Close()
+        assert(ns.PlanZoneListShow("Mining", 75)) advance(20)
+        local wide = Plain(rb.items:GetText())
+        assert(not wide:find((L["+%d more"]):format(1), 1, true) and select(2, wide:gsub(" · ", "")) == #zb.items - 1, "a wide row: " .. wide)
+        rb.items.GetWidth, rb.items.GetStringWidth = keepWidth, keepString
+        -- (0.2 live test N3) a material with no known place in a zone is not
+        -- listed there ("Silverleaf 0"), and a zone with none of them not at all
+        local counts = ns.SpawnCounts
+        local drop = { [COPPER] = true }
+        ns.SpawnCounts = function(item)
+            local list = counts(item)
+            if not (list and drop[item]) then return list end
+            local out = {}
+            for _, zc in ipairs(list) do if zc.mapID ~= BARRENS then out[#out + 1] = zc end end
+            return out
+        end
+        Close()
+        assert(ns.PlanZoneListShow("Mining", 75)) advance(20)
+        local zb0 = ZoneRow(BARRENS)
+        assert(zb0 and Places(zb0, COPPER) == nil and Places(zb0, INCEND) == Places(zb, INCEND), "a material with 0 known places is listed: " .. tostring(zb0 and Places(zb0, COPPER)))
+        drop[INCEND] = true
+        Close()
+        assert(ns.PlanZoneListShow("Mining", 75)) advance(20)
+        assert(ZoneRow(BARRENS) == nil and ZoneRow(1412), "a zone without one known place is listed")
+        ns.SpawnCounts = counts
+        Close()
+        assert(ns.PlanZoneListShow("Mining", 75)) advance(20)
+        d = ListData()
+        zb, zm = ZoneRow(BARRENS), ZoneRow(1412)
         -- the same place under two node kinds is one place
         local twoKinds = CountPlaces(INCEND, WETLANDS)
         local entries = 0
@@ -24071,7 +24126,10 @@ step("Farm for plan: every text in nine languages with the same placeholders, th
         Fits(lang, "next line", t["Waiting for your plan ..."], 40)
         -- the list of zones
         Fits(lang, "list sub title", t["Known spots for what you still need"], 60)
-        Fits(lang, "list mark", "(" .. t["you are here"] .. ")", MARK)
+        Fits(lang, "list mark", t["(here)"], MARK)
+        -- (0.2 live test N3) the materials of a row, at worst: the mark, one long name, "+N more" -
+        -- the list shows fewer materials when they don't fit, but never less than one
+        Fits(lang, "list row", t["(here)"] .. " " .. ("W"):rep(20) .. " 999 · " .. t["+%d more"]:format(99), 50)
         for _, key in ipairs({ "No known spots for the missing materials yet.", "Counting the known spots ...", "Working out the plan ..." }) do Fits(lang, "list note", t[key], 70) end
         Fits(lang, "list note", t["Zones %d-%d of %d (mouse wheel)"]:format(11, 20, 20), 60)
         -- the tooltip's heads and the end window's

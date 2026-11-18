@@ -698,6 +698,7 @@ ns.Locales.zhTW = {
     ["Counting the known spots ..."] = "正在統計已知採集點 ...",
     ["Zones %d-%d of %d (mouse wheel)"] = "區域 %d-%d / %d（滑鼠滾輪）",
     ["you are here"] = "目前位置",
+    ["(here)"] = "（此處）",
     ["+%d more"] = "還有 +%d 項",
     ["Plan: %s %d"] = "計畫：%s %d",
     ["seen in %d of %d recorded gathers"] = "見於 %d 次（共記錄 %d 次採集）",

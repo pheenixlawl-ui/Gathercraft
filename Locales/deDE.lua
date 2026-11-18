@@ -727,6 +727,7 @@ ns.Locales.deDE = {
     ["Counting the known spots ..."] = "Bekannte Fundorte werden gezählt ...",
     ["Zones %d-%d of %d (mouse wheel)"] = "Gebiete %d-%d von %d (Mausrad)",
     ["you are here"] = "du bist hier",
+    ["(here)"] = "(hier)",
     ["+%d more"] = "+%d weitere",
     ["Plan: %s %d"] = "Plan: %s %d",
     ["seen in %d of %d recorded gathers"] = "in %d von %d aufgezeichneten Ernten gesehen",

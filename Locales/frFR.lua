@@ -698,6 +698,7 @@ ns.Locales.frFR = {
     ["Counting the known spots ..."] = "Décompte des emplacements connus ...",
     ["Zones %d-%d of %d (mouse wheel)"] = "Zones %d-%d sur %d (molette)",
     ["you are here"] = "vous êtes ici",
+    ["(here)"] = "(ici)",
     ["+%d more"] = "+%d de plus",
     ["Plan: %s %d"] = "Plan : %s %d",
     ["seen in %d of %d recorded gathers"] = "vu dans %d des %d récoltes enregistrées",

@@ -698,6 +698,7 @@ ns.Locales.ptBR = {
     ["Counting the known spots ..."] = "Contando os pontos conhecidos ...",
     ["Zones %d-%d of %d (mouse wheel)"] = "Zonas %d-%d de %d (roda do mouse)",
     ["you are here"] = "você está aqui",
+    ["(here)"] = "(aqui)",
     ["+%d more"] = "+%d mais",
     ["Plan: %s %d"] = "Plano: %s %d",
     ["seen in %d of %d recorded gathers"] = "visto em %d de %d coletas registradas",

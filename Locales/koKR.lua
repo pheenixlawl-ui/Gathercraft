@@ -698,6 +698,7 @@ ns.Locales.koKR = {
     ["Counting the known spots ..."] = "알려진 위치를 세는 중 ...",
     ["Zones %d-%d of %d (mouse wheel)"] = "지역 %d-%d / %d (마우스 휠)",
     ["you are here"] = "현재 위치",
+    ["(here)"] = "(여기)",
     ["+%d more"] = "+%d개 더",
     ["Plan: %s %d"] = "계획: %s %d",
     ["seen in %d of %d recorded gathers"] = "%d회 발견 (기록된 채집 %d회 중)",
