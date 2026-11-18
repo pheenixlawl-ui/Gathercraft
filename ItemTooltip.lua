@@ -176,8 +176,9 @@ local function OwnText(info)
     if info.tooOld then
         return ("%s  %s(%s, %s – %s)%s"):format(ns.Money(info.own), ORANGE, kind, Ago(info.ownAge), L["too old, not used"], CLOSE)
     end
-    return ("%s  %s(%s, %s, %s)%s"):format(ns.Money(info.own), info.old and ORANGE or GREY, kind, Ago(info.ownAge),
-        (L["%s listed"]):format(info.qty and ("%d"):format(info.qty) or "?"), CLOSE)
+    -- (how many were listed only when it is known: no "? listed", 0.2 live test N4)
+    return ("%s  %s(%s, %s%s)%s"):format(ns.Money(info.own), info.old and ORANGE or GREY, kind, Ago(info.ownAge),
+        info.qty and (", " .. (L["%s listed"]):format(("%d"):format(info.qty))) or "", CLOSE)
 end
 
 -- The line that says which price is used when it is not our own. Prices
@@ -239,10 +240,11 @@ local function History(itemID)
 end
 
 -- The zone with the most known spawn points: on the player's continent if
--- there is one, else anywhere. nil while the counts are not current.
+-- there is one, else anywhere. nil while the counts are not current - and
+-- for an item nobody gathers from a node: no line (0.2 live test N4)
 local zoneText, zoneRev, zoneCont, zoneLang = {}, nil, nil, nil
 local function ZoneLine(itemID)
-    if not gather[itemID] then return L["unknown (not a gathered item)"] end
+    if not gather[itemID] then return nil end
     if not ns.SpawnCounts then return end
     local rev = ns.SpawnCountsRev()
     if rev ~= zoneRev or continent ~= zoneCont or langRev ~= zoneLang then

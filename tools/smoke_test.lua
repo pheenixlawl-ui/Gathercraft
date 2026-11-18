@@ -21359,11 +21359,13 @@ step("Item tooltip: the price line says what kind of price, how old, how many - 
         Own(HERB, 3, nil, 240)
         ah = Tip(HERB)
         Check(Has(ah, "(" .. L["own data"] .. ", ") and not Has(ah, L["own scan"]), "an entry from before: " .. ah)
-        -- a quantity that is not this price's: "?", never 0 and never the old number
+        -- a quantity that is not this price's: not said at all (0.2 live test
+        -- N4: "? listed" left out), never 0 and never the old number
         p.qty[HERB] = 240
         Own(HERB, 3, "market", nil)
         ah = Tip(HERB)
-        Check(Has(ah, L["%s listed"]:format("?")) and not Has(ah, "240") and not Has(ah, L["%s listed"]:format("0")), "unknown quantity: " .. ah)
+        Check(Has(ah, "(" .. L["own scan"] .. ", 3" .. L[" h ago"] .. ")") and not Has(ah, L["%s listed"]:format("?")) and not Has(ah, "240")
+            and not Has(ah, L["%s listed"]:format("0")), "unknown quantity: " .. ah)
         Own(HERB, 3, "market", 0)
         ah = Tip(HERB)
         Check(Has(ah, L["%s listed"]:format("0")), "0 listed, told by the game: " .. ah)
@@ -21439,7 +21441,8 @@ step("Item tooltip: the price line says what kind of price, how old, how many - 
         Check(#lines == 2, "gear without a price of ours: " .. (#lines - 2) .. " lines of ours (the vendor price alone is no reason)")
         Own(GEAR, 3, "lowest", nil)
         ah, uses, orange, lines = Tip(GEAR)
-        Check(#lines == 3 and Has(ah, TT.Plain(L["|cffffd060Gathercraft|r AH"])) and Has(ah, "(" .. L["lowest offer"] .. ", 3" .. L[" h ago"] .. ", " .. L["%s listed"]:format("?") .. ")"), "gear: " .. ah)
+        Check(#lines == 3 and Has(ah, TT.Plain(L["|cffffd060Gathercraft|r AH"])) and Has(ah, "(" .. L["lowest offer"] .. ", 3" .. L[" h ago"] .. ")")
+            and not Has(ah, L["%s listed"]:format("?")), "gear: " .. ah)
         Own(GEAR, 8 * 24, "market", 5)
         ah, uses, orange, lines = Tip(GEAR)
         Check(#lines == 4 and Has(ah, TOO_OLD) and uses == TT.Plain(L["uses vendor price: %s"]:format(ns.Money(10))), "gear, too old: " .. ah .. " / " .. tostring(uses))
@@ -21596,9 +21599,9 @@ step("Item tooltip with Shift: the zone with the most known spawn points, and th
         -- ---- the zone line: places counted once, where they are from always named
         local incendicite = Zone(3340)
         assert(Has(incendicite, L["%s (%d known: Questie data)"]:format(ns.GetZoneName(1437), 29)), "Incendicite: " .. incendicite .. " - want 29 in " .. ns.GetZoneName(1437))
-        -- a reagent nobody gathers from a node
+        -- a reagent nobody gathers from a node: no zone line (0.2 live test N4)
         local linen = Zone(2589)
-        assert(Has(linen, L["unknown (not a gathered item)"]), "linen cloth: " .. linen)
+        assert(linen == "", "linen cloth has a zone line: " .. linen)
         assert(Used(2589) ~= "", "linen cloth is in no recipe?")
 
         -- ---- your continent first: the zone with the most places there, else the most anywhere
@@ -21676,7 +21679,7 @@ step("Item tooltip with Shift: the zone with the most known spawn points, and th
         -- an item only your own recipe book knows gets the block too
         local shard = fx.Hover(tip, 990020)
         assert(TT.Line(shard, L["AH price"]) and Has(TT.Plain(TT.Line(shard, L["Used in"]) or ""), d.ProfLabel("Enchanting") .. " 1"), "an item only in your own recipe book: " .. table.concat(shard, " / "))
-        assert(Has(TT.Plain(TT.Line(shard, L["Most spawn points"]) or ""), L["unknown (not a gathered item)"]), "its zone line: " .. table.concat(shard, " / "))
+        assert(not TT.Line(shard, L["Most spawn points"]), "a zone line for an item nobody gathers: " .. table.concat(shard, " / "))
         assert(fx.ns.ItemTooltipState().recipes == 2263, "recipes after one more: " .. fx.ns.ItemTooltipState().recipes)
 
         -- ---- another language: the texts are made anew
@@ -21795,7 +21798,7 @@ step("Item tooltip: cheap while hovering, nothing built while it is off, every t
             "uses Auctionator price (%s)", "age unknown", "today", "1 day", "%d days", "uses TSM DBMarket price (external, age unknown)",
             "uses auction addon price: %s (age unknown)", "uses vendor price: %s", "low %s · usual %s · high %s", "1 day with data", "%d days with data",
             "unknown (only trade goods are tracked)", "unknown (no price in the last 14 days)", "UTC days; own data, scans and lowest offers",
-            "%s (%d known: Questie data, %d yours)", "%s (%d known: yours)", "%s (%d known: Questie data)", "unknown (not a gathered item)", "recipe data" }
+            "%s (%d known: Questie data, %d yours)", "%s (%d known: yours)", "%s (%d known: Questie data)", "recipe data" }
         local code = assert(io.open(ROOT .. "/ItemTooltip.lua")):read("*a") .. assert(io.open(ROOT .. "/Options.lua")):read("*a")
         local function Placeholders(s) local t = {} for ph in saved.gmatch(s, "%%[%-+ 0#]*%d*%.?%d*[a-zA-Z]") do t[#t + 1] = ph end return table.concat(t, " ") end
         local tooWide = {}
@@ -21824,7 +21827,6 @@ step("Item tooltip: cheap while hovering, nothing built while it is off, every t
                 T["Last 7 days"] .. "  " .. ("999g · 999g · 999g · 999g · 999g · 999g · 999g"),
                 "      " .. T["UTC days; own data, scans and lowest offers"],
                 T["Most spawn points"] .. "  " .. T["%s (%d known: Questie data, %d yours)"]:format(zone, 999, 99),
-                T["Most spawn points"] .. "  " .. T["unknown (not a gathered item)"],
             }
             for i, row in ipairs(rows) do
                 if Width(row) > 80 then tooWide[#tooWide + 1] = ("%s row %d: %d: %s"):format(lang, i, Width(row), row) end
