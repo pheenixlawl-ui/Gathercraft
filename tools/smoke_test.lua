@@ -25452,6 +25452,603 @@ step("Skill plan: a finished plan another reader settles first is looked at with
     if not ok then error(err, 0) end
 end)
 -- (end of the "Farm for plan" steps, v0.2 building block 3)
+-- 0.3, disenchanting step 1 (concept "Entzauberungswerte" 4.1/4.2, gate G1,
+-- order 17.11.2026): the diagnosis /gcr detest. It prints what the client
+-- tells about a disenchant; it does nothing in the game and keeps nothing.
+local function DetestLines(from) -- what /gcr detest printed after log line from, without its "detest "
+    local out = {}
+    for i = from + 1, #log do
+        local text = log[i]:match("^PRINT detest (.*)$")
+        if text then out[#out + 1] = text end
+    end
+    return out
+end
+local function DetestEvents() -- the events its frame is registered for, sorted
+    local list, frame = {}, _G.GathercraftDisenchantTest
+    for e, frames in pairs(eventFrames) do if frame and frames[frame] then list[#list + 1] = e end end
+    table.sort(list)
+    return list
+end
+local function DetestCopy(v, depth)
+    if type(v) ~= "table" then return v end
+    depth = (depth or 0) + 1
+    assert(depth < 40, "the saved data is nested too deep to copy")
+    local c = {}
+    for k, x in pairs(v) do c[k] = DetestCopy(x, depth) end
+    return c
+end
+-- the first place where a and b differ (deep, both ways), or nil
+local function DetestDiff(a, b, path)
+    if type(a) ~= type(b) then return ("%s: %s, now %s"):format(path, type(a), type(b)) end
+    if type(a) ~= "table" then
+        if a ~= b and not (a ~= a and b ~= b) then return ("%s: %s, now %s"):format(path, tostring(a), tostring(b)) end
+        return nil
+    end
+    for k, x in pairs(a) do
+        local d = DetestDiff(x, b[k], path .. "." .. tostring(k))
+        if d then return d end
+    end
+    for k in pairs(b) do if a[k] == nil then return path .. "." .. tostring(k) .. ": new" end end
+end
+local DETEST_EVENTS = { "BAG_UPDATE_DELAYED", "ITEM_LOCK_CHANGED", "LOOT_CLOSED", "LOOT_OPENED", "LOOT_READY", "LOOT_SLOT_CLEARED",
+    "UNIT_SPELLCAST_FAILED", "UNIT_SPELLCAST_FAILED_QUIET", "UNIT_SPELLCAST_INTERRUPTED", "UNIT_SPELLCAST_SENT",
+    "UNIT_SPELLCAST_START", "UNIT_SPELLCAST_STOP", "UNIT_SPELLCAST_SUCCEEDED" }
+-- what would act in the game: none of it may be called while it is on
+local DETEST_ACTIONS = { "CastSpellByName", "CastSpellByID", "CastSpell", "SpellTargetItem", "SpellStopTargeting", "UseContainerItem",
+    "PickupContainerItem", "UseItemByName", "LootSlot", "ConfirmLootSlot", "CloseLoot", "SetCVar", "StaticPopup_Show", "TargetUnit",
+    "ClearTarget", "RunMacroText", "SendChatMessage", "UseAction", "DeleteCursorItem", "ClearCursor" }
+step("Disenchant test: /gcr detest on for the session and off - the API part once, its events only while on, nothing saved, nothing done (0.3 B5 step 1, part 1)", function()
+    -- The order's parts 1 and 2, concept test 12. On or off is a local: the
+    -- saved data stays the same (a deep compare, while on and after), and at
+    -- load nothing is registered - after /reload it is off. A function the
+    -- client lacks is a "no", an event it lacks is named: no error.
+    local frame = _G.GathercraftDisenchantTest
+    assert(frame, "no frame GathercraftDisenchantTest")
+    assert(#DetestEvents() == 0, "registered before it was turned on: " .. table.concat(DetestEvents(), ", "))
+    local function Listeners() local n = 0 for _, frames in pairs(eventFrames) do for _ in pairs(frames) do n = n + 1 end end return n end
+    local function Has(lines, want) for _, l in ipairs(lines) do if l == want then return true end end return false end
+    local function With(base, extra) local t = {} for k, v in pairs(base or {}) do t[k] = v end for k, v in pairs(extra) do t[k] = v end return t end
+    local saved = { g = {}, item = C_Item, container = C_Container, friends = C_FriendList, reg = methods.RegisterEvent, unit = methods.RegisterUnitEvent }
+    local globals = { "IsFishingLoot", "ItemLocation", "issecretvalue" }
+    for _, k in ipairs(globals) do saved.g[k] = _G[k] end
+    for _, k in ipairs(DETEST_ACTIONS) do saved.g[k] = _G[k] end
+    local acts = {}
+    local ok, err = pcall(function()
+        -- the client as this test wants it: some functions there, some not
+        IsFishingLoot = function() return false end
+        ItemLocation = { CreateFromBagAndSlot = function(_, b, s) return { b = b, s = s } end } -- (no CreateFromEquipmentSlot)
+        issecretvalue = nil
+        C_Item = With(saved.item, { GetItemGUID = function() end, DoesItemExist = function() return true end })
+        C_Item.IsLocked = nil
+        C_Container = With(saved.container, { GetContainerItemInfo = function(b, s) if b == 0 and s == 1 then return { itemID = 6256, isLocked = false } end end })
+        C_FriendList = With(saved.friends, { GetFriendInfoByIndex = function() end })
+        C_FriendList.GetNumFriends = nil
+        for _, k in ipairs(DETEST_ACTIONS) do
+            local orig = saved.g[k]
+            _G[k] = function(...) acts[#acts + 1] = k if orig then return orig(...) end end
+        end
+        C_Container.UseContainerItem = function() acts[#acts + 1] = "C_Container.UseContainerItem" end
+        C_Container.PickupContainerItem = function() acts[#acts + 1] = "C_Container.PickupContainerItem" end
+        -- a client without UNIT_SPELLCAST_FAILED_QUIET: registering it is an error there
+        local function Register(f, e, ...)
+            if e == "UNIT_SPELLCAST_FAILED_QUIET" then error('Attempt to register unknown event "' .. e .. '"') end
+            return saved.reg(f, e, ...)
+        end
+        methods.RegisterEvent, methods.RegisterUnitEvent = Register, Register
+        local db, before = DetestCopy(ns.db), Listeners()
+        -- something else than on or off: how to use it, nothing turned on
+        local mark = #log
+        slash("detest what")
+        local lines = DetestLines(mark)
+        assert(#lines == 1 and lines[1]:find("/gcr detest off", 1, true), "an unknown word: " .. table.concat(lines, " / "))
+        assert(#DetestEvents() == 0, "an unknown word turned it on")
+        -- on
+        mark = #log
+        slash("detest")
+        lines = DetestLines(mark)
+        local all = table.concat(lines, "\n")
+        assert(lines[1] and lines[1]:find("^on: ") and lines[1]:find("nothing is saved", 1, true) and lines[1]:find("/gcr detest off", 1, true), "the first line: " .. tostring(lines[1]))
+        for _, want in ipairs({ "GetBuildInfo: (4) 1.60.1, 70450, Oct, 16001",
+            "API GetLootSourceInfo: yes", "API IsFishingLoot: yes", "API C_Item.GetItemGUID: yes", "API ItemLocation: yes",
+            "API ItemLocation:CreateFromBagAndSlot: yes", "API ItemLocation:CreateFromEquipmentSlot: no", "API C_Item.DoesItemExist: yes",
+            "API C_Item.IsLocked: no", "API C_Container.GetContainerItemInfo: yes", "API C_Item.GetItemInfoInstant: yes", "API GetItemInfo: yes",
+            "API issecretvalue: no", "API C_FriendList.GetNumFriends: no", "API C_FriendList.GetFriendInfoByIndex: yes",
+            "GetContainerItemInfo: a table, isLocked false (bag 0 slot 1)", "spell 13262: name Spell13262, IsPlayerSpell false",
+            "event not available: UNIT_SPELLCAST_FAILED_QUIET", "listening to 12 of 13 events" }) do
+            assert(Has(lines, want), "not printed: " .. want .. "\n" .. all)
+        end
+        local want = {}
+        for _, e in ipairs(DETEST_EVENTS) do if e ~= "UNIT_SPELLCAST_FAILED_QUIET" then want[#want + 1] = e end end
+        assert(table.concat(DetestEvents(), ",") == table.concat(want, ","), "registered: " .. table.concat(DetestEvents(), ", "))
+        assert(Listeners() == before + 12, ("listeners of all frames: %d, before %d"):format(Listeners(), before))
+        local diff = DetestDiff(db, ns.db, "ns.db")
+        assert(not diff, "turned on, the saved data changed: " .. tostring(diff))
+        -- on again: said so, the API part not again, nothing registered twice
+        mark = #log
+        slash("detest on")
+        lines = DetestLines(mark)
+        assert(#lines == 1 and lines[1]:find("already on", 1, true), "on again: " .. table.concat(lines, " / "))
+        assert(Listeners() == before + 12, "on again: listeners " .. Listeners())
+        -- off: none of its events left, the saved data as before
+        mark = #log
+        slash("detest off")
+        lines = DetestLines(mark)
+        assert(#lines == 1 and lines[1] == "off", "off: " .. table.concat(lines, " / "))
+        assert(#DetestEvents() == 0, "off, still registered: " .. table.concat(DetestEvents(), ", "))
+        assert(Listeners() == before, ("off: listeners of all frames %d, before %d"):format(Listeners(), before))
+        mark = #log
+        slash("detest off")
+        lines = DetestLines(mark)
+        assert(#lines == 1 and lines[1]:find("already off", 1, true), "off again: " .. table.concat(lines, " / "))
+        diff = DetestDiff(db, ns.db, "ns.db")
+        assert(not diff, "after a session, the saved data changed: " .. tostring(diff))
+        assert(#acts == 0, "it acted in the game: " .. table.concat(acts, ", "))
+    end)
+    methods.RegisterEvent, methods.RegisterUnitEvent = saved.reg, saved.unit
+    C_Item, C_Container, C_FriendList = saved.item, saved.container, saved.friends
+    for _, k in ipairs(globals) do _G[k] = saved.g[k] end
+    for _, k in ipairs(DETEST_ACTIONS) do _G[k] = saved.g[k] end
+    if not ok then pcall(slash, "detest off") end
+    if not ok then error(err, 0) end
+end)
+step("Disenchant test: a disenchant's events with their time and every value, the loot's source against the locked item, <secret>, 40 lines a loot window (0.3 B5 step 1, part 2)", function()
+    -- The order's parts 1 and 2, concept 4.2 and test 12. The mock flow of a
+    -- disenchant - SENT, the lock, SUCCEEDED, LOOT_READY with the item's
+    -- GUID as the loot's source - shows "source matches locked item"; of two
+    -- swords alike, the one cast on is named. A cast broken off leaves its
+    -- sword in the bag. Hidden values print as <secret> and are never
+    -- compared; a loot window shows at most 40 lines, then "... N more".
+    local SWORD = "|cff1eff00|Hitem:15210::::::::12:::::::|h[Raider Shortsword]|h|r"
+    local G1, G2, G3 = "Item-5826-0-4000000000000001", "Item-5826-0-4000000000000002", "Item-5826-0-4000000000000003"
+    local bag = { [0] = {
+        [1] = { id = 6256, guid = G1, link = "|cffffffff|Hitem:6256::::::::12:::::::|h[Fishing Pole]|h|r" },
+        [2] = { id = 15210, guid = G2, link = SWORD },
+        [3] = { id = 15210, guid = G3, link = SWORD },
+    } }
+    local function At(b, s) return bag[b] and bag[b][s] end
+    local function With(base, extra) local t = {} for k, v in pairs(base or {}) do t[k] = v end for k, v in pairs(extra) do t[k] = v end return t end
+    local SECRET = newproxy(true)
+    local meta = getmetatable(SECRET)
+    for _, k in ipairs({ "__index", "__newindex", "__concat", "__lt", "__le", "__eq", "__add", "__sub", "__mul",
+        "__div", "__mod", "__unm", "__len", "__call", "__tostring" }) do
+        meta[k] = function() error("attempt to use a secret value", 2) end
+    end
+    local saved = { item = C_Item, container = C_Container, g = {} }
+    local globals = { "IsFishingLoot", "ItemLocation", "issecretvalue", "GetLootSourceInfo", "GetLootSlotInfo", "GetNumLootItems",
+        "GetInventoryItemID", "GetInventoryItemLink" }
+    for _, k in ipairs(globals) do saved.g[k] = _G[k] end
+    for _, k in ipairs(DETEST_ACTIONS) do saved.g[k] = _G[k] end
+    local keepLoot, acts = loot, {}
+    -- the lines since mark, the time in front cut off (and checked: two decimals)
+    local function Lines(mark)
+        local out = {}
+        for _, l in ipairs(DetestLines(mark)) do
+            local t, rest = l:match("^(%d+%.%d%d) (.*)$")
+            if t then
+                assert(not l:match("^%d+%.%d%d%d"), "a time with more than two decimals: " .. l)
+                out[#out + 1] = rest
+            else
+                assert(not l:match("^%d"), "a time not with two decimals: " .. l)
+                out[#out + 1] = l
+            end
+        end
+        return out
+    end
+    local function Same(got, want, what)
+        for i = 1, math.max(#got, #want) do
+            assert(got[i] == want[i], ("%s, line %d:\n  got  %s\n  want %s"):format(what, i, tostring(got[i]), tostring(want[i])))
+        end
+    end
+    local function Loot(list) -- { item, qty, sources... }
+        loot = {}
+        for i, l in ipairs(list) do loot[i] = { item = l[1], qty = l[2], sources = { n = #l - 2, unpack(l, 3) } } end
+    end
+    local ok, err = pcall(function()
+        IsFishingLoot = function() return false end
+        ItemLocation = { CreateFromBagAndSlot = function(_, b, s) return { b = b, s = s } end }
+        issecretvalue = function(v) return rawequal(v, SECRET) end
+        C_Item = With(saved.item, {
+            GetItemGUID = function(loc) local it = At(loc.b, loc.s) return it and it.guid end,
+            DoesItemExist = function(loc) return At(loc.b, loc.s) ~= nil end,
+            IsLocked = function(loc) local it = At(loc.b, loc.s) return it and it.locked or false end })
+        C_Container = With(saved.container, {
+            GetContainerNumSlots = function(b) return b == 0 and 16 or 0 end,
+            GetContainerItemID = function(b, s) local it = At(b, s) return it and it.id end,
+            GetContainerItemLink = function(b, s) local it = At(b, s) return it and it.link end,
+            GetContainerItemInfo = function(b, s) local it = At(b, s) if it then return { itemID = it.id, hyperlink = it.link, isLocked = it.locked or false, stackCount = 1 } end end })
+        GetLootSourceInfo = function(i) local l = loot[i] if l then return unpack(l.sources, 1, l.sources.n) end end
+        GetLootSlotInfo = function(i) return 134400, "Item", loot[i] and loot[i].qty or 0 end
+        -- an empty equipment slot, set here (steps before this one leave their own fishing pole in it)
+        GetInventoryItemID, GetInventoryItemLink = function() return nil end, nil
+        for _, k in ipairs(DETEST_ACTIONS) do
+            local orig = saved.g[k]
+            _G[k] = function(...) acts[#acts + 1] = k if orig then return orig(...) end end
+        end
+        local db = DetestCopy(ns.db)
+        slash("detest")
+        advance(0.37)
+        -- (1) a cast at the first sword, broken off: its lock comes and goes, the sword stays
+        local mark = #log
+        local CAST1, CAST2 = "Cast-3-5826-0-1-13262-0000A0B0C1", "Cast-3-5826-0-1-13262-0000A0B0C2"
+        fire("UNIT_SPELLCAST_SENT", "player", "Raider Shortsword", CAST1, 13262)
+        bag[0][2].locked = true
+        fire("ITEM_LOCK_CHANGED", 0, 2)
+        fire("UNIT_SPELLCAST_START", "player", CAST1, 13262)
+        fire("UNIT_SPELLCAST_INTERRUPTED", "player", CAST1, 13262)
+        fire("UNIT_SPELLCAST_STOP", "player", CAST1, 13262)
+        bag[0][2].locked = nil
+        fire("ITEM_LOCK_CHANGED", 0, 2)
+        fire("BAG_UPDATE_DELAYED")
+        -- another player's cast (a unit that is not you): not shown
+        fire("UNIT_SPELLCAST_SUCCEEDED", "party1", "Cast-3-5826-0-1-13262-0000FFFFFF", 13262)
+        -- an equipment slot's lock (no bag slot): named, read with what the client has, not kept
+        fire("ITEM_LOCK_CHANGED", 16)
+        Same(Lines(mark), {
+            "UNIT_SPELLCAST_SENT (4) player, Raider Shortsword, " .. CAST1 .. ", 13262 - Spell13262",
+            "ITEM_LOCK_CHANGED (2) 0, 2 | bag 0 slot 2: link " .. SWORD .. ", id 15210, guid " .. G2 .. ", exists true, locked true, info.isLocked true",
+            "UNIT_SPELLCAST_START (3) player, " .. CAST1 .. ", 13262 - Spell13262",
+            "UNIT_SPELLCAST_INTERRUPTED (3) player, " .. CAST1 .. ", 13262 - Spell13262",
+            "UNIT_SPELLCAST_STOP (3) player, " .. CAST1 .. ", 13262 - Spell13262",
+            "ITEM_LOCK_CHANGED (2) 0, 2 | bag 0 slot 2: link " .. SWORD .. ", id 15210, guid " .. G2 .. ", exists true, locked false, info.isLocked false",
+            "BAG_UPDATE_DELAYED (0)",
+            "ITEM_LOCK_CHANGED (1) 16 | equipment slot 16: link no API, id nil, guid no API, exists no API, locked no API, info.isLocked -",
+        }, "a cast broken off")
+        -- (2) the second sword is disenchanted: its GUID is the loot's source
+        mark = #log
+        local t0 = GetTime()
+        fire("UNIT_SPELLCAST_SENT", "player", "Raider Shortsword", CAST2, 13262)
+        bag[0][3].locked = true
+        fire("ITEM_LOCK_CHANGED", 0, 3)
+        fire("UNIT_SPELLCAST_START", "player", CAST2, 13262)
+        advance(1.5)
+        fire("UNIT_SPELLCAST_SUCCEEDED", "player", CAST2, 13262)
+        fire("UNIT_SPELLCAST_STOP", "player", CAST2, 13262)
+        Loot({ { 10940, 2, G3, 1 }, { 10938, 1, G3, 1 } })
+        fire("LOOT_READY", false)
+        fire("LOOT_OPENED", false)
+        bag[0][3] = nil
+        fire("ITEM_LOCK_CHANGED", 0, 3)
+        fire("LOOT_SLOT_CLEARED", 1)
+        fire("LOOT_SLOT_CLEARED", 2)
+        fire("BAG_UPDATE_DELAYED")
+        fire("LOOT_CLOSED")
+        loot = {}
+        local window = {
+            "  loot: 2 slots, IsFishingLoot false",
+            "  locked item bag 0 slot 2 " .. SWORD .. " " .. G2 .. ": still in its slot (same GUID)",
+            "  locked item bag 0 slot 3 " .. SWORD .. " " .. G3 .. ": still in its slot (same GUID)",
+            "  slot 1: link |Hitem:10940::|h | GetLootSlotInfo (3) 134400, Item, 2 | GetLootSourceInfo (2) " .. G3 .. ", 1",
+            "  slot 1: source matches locked item bag 0 slot 3 " .. SWORD,
+            "  slot 2: link |Hitem:10938::|h | GetLootSlotInfo (3) 134400, Item, 1 | GetLootSourceInfo (2) " .. G3 .. ", 1",
+            "  slot 2: source matches locked item bag 0 slot 3 " .. SWORD,
+            "  sources: 1 different, 1 of them a locked or gone item",
+        }
+        local want = {
+            "UNIT_SPELLCAST_SENT (4) player, Raider Shortsword, " .. CAST2 .. ", 13262 - Spell13262",
+            "ITEM_LOCK_CHANGED (2) 0, 3 | bag 0 slot 3: link " .. SWORD .. ", id 15210, guid " .. G3 .. ", exists true, locked true, info.isLocked true",
+            "UNIT_SPELLCAST_START (3) player, " .. CAST2 .. ", 13262 - Spell13262",
+            "UNIT_SPELLCAST_SUCCEEDED (3) player, " .. CAST2 .. ", 13262 - Spell13262",
+            "UNIT_SPELLCAST_STOP (3) player, " .. CAST2 .. ", 13262 - Spell13262",
+            "LOOT_READY (1) false",
+        }
+        for _, l in ipairs(window) do want[#want + 1] = l end
+        want[#want + 1] = "LOOT_OPENED (1) false"
+        for _, l in ipairs(window) do want[#want + 1] = l end
+        for _, l in ipairs({
+            "ITEM_LOCK_CHANGED (2) 0, 3 | bag 0 slot 3: link nil, id nil, guid -, exists false, locked -, info.isLocked nil",
+            "LOOT_SLOT_CLEARED (1) 1",
+            "LOOT_SLOT_CLEARED (1) 2",
+            "BAG_UPDATE_DELAYED (0) | gone from bag 0 slot 3: " .. SWORD .. ", id 15210, guid " .. G3,
+            "LOOT_CLOSED (0)",
+        }) do want[#want + 1] = l end
+        Same(Lines(mark), want, "a disenchant")
+        -- the times: GetTime with two decimals, 1.5 s from the start to the success
+        local times = {}
+        for _, l in ipairs(DetestLines(mark)) do local t = l:match("^(%d+%.%d%d) UNIT_SPELLCAST_") if t then times[#times + 1] = tonumber(t) end end
+        assert(#times == 4 and math.abs(times[1] - t0) < 0.006 and math.abs(times[3] - times[1] - 1.5) < 0.006, "the times: " .. table.concat(times, " "))
+        -- (3) a late loot of the sword that is gone, and a beast's loot: the gone one is named, the beast is no item
+        mark = #log
+        Loot({ { 10940, 1, G3, 1 } })
+        fire("LOOT_READY", true)
+        fire("LOOT_CLOSED")
+        Loot({ { 2318, 1, "Creature-0-1-1-1-3035-0000AA0001", 1 } })
+        fire("LOOT_READY", true)
+        fire("LOOT_CLOSED")
+        loot = {}
+        Same(Lines(mark), {
+            "LOOT_READY (1) true",
+            "  loot: 1 slots, IsFishingLoot false",
+            "  locked item bag 0 slot 2 " .. SWORD .. " " .. G2 .. ": still in its slot (same GUID)",
+            "  slot 1: link |Hitem:10940::|h | GetLootSlotInfo (3) 134400, Item, 1 | GetLootSourceInfo (2) " .. G3 .. ", 1",
+            "  slot 1: source matches gone item bag 0 slot 3 " .. SWORD,
+            "  sources: 1 different, 1 of them a locked or gone item",
+            "LOOT_CLOSED (0)",
+            "LOOT_READY (1) true",
+            "  loot: 1 slots, IsFishingLoot false",
+            "  locked item bag 0 slot 2 " .. SWORD .. " " .. G2 .. ": still in its slot (same GUID)",
+            "  slot 1: link |Hitem:2318::|h | GetLootSlotInfo (3) 134400, Item, 1 | GetLootSourceInfo (2) Creature-0-1-1-1-3035-0000AA0001, 1",
+            "  sources: 1 different, 0 of them a locked or gone item",
+            "LOOT_CLOSED (0)",
+        }, "a late loot and a beast's")
+        -- (4) hidden values (a dungeon, a fight): <secret>, never compared -
+        -- the fishing pole's GUID and the loot's source are the same hidden
+        -- value, and still no "matches"
+        mark = #log
+        bag[0][1].guid, bag[0][1].locked = SECRET, true
+        fire("UNIT_SPELLCAST_SENT", "player", SECRET, SECRET, 13262)
+        fire("ITEM_LOCK_CHANGED", 0, 1)
+        fire("ITEM_LOCK_CHANGED", SECRET, 1)
+        Loot({ { 10940, SECRET, SECRET, SECRET } })
+        fire("LOOT_READY", SECRET)
+        fire("LOOT_CLOSED")
+        GetNumLootItems = function() return SECRET end
+        fire("LOOT_READY", false)
+        fire("LOOT_CLOSED")
+        GetNumLootItems = saved.g.GetNumLootItems
+        loot = {}
+        Same(Lines(mark), {
+            "UNIT_SPELLCAST_SENT (4) player, <secret>, <secret>, 13262 - Spell13262",
+            "ITEM_LOCK_CHANGED (2) 0, 1 | bag 0 slot 1: link |cffffffff|Hitem:6256::::::::12:::::::|h[Fishing Pole]|h|r, id 6256, guid <secret>, exists true, locked true, info.isLocked true",
+            "ITEM_LOCK_CHANGED (2) <secret>, 1 | bag <secret> slot 1: link nil, id nil, guid -, exists false, locked -, info.isLocked nil",
+            "LOOT_READY (1) <secret>",
+            "  loot: 1 slots, IsFishingLoot false",
+            "  locked item bag 0 slot 2 " .. SWORD .. " " .. G2 .. ": still in its slot (same GUID)",
+            "  locked item bag 0 slot 1 |cffffffff|Hitem:6256::::::::12:::::::|h[Fishing Pole]|h|r <secret>: still in its slot (same item id)",
+            "  slot 1: link |Hitem:10940::|h | GetLootSlotInfo (3) 134400, Item, <secret> | GetLootSourceInfo (2) <secret>, <secret>",
+            "  slot 1: 2 hidden source values, not compared",
+            "  sources: 0 different, 0 of them a locked or gone item",
+            "LOOT_CLOSED (0)",
+            "LOOT_READY (1) false",
+            "  loot: <secret> slots, IsFishingLoot false",
+            "  locked item bag 0 slot 2 " .. SWORD .. " " .. G2 .. ": still in its slot (same GUID)",
+            "  locked item bag 0 slot 1 |cffffffff|Hitem:6256::::::::12:::::::|h[Fishing Pole]|h|r <secret>: still in its slot (same item id)",
+            "LOOT_CLOSED (0)",
+        }, "hidden values")
+        bag[0][1].guid, bag[0][1].locked = G1, nil
+        -- (5) a loot window of 50 slots: 40 lines, then how many more; the
+        -- next window has its own 40 (off and on again: nothing kept)
+        slash("detest off")
+        slash("detest")
+        local many = {}
+        for i = 1, 50 do many[i] = { 2318, 1, ("Creature-0-1-1-1-3035-0000BB%04d"):format(i), 1 } end
+        Loot(many)
+        mark = #log
+        fire("LOOT_READY", false)
+        local lines = Lines(mark)
+        assert(#lines == 40, "lines of a loot window: " .. #lines)
+        assert(lines[1] == "LOOT_READY (1) false" and lines[40]:find("^  slot 38: "), "the 40 lines: " .. lines[1] .. " ... " .. lines[40])
+        fire("LOOT_OPENED", false)
+        assert(#Lines(mark) == 40, "the window's second event got past the 40: " .. #Lines(mark))
+        fire("LOOT_CLOSED")
+        lines = Lines(mark)
+        -- (53 lines a READY or OPENED: the event, the count, 50 slots, the sources)
+        assert(#lines == 42 and lines[41] == "... 66 more" and lines[42] == "LOOT_CLOSED (0)", "the end of the window: " .. tostring(lines[41]) .. " / " .. tostring(lines[42]))
+        Loot({ { 2318, 1, "Creature-0-1-1-1-3035-0000BB0001", 1 } })
+        mark = #log
+        fire("LOOT_READY", true)
+        fire("LOOT_CLOSED")
+        loot = {}
+        Same(Lines(mark), {
+            "LOOT_READY (1) true",
+            "  loot: 1 slots, IsFishingLoot false",
+            "  slot 1: link |Hitem:2318::|h | GetLootSlotInfo (3) 134400, Item, 1 | GetLootSourceInfo (2) Creature-0-1-1-1-3035-0000BB0001, 1",
+            "  sources: 1 different, 0 of them a locked or gone item",
+            "LOOT_CLOSED (0)",
+        }, "the next window")
+        -- (6) off: none of its events say anything
+        slash("detest off")
+        mark = #log
+        bag[0][2].locked = true
+        fire("UNIT_SPELLCAST_SENT", "player", "Raider Shortsword", CAST1, 13262)
+        fire("ITEM_LOCK_CHANGED", 0, 2)
+        fire("UNIT_SPELLCAST_SUCCEEDED", "player", CAST1, 13262)
+        Loot({ { 10940, 1, G2, 1 } })
+        fire("LOOT_READY", false)
+        fire("LOOT_CLOSED")
+        fire("BAG_UPDATE_DELAYED")
+        loot = {}
+        assert(#DetestLines(mark) == 0, "off, and still printed: " .. table.concat(DetestLines(mark), " / "))
+        local diff = DetestDiff(db, ns.db, "ns.db")
+        assert(not diff, "after the session, the saved data changed: " .. tostring(diff))
+        assert(#acts == 0, "it acted in the game: " .. table.concat(acts, ", "))
+    end)
+    C_Item, C_Container, loot = saved.item, saved.container, keepLoot
+    for _, k in ipairs(globals) do _G[k] = saved.g[k] end
+    for _, k in ipairs(DETEST_ACTIONS) do _G[k] = saved.g[k] end
+    if not ok then pcall(slash, "detest off") end
+    if not ok then error(err, 0) end
+end)
+step("Disenchant test: a bag info table the client hides is not opened, one that cannot be read is no error, an API part that breaks still listens (0.3 B5 step 1, R1 M1)", function()
+    -- Codex detest round 1, M1: GetContainerItemInfo's table was read before
+    -- any hidden-value check. Now, where the client has issecretvalue, the
+    -- table itself is checked first (<secret>, not opened); without it a
+    -- normal table stays readable, and a field that cannot be read ends as
+    -- "unreadable", not as a Lua error - when turning it on and at
+    -- ITEM_LOCK_CHANGED. An error in the API part does not leave it on
+    -- without listeners: it says so and still registers.
+    local SECRET = newproxy(true)
+    local meta = getmetatable(SECRET)
+    for _, k in ipairs({ "__index", "__newindex", "__concat", "__lt", "__le", "__eq", "__add", "__sub", "__mul",
+        "__div", "__mod", "__unm", "__len", "__call", "__tostring" }) do
+        meta[k] = function() error("attempt to use a secret value", 2) end
+    end
+    local HIDDEN = setmetatable({}, { __index = function() error("SECRET TABLE INDEX") end })
+    local saved = { info = C_Container.GetContainerItemInfo, slots = C_Container.GetContainerNumSlots, id = C_Container.GetContainerItemID,
+        link = C_Container.GetContainerItemLink, secret = issecretvalue, friends = C_FriendList }
+    local current -- what GetContainerItemInfo hands out
+    local function Lines(mark)
+        local out = {}
+        for _, l in ipairs(DetestLines(mark)) do out[#out + 1] = l:gsub("^%d+%.%d%d ", "") end
+        return out
+    end
+    local function Has(lines, want) for _, l in ipairs(lines) do if l == want then return true end end return false end
+    local ok, err = pcall(function()
+        local db = DetestCopy(ns.db)
+        C_Container.GetContainerNumSlots = function(b) return b == 0 and 1 or 0 end
+        C_Container.GetContainerItemID = function(b, s) if b == 0 and s == 1 then return 15210 end end
+        C_Container.GetContainerItemLink = function(b, s) if b == 0 and s == 1 then return "SWORD" end end
+        C_Container.GetContainerItemInfo = function() return current end
+        local function Case(what, value, hiddenValues, atOn, atLock)
+            current = value
+            issecretvalue = hiddenValues and function(v)
+                for _, h in ipairs(hiddenValues) do if rawequal(v, h) then return true end end
+                return false
+            end or nil
+            local mark = #log
+            slash("detest")
+            local lines = Lines(mark)
+            assert(Has(lines, "GetContainerItemInfo: " .. atOn), what .. ", turned on: " .. table.concat(lines, " / "))
+            assert(lines[#lines] == "listening to 13 of 13 events" and #DetestEvents() == 13, what .. ": listening to " .. #DetestEvents())
+            mark = #log
+            fire("ITEM_LOCK_CHANGED", 0, 1)
+            lines = Lines(mark)
+            local tail = ", info.isLocked " .. atLock
+            assert(#lines == 1 and lines[1]:sub(-#tail) == tail, what .. ", ITEM_LOCK_CHANGED: " .. table.concat(lines, " / "))
+            slash("detest off")
+            assert(#DetestEvents() == 0, what .. ": still listening after off")
+        end
+        Case("a normal table, no issecretvalue", { isLocked = true, itemID = 15210 }, nil, "a table, isLocked true (bag 0 slot 1)", "true")
+        Case("a hidden field", { isLocked = SECRET, itemID = 15210 }, { SECRET }, "a table, isLocked <secret> (bag 0 slot 1)", "<secret>")
+        Case("the whole table hidden", HIDDEN, { HIDDEN }, "<secret> (bag 0 slot 1)", "<secret>")
+        Case("a table that cannot be read, no issecretvalue", HIDDEN, nil, "a table that cannot be read (bag 0 slot 1)", "unreadable")
+        Case("a table that cannot be read, issecretvalue says no", HIDDEN, {}, "a table that cannot be read (bag 0 slot 1)", "unreadable")
+        -- an error in the API part (a client table that throws when looked into): said, and it still listens
+        current, issecretvalue = { isLocked = false }, nil
+        C_FriendList = setmetatable({}, { __index = function() error("FRIENDS INDEX") end })
+        local mark = #log
+        slash("detest")
+        C_FriendList = saved.friends
+        local lines = Lines(mark)
+        local told = false
+        for _, l in ipairs(lines) do if l:find("^API part stopped by an error: ") and l:find("FRIENDS INDEX", 1, true) then told = true end end
+        assert(told, "the API part's error is not said: " .. table.concat(lines, " / "))
+        assert(lines[#lines] == "listening to 13 of 13 events" and #DetestEvents() == 13,
+            "after the API part's error: " .. tostring(lines[#lines]) .. ", " .. #DetestEvents() .. " events")
+        mark = #log
+        slash("detest")
+        lines = Lines(mark)
+        assert(#lines == 1 and lines[1]:find("already on", 1, true), "on after the API part's error, then on again: " .. table.concat(lines, " / "))
+        slash("detest off")
+        assert(#DetestEvents() == 0, "off after the API part's error: still listening")
+        local diff = DetestDiff(db, ns.db, "ns.db")
+        assert(not diff, "the saved data changed: " .. tostring(diff))
+    end)
+    C_Container.GetContainerItemInfo, C_Container.GetContainerNumSlots, C_Container.GetContainerItemID = saved.info, saved.slots, saved.id
+    C_Container.GetContainerItemLink, issecretvalue, C_FriendList = saved.link, saved.secret, saved.friends
+    if not ok then pcall(slash, "detest off") end
+    if not ok then error(err, 0) end
+end)
+step("Disenchant test: outside a loot window at most 20 lines in 2 s, then how many were skipped; a disenchant's casts and a loot window still show (0.3 B5 step 1, R1 M2)", function()
+    -- Codex detest round 1, M2: outside a loot window there was no limit -
+    -- 200 lock changes made 200 lines. Now at most 20 lines in 2 s there,
+    -- then "... N lines skipped" once the 2 s are over (or a loot window
+    -- begins, or it is turned off). A disenchant's cast events have 10 lines
+    -- of their own in those 2 s; a loot window keeps its own 40. The API part
+    -- and the answers to the command are not limited.
+    local saved = { id = C_Container.GetContainerItemID, link = C_Container.GetContainerItemLink }
+    local keepLoot = loot
+    local LOCK = "ITEM_LOCK_CHANGED (2) 0, 1 | "
+    local function Count(lines, text) local n = 0 for _, l in ipairs(lines) do if l:find(text, 1, true) then n = n + 1 end end return n end
+    local ok, err = pcall(function()
+        -- (empty bags: a lock change keeps nothing to compare with)
+        C_Container.GetContainerItemID = function() return nil end
+        C_Container.GetContainerItemLink = function() return nil end
+        slash("detest")
+        advance(3)
+        -- Codex' probe: 200 lock changes, the time standing still
+        local mark = #log
+        for _ = 1, 200 do fire("ITEM_LOCK_CHANGED", 0, 1) end
+        local lines = DetestLines(mark)
+        assert(#lines == 20 and Count(lines, LOCK) == 20, "200 lock changes: " .. #lines .. " lines")
+        advance(2.1)
+        lines = DetestLines(mark)
+        assert(#lines == 21 and lines[21] == "... 180 lines skipped", "after the 2 s: " .. #lines .. " lines, the last " .. tostring(lines[#lines]))
+        -- BAG_UPDATE_DELAYED in a burst
+        mark = #log
+        for _ = 1, 50 do fire("BAG_UPDATE_DELAYED") end
+        advance(2.1)
+        lines = DetestLines(mark)
+        assert(#lines == 21 and Count(lines, "BAG_UPDATE_DELAYED (0)") == 20 and lines[21] == "... 30 lines skipped",
+            "50 bag updates: " .. #lines .. " lines, the last " .. tostring(lines[#lines]))
+        -- in the middle of a burst: a disenchant's casts show, another spell's cast is skipped with the rest;
+        -- a loot window that begins says first how many were skipped, then shows with its own 40
+        mark = #log
+        for _ = 1, 100 do fire("ITEM_LOCK_CHANGED", 0, 1) end
+        fire("UNIT_SPELLCAST_SENT", "player", "Raider Shortsword", "Cast-DE-1", 13262)
+        fire("UNIT_SPELLCAST_SUCCEEDED", "player", "Cast-DE-1", 13262)
+        fire("UNIT_SPELLCAST_SUCCEEDED", "player", "Cast-FB-1", 133)
+        fire("UNIT_SPELLCAST_INTERRUPTED", "player", "Cast-DE-2", 13262)
+        fire("UNIT_SPELLCAST_FAILED", "player", "Cast-DE-2", 13262)
+        loot = { { guid = "Creature-0-1-1-1-3035-0000AA0099", item = 2318, qty = 1 } }
+        fire("LOOT_READY", false)
+        fire("LOOT_CLOSED")
+        loot = {}
+        lines = DetestLines(mark)
+        assert(Count(lines, LOCK) == 20, "lock lines in the burst: " .. Count(lines, LOCK))
+        for i, want in ipairs({ "UNIT_SPELLCAST_SENT (4) player, Raider Shortsword, Cast-DE-1, 13262 - Spell13262",
+            "UNIT_SPELLCAST_SUCCEEDED (3) player, Cast-DE-1, 13262 - Spell13262", "UNIT_SPELLCAST_INTERRUPTED (3) player, Cast-DE-2, 13262 - Spell13262",
+            "UNIT_SPELLCAST_FAILED (3) player, Cast-DE-2, 13262 - Spell13262" }) do
+            local l = lines[20 + i] or ""
+            assert(l:gsub("^%d+%.%d%d ", "") == want, ("the disenchant's line %d: %s"):format(i, l))
+        end
+        assert(Count(lines, "Cast-FB-1") == 0, "another spell's cast got past the limit")
+        assert(lines[25] == "... 81 lines skipped", "before the loot window: " .. tostring(lines[25]))
+        assert((lines[26] or ""):find("^%d+%.%d%d LOOT_READY %(1%) false$") and (lines[#lines] or ""):find("^%d+%.%d%d LOOT_CLOSED %(0%)$"),
+            "the loot window: " .. tostring(lines[26]) .. " ... " .. tostring(lines[#lines]))
+        -- a disenchant's casts have 10 lines of their own in 2 s
+        advance(2.1)
+        mark = #log
+        for i = 1, 12 do fire("UNIT_SPELLCAST_SUCCEEDED", "player", "Cast-DE-x" .. i, 13262) end
+        advance(2.1)
+        lines = DetestLines(mark)
+        assert(#lines == 11 and Count(lines, "Cast-DE-x") == 10 and lines[11] == "... 2 lines skipped", "12 disenchant casts: " .. #lines .. " lines, the last " .. tostring(lines[#lines]))
+        -- the next 2 s have their own 20; turned off, what was skipped is said first
+        mark = #log
+        for _ = 1, 25 do fire("ITEM_LOCK_CHANGED", 0, 1) end
+        slash("detest off")
+        lines = DetestLines(mark)
+        assert(#lines == 22 and Count(lines, LOCK) == 20 and lines[21] == "... 5 lines skipped" and lines[22] == "off",
+            "25 lock changes, then off: " .. #lines .. " lines, " .. tostring(lines[21]) .. " / " .. tostring(lines[22]))
+        -- (the timer of those 2 s, after off: nothing more)
+        mark = #log
+        advance(2.1)
+        assert(#DetestLines(mark) == 0, "after off: " .. table.concat(DetestLines(mark), " / "))
+        -- (ns.db is compared in parts 1 and 2 and in M1; here the seconds that go
+        -- by let the sync write its own query times into it)
+    end)
+    C_Container.GetContainerItemID, C_Container.GetContainerItemLink, loot = saved.id, saved.link, keepLoot
+    if not ok then pcall(slash, "detest off") end
+    if not ok then error(err, 0) end
+end)
+step("Disenchant test: an equipment slot's lock is shown with its item, not kept to compare with (0.3 B5 step 1, R1 N1)", function()
+    -- Codex detest round 1, N1 (decided: shown only): equipment is not
+    -- disenchanted, and the 8 kept items stay for bag items. Codex' case: a
+    -- fishing pole in slot 16, its lock changes, then a loot window - no
+    -- "locked item equipment slot 16" in it.
+    local saved = { id = GetInventoryItemID, link = GetInventoryItemLink }
+    local keepLoot = loot
+    local ok, err = pcall(function()
+        GetInventoryItemID = function(_, s) if s == 16 then return 6256 end end
+        GetInventoryItemLink = function(_, s) if s == 16 then return "POLE" end end
+        slash("detest")
+        local mark = #log
+        fire("ITEM_LOCK_CHANGED", 16)
+        loot = { { guid = "Creature-0-1-1-1-3035-0000AA0077", item = 2318, qty = 1 } }
+        fire("LOOT_READY", false)
+        fire("BAG_UPDATE_DELAYED")
+        fire("LOOT_CLOSED")
+        loot = {}
+        local lines = DetestLines(mark)
+        assert((lines[1] or ""):find("ITEM_LOCK_CHANGED (1) 16 | equipment slot 16: link POLE, id 6256, guid ", 1, true), "shown: " .. tostring(lines[1]))
+        for _, l in ipairs(lines) do
+            assert(not l:find("locked item", 1, true) and not l:find("gone from", 1, true), "kept to compare with: " .. l)
+        end
+        slash("detest off")
+    end)
+    GetInventoryItemID, GetInventoryItemLink, loot = saved.id, saved.link, keepLoot
+    if not ok then pcall(slash, "detest off") end
+    if not ok then error(err, 0) end
+end)
 step("Long run (10 min) for leaks", function() slash("run herb") advance(600) slash("stop") end)
 step("Test mock: OnUpdate runs for the same frames in the same order as going over every frame (tools only)", function()
     -- The mock's advance() goes over the frames that have an OnUpdate only

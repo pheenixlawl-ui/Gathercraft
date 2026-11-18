@@ -50,6 +50,7 @@ PlanFarm.lua
 Places.lua
 CraftLog.lua
 SkinLog.lua
+DisenchantTest.lua
 Paths.lua
 Data\StarterData.lua
 Data\QuestieNodes.lua

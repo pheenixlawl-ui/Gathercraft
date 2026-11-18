@@ -1506,6 +1506,8 @@ SlashCmdList.GATHERCRAFT = function(msg)
         if ns.TrainerTest then ns.TrainerTest() end
     elseif cmd == "crafttest" then
         if ns.CraftTest then ns.CraftTest() end
+    elseif cmd == "detest" then
+        if ns.DisenchantTest then ns.DisenchantTest(rest) end
     elseif cmd == "scan" then
         if ns.StartScan then ns.StartScan() end
     elseif cmd == "plan" then
