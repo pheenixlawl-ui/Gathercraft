@@ -154,13 +154,16 @@ Gathercraft is **actively developed** – during the Forever launch weeks expect
 - Own auction house scan, prices in tooltips, price alerts, **gold per hour**
 - **Farm Spots** – best zones by gold per hour
 - **Crafting** – profit of 2,000+ recipes of all professions, and the **skill plan** to your target skill
+- **Skill plan 2.0** – one calculation for every profession: have / need, the chance per step, a range instead of a promise
+- **Nearest trainer and recipe vendor** – named in the skill plan, a click sets a waypoint
+- **Farm for plan** – a farm run for what your skill plan still needs, and the zones to find it in
+- **Item tooltips for herbs, ores and reagents** – the price and its last 14 days, the zone with the most known spots, what uses it
 - **Where to learn every recipe** – trainer, vendor or drop
 - One-key fishing with its own panel, RARE! announcer, optional node sharing
 - 10 languages, works in every client language
 
 **🔨 Next up (launch weeks)**
 
-- **Skill plan rebuilt** – correct amounts for every profession, honest estimates
 - **Smoother Loop routes**
 - **More spawn points for the new Forever zones** as soon as they are known
 - **Disenchant values**

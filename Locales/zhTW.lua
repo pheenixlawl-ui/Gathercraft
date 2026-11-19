@@ -585,6 +585,7 @@ ns.Locales.zhTW = {
     ["Ping when I reach a route point"] = "到達路線上的點時播放提示音",
     ["Scan the auction house automatically when I open it"] = "打開拍賣場時自動掃描",
     ["Only nodes near you get a minimap pin now - less work for the game while you move. The auction house scan starts when you open the window (Options, Rares & prices). The skill plan reads your profession skill from the game itself; where that fails, opening the profession window once still does it. New: Options, Fishing - and a switch for the ping at route points (Options, General)."] = "現在只有你附近的採集點才有小地圖標記——移動時遊戲的負擔更小。打開拍賣場視窗時自動開始掃描（選項，稀有和價格）。技能規劃直接從遊戲讀取你的專業技能；讀不到時，照舊打開一次專業技能視窗即可。新增：選項，釣魚——以及到達路線點時提示音的開關（選項，一般）。",
+    ["The skill plan is rebuilt: have / need for every material, the chance and the crafts for each step, the nearest trainer or recipe vendor with a waypoint. New: Farm for plan starts a farm run for what your plan still needs, Where to farm lists the zones. Item tooltips of herbs, ores and reagents show the auction price and its last 14 days; hold Shift for the zone with the most spots and what uses it."] = "技能規劃已重做：每種材料的擁有 / 需要、每一步的機率和製作次數，以及最近的訓練師或配方商人和路徑點。新功能：「為計畫採集」為計畫仍需的材料開始一條採集路線，「去哪裡採集」列出區域。草藥、礦石和材料的物品提示顯示拍賣價格及其最近 14 天；按住 Shift 可查看採集點最多的區域和用途。",
     ["(%s of it estimated)"] = "（其中 %s 為估算）",
     ["%s can only be made from itself here: it is not made."] = "%s 在這裡只能用它自己製作：不製作。",
     ["%s trainer"] = "%s訓練師",

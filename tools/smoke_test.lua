@@ -5444,13 +5444,12 @@ step("Places: your faction cannot be read - only a trainer or vendor friendly to
     fire("ZONE_CHANGED_NEW_AREA")
     if not ok then error(err, 0) end
 end)
-step("Skill plan 2.0: texts in every language, an internal build mark, nothing published yet (v0.2 A7)", function()
-    -- 0.2 is built block by block and published as one release: this build is
-    -- marked internal, and what players read about releases is not touched.
-    -- (b3: building block 3, the shopping list - so the build that is
-    -- installed can be told from the ones before it: b1, b1r2, b1r3, b2)
+step("Skill plan 2.0: texts in every language, the release 0.2.0 - version, what's new and changelog (v0.2 A7)", function()
+    -- 0.2 was built block by block under internal marks (b1 ... b3) and is
+    -- published as one release: the TOC says 0.2.0, "What's new" has its
+    -- entry and the changelog its section with the date.
     local version = toc:match("## Version: ([%w%.%-]+)")
-    assert(version == "0.2.0-b3", "TOC version: " .. tostring(version))
+    assert(version == "0.2.0", "TOC version: " .. tostring(version))
     -- the two files of building block 2 load last: they read the data files only after login
     assert(toc:gsub("\r", ""):match("\nStarter%.lua\nSpawnCounts%.lua\nItemTooltip%.lua\n?$"), "the TOC does not end with Starter.lua, SpawnCounts.lua, ItemTooltip.lua")
     assert(toc:match("## Interface: (%d+)") == "16001", "TOC interface changed")
@@ -5460,10 +5459,13 @@ step("Skill plan 2.0: texts in every language, an internal build mark, nothing p
         return text
     end
     local welcome, changelog = Read("Welcome.lua"), Read("CHANGELOG.md")
-    assert(not welcome:find('%["0%.2'), "What's new already has an entry for 0.2")
+    local entry = welcome:match('%["0%.2%.0"%] = "([^"]+)"')
+    assert(entry, "What's new has no entry for 0.2.0")
+    assert(not welcome:find('%["0%.2%.0%-'), "What's new has an entry for an internal build")
     assert(welcome:find('local COMING_NEXT = "Skill plan 2.0 · Item tooltips · Shopping list on the map"', 1, true), "Coming next was changed")
-    assert(changelog:find("^## v0%.1%.23") and not changelog:find("0.2.0", 1, true), "CHANGELOG.md was changed for the internal build")
-    -- the internal build shows no "what's new" on login (there is none to show yet)
+    local heading = changelog:match("^(## v[^\r\n]*)")
+    assert(heading == "## v0.2.0 – 2026-11-20", "CHANGELOG heading: " .. tostring(heading))
+    -- the release shows "what's new" at the first login after 0.1.23, with the text of 0.2.0
     local keep = { meta = C_AddOns.GetAddOnMetadata, last = ns.db.lastVersion, fresh = ns.freshInstall }
     C_AddOns.GetAddOnMetadata = function() return version end
     ns.freshInstall = false
@@ -5473,9 +5475,13 @@ step("Skill plan 2.0: texts in every language, an internal build mark, nothing p
     local ok, err = pcall(ns.WelcomeOnLogin)
     win = _G.GathercraftWhatsNew
     local shown = win and win:IsShown()
+    local body = shown and win.body:GetText()
+    local remembered = ns.db.lastVersion
+    if win then win:Hide() end
     C_AddOns.GetAddOnMetadata, ns.db.lastVersion, ns.freshInstall = keep.meta, keep.last, keep.fresh
-    assert(ok, "the login of the internal build: " .. tostring(err))
-    assert(not shown, "the internal build shows a what's new window")
+    assert(ok, "the login of the release: " .. tostring(err))
+    assert(shown and body == ns.L[entry], "the release shows no what's new window with the text of 0.2.0")
+    assert(remembered == version, "the new version is not remembered: " .. tostring(remembered))
 
     -- every text of the plan window: English key, nine translations, the same placeholders
     local planner = Read("Planner.lua")
@@ -8762,7 +8768,8 @@ step("README says what the addon does, no more (v0.1.18 S8)", function()
     -- the price order: its own step since F3 (Codex M3)
     assert(text:find("An optional louder splash helps in busy spots.", 1, true), "README: the louder splash")
     local nextUp = text:match("Next up.-\n\n(.-)\n\n")
-    assert(nextUp and nextUp:find("Skill plan rebuilt", 1, true) and nextUp:find("Smoother Loop routes", 1, true)
+    -- (0.2.0: the rebuilt skill plan is published - it stands under "Live now", see the release step)
+    assert(nextUp and not nextUp:find("Skill plan rebuilt", 1, true) and nextUp:find("Smoother Loop routes", 1, true)
         and nextUp:find("Disenchant values", 1, true) and nextUp:find("new Forever zones", 1, true), "README: Next up")
 end)
 step("README: the price text says what Prices.lua does (v0.1.18 F3)", function()
@@ -16586,41 +16593,43 @@ step("Welcome, what's new and the run summary (v0.1.13)", function()
     ns.db.summaryOff = nil
     SendChatMessage = nil
 end)
-step("What's new: 0.1.23 after an update, in this language and all translations", function()
-    -- (0.2 is built internally, block by block: the TOC says 0.2.0-b2, what
-    -- players read about releases stays that of 0.1.23 until 0.2 is published)
-    local version = "0.1.23"
+step("What's new: 0.2.0 after an update, in this language and all translations", function()
+    local version = toc:match("## Version: ([%w%.%-]+)")
+    assert(version == "0.2.0", "TOC version: " .. tostring(version))
     assert(toc:match("## Interface: (%d+)") == "16001", "TOC interface changed")
     local f = assert(io.open(ROOT .. "/Welcome.lua"))
     local src = f:read("*a") f:close()
-    local key = src:match('%["0%.1%.23"%] = "([^"]+)"')
-    assert(key and key:find("Only nodes near you get a minimap pin", 1, true) and key:find("The auction house scan starts when you open the window", 1, true)
-        and key:find("reads your profession skill from the game itself", 1, true) and key:find("opening the profession window once still does it", 1, true)
-        and key:find("Options, Fishing", 1, true) and key:find("a switch for the ping at route points", 1, true),
-        "no entry for 0.1.23 in Welcome.lua")
-    -- said as it is: what was built, no number for the game (the minimap
-    -- pins and the sharing are measured in our tests only), and no promise
-    -- that the skill is always read without the window (the numbers of the
-    -- crafting professions are not seen in the Forever client yet)
-    for _, word in ipairs({ "faster", "lag", "FPS", "%", "always", "every profession", "no need to open", "never" }) do
-        assert(not key:find(word, 1, true), "what's new 0.1.23 says \"" .. word .. "\"")
+    local key = src:match('%["0%.2%.0"%] = "([^"]+)"')
+    assert(key and key:find("The skill plan is rebuilt", 1, true) and key:find("have / need for every material", 1, true)
+        and key:find("the chance and the crafts for each step", 1, true) and key:find("the nearest trainer or recipe vendor with a waypoint", 1, true)
+        and key:find("Farm for plan starts a farm run for what your plan still needs", 1, true) and key:find("Where to farm lists the zones", 1, true)
+        and key:find("Item tooltips of herbs, ores and reagents", 1, true) and key:find("its last 14 days", 1, true) and key:find("hold Shift", 1, true),
+        "no entry for 0.2.0 in Welcome.lua")
+    -- said as it is: what was built, and no promise - the plan is a
+    -- heuristic with a range of the model, a known spot is a possible
+    -- spawn, a price is the one of a scan
+    for _, word in ipairs({ "cheapest", "fastest", "guarantee", "always", "never", "exact", "%", "every node", "best", "correct" }) do
+        assert(not key:lower():find(word, 1, true), "what's new 0.2.0 says \"" .. word .. "\"")
     end
+    -- no longer than the longest entry before (0.1.22, 404 characters; the
+    -- height of the window in this language is the step below)
+    assert(#key <= 404, "what's new 0.2.0 is long: " .. #key .. " characters")
     -- the entries before stay for players who skip a version
-    assert(src:match('%["0%.1%.21"%] = "([^"]+)"') and src:match('%["0%.1%.22"%] = "([^"]+)"'), "the 0.1.21 or 0.1.22 entry is gone")
-    -- every translation names the options pages as the options show them
+    assert(src:match('%["0%.1%.22"%] = "([^"]+)"') and src:match('%["0%.1%.23"%] = "([^"]+)"'), "the 0.1.22 or 0.1.23 entry is gone")
+    -- every translation names the two buttons and the column as the skill plan shows them
     for _, code in ipairs({ "deDE", "esES", "frFR", "itIT", "koKR", "ptBR", "ruRU", "zhCN", "zhTW" }) do
         local loc = ns.Locales[code]
         local t = loc and loc[key]
         assert(type(t) == "string" and t ~= "" and t ~= key, "no translation in " .. code)
-        for _, pageName in ipairs({ "Rares & prices", "Fishing", "General" }) do
-            assert(loc[pageName] and t:find(loc[pageName], 1, true), ("%s: the page %s is not named as the options call it"):format(code, pageName))
+        for _, name in ipairs({ "Farm for plan", "Where to farm", "have / need" }) do
+            assert(loc[name] and t:find(loc[name], 1, true), ("%s: \"%s\" is not named as the skill plan shows it"):format(code, name))
         end
+        assert(t:find("14", 1, true), code .. ": the 14 days are not named")
+        assert(not t:find('"', 1, true) and not t:find("\\", 1, true) and not t:find("%", 1, true), code .. ": a sign that does not belong into the text")
     end
-    -- the switches the texts name are in the options under these names
-    for _, label in ipairs({ "Scan the auction house automatically when I open it", "Ping when I reach a route point" }) do
-        local found
-        for _, o in ipairs(allFrames) do if o.__kind == "FontString" and o.__text == ns.L[label] then found = true end end
-        assert(found, "the options have no switch \"" .. label .. "\"")
+    -- the names the text uses are the ones of the skill plan and the tooltip
+    for _, name in ipairs({ "Farm for plan", "Where to farm", "have / need", "Nearest trainer: %s (%s)", "Click: set a waypoint.", "Last 7 days", "Most spawn points", "Used in" }) do
+        assert(ns.Locales.deDE[name], "no text \"" .. name .. "\" in the addon")
     end
     -- README and CHANGELOG say it
     local rf = assert(io.open(ROOT .. "/README.md"))
@@ -16630,54 +16639,77 @@ step("What's new: 0.1.23 after an update, in this language and all translations"
         "README: the scan is still said to need a click")
     assert(not readme:find("One click on the Gathercraft tab at the auction house reads", 1, true), "README: the scan is still said to need a click")
     assert(readme:find("rares & prices, fishing, general", 1, true), "README: the options page Fishing is not named")
-    -- (R1-N4) where the scan on opening is turned off: the same path as in the changelog
+    -- (R1-N4) where the scan on opening is turned off
     assert(readme:find('To turn that off: Options › Rares & prices › "Scan the auction house automatically when I open it".', 1, true),
         "README: not said where the scan on opening is turned off")
+    -- (0.2.0) what is new stands in the list of what is live, a short line
+    -- each - and the rebuilt skill plan no longer under "Next up"
+    local live = readme:match("Live now.-\n\n(.-)\n\n")
+    assert(live, "README: no list \"Live now\"")
+    for _, said in ipairs({ "- **Skill plan 2.0** – ", "- **Farm for plan** – ", "- **Item tooltips for herbs, ores and reagents** – ", "- **Nearest trainer and recipe vendor** – " }) do
+        local line = live:match("\n?(" .. said:gsub("%p", "%%%0") .. "[^\n]*)")
+        assert(line, "README, Live now: no line " .. said)
+        assert(#line <= 170, "README, Live now: a long line: " .. line)
+    end
+    local nextUp = readme:match("Next up.-\n\n(.-)\n\n")
+    assert(nextUp and not nextUp:find("Skill plan", 1, true), "README: the skill plan is still under \"Next up\"")
+    assert(not readme:lower():find("cheapest", 1, true), "README says \"cheapest\"")
     local cf = assert(io.open(ROOT .. "/CHANGELOG.md"))
     local changelog = cf:read("*a") cf:close()
-    assert(changelog:find("^## v0%.1%.23") and not changelog:find("## v0.1.22", 1, true), "CHANGELOG: not 0.1.23 only")
+    assert(changelog:find("^## v0%.2%.0") and not changelog:find("## v0.1.23", 1, true), "CHANGELOG: not 0.2.0 only")
+    -- the release (Sven, 19.11.2026): the heading carries the date
+    local heading = changelog:match("^(## v0%.2%.0[^\r\n]*)")
+    assert(heading == "## v0.2.0 – 2026-11-20", "CHANGELOG heading: " .. tostring(heading))
+    -- three groups, in this order
+    local added, changed, fixed = changelog:find("\n### Added\n", 1, true), changelog:find("\n### Changed\n", 1, true), changelog:find("\n### Fixed\n", 1, true)
+    assert(added and changed and fixed and added < changed and changed < fixed, "CHANGELOG: not the groups Added, Changed, Fixed")
     for _, said in ipairs({
-        -- the minimap pins: what was measured where, the two distances, what you see
-        "up to 20 % of the addon time, about 5 %", "within 400 yards", "more than 450 yards away", "50 yards on, or after 2 seconds",
-        "about 233 yards at its widest zoom outdoors", "not the live game", "32 of 1,234 pins", "minimap pins: N near / M in zone",
-        "How much it is in the game we have not measured yet",
-        -- sharing: the same result, and the three numbers of the test
-        "What happens then is the same as before", "about 60 % less time in the handlers", "5–20 %", "single harvests the same",
-        -- the scan: steps, what starts it, when it is quiet, how to turn it off
-        "split into small steps by time", "also when most auctions are of a few items", "our test machine, not the game",
-        "How it feels in the game we have not measured yet", "finished even when you close the window",
-        "at most once in the 15 minutes the server allows", "Chat stays quiet when it cannot start, gets no answer",
-        "Scan the auction house automatically when I open it", "The button and `/gcr scan` work as before",
-        -- the pages and the ping
-        "Options › Fishing", "Your settings are kept", "Ping when I reach a route point", "On by default",
-        -- the professions: what is seen live and what is not
-        "by their number", "the Forever client has seven; only six were read", "Herbalism, Mining, First Aid, Fishing and Cooking",
-        "which we have not seen there yet", "open the profession window once, as before", "`/gcr crafttest` lists what the game says" }) do
+        -- Farm for plan: the button, what the run does, what it does not promise
+        "the skill plan has a new button \"Farm for plan\"", "in the zone you are in", "glow on the map and minimap", "the other pins are dimmed",
+        "\"Not on the map\"", "gather or buy something and the count follows", "the run ends by itself",
+        "\"needs Herbalism\" or \"needs Mining\"", "the run starts anyway", "Nothing is promised about time or amount", "possible spawns",
+        -- the zone list
+        "**Where to farm:**", "the zones of your continent", "\"(here)\"", "\"Go\" starts the plan run",
+        -- the tooltip
+        "**Item tooltips for herbs, ores and reagents:**", "own scan or lowest offer", "when that is known, how many were listed", "the last 14 days (low, usual, high)",
+        "Hold Shift for the last 7 days", "Questie data and your own finds are named", "What is not known says \"unknown\"",
+        "Options › Rares & prices › \"Gathercraft info in item tooltips\"",
+        -- trainers and vendors: what is shown, where the places come from, what they are not
+        "\"Nearest trainer: …\"", "names the nearest vendor", "a click sets a waypoint", "\"May not teach this rank.\"",
+        "Questie database (QuestieDB), used with the Questie team's permission – see NOTICE.md", "the NPC may not be there right now",
+        "trainers in the new Forever zones are not in the data",
+        -- the diagnosis command
+        "`/gcr detest`", "it only prints to chat while it is switched on, does nothing in the game and saves nothing",
+        -- the skill plan
+        "one calculation for every profession", "the target comes from a menu and stays as you set it", "Materials are counted once",
+        "\"have / need\" for every material, from bags, reagent bag and bank", "only when your own stock covers the need", "is called a forecast",
+        "\"in 8 of 10 cases between …\"", "a range of the model, not a guarantee", "\"chance unknown\" and is not counted",
+        "known, estimated or unknown", "what has no price is not in the sum", "a sensible plan, not a proven least costly one",
+        "training the next rank is a step of its own", "Blacksmithing, Enchanting, Engineering and Tailoring",
+        "which we have not seen in the Forever client yet", "Where the plan shows \"Your skill: ?\", open the profession window once",
+        -- the price line of every tooltip
+        "how many were listed only when that is known",
+        -- the saved run
+        "A saved farm run goes on only for the character that started it.", "another character of your account could take it up or end it",
+        "normal farm runs too, since 0.1.x", "a run saved before 0.2 is not continued; start it again" }) do
         assert(changelog:find(said, 1, true), "CHANGELOG: nothing about \"" .. said .. "\"")
     end
-    -- what the changelog must not promise: no number for the live game, and
-    -- no "without the window" for every profession
-    for _, said in ipairs({ "FPS", "no lag", "in the game it is", "every profession without", "never need", "always knows", "all professions are" }) do
+    -- what the changelog must not promise
+    for _, said in ipairs({ "cheapest", "fastest", "FPS", "no lag", "always", "every profession without", "never need", "the best", "all nodes" }) do
         assert(not changelog:find(said, 1, true), "CHANGELOG says \"" .. said .. "\"")
     end
-    -- (R1-N4) the scan: no time in milliseconds is promised - how long a step
-    -- takes is the machine's and the game's
-    local scanSays = changelog:match("%- %*%*Auction house scan in small steps:%*%*[^\r\n]*")
-    assert(scanSays, "CHANGELOG: no point about the scan in small steps")
-    for _, said in ipairs({ " ms", "millisecond", "no longer freezes", "never" }) do
-        assert(not scanSays:find(said, 1, true), "CHANGELOG, the scan in small steps, says \"" .. said .. "\"")
+    -- "Fixed" holds what was seen broken and seen mended in the game, and
+    -- that is one point: the saved run (Sven, 19.11.2026)
+    local fixedPart = changelog:sub(fixed + 1)
+    local points = 0
+    for line in fixedPart:gmatch("[^\n]+") do if line:sub(1, 2) == "- " then points = points + 1 end end
+    assert(points == 1 and fixedPart:find("A saved farm run", 1, true), "CHANGELOG, Fixed: " .. points .. " points")
+    -- the texts the changelog quotes are the ones the addon shows
+    for _, name in ipairs({ "Farm for plan", "Where to farm", "Not on the map", "needs Herbalism", "needs Mining", "(here)", "Go", "May not teach this rank.",
+        "Gathercraft info in item tooltips", "Rares & prices", "have / need", "enough", "chance unknown", "own scan", "lowest offer", "Skill plan",
+        "Your skill: ? (open your profession window once)", "About %d crafts on average; in 8 of 10 cases between %d and %d.", "Nearest trainer: %s (%s)" }) do
+        assert(ns.Locales.deDE[name], "the changelog quotes \"" .. name .. "\", which the addon does not show")
     end
-    -- the numbers the changelog names are the ones of the options and the texts
-    assert(ns.L["Your skill: ? (open your profession window once)"], "the skill plan's line for an unknown skill")
-    assert(changelog:find("\"Your skill: ?\"", 1, true), "CHANGELOG: the plan's line is not named as the plan shows it")
-    -- the release (Sven, 16.11.2026): the heading carries the date
-    local heading = changelog:match("^(## v0%.1%.23[^\r\n]*)")
-    assert(heading == "## v0.1.23 – 2026-11-16", "CHANGELOG heading: " .. tostring(heading))
-    -- what the profession numbers mean in another language is not seen in
-    -- the game yet: said as "should", with a request to report it
-    assert(changelog:find("Professions are now detected by their ID, so the German 'Alchimie' name should no longer matter – please report if it still does.", 1, true),
-        "CHANGELOG: the German client is not said as \"should\"")
-    assert(not changelog:find("the same in every language", 1, true), "CHANGELOG still promises the same in every language")
     local function said(text)
         for _, l in ipairs(log) do if l:find(text, 1, true) then return l end end
     end
@@ -16691,7 +16723,7 @@ step("What's new: 0.1.23 after an update, in this language and all translations"
         -- (since 0.1.19 in its own window, Q5)
         local win = _G.GathercraftWhatsNew
         if win then win:Hide() end
-        ns.db.lastVersion = "0.1.22"
+        ns.db.lastVersion = "0.1.23"
         ns.WelcomeOnLogin()
         win = _G.GathercraftWhatsNew
         assert(win and win:IsShown() and win.body:GetText() == text and win.title:GetText():find(version, 1, true),
@@ -16712,7 +16744,7 @@ end)
 step("What's new: a window with a box \"Coming next\", once per update, /gcr news (v0.1.19 Q5)", function()
     local L = ns.L
     local keep = { meta = C_AddOns.GetAddOnMetadata, last = ns.db.lastVersion, fresh = ns.freshInstall, height = methods.GetStringHeight }
-    local version = "0.1.23" -- the last public version (the TOC marks the internal 0.2 build)
+    local version = "0.2.0" -- the release: its text is the one that has to fit the window
     local ok, err = pcall(function()
         C_AddOns.GetAddOnMetadata = function() return version end
         ns.freshInstall = false
@@ -24077,11 +24109,11 @@ step("Farm for plan: what you see - have / need under the run window, the window
     W.Restore()
     if not ok then error(err, 0) end
 end)
-step("Farm for plan: every text in nine languages with the same placeholders, the lines keep to their widths, the build is marked 0.2.0-b3 (v0.2 B3 T6)", function()
+step("Farm for plan: every text in nine languages with the same placeholders, the lines keep to their widths, the release 0.2.0 names it (v0.2 B3 T6)", function()
     -- The order's part 6; concept test 10 (long names in all 11 language
-    -- codes). Nothing players read about releases is touched.
+    -- codes). Since the release 0.2.0 the changelog and "What's new" name it.
     local toc = assert(io.open(ROOT .. "/Gathercraft.toc")):read("*a")
-    assert(toc:match("## Version: ([%w%.%-]+)") == "0.2.0-b3", "TOC version: " .. tostring(toc:match("## Version: ([%w%.%-]+)")))
+    assert(toc:match("## Version: ([%w%.%-]+)") == "0.2.0", "TOC version: " .. tostring(toc:match("## Version: ([%w%.%-]+)")))
     local function Read(name) return assert(io.open(ROOT .. "/" .. name)):read("*a") end
     local farm = Read("PlanFarm.lua")
     -- ---- the texts: every L["..."] of PlanFarm.lua, the reasons it looks up, and the three in Route.lua and UI.lua
@@ -24214,10 +24246,10 @@ step("Farm for plan: every text in nine languages with the same placeholders, th
     W.Restore()
     if not ok then error(err, 0) end
 
-    -- ---- nothing published: the changelog and the "What's new" page do not name it
+    -- ---- published with 0.2.0: the changelog and the "What's new" page name it
     local changelog = Read("CHANGELOG.md")
-    assert(not changelog:find("Farm for plan", 1, true) and not changelog:find("0%.2%.0"), "the changelog names the shopping list or 0.2.0")
-    assert(not Read("Welcome.lua"):find("Farm for plan", 1, true), "the \"What's new\" page names the shopping list")
+    assert(changelog:find("^## v0%.2%.0") and changelog:find("Farm for plan", 1, true), "the changelog of 0.2.0 does not name the shopping list")
+    assert(Read("Welcome.lua"):find("Farm for plan", 1, true), "the \"What's new\" page does not name the shopping list")
 end)
 step("Farm for plan: no setting is touched, the count follows your real stock both ways, a hidden value is never used (v0.2 B3 T7)", function()
     -- Concept shopping list 5 (3, 4, 11), tests 6 and 9: a plan run from
