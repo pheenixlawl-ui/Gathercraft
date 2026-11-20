@@ -27037,6 +27037,106 @@ step("Minimap tooltip: ours below any tooltip the game shows there, never on it 
     ns.NotifyNodesChanged() advance(1)
     if not ok then error(err, 0) end
 end)
+-- 0.2.1 B1 (Codex, round 1 of part A, 21.11.2026): a gather whose loot was
+-- read before every item link was there (nil, or a hidden value) was taken
+-- for quest items only - only the readable quest item was in the list - and
+-- dropped for good, although its herb came with it. "Quest items only" now
+-- needs every item slot read; a slot without a readable link makes no quest
+-- decision: the gather is booked as before (the cautious rule of A3), right
+-- away and once. Money and currency slots have no item link and don't count.
+step("Quest objects 0.2.1: loot not fully read proves no quest object - the gather is booked once; a money slot does not count (0.2.1 B1)", function()
+    local Z = 2548
+    local QUEST, QUEST2, HERB = 990001, 990002, 990010
+    local SECRET = newproxy(true)
+    local saved = { nodes = ns.db.nodes, map = player.map, x = player.x, y = player.y, instant = C_Item.GetItemInfoInstant,
+        secret = issecretvalue, link = GetLootSlotLink, slotType = GetLootSlotType }
+    local ok, err = pcall(function()
+        C_Item.GetItemInfoInstant = function(id, ...)
+            if id == QUEST or id == QUEST2 then return id, "Quest", "Quest", "", 134400, 12, 0 end
+            if id == HERB then return id, "Trade Goods", "Herb", "", 134400, 7, 9 end
+            return saved.instant(id, ...)
+        end
+        issecretvalue = function(v) return rawequal(v, SECRET) end
+        ns.db.nodes = { [Z] = {} }
+        ns.ForgetSeenKinds() ns.NotifyNodesChanged()
+        local n = 0
+        -- a gather at an object the spawn data doesn't know. how: what slot `slot`
+        -- gives as its link at LOOT_READY (nil: not there yet, SECRET: hidden;
+        -- at LOOT_OPENED it is there), or with always: at both (a money slot);
+        -- slotType: GetLootSlotType for it (nil: a client without it)
+        local function Gather(name, spell, objectID, items, x, how)
+            n = n + 1
+            how = how or {}
+            player.map, player.x, player.y = Z, x, 0.5
+            local cast = "b1cast" .. n
+            fire("UNIT_SPELLCAST_SENT", "player", name, cast, spell)
+            fire("UNIT_SPELLCAST_SUCCEEDED", "player", cast, spell)
+            loot = {}
+            for _, it in ipairs(items) do
+                loot[#loot + 1] = { guid = "GameObject-0-1-1-1-" .. objectID .. "-00B1B1" .. n, item = it, qty = 1 }
+            end
+            local function Link(ready)
+                return function(slot)
+                    if slot == how.slot and (ready or how.always) then return how.link end
+                    return saved.link(slot)
+                end
+            end
+            GetLootSlotType = how.slotType
+            GetLootSlotLink = Link(true)
+            fire("LOOT_READY")
+            GetLootSlotLink = Link(false)
+            fire("LOOT_OPENED")
+            advance(3)
+            GetLootSlotLink, GetLootSlotType = saved.link, saved.slotType
+            loot = {}
+        end
+        local function Nodes(oid)
+            local found = {}
+            for _, x in ipairs(ns.db.nodes[Z] or {}) do if x.id == oid then found[#found + 1] = x end end
+            return found
+        end
+        local function BookedOnce(oid, what)
+            local found = Nodes(oid)
+            assert(#found == 1, ("%s: %d nodes, want 1"):format(what, #found))
+            assert(found[1].type == "herb" and (found[1].count or 1) == 1, ("%s: booked as %s, %s times"):format(what,
+                tostring(found[1].type), tostring(found[1].count)))
+        end
+        -- Codex's cases: the herb's link is not there yet at LOOT_READY - or hidden - the quest item's is
+        Gather("NewRiverHerb", 2366, 600099, { QUEST, HERB }, 0.30, { slot = 2, link = nil })
+        BookedOnce("o600099", "herb and quest item, the herb's link not there yet at LOOT_READY")
+        Gather("NewRiverHerb", 2366, 600098, { QUEST, HERB }, 0.33, { slot = 2, link = SECRET })
+        BookedOnce("o600098", "herb and quest item, the herb's link hidden at LOOT_READY")
+        -- the quest item's link the one missing: booked as well (its herb is read)
+        Gather("NewRiverHerb", 2366, 600097, { QUEST, HERB }, 0.36, { slot = 1, link = nil })
+        BookedOnce("o600097", "herb and quest item, the quest item's link not there yet")
+        -- a slot without a link whose kind the client can't tell (no GetLootSlotType, or a hidden one): no quest decision
+        Gather("Wildflower", 2366, 600096, { QUEST, QUEST2 }, 0.39, { slot = 2, link = nil, always = true })
+        BookedOnce("o600096", "quest item and a slot without a link, no slot kind to read")
+        Gather("Wildflower", 2366, 600095, { QUEST, QUEST2 }, 0.42,
+            { slot = 2, link = nil, always = true, slotType = function() return SECRET end })
+        BookedOnce("o600095", "quest item and a slot without a link, its kind hidden")
+        -- as A3: quest items only, all read - nothing booked; also next to money (a slot without an item link)
+        Gather("Wildflower", 2366, 600094, { QUEST, QUEST2 }, 0.45)
+        assert(#Nodes("o600094") == 0, "quest items only, every link read: booked as a herb")
+        Gather("Wildflower", 2366, 600093, { QUEST, QUEST2 }, 0.48,
+            { slot = 2, link = nil, always = true, slotType = function(slot) return slot == 2 and 2 or 1 end })
+        assert(#Nodes("o600093") == 0, "quest items only next to a money slot: booked as a herb (money counted as an item not read)")
+        Gather("Wildflower", 2366, 600092, { QUEST, QUEST2 }, 0.51,
+            { slot = 2, link = nil, always = true, slotType = function(slot) return slot == 2 and 3 or 1 end })
+        assert(#Nodes("o600092") == 0, "quest items only next to a currency slot: booked as a herb")
+        -- as A3: herb and quest item, all read - booked once, with the herb
+        Gather("NewRiverHerb", 2366, 600091, { QUEST, HERB }, 0.54)
+        BookedOnce("o600091", "herb and quest item, every link read")
+        assert(Nodes("o600091")[1].item == HERB, "herb and quest item, every link read: not booked with the herb")
+    end)
+    C_Item.GetItemInfoInstant, issecretvalue = saved.instant, saved.secret
+    GetLootSlotLink, GetLootSlotType = saved.link, saved.slotType
+    loot = {}
+    ns.db.nodes = saved.nodes
+    player.map, player.x, player.y = saved.map, saved.x, saved.y
+    ns.ForgetSeenKinds() ns.NotifyNodesChanged() advance(1)
+    if not ok then error(err, 0) end
+end)
 step("Long run (10 min) for leaks", function() slash("run herb") advance(600) slash("stop") end)
 step("Test mock: OnUpdate runs for the same frames in the same order as going over every frame (tools only)", function()
     -- The mock's advance() goes over the frames that have an OnUpdate only

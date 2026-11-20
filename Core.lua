@@ -89,10 +89,12 @@ ns.IsQuestNode = function(id, itemID)
 end
 
 -- The loot of a gather is quest items only (each one read as a quest item),
--- from an object the spawn data doesn't know: a quest object, no herb or ore
-local function QuestLootOnly(objectID, items)
+-- from an object the spawn data doesn't know: a quest object, no herb or ore.
+-- Only from loot read in full (complete: every item slot's link read, 0.2.1
+-- B1): a link not there yet or hidden may be the herb - no quest decision.
+local function QuestLootOnly(objectID, items, complete)
     if objectID and KnownObjectType(objectID) then return false end
-    if not items or #items == 0 then return false end
+    if not complete or not items or #items == 0 then return false end
     for _, it in ipairs(items) do
         if IsQuestItem(it.id) ~= true then return false end
     end
@@ -881,9 +883,13 @@ local function ReadLoot()
     return objectID, spawn, itemID or firstItem or firstQuest, firstGUID, count
 end
 
--- Every item in the loot window with its amount (for the gold value)
+-- Every item in the loot window with its amount (for the gold value), and
+-- whether every item slot was read (0.2.1 B1): a slot without a readable item
+-- link (not there yet, or hidden) leaves the list incomplete - unless the
+-- client says it holds money or a currency (no item link, nothing missing)
+local LOOT_SLOT_MONEY, LOOT_SLOT_CURRENCY = 2, 3 -- Enum.LootSlotType
 local function ReadLootItems()
-    local items = {}
+    local items, complete = {}, true
     local count = Readable(GetNumLootItems and GetNumLootItems(), "loot") or 0
     for slot = 1, count do
         local link = Readable(GetLootSlotLink and GetLootSlotLink(slot), "loot")
@@ -891,9 +897,12 @@ local function ReadLootItems()
         if id then
             local qty = Readable(GetLootSlotInfo and select(3, GetLootSlotInfo(slot)), "loot")
             items[#items + 1] = { id = id, qty = tonumber(qty) or 1 }
+        else
+            local kind = GetLootSlotType and Readable(GetLootSlotType(slot), "loot slot type")
+            if kind ~= LOOT_SLOT_MONEY and kind ~= LOOT_SLOT_CURRENCY then complete = false end
         end
     end
-    return items
+    return items, complete
 end
 
 -- A gather knows what it was: a name from the game (cast target or tooltip)
@@ -1014,8 +1023,14 @@ local function TryRecord(p)
     end
     -- a quest object (0.2.1 A3): its loot is quest items only - no herb or
     -- ore to book or share. Like a gather that can't be sure of its loot, it
-    -- only keeps a spot of its type close by from being called empty.
-    if QuestLootOnly(p.objectID, p.items) then
+    -- only keeps a spot of its type close by from being called empty. Loot
+    -- not read in full decides nothing (0.2.1 B1): booked as before, now -
+    -- it is not read again later (one booking, no second path).
+    if not p.itemsComplete and QuestLootOnly(p.objectID, p.items, true) then
+        Debug(("gather %s (%s): object %s - loot not read in full, the items read are quest items: no quest decision, recorded as before"):format(
+            tostring(p.castGUID), tostring(p.name), tostring(p.objectID)))
+    end
+    if QuestLootOnly(p.objectID, p.items, p.itemsComplete) then
         Debug(("DROPPED gather %s (%s): object %s gave quest items only, no herb or ore - nothing recorded or shared"):format(
             tostring(p.castGUID), tostring(p.name), tostring(p.objectID)))
         if ns.OnGatherUncertain then ns.OnGatherUncertain(p) end
@@ -1215,7 +1230,7 @@ local function OnLoot()
     local p = fits[1]
     if p.lootAmbiguous then return end -- once in doubt, it stays dropped
     p.lootSeen = true
-    p.items = ReadLootItems()
+    p.items, p.itemsComplete = ReadLootItems()
     p.objectID = objectID
     p.spawn = spawn
     p.itemID = itemID
