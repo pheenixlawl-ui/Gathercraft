@@ -34,7 +34,7 @@ local WHATS_NEW = {
 
 -- What comes next (Sven, 08.11.2026): only what is really planned, no dates;
 -- one key in Locales, changed with each release
-local COMING_NEXT = "Skill plan 2.0 · Item tooltips · Shopping list on the map"
+local COMING_NEXT = "Smoother Loop routes · More spawn points for the new Forever zones · Disenchant values"
 local FEEDBACK = "Ideas or bugs? Tell us on CurseForge or Discord."
 
 local function Version()

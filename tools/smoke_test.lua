@@ -5462,7 +5462,10 @@ step("Skill plan 2.0: texts in every language, the release 0.2.0 - version, what
     local entry = welcome:match('%["0%.2%.0"%] = "([^"]+)"')
     assert(entry, "What's new has no entry for 0.2.0")
     assert(not welcome:find('%["0%.2%.0%-'), "What's new has an entry for an internal build")
-    assert(welcome:find('local COMING_NEXT = "Skill plan 2.0 · Item tooltips · Shopping list on the map"', 1, true), "Coming next was changed")
+    -- "Coming next" names what comes after 0.2.0 (Sven, 20.11.2026), not what 0.2.0 ships
+    assert(welcome:find('local COMING_NEXT = "Smoother Loop routes · More spawn points for the new Forever zones · Disenchant values"', 1, true),
+        "Coming next is not the three points after 0.2.0")
+    assert(not welcome:find("Shopping list on the map", 1, true), "Coming next still names what 0.2.0 ships")
     local heading = changelog:match("^(## v[^\r\n]*)")
     assert(heading == "## v0.2.0 – 2026-11-20", "CHANGELOG heading: " .. tostring(heading))
     -- the release shows "what's new" at the first login after 0.1.23, with the text of 0.2.0
@@ -16754,7 +16757,28 @@ step("What's new: a window with a box \"Coming next\", once per update, /gcr new
         local coming = src:match('local COMING_NEXT = "([^"]+)"')
         local feedback = src:match('local FEEDBACK = "([^"]+)"')
         assert(coming and feedback, "no COMING_NEXT / FEEDBACK key in Welcome.lua")
-        assert(coming:find("Skill plan 2.0", 1, true) and not coming:find("%d%d%d%d") and not coming:lower():find("soon", 1, true), "Coming next: " .. coming)
+        assert(not coming:find("%d%d%d%d") and not coming:lower():find("soon", 1, true), "Coming next: " .. coming)
+        -- what comes after 0.2.0: the three points the README keeps under "Next up", nothing 0.2.0 ships
+        for _, shipped in ipairs({ "Skill plan", "Item tooltips", "Shopping list", "Farm for plan" }) do
+            assert(not coming:find(shipped, 1, true), "Coming next names what 0.2.0 ships: " .. coming)
+        end
+        local rf = assert(io.open(ROOT .. "/README.md"))
+        local readme = rf:read("*a") rf:close()
+        local nextUp = readme:gsub("\r", ""):match("Next up.-\n\n(.-)\n\n")
+        assert(nextUp, "README: no list Next up")
+        local points = 0
+        for point in (coming .. " · "):gmatch("(.-) · ") do
+            points = points + 1
+            assert(nextUp:find("**" .. point .. "**", 1, true), ("Coming next: %q is not a point under Next up in the README"):format(point))
+        end
+        assert(points == 3, "Coming next: " .. points .. " points")
+        local oldKey = "Skill plan 2.0 · Item tooltips · Shopping list on the map"
+        for _, code in ipairs({ "deDE", "esES", "frFR", "itIT", "koKR", "ptBR", "ruRU", "zhCN", "zhTW" }) do
+            assert(ns.Locales[code] and ns.Locales[code][oldKey] == nil, code .. " still has the old Coming next line")
+            local tr = ns.Locales[code][coming]
+            local _, dots = tostring(tr):gsub(" · ", "")
+            assert(dots == 2 and tr:find("Forever", 1, true), ("%s: Coming next has to name three points and Forever: %s"):format(code, tostring(tr)))
+        end
         for _, key in ipairs({ coming, feedback, "Coming next", "What's new in %s" }) do
             for _, code in ipairs({ "deDE", "esES", "frFR", "itIT", "koKR", "ptBR", "ruRU", "zhCN", "zhTW" }) do
                 local tr = ns.Locales[code] and ns.Locales[code][key]
