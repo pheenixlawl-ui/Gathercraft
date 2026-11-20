@@ -408,8 +408,10 @@ local function Shareable(n, mapID)
     -- imports from other players or from the beta starter data, and never
     -- known spawn points: every Gathercraft user has those already
     -- (only seen on the minimap: rough position, not shared until harvested)
+    -- and never a quest object an older version booked (0.2.1 A3)
     return n.id and n.id:match("^o%d+$") and n.type and not n.source and not n.seenOnly
         and not (ns.IsKnownSpawn and ns.IsKnownSpawn(mapID, n.id, n.x, n.y))
+        and not (ns.IsQuestNode and ns.IsQuestNode(n.id, n.item))
 end
 
 local function Busy()
@@ -833,6 +835,9 @@ local function HandleNode(mapID, entry, who, trusted, dry)
     local nodeType = CODE_TYPE[code or ""]
     if not (id and id:match("^o%d+$") and nodeType and x and y) then return end
     if x > 10000 or y > 10000 then return end
+    -- a quest object (its item is a quest item, 0.2.1 A3): no herb or ore.
+    -- A report without an item (0) can't tell: it comes in as before.
+    if item > 0 and ns.IsQuestNode and ns.IsQuestNode(id, item) then return end
     x, y = x / 10000, y / 10000
 
     -- Already known: just remember that others know it too (for push suppression)
@@ -923,7 +928,8 @@ local function OwnNodes(mapID)
     local own = {}
     for _, n in ipairs(ns.db.nodes[mapID] or {}) do
         local ok = Shareable(n, mapID) or (n.source == "sync" and not IsParked(n) and n.id and n.id:match("^o%d+$") and n.type
-            and not (ns.IsKnownSpawn and ns.IsKnownSpawn(mapID, n.id, n.x, n.y)))
+            and not (ns.IsKnownSpawn and ns.IsKnownSpawn(mapID, n.id, n.x, n.y))
+            and not (ns.IsQuestNode and ns.IsQuestNode(n.id, n.item)))
         if ok then own[#own + 1] = n end
     end
     return own

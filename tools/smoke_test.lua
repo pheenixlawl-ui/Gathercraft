@@ -26653,6 +26653,115 @@ step("Starter data 0.2.1: the chat line and the tooltip say starter data, not be
     ns.ForgetSeenKinds() ns.NotifyNodesChanged() advance(1)
     if not ok then error(err, 0) end
 end)
+-- 0.2.1 A3 (Sven, 20.11.2026; the 0.2.0 starter spots report): Riverglades
+-- has quest objects ("Wildflower", "Rock Pile") that come up in the herb and
+-- ore search. Up to 0.2.0 the recorder booked every gather with Herb
+-- Gathering or Mining whose loot came from the object, and sync shared it.
+-- Now the loot tells: an object the spawn data does not know whose loot is
+-- quest items only (item class Quest, 12) is no gather - not booked, not
+-- shared. Herbs, ores and stone are trade goods: a new Forever herb or vein
+-- never falls out. An item whose class can't be read (secret, no API) is
+-- booked as before. Sync drops a report whose item is a quest item; a report
+-- without an item comes in as before. A quest node an older version booked
+-- is no longer shared.
+step("Quest objects 0.2.1: loot of quest items only is no gather - not booked, not shared, not taken from others; new Forever herbs, mixed loot, unreadable items and known herbs as before (0.2.1 A3)", function()
+    local Z = 2548
+    local QUEST, QUEST2, HERB, UNREAD = 990001, 990002, 990010, 990020
+    local SECRET = newproxy(true)
+    local saved = { nodes = ns.db.nodes, map = player.map, x = player.x, y = player.y, instant = C_Item.GetItemInfoInstant,
+        secret = issecretvalue, pending = ns.db.sync and ns.db.sync.pending and ns.db.sync.pending[Z], enabled = ns.db.sync and ns.db.sync.enabled }
+    local instantCalls = 0
+    local ok, err = pcall(function()
+        if not ns.db.sync.enabled then slash("sync on") end
+        C_Item.GetItemInfoInstant = function(id, ...)
+            instantCalls = instantCalls + 1
+            if id == QUEST or id == QUEST2 then return id, "Quest", "Quest", "", 134400, 12, 0 end
+            if id == HERB then return id, "Trade Goods", "Herb", "", 134400, 7, 9 end
+            if id == UNREAD then return id, SECRET, SECRET, SECRET, SECRET, SECRET, SECRET end
+            return saved.instant(id, ...)
+        end
+        issecretvalue = function(v) return rawequal(v, SECRET) end
+        ns.db.nodes = { [Z] = {} }
+        ns.db.sync.pending[Z] = nil
+        ns.ForgetSeenKinds() ns.NotifyNodesChanged()
+        local n = 0
+        local function Gather(name, spell, objectID, items, x)
+            n = n + 1
+            player.map, player.x, player.y = Z, x, 0.5
+            local cast = "a3cast" .. n
+            fire("UNIT_SPELLCAST_SENT", "player", name, cast, spell)
+            fire("UNIT_SPELLCAST_SUCCEEDED", "player", cast, spell)
+            loot = {}
+            for _, it in ipairs(items) do
+                loot[#loot + 1] = { guid = "GameObject-0-1-1-1-" .. objectID .. "-00A3A3" .. n, item = it, qty = 1 }
+            end
+            fire("LOOT_READY") fire("LOOT_OPENED")
+            advance(3)
+            loot = {}
+        end
+        local function Node(oid)
+            for _, x in ipairs(ns.db.nodes[Z] or {}) do if x.id == oid then return x end end
+        end
+        local sent = #sentMessages
+        local function Sent(oid)
+            for i = sent + 1, #sentMessages do
+                if sentMessages[i]:find("N:", 1, true) == 1 and sentMessages[i]:find(";" .. oid .. ",", 1, true) then return true end
+            end
+            return false
+        end
+        -- quest objects with the herb and the ore search: nothing booked, nothing shared
+        Gather("Wildflower", 2366, 600001, { QUEST }, 0.30)
+        Gather("Rock Pile", 2575, 600002, { QUEST2, QUEST }, 0.35)
+        assert(not Node("o600001"), "a Wildflower (quest items only) was booked as a herb")
+        assert(not Node("o600002"), "a Rock Pile (quest items only) was booked as an ore")
+        -- a new Forever herb (trade goods), the same with a quest item in front, an item the client can't tell, a known herb with a quest item
+        Gather("Riverbloom", 2366, 600010, { HERB }, 0.40)
+        Gather("Riverbloom", 2366, 600011, { QUEST, HERB }, 0.45)
+        Gather("Mistleaf", 2366, 600012, { UNREAD }, 0.50)
+        Gather("Peacebloom", 2366, 1618, { QUEST }, 0.55)
+        local h1, h2, u1, k1 = Node("o600010"), Node("o600011"), Node("o600012"), Node("o1618")
+        assert(h1 and h1.type == "herb" and h1.item == HERB, "a new Forever herb was not booked (or not with its herb): " .. tostring(h1 and h1.item))
+        assert(h2 and h2.type == "herb" and h2.item == HERB, "a herb with a quest item in its loot: booked with " .. tostring(h2 and h2.item) .. ", want its herb")
+        assert(u1 and u1.type == "herb" and u1.item == UNREAD, "a gather whose item can't be read was not booked as before")
+        assert(k1 and k1.type == "herb", "a known Peacebloom with a quest item in its loot was not booked")
+        assert(instantCalls > 0, "test setup: the item class was never asked")
+        advance(10)
+        assert(Sent("o600010") and Sent("o600011"), "the new Forever herbs were not shared (the test would say nothing)")
+        assert(not Sent("o600001") and not Sent("o600002"), "a quest object was shared")
+        -- a quest node an older version booked (in this profile already): kept, but never shared - no push, no answer
+        local old = { id = "o600005", type = "herb", name = "Wildflower", x = 0.60, y = 0.5, item = QUEST, count = 1, last = time() }
+        -- and one that came in by sync before 0.2.1 and was confirmed: sync nodes go into answers too
+        local oldSync = { id = "o600006", type = "ore", name = "Rock Pile", x = 0.65, y = 0.5, item = QUEST2, count = 1, last = time(),
+            source = "sync", heard = 3 }
+        table.insert(ns.db.nodes[Z], old)
+        table.insert(ns.db.nodes[Z], oldSync)
+        ns.NotifyNodesChanged()
+        sent = #sentMessages
+        ns.SyncShare(Z, old)
+        advance(3)
+        fire("CHAT_MSG_ADDON", "Gathercraft", "Q:" .. Z .. ":0", "CHANNEL", "Curious Player", nil, nil, nil, "GathercraftSync")
+        advance(15)
+        assert(not Sent("o600005"), "an old quest node was shared")
+        assert(not Sent("o600006"), "an old quest node from sync was in an answer")
+        assert(Sent("o600010"), "the answer to a question did not hold the real herb (the test would say nothing)")
+        -- reports from others (guild: taken at once): a quest item - dropped; a trade good, or no item at all - as before
+        fire("CHAT_MSG_ADDON", "Gathercraft", "N:" .. Z .. ";o600003,h,6500,5000," .. QUEST .. ";o600013,h,7000,5000," .. HERB .. ";o600014,h,7500,5000,0", "GUILD", "Guildie A3")
+        fire("CHAT_MSG_ADDON", "Gathercraft", "N:" .. Z .. ";o600004,o,6500,6000," .. QUEST2, "CHANNEL", "Stranger A3", nil, nil, nil, "GathercraftSync")
+        advance(2)
+        assert(not Node("o600003"), "a guild report of a quest item became a node")
+        assert(Node("o600013") and Node("o600014"), "a guild report of a herb, or one without an item, was not taken as before")
+        for _, p in ipairs(ns.db.sync.pending[Z] or {}) do
+            assert(p.id ~= "o600004" and p.id ~= "o600003", "a report of a quest item is waiting for confirmations: " .. p.id)
+        end
+    end)
+    C_Item.GetItemInfoInstant, issecretvalue = saved.instant, saved.secret
+    loot = {}
+    ns.db.nodes = saved.nodes
+    ns.db.sync.pending[Z] = saved.pending
+    player.map, player.x, player.y = saved.map, saved.x, saved.y
+    ns.ForgetSeenKinds() ns.NotifyNodesChanged() advance(1)
+    if not ok then error(err, 0) end
+end)
 step("Long run (10 min) for leaks", function() slash("run herb") advance(600) slash("stop") end)
 step("Test mock: OnUpdate runs for the same frames in the same order as going over every frame (tools only)", function()
     -- The mock's advance() goes over the frames that have an OnUpdate only

@@ -61,6 +61,44 @@ local function KnownObjectType(objectID)
     return kind and KIND_TYPES[kind[1]]
 end
 
+-- Quest items (0.2.1 A3). Riverglades has quest objects ("Wildflower",
+-- "Rock Pile") that come up in the herb and ore search and are gathered with
+-- Herb Gathering or Mining. What they give is of the item class Quest (12);
+-- herbs, ores and stone are trade goods - a new Forever herb or vein never is
+-- a quest item, whatever it is called. true / false; nil when the class can't
+-- be read (no API, a secret value, an item the client doesn't know): then
+-- nothing is decided by it.
+local QUEST_ITEM_CLASS = 12 -- Enum.ItemClass.Questitem
+local function IsQuestItem(itemID)
+    if type(itemID) ~= "number" or not (C_Item and C_Item.GetItemInfoInstant) then return nil end
+    local ok, _, _, _, _, _, classID = pcall(C_Item.GetItemInfoInstant, itemID)
+    if not ok then return nil end
+    classID = ns.Readable(classID, "item class") -- (defined further down; read when called)
+    if type(classID) ~= "number" then return nil end
+    return classID == QUEST_ITEM_CLASS
+end
+ns.IsQuestItem = IsQuestItem
+
+-- A node (or a report of one) of a quest object: an object the spawn data
+-- doesn't know ("o123") whose item is a quest item. A known herb, vein or
+-- chest never is; an item that can't be read isn't either.
+ns.IsQuestNode = function(id, itemID)
+    local objectID = type(id) == "string" and tonumber(id:match("^o(%d+)$"))
+    if objectID and KnownObjectType(objectID) then return false end
+    return IsQuestItem(itemID) == true
+end
+
+-- The loot of a gather is quest items only (each one read as a quest item),
+-- from an object the spawn data doesn't know: a quest object, no herb or ore
+local function QuestLootOnly(objectID, items)
+    if objectID and KnownObjectType(objectID) then return false end
+    if not items or #items == 0 then return false end
+    for _, it in ipairs(items) do
+        if IsQuestItem(it.id) ~= true then return false end
+    end
+    return true
+end
+
 -- Is this object a gathering node Gathercraft knows (v0.1.21 T4, the Fish
 -- key in the questing mode)? "herb" / "ore" / "chest" when its object ID is
 -- in the spawn data, else when the zone you are in has a known entry of
@@ -814,7 +852,7 @@ end
 
 local function ReadLoot()
     local objectID, spawn, itemID, firstGUID
-    local firstItem
+    local firstItem, firstQuest
     local count = Readable(GetNumLootItems and GetNumLootItems(), "loot") or 0
     for slot = 1, count do
         if GetLootSourceInfo and not objectID then
@@ -832,13 +870,15 @@ local function ReadLoot()
             local link = Readable(GetLootSlotLink(slot), "loot")
             local id = link and tonumber(link:match("item:(%d+)"))
             if id then
-                firstItem = firstItem or id
+                -- (a quest item in the loot is no node's item: 0.2.1 A3)
+                if IsQuestItem(id) == true then firstQuest = firstQuest or id else firstItem = firstItem or id end
                 if IsNodeItem(id) then itemID = id end
             end
         end
     end
-    -- the herb or ore itself; else (a new Forever node) the first item
-    return objectID, spawn, itemID or firstItem, firstGUID, count
+    -- the herb or ore itself; else (a new Forever node) the first item that
+    -- is no quest item, else the first quest item (a quest object: see TryRecord)
+    return objectID, spawn, itemID or firstItem or firstQuest, firstGUID, count
 end
 
 -- Every item in the loot window with its amount (for the gold value)
@@ -969,6 +1009,15 @@ local function TryRecord(p)
             why, GetTime() - p.sentAt))
         -- it did succeed: the route must not call a spot of its type close by
         -- empty because of it (nothing is learned from it either way)
+        if ns.OnGatherUncertain then ns.OnGatherUncertain(p) end
+        return
+    end
+    -- a quest object (0.2.1 A3): its loot is quest items only - no herb or
+    -- ore to book or share. Like a gather that can't be sure of its loot, it
+    -- only keeps a spot of its type close by from being called empty.
+    if QuestLootOnly(p.objectID, p.items) then
+        Debug(("DROPPED gather %s (%s): object %s gave quest items only, no herb or ore - nothing recorded or shared"):format(
+            tostring(p.castGUID), tostring(p.name), tostring(p.objectID)))
         if ns.OnGatherUncertain then ns.OnGatherUncertain(p) end
         return
     end
