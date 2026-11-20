@@ -98,6 +98,48 @@ end
 
 ns.MakeCard = Card
 
+---------------------------------------------------------------------------
+-- Open over a loading screen (0.2.1 A4)
+--   Our windows close with Escape: their names are in UISpecialFrames (the
+--   cards above, the main window, the farm-for-plan windows). The game closes
+--   every window of that list after each loading screen as well (UIParent,
+--   PLAYER_ENTERING_WORLD: CloseAllWindows) - a hearthstone closed the skill
+--   plan (Sven, live 20.11.2026). Not meant: a window of ours that was open
+--   when the loading screen began is shown again right after it. Escape
+--   still closes them; one closed before the loading screen stays closed.
+---------------------------------------------------------------------------
+local openAtLoading -- the windows open when this loading screen began
+local function ShowAgain(list)
+    for _, f in ipairs(list) do
+        if not f:IsShown() then f:Show() end
+    end
+end
+local loadingWatch = CreateFrame("Frame")
+for _, event in ipairs({ "PLAYER_LEAVING_WORLD", "LOADING_SCREEN_ENABLED", "PLAYER_ENTERING_WORLD", "LOADING_SCREEN_DISABLED" }) do
+    pcall(loadingWatch.RegisterEvent, loadingWatch, event) -- (an event this client doesn't know is left out)
+end
+loadingWatch:SetScript("OnEvent", function(_, event)
+    if event == "PLAYER_LEAVING_WORLD" or event == "LOADING_SCREEN_ENABLED" then
+        if openAtLoading then return end -- (both come for one loading screen: the first one counts)
+        openAtLoading = {}
+        for _, name in ipairs(UISpecialFrames or {}) do
+            local f = type(name) == "string" and name:find("^Gathercraft") and _G[name]
+            if f and f.IsShown and f:IsShown() then openAtLoading[#openAtLoading + 1] = f end
+        end
+        return
+    end
+    local list = openAtLoading
+    if not list then return end
+    if event == "LOADING_SCREEN_DISABLED" then
+        openAtLoading = nil -- the end of this loading screen
+    else
+        -- (a client without LOADING_SCREEN_DISABLED: the loading screen is over by then)
+        C_Timer.After(5, function() if openAtLoading == list then openAtLoading = nil end end)
+    end
+    -- after every handler of this event: the game closes them in its own
+    C_Timer.After(0, function() ShowAgain(list) end)
+end)
+
 local function Button(parent, text, width)
     local b = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
     b:SetSize(width, 24)

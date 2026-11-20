@@ -26762,6 +26762,71 @@ step("Quest objects 0.2.1: loot of quest items only is no gather - not booked, n
     ns.ForgetSeenKinds() ns.NotifyNodesChanged() advance(1)
     if not ok then error(err, 0) end
 end)
+-- 0.2.1 A4 (Sven, live 20.11.2026): the skill plan of Cooking was open, a
+-- hearthstone to Moonglade - after the loading screen it was closed (no run
+-- going). The cause: our windows close with Escape, so they are in
+-- UISpecialFrames, and the game closes every window of that list after each
+-- loading screen as well (UIParent, PLAYER_ENTERING_WORLD: CloseAllWindows(1),
+-- which calls CloseSpecialWindows). Not meant: a window that was open when
+-- the loading screen began is open again after it. Escape still closes it;
+-- one you closed before stays closed.
+step("Windows 0.2.1: the skill plan and the main window stay open over a loading screen; Escape still closes them, a closed one stays closed (0.2.1 A4)", function()
+    -- what the game does with Escape and after a loading screen: every frame of UISpecialFrames is hidden
+    local function CloseSpecial()
+        for _, name in ipairs(UISpecialFrames) do
+            local f = _G[name]
+            if f and f.IsShown and f:IsShown() then f:Hide() end
+        end
+    end
+    -- a loading screen (a hearthstone); first: the game's handler before ours, then: after ours (the same
+    -- event); noEnd: a client without LOADING_SCREEN_DISABLED
+    local function Loading(gameFirst, noEnd)
+        fire("PLAYER_LEAVING_WORLD")
+        if not noEnd then fire("LOADING_SCREEN_ENABLED") end
+        if gameFirst then CloseSpecial() end
+        fire("PLAYER_ENTERING_WORLD", false, false)
+        if not gameFirst then CloseSpecial() end
+        if not noEnd then fire("LOADING_SCREEN_DISABLED") end
+        advance(1)
+    end
+    local function Plan() return _G.GathercraftSkillPlan end
+    local function Main() return _G.GathercraftMain end
+    local ok, err = pcall(function()
+        ns.ShowSkillPlan("Cooking") advance(1)
+        assert(Plan() and Plan():IsShown(), "test setup: the skill plan of Cooking did not open")
+        local listed = false
+        for _, name in ipairs(UISpecialFrames) do if name == "GathercraftSkillPlan" then listed = true end end
+        assert(listed, "test setup: the skill plan is not in UISpecialFrames (Escape would not close it)")
+        for _, case in ipairs({ { true }, { false }, { true, true }, { false, true } }) do
+            local gameFirst, noEnd = case[1], case[2]
+            local how = (gameFirst and "the game's handler first" or "ours first") .. (noEnd and ", a client without LOADING_SCREEN_DISABLED" or "")
+            Loading(gameFirst, noEnd)
+            assert(Plan():IsShown(), "the skill plan is closed after a loading screen (" .. how .. ")")
+            advance(5)
+            assert(Plan():IsShown(), "the skill plan closed a moment after a loading screen (" .. how .. ")")
+        end
+        -- the main window as well; and a window closed before the loading screen stays closed
+        if not Main():IsShown() then ns.ToggleMain() end
+        advance(1)
+        assert(Main():IsShown(), "test setup: the main window did not open")
+        Plan():Hide()
+        Loading(true)
+        assert(Main():IsShown(), "the main window is closed after a loading screen")
+        assert(not Plan():IsShown(), "the skill plan, closed before the loading screen, opened again")
+        -- Escape (no loading screen): closes them, and they stay closed
+        ns.ShowSkillPlan("Cooking") advance(1)
+        CloseSpecial()
+        advance(5)
+        assert(not Plan():IsShown() and not Main():IsShown(), "Escape: a window opened again")
+        -- one loading screen after Escape: nothing comes back that was closed
+        Loading(true)
+        assert(not Plan():IsShown() and not Main():IsShown(), "a window closed with Escape opened again after a loading screen")
+    end)
+    if Plan() then Plan():Hide() end
+    if Main() and Main():IsShown() then Main():Hide() end
+    advance(1)
+    if not ok then error(err, 0) end
+end)
 step("Long run (10 min) for leaks", function() slash("run herb") advance(600) slash("stop") end)
 step("Test mock: OnUpdate runs for the same frames in the same order as going over every frame (tools only)", function()
     -- The mock's advance() goes over the frames that have an OnUpdate only
