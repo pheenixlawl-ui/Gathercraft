@@ -2115,7 +2115,11 @@ end
 -- Our minimap pins let the mouse through to the game's blips (Pins.lua), and
 -- the game rebuilds or hides GameTooltip over the minimap all the time. What
 -- we know goes into a tooltip of our own: right below the game's tooltip when
--- it shows one, else next to the pin under the cursor.
+-- it shows one, else next to the pin under the cursor. Below ANY GameTooltip
+-- shown while the mouse is on the minimap (0.2.1 A5): one whose owner we do
+-- not know or whose lines we cannot read sits by the cursor too, and ours
+-- next to the pin lay on it (Sven, 20.11.2026). Only the minimap's own
+-- tooltip is read - its names, the short heading, the learning.
 local miniTip
 local function MiniTip()
     if not miniTip then
@@ -2143,12 +2147,13 @@ end
 local function UpdateMiniTip()
     if not (ns.AddNodeTooltipLines and Minimap:IsMouseOver()) then return HideMiniTip() end
     if not MouseOnMinimapItself() then return HideMiniTip() end
-    local gameShows = GameTooltip:IsShown() and IsMinimapTooltip()
+    local gameUp = GameTooltip:IsShown() and true or false
+    local gameShows = gameUp and IsMinimapTooltip()
     local names = gameShows and TooltipLines() or nil
     if names and #names == 0 then names, gameShows = nil, false end
     local node, pin, named = MiniTipTarget(names)
     if not node then return HideMiniTip() end
-    local anchor = gameShows and GameTooltip or pin
+    local anchor = gameUp and GameTooltip or pin
     if not anchor then return HideMiniTip() end
     local tip = MiniTip()
     if tip:IsShown() and tip.node == node and tip.anchor == anchor then return end
@@ -2160,7 +2165,8 @@ local function UpdateMiniTip()
         tip:SetPoint("BOTTOMLEFT", anchor, "TOPRIGHT", 2, 2)
     end
     -- right below the game's tooltip naming it: a short heading; below a
-    -- tooltip about something else (a quest area): with its name
+    -- tooltip about something else (a quest area) or one we do not read:
+    -- with its name
     ns.AddNodeTooltipLines(tip, node, gameShows and named)
     tip:Show()
     tip.node, tip.anchor = node, anchor

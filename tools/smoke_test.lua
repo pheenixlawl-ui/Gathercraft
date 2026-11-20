@@ -26865,6 +26865,178 @@ step("Version 0.2.1-a1: the TOC says it, /gcr shows it, no What's new window aft
     C_AddOns.GetAddOnMetadata, ns.db.lastVersion, ns.freshInstall = keep.meta, keep.last, keep.fresh
     if not ok then error(err, 0) end
 end)
+step("Minimap tooltip: ours below any tooltip the game shows there, never on it (0.2.1 A5)", function()
+    -- Sven, 20.11.2026, Cape of Stranglethorn, mouse over Kingsblood: the
+    -- game's tooltip listed Kingsblood and a quest ("Mok'thardin's
+    -- Enchantment", "- 7/10 Jungle Stalker Feather"); ours lay on it, its
+    -- lower edge at the cursor like the game's. Ours went below the game's
+    -- tooltip only when that was taken for the minimap's own (owner the
+    -- minimap or the screen, lines readable) - else next to our pin under the
+    -- cursor, where the game's tooltip is too. Now: below any GameTooltip
+    -- shown while the mouse is on the minimap. Only the minimap's own tooltip
+    -- is read (short heading, learning), as before.
+    local Z = 1466
+    local names = GathercraftNodeNames and GathercraftNodeNames[GetLocale()]
+    local herbName = names and names[1618] or "Peacebloom"
+    local keep = { nodes = ns.db.nodes[Z], map = player.map, x = player.x, y = player.y, foci = GetMouseFoci, focus = GetMouseFocus,
+        cursor = GetCursorPosition, cvar = GetCVar, secret = issecretvalue, learnOff = ns.db.minimapLearnOff }
+    local mm, gt, texts = {}, {}, {}
+    for _, k in ipairs({ "IsMouseOver", "GetCenter", "GetWidth", "GetHeight", "GetZoom", "GetEffectiveScale" }) do mm[k] = rawget(Minimap, k) end
+    for _, k in ipairs({ "IsShown", "GetOwner", "NumLines" }) do gt[k] = rawget(GameTooltip, k) end
+    local vpin, pinOver, tip, tipAdd = nil, {}, nil, nil
+    local ok, err = pcall(function()
+        local lines, owner, onPin = {}, UIParent, false
+        Minimap.IsMouseOver = function() return true end
+        Minimap.GetCenter = function() return 500, 400 end
+        Minimap.GetWidth = function() return 140 end
+        Minimap.GetHeight = function() return 140 end
+        Minimap.GetZoom = function() return 0 end
+        Minimap.GetEffectiveScale = function() return 1 end
+        GameTooltip.IsShown = function() return #lines > 0 end
+        GameTooltip.GetOwner = function() return owner end
+        GameTooltip.NumLines = function() return #lines end
+        for i = 1, 3 do
+            local fs = _G["GameTooltipTextLeft" .. i] or newObject("FontString", "GameTooltipTextLeft" .. i)
+            _G["GameTooltipTextLeft" .. i] = fs
+            texts[i] = rawget(fs, "GetText")
+            fs.GetText = function() return lines[i] end
+        end
+        GetCursorPosition = function() return 540, 400 end
+        GetCVar = function() return "0" end
+        GetMouseFoci = function() return { Minimap } end
+        ns.db.minimapLearnOff = nil
+        player.map, player.x, player.y = Z, 0.5, 0.5
+        local mapID, cx, cy = ns.CursorOnMap()
+        assert(mapID == Z and cx and cy, "test setup: the cursor on the map")
+        -- a herb of ours right under the cursor, its minimap pin there too
+        local herb = { id = "o1618", name = herbName, type = "herb", x = cx, y = cy, count = 1, last = 1 }
+        ns.db.nodes[Z] = { herb }
+        ns.NotifyNodesChanged()
+        fire("ZONE_CHANGED_NEW_AREA") advance(1)
+        -- the herb's minimap pins (pins are made again and reused): shown, as
+        -- HereBeDragons does in range (not the mock), the mouse on them when onPin
+        local function HerbPins()
+            for _, f in ipairs(allFrames) do
+                if f.node == herb and f.isMini and not f.isTarget and not pinOver[f] then
+                    pinOver[f] = { rawget(f, "IsMouseOver"), f.__shown }
+                    pinOver[#pinOver + 1] = f
+                    f.IsMouseOver = function() return onPin end
+                end
+                if pinOver[f] and f.node == herb then f.__shown = true end
+            end
+        end
+        local function Wait(t)
+            for _ = 1, math.floor(t / 0.05 + 0.5) do HerbPins() advance(0.05) end
+        end
+        HerbPins()
+        onPin = true
+        vpin = ns.MinimapPinUnderCursor()
+        onPin = false
+        assert(vpin and vpin.node == herb, ("test setup: no minimap pin for the herb under the cursor (%d made)"):format(#pinOver))
+        local got = {}
+        -- the mouse away, then onto the pin with the game showing these
+        -- lines (owned by ...): what our tooltip does
+        local function Point(newLines, newOwner, wait)
+            onPin, lines = false, {}
+            Wait(0.3)
+            assert(not (tip and tip:IsShown()), "test setup: our tooltip still shown with the mouse away")
+            got = {}
+            onPin, lines, owner = true, newLines, newOwner
+            Wait(wait or 0.3)
+            if not tip and _G.GathercraftMinimapTooltip then
+                tip = _G.GathercraftMinimapTooltip
+                tipAdd = rawget(tip, "AddLine")
+                tip.AddLine = function(self, t, ...) got[#got + 1] = t if tipAdd then return tipAdd(self, t, ...) end end
+                return Point(newLines, newOwner, wait) -- (once: now its lines are seen)
+            end
+            assert(tip and tip:IsShown() and tip.node == herb, "test setup: our tooltip does not show for the herb")
+        end
+        -- where ours is: right below the game's tooltip (its top left at the
+        -- game's bottom left), or next to our pin (its bottom left at the pin)
+        local function Below()
+            local p = tip.__pts and tip.__pts.TOPLEFT
+            return p ~= nil and p[1] == GameTooltip and p[2] == "BOTTOMLEFT" and not tip.__pts.BOTTOMLEFT
+        end
+        local function AtPin()
+            local p = tip.__pts and tip.__pts.BOTTOMLEFT
+            return p ~= nil and type(p[1]) == "table" and p[1].node == herb and p[1].isMini and not tip.__pts.TOPLEFT
+        end
+        local QUEST = { herbName, "Mok'thardin's Enchantment", "- 7/10 Jungle Stalker Feather" }
+
+        -- as before: the game shows nothing there - ours next to the pin, with its name
+        Point({}, UIParent)
+        assert(AtPin(), "the game shows nothing: ours is not next to the pin any more")
+        assert(got[1] == herbName, "the game shows nothing: ours does not start with the name: " .. tostring(got[1]))
+        -- as before: the minimap's own tooltip (WoW Forever: owned by the screen)
+        -- names the herb - ours below it, a short heading
+        Point({ herbName }, UIParent)
+        assert(Below(), "the minimap's own tooltip: ours is not below it")
+        assert(got[1] == "Gathercraft", "the minimap's own tooltip names it: ours does not start with the short heading: " .. tostring(got[1]))
+        Point(QUEST, Minimap)
+        assert(Below(), "the minimap's own tooltip with a quest: ours is not below it")
+
+        -- Sven's case: the game's tooltip by the cursor, its owner none we know
+        -- (a frame of another minimap): ours below it, not on it - with the
+        -- name (we do not read that tooltip), and nothing learned from it
+        onPin, lines = false, {}
+        Wait(6) -- (the same name at the same place would count again after 5 s)
+        herb.seenAt, herb.upAt = nil, nil
+        Point(QUEST, newObject("Frame", "SomeUIMinimapHolder"), 1)
+        assert(Below(), "the game's tooltip with an owner we do not know: ours lies on it (next to the pin), not below it")
+        assert(got[1] == herbName, "a tooltip we do not read: ours does not start with the name: " .. tostring(got[1]))
+        assert(herb.seenAt == nil, "learned from a tooltip whose owner we do not know")
+        -- an unnamed owner, no owner at all, another addon's frame: the same
+        Point(QUEST, newObject("Frame"))
+        assert(Below(), "the game's tooltip owned by a nameless frame: ours is not below it")
+        Point({ herbName }, newObject("Button", "OtherAddonButton"))
+        assert(Below(), "a tooltip of another addon by the cursor: ours is not below it")
+        -- the game's tooltip cannot be read (a hidden line): below it too
+        local SECRET = newproxy(true)
+        issecretvalue = function(v) return rawequal(v, SECRET) end
+        Point({ SECRET }, UIParent)
+        assert(Below(), "the game's tooltip with a line we cannot read: ours is not below it")
+        assert(got[1] == herbName, "a tooltip we cannot read: ours does not start with the name")
+        issecretvalue = keep.secret
+
+        -- the game's tooltip comes after ours, or grows: ours goes / stays below
+        Point({}, UIParent)
+        assert(AtPin(), "test setup: ours next to the pin")
+        lines, owner = QUEST, newObject("Frame", "SomeUIMinimapHolder")
+        Wait(0.3)
+        assert(Below(), "the game's tooltip came after ours (owner unknown): ours stays next to the pin, on it")
+        Point({ herbName }, UIParent)
+        assert(Below(), "test setup: ours below the game's")
+        lines = QUEST -- the same tooltip, two lines longer
+        Wait(0.5)
+        assert(Below(), "the game's tooltip grew: ours is not below it any more")
+        -- the game's tooltip goes: ours back next to the pin
+        lines = {}
+        Wait(0.3)
+        assert(tip:IsShown() and AtPin(), "the game's tooltip went: ours is not next to the pin again")
+
+        -- as before: a pin of another addon under the mouse - ours not shown
+        local other = newObject("Frame", nil, Minimap)
+        other:SetSize(16, 16)
+        GetMouseFoci = function() return { other } end
+        lines, owner = { herbName }, UIParent
+        Wait(0.3)
+        assert(not tip:IsShown(), "another addon's pin under the mouse: ours shows")
+        GetMouseFoci = function() return { Minimap } end
+        onPin, lines = false, {}
+        Wait(0.3)
+    end)
+    if tip then tip.AddLine = tipAdd end
+    for _, f in ipairs(pinOver) do f.IsMouseOver, f.__shown = pinOver[f][1], pinOver[f][2] end
+    GetMouseFoci, GetMouseFocus, GetCursorPosition, GetCVar, issecretvalue = keep.foci, keep.focus, keep.cursor, keep.cvar, keep.secret
+    for _, k in ipairs({ "IsMouseOver", "GetCenter", "GetWidth", "GetHeight", "GetZoom", "GetEffectiveScale" }) do Minimap[k] = mm[k] end
+    for _, k in ipairs({ "IsShown", "GetOwner", "NumLines" }) do GameTooltip[k] = gt[k] end
+    for i = 1, 3 do if _G["GameTooltipTextLeft" .. i] then _G["GameTooltipTextLeft" .. i].GetText = texts[i] end end
+    ns.db.nodes[Z], ns.db.minimapLearnOff = keep.nodes, keep.learnOff
+    player.map, player.x, player.y = keep.map, keep.x, keep.y
+    fire("ZONE_CHANGED_NEW_AREA") advance(1)
+    ns.NotifyNodesChanged() advance(1)
+    if not ok then error(err, 0) end
+end)
 step("Long run (10 min) for leaks", function() slash("run herb") advance(600) slash("stop") end)
 step("Test mock: OnUpdate runs for the same frames in the same order as going over every frame (tools only)", function()
     -- The mock's advance() goes over the frames that have an OnUpdate only
