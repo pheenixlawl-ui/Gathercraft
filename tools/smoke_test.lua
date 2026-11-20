@@ -17119,7 +17119,8 @@ end)
 step("Starter data: the new Forever kinds are pins with names, and are never shared", function()
     -- the beta data loaded at login: Poor Copper, Wilted Peacebloom, Stunted Silverleaf
     local data = GathercraftStarterData
-    assert(data and data.version == "beta-2026-10-23", "starter data version " .. tostring(data and data.version))
+    -- (0.2.0 data, 20.11.2026: the spots of the new Forever zones joined the beta data)
+    assert(data and data.version == "forever-2026-11-20", "starter data version " .. tostring(data and data.version))
     local want = { o562111 = "Poor Copper Vein", o656160 = "Wilted Peacebloom", o656161 = "Stunted Silverleaf" }
     local shipped = {}
     for _, list in pairs(data.nodes) do
@@ -26288,6 +26289,150 @@ step("Saved run: only the character that saved it takes it up again - a plan run
     if ns.run then pcall(ns.StopRun, true) end
     ns.db.activeRun = saved.run
     if not ok then error(err, 0) end
+end)
+-- 0.2.0, data (Sven, 20.11.2026): starter spots for the new Forever zones from
+-- the gathers of Gathercraft players (own finds and confirmed shares; no
+-- minimap guesses, no unconfirmed reports, no chests), the way the Zephras
+-- spots came in (tools/export_starter.py's format, Starter.lua imports them).
+local FOREVER_ZONES = { [2548] = "Riverglades", [2482] = "Mount Hyjal", [2521] = "Zephras Isle" }
+-- objects the spawn data does not know, with the kind's name they ship under
+local FOREVER_KINDS = { o562111 = "Poor Copper Vein", o656160 = "Wilted Peacebloom", o656161 = "Stunted Silverleaf",
+    o566786 = "Mountain Silversage", o566788 = "Dreamfoil", o566779 = "Thorium Ore", o626718 = "Dented Chest", o626752 = "Dented Chest" }
+local function StarterHash(zones) -- the rows as text in file order, h = (h * 31 + byte) % 2147483647
+    local h, n = 0, 0
+    local ids = {}
+    for z in pairs(GathercraftStarterData.nodes) do if not zones or zones[z] then ids[#ids + 1] = z end end
+    table.sort(ids)
+    for _, z in ipairs(ids) do
+        for _, e in ipairs(GathercraftStarterData.nodes[z]) do
+            local text = ("%s,%s,%d,%d,%d,%d,%s;"):format(e[1], e[2], e[3], e[4], e[5], e[6], e[7])
+            for i = 1, #text do h = (h * 31 + text:byte(i)) % 2147483647 end
+            n = n + 1
+        end
+    end
+    return h, n
+end
+step("Starter data 0.2.0: herb and ore spots for Riverglades, Mount Hyjal and Zephras Isle; the rest as it was; kind names only (0.2.0 data)", function()
+    local data = GathercraftStarterData
+    assert(data and data.version == "forever-2026-11-20", "starter data version " .. tostring(data and data.version))
+    -- rows per zone and type
+    local want = { [1411] = { o = 1 }, [1412] = { h = 24, o = 30 }, [2482] = { h = 74, o = 33 }, [2521] = { h = 279, o = 149, c = 4 },
+        [2548] = { h = 92, o = 111 } }
+    for z, list in pairs(data.nodes) do
+        assert(want[z], "a zone that should not be in the starter data: " .. tostring(z))
+        local got = {}
+        for _, e in ipairs(list) do got[e[2]] = (got[e[2]] or 0) + 1 end
+        for t, n in pairs(want[z]) do assert(got[t] == n, ("zone %d type %s: %s rows, want %d"):format(z, t, tostring(got[t]), n)) end
+        for t, n in pairs(got) do assert(want[z][t], ("zone %d: %d rows of type %s"):format(z, n, t)) end
+    end
+    for z in pairs(want) do assert(data.nodes[z], "zone missing: " .. z) end
+    assert(not data.nodes[2652], "Shen'dralas has starter rows (left out: too few spots)")
+    -- the zones of the beta data as they were, and the whole file as built (fingerprints)
+    local h, n = StarterHash({ [1411] = true, [1412] = true })
+    assert(h == 536297130 and n == 55, ("Durotar and Mulgore changed: %d (%d rows)"):format(h, n))
+    h, n = StarterHash()
+    assert(h == 1124495584 and n == 797, ("the starter data are not the ones built: %d (%d rows)"):format(h, n))
+    -- every row: a game object, its type, a place on the map, a count of 1, and the name of its kind - nothing else
+    local kinds = GathercraftQuestieData.kinds
+    for z, list in pairs(data.nodes) do
+        for _, e in ipairs(list) do
+            local id, t, x, y, item, reporters, name = unpack(e)
+            assert(#e == 7 and id:match("^o%d+$") and (t == "h" or t == "o" or t == "c"), ("zone %d: a row of another shape: %s"):format(z, tostring(id)))
+            assert(x >= 0 and x <= 10000 and y >= 0 and y <= 10000 and item >= 0 and reporters == 1, ("zone %d %s: place, item or count"):format(z, id))
+            local k = kinds[id]
+            local kindName = k and k[3] or FOREVER_KINDS[id]
+            assert(kindName and name == kindName, ("zone %d: %s named %q, its kind is %s"):format(z, id, name, tostring(kindName)))
+            assert(not k or k[1] == t, ("zone %d: %s is a %s, the row says %s"):format(z, id, tostring(k and k[1]), t))
+            assert(t ~= "c" or z == 2521, ("zone %d: a chest (only herbs and ores come in)"):format(z))
+        end
+    end
+end)
+step("Starter data 0.2.0: a fresh profile gets every spot of the new zones; an old profile only what it lacks, once; pins and routes use them; never shared (0.2.0 data)", function()
+    local data = GathercraftStarterData
+    local saved = { nodes = ns.db.nodes, version = ns.db.starterVersion, map = player.map, x = player.x, y = player.y,
+        herb = PROFS[1][2], ore = PROFS[2][2] }
+    local loader
+    for f in pairs(eventFrames["PLAYER_LOGOUT"] or {}) do
+        if eventFrames["PLAYER_LOGIN"][f] and not (eventFrames["UNIT_SPELLCAST_CHANNEL_STOP"] or {})[f] then loader = f end
+    end
+    assert(loader, "test setup: starter loader not found")
+    local function Login() loader.__scripts.OnEvent(loader, "PLAYER_LOGIN") end
+    local function Count(z)
+        local c = 0
+        for _, n in ipairs(ns.db.nodes[z] or {}) do if n.source == "starter" then c = c + 1 end end
+        return c
+    end
+    local ok, err = pcall(function()
+        -- a fresh profile: every row of the new zones comes in, marked as starter data
+        ns.db.nodes, ns.db.starterVersion = {}, nil
+        ns.ForgetSeenKinds() ns.NotifyNodesChanged() -- (a new node table: the zone indexes go)
+        Login()
+        assert(ns.db.starterVersion == "forever-2026-11-20", "version not remembered: " .. tostring(ns.db.starterVersion))
+        for z, name in pairs(FOREVER_ZONES) do
+            assert(Count(z) == #data.nodes[z], ("%s: %d of %d spots imported"):format(name, Count(z), #data.nodes[z]))
+        end
+        -- an old profile (beta data of 23.10. imported) that knows some spots already: only the others come in, once
+        local some = {}
+        for i = 1, 20 do
+            local e = data.nodes[2548][i]
+            some[#some + 1] = { id = e[1], type = e[2] == "h" and "herb" or "ore", name = e[7], x = e[3] / 10000, y = e[4] / 10000, count = 2, last = 1 }
+        end
+        ns.db.nodes, ns.db.starterVersion = { [2548] = some }, "beta-2026-10-23"
+        ns.ForgetSeenKinds() ns.NotifyNodesChanged()
+        local mark = #log
+        Login()
+        assert(Count(2548) == #data.nodes[2548] - 20 and #ns.db.nodes[2548] == #data.nodes[2548], ("an old profile in Riverglades: %d starter spots, %d in all"):format(Count(2548), #ns.db.nodes[2548]))
+        assert(ns.db.starterVersion == "forever-2026-11-20", "an old profile: version not taken")
+        Login()
+        assert(#ns.db.nodes[2548] == #data.nodes[2548] and Count(2482) == #data.nodes[2482], "a second login imported again")
+        -- pins in Riverglades
+        player.map, player.x, player.y = 2548, data.nodes[2548][1][3] / 10000, data.nodes[2548][1][4] / 10000
+        ns.NotifyNodesChanged() advance(2)
+        local pinned = 0
+        for _, f in ipairs(allFrames) do
+            if f.node and f.node.source == "starter" then -- (a pin frame of the node, as the beta data step looks for them)
+                for _, n in ipairs(ns.db.nodes[2548]) do if n == f.node then pinned = pinned + 1 break end end
+            end
+        end
+        assert(pinned > 0, "no pin for a starter spot of Riverglades")
+        -- routes: herbs and ores of Riverglades, with skill for all of them
+        PROFS[1][2], PROFS[2][2] = 300, 300
+        for _, filter in ipairs({ "herb", "ore" }) do
+            ns.StartRun(filter, 2548) advance(1)
+            assert(ns.run and ns.run.path and #ns.run.path > 0, "no " .. filter .. " route in Riverglades")
+            local starter = 0
+            for _, p in ipairs(ns.run.path) do
+                assert(p.mapID == 2548, "a route point outside Riverglades: " .. tostring(p.mapID))
+                if p.node.source == "starter" then starter = starter + 1 end
+            end
+            assert(starter >= 10, ("%s route in Riverglades: %d starter spots of %d points"):format(filter, starter, #ns.run.path))
+            ns.StopRun() advance(1)
+        end
+        -- never shared as if we had found them
+        ns.db.sync = ns.db.sync or {}
+        local sent = #sentMessages
+        for _, n in ipairs(ns.db.nodes[2548]) do if n.source == "starter" then ns.SyncShare(2548, n) end end
+        advance(3)
+        for i = sent + 1, #sentMessages do
+            assert(sentMessages[i]:sub(1, 2) == "Q:", "a starter spot of Riverglades was shared: " .. sentMessages[i])
+        end
+    end)
+    if ns.run then ns.StopRun() end
+    ns.db.nodes, ns.db.starterVersion = saved.nodes, saved.version
+    player.map, player.x, player.y = saved.map, saved.x, saved.y
+    PROFS[1][2], PROFS[2][2] = saved.herb, saved.ore
+    ns.ForgetSeenKinds() ns.NotifyNodesChanged() advance(1)
+    if not ok then error(err, 0) end
+end)
+step("Starter data 0.2.0: the changelog says where the new spots come from and that they are not complete (0.2.0 data)", function()
+    local f = assert(io.open(ROOT .. "/CHANGELOG.md"))
+    local changelog = f:read("*a") f:close()
+    local added = changelog:match("\n### Added\n(.-)\n### Changed\n")
+    assert(added, "CHANGELOG: no Added")
+    for _, said in ipairs({ "**Spots in the new Forever zones:**", "Riverglades, Mount Hyjal and Zephras Isle", "herb and ore spots",
+        "gathered by Gathercraft players", "not complete", "grow as players share more", "within 21 days" }) do
+        assert(added:find(said, 1, true), "CHANGELOG, Added: nothing about \"" .. said .. "\"")
+    end
 end)
 step("Long run (10 min) for leaks", function() slash("run herb") advance(600) slash("stop") end)
 step("Test mock: OnUpdate runs for the same frames in the same order as going over every frame (tools only)", function()
