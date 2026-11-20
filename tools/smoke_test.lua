@@ -26544,6 +26544,115 @@ step("Starter data 0.2.1: spots stay without a visit - after 30 days, the ones 0
     ns.ForgetSeenKinds() ns.NotifyNodesChanged() advance(1)
     if not ok then error(err, 0) end
 end)
+-- 0.2.1 A2 (Sven, 20.11.2026): the starter data are live data now (0.2.0:
+-- the spots of the new Forever zones). The chat line of the import and the
+-- tooltip of a starter spot said "beta"; they say "starter data" now, in
+-- every language. The tooltip line is no wider than a line of the run
+-- window (56, East Asian characters count twice).
+step("Starter data 0.2.1: the chat line and the tooltip say starter data, not beta - in every language, the tooltip line fits (0.2.1 A2)", function()
+    local CHAT = "Starter data %s: %d nodes added, %d already known."
+    local TIP = "Gathercraft starter data (not harvested by you yet)"
+    local OLD = { "Beta data %s: %d nodes added, %d already known.", "From the beta database (not confirmed yet)" }
+    local function Read(name) local f = assert(io.open(ROOT .. "/" .. name)) local s = f:read("*a") f:close() return s end
+    local starter, pins = Read("Starter.lua"), Read("Pins.lua")
+    assert(starter:find('L["' .. CHAT .. '"]', 1, true), "Starter.lua: the chat line of the import is not " .. CHAT)
+    assert(pins:find('L["' .. TIP .. '"]', 1, true), "Pins.lua: the tooltip line of a starter spot is not " .. TIP)
+    for name, src in pairs({ ["Starter.lua"] = starter, ["Pins.lua"] = pins }) do
+        for key in src:gmatch('L%["(.-)"%]') do
+            assert(not key:lower():find("beta", 1, true), name .. ": a text still says beta: " .. key)
+        end
+    end
+    local function Codes(s)
+        local list = {}
+        for code in s:gmatch("%%[%d%$]*[sd]") do list[#list + 1] = code end
+        return table.concat(list, " ")
+    end
+    local function Width(text)
+        local n = 0
+        for ch in text:gmatch("[%z\1-\127\194-\244][\128-\191]*") do n = n + ((#ch >= 3) and 2 or 1) end
+        return n
+    end
+    -- (lower() of Lua knows only A-Z: the capital forms of other scripts are listed too)
+    local BETA = { "beta", "bêta", "бета", "Бета", "БЕТА", "베타", "测试", "測試" }
+    local function SaysBeta(s)
+        local low = s:lower()
+        for _, word in ipairs(BETA) do
+            if s:find(word, 1, true) or low:find(word, 1, true) then return word end
+        end
+        return nil
+    end
+    local LANGS = { "deDE", "esES", "frFR", "itIT", "koKR", "ptBR", "ruRU", "zhCN", "zhTW" }
+    local wide = {}
+    if Width(TIP) > 56 then wide[#wide + 1] = ("enUS %d: %s"):format(Width(TIP), TIP) end
+    for _, lang in ipairs(LANGS) do
+        local t = ns.Locales[lang]
+        for _, key in ipairs({ CHAT, TIP }) do
+            local tr = t and t[key]
+            assert(type(tr) == "string" and tr ~= "" and tr ~= key, ("no %s translation of %q"):format(lang, key))
+            assert(Codes(tr) == Codes(key), ("%s: other placeholders (or another order) in %q: %s"):format(lang, key, tr))
+            assert(not tr:find("^%s") and not tr:find("%s$"), ("%s: blanks around %q"):format(lang, tr))
+            local beta = SaysBeta(tr)
+            assert(not beta, ("%s: %q still says beta (%s)"):format(lang, tr, tostring(beta)))
+        end
+        if Width(t[TIP]) > 56 then wide[#wide + 1] = ("%s %d: %s"):format(lang, Width(t[TIP]), t[TIP]) end
+        for _, key in ipairs(OLD) do assert(t[key] == nil, ("%s: the old text is still there: %q"):format(lang, key)) end
+    end
+    assert(#wide == 0, "the tooltip line is too wide: " .. table.concat(wide, " | "))
+    local esMX = ns.Locales.esMX or ns.Locales.esES
+    assert(esMX[TIP] == ns.Locales.esES[TIP], "esMX does not read the Spanish tooltip line")
+
+    -- in the game, in this language: a fresh import says it in the chat, the pin of a starter spot in its tooltip
+    local data = GathercraftStarterData
+    local saved = { nodes = ns.db.nodes, version = ns.db.starterVersion, map = player.map, x = player.x, y = player.y }
+    local loader
+    for f in pairs(eventFrames["PLAYER_LOGOUT"] or {}) do
+        if eventFrames["PLAYER_LOGIN"][f] and not (eventFrames["UNIT_SPELLCAST_CHANNEL_STOP"] or {})[f] then loader = f end
+    end
+    assert(loader, "test setup: starter loader not found")
+    local ok, err = pcall(function()
+        local rows = 0
+        for _, list in pairs(data.nodes) do rows = rows + #list end
+        ns.db.nodes, ns.db.starterVersion = {}, nil
+        ns.ForgetSeenKinds() ns.NotifyNodesChanged()
+        local mark = #log
+        loader.__scripts.OnEvent(loader, "PLAYER_LOGIN")
+        local said = (ns.L[CHAT]):format(data.version, rows, 0)
+        local chat = false
+        for i = mark + 1, #log do
+            if log[i]:find("PRINT", 1, true) == 1 or log[i]:find("CHAT", 1, true) == 1 then -- (the mock's print, a chat frame)
+                if log[i]:find(said, 1, true) then chat = true end
+                assert(not SaysBeta(log[i]), "the chat says beta: " .. log[i])
+            end
+        end
+        assert(chat, "the import did not say: " .. said)
+        -- the tooltip of a pin of a starter spot (Riverglades, where we stand)
+        local e = data.nodes[2548][1]
+        player.map, player.x, player.y = 2548, e[3] / 10000, e[4] / 10000
+        ns.NotifyNodesChanged() advance(2)
+        mark = #log
+        local entered = 0
+        for _, f in ipairs(allFrames) do
+            if f.node and f.node.source == "starter" and f.__scripts.OnEnter and entered < 6 then
+                f.__scripts.OnEnter(f)
+                if f.__scripts.OnLeave then f.__scripts.OnLeave(f) end
+                entered = entered + 1
+            end
+        end
+        assert(entered > 0, "test setup: no pin of a starter spot")
+        local tip = false
+        for i = mark + 1, #log do
+            if log[i] == "TT " .. ns.L[TIP] then tip = true end
+            if log[i]:find("TT", 1, true) == 1 then
+                assert(not SaysBeta(log[i]), "a tooltip line says beta: " .. log[i])
+            end
+        end
+        assert(tip, "no tooltip line " .. ns.L[TIP] .. " on a starter spot")
+    end)
+    ns.db.nodes, ns.db.starterVersion = saved.nodes, saved.version
+    player.map, player.x, player.y = saved.map, saved.x, saved.y
+    ns.ForgetSeenKinds() ns.NotifyNodesChanged() advance(1)
+    if not ok then error(err, 0) end
+end)
 step("Long run (10 min) for leaks", function() slash("run herb") advance(600) slash("stop") end)
 step("Test mock: OnUpdate runs for the same frames in the same order as going over every frame (tools only)", function()
     -- The mock's advance() goes over the frames that have an OnUpdate only

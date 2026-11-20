@@ -276,7 +276,7 @@ local function Import(data)
         end
     end
     ns.db.starterVersion = data.version
-    ns.Print((L["Beta data %s: %d nodes added, %d already known."]):format(
+    ns.Print((L["Starter data %s: %d nodes added, %d already known."]):format(
         tostring(data.version), added, known))
 end
 

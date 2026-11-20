@@ -196,7 +196,7 @@ local function AddNodeLines(tt, n, pin, under)
     elseif n.source == "questie" then
         GameTooltip:AddLine(L["Known spawn point (Questie data)"], 0.8, 0.7, 1)
     elseif n.source == "starter" then
-        GameTooltip:AddLine(L["From the beta database (not confirmed yet)"], 0.8, 0.7, 1)
+        GameTooltip:AddLine(L["Gathercraft starter data (not harvested by you yet)"], 0.8, 0.7, 1)
     end
     local others = pin and (pin.others or (pin.othersOf and pin.othersOf.others))
     if others and #others > 0 then
