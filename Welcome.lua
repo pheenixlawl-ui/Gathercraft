@@ -107,10 +107,18 @@ ns.MakeCard = Card
 --   plan (Sven, live 20.11.2026). Not meant: a window of ours that was open
 --   when the loading screen began is shown again right after it. Escape
 --   still closes them; one closed before the loading screen stays closed.
+--   Once per loading screen (0.2.1 B2): at the first moment after the game's
+--   closing - LOADING_SCREEN_DISABLED after PLAYER_ENTERING_WORLD (all its
+--   handlers are done by then), or one frame after PLAYER_ENTERING_WORLD (a
+--   client without that event, or one sending it first), whichever comes
+--   first. Then this loading screen is done: a window you close after that
+--   stays closed (Codex, round 1: closed in between, it opened again).
 ---------------------------------------------------------------------------
-local openAtLoading -- the windows open when this loading screen began
-local function ShowAgain(list)
-    for _, f in ipairs(list) do
+local loading -- while a loading screen runs: { frames = the windows open when it began, entered = PLAYER_ENTERING_WORLD came }
+local function ShowAgain(this)
+    if loading ~= this then return end -- shown again already (or a newer loading screen began)
+    loading = nil
+    for _, f in ipairs(this.frames) do
         if not f:IsShown() then f:Show() end
     end
 end
@@ -120,24 +128,25 @@ for _, event in ipairs({ "PLAYER_LEAVING_WORLD", "LOADING_SCREEN_ENABLED", "PLAY
 end
 loadingWatch:SetScript("OnEvent", function(_, event)
     if event == "PLAYER_LEAVING_WORLD" or event == "LOADING_SCREEN_ENABLED" then
-        if openAtLoading then return end -- (both come for one loading screen: the first one counts)
-        openAtLoading = {}
+        if loading and not loading.entered then return end -- (both come for one loading screen: the first one counts)
+        local frames = {}
         for _, name in ipairs(UISpecialFrames or {}) do
             local f = type(name) == "string" and name:find("^Gathercraft") and _G[name]
-            if f and f.IsShown and f:IsShown() then openAtLoading[#openAtLoading + 1] = f end
+            if f and f.IsShown and f:IsShown() then frames[#frames + 1] = f end
         end
+        loading = { frames = frames }
         return
     end
-    local list = openAtLoading
-    if not list then return end
-    if event == "LOADING_SCREEN_DISABLED" then
-        openAtLoading = nil -- the end of this loading screen
-    else
-        -- (a client without LOADING_SCREEN_DISABLED: the loading screen is over by then)
-        C_Timer.After(5, function() if openAtLoading == list then openAtLoading = nil end end)
+    local this = loading
+    if not this then return end
+    if event == "PLAYER_ENTERING_WORLD" then
+        if this.entered then return end
+        this.entered = true
+        -- after every handler of this event (the game closes them in its own)
+        C_Timer.After(0, function() ShowAgain(this) end)
+    elseif this.entered then
+        ShowAgain(this) -- LOADING_SCREEN_DISABLED after PLAYER_ENTERING_WORLD
     end
-    -- after every handler of this event: the game closes them in its own
-    C_Timer.After(0, function() ShowAgain(list) end)
 end)
 
 local function Button(parent, text, width)

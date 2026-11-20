@@ -27137,6 +27137,93 @@ step("Quest objects 0.2.1: loot not fully read proves no quest object - the gath
     ns.ForgetSeenKinds() ns.NotifyNodesChanged() advance(1)
     if not ok then error(err, 0) end
 end)
+-- 0.2.1 B2 (Codex, round 1 of part A, 21.11.2026): A4 showed the windows
+-- again a frame after PLAYER_ENTERING_WORLD and again after
+-- LOADING_SCREEN_DISABLED, from the same list: a window you closed in
+-- between opened again. Now once per loading screen, at the first safe
+-- moment after the game closed them (in PLAYER_ENTERING_WORLD):
+-- LOADING_SCREEN_DISABLED after it, or one frame later - whichever comes
+-- first. After that a window you close stays closed.
+step("Windows 0.2.1: shown again once per loading screen - one you close right after it stays closed (0.2.1 B2)", function()
+    -- what the game does with Escape and after a loading screen: every frame of UISpecialFrames is hidden
+    local function CloseSpecial()
+        for _, name in ipairs(UISpecialFrames) do
+            local f = _G[name]
+            if f and f.IsShown and f:IsShown() then f:Hide() end
+        end
+    end
+    local function Plan() return _G.GathercraftSkillPlan end
+    local function Begin(noEvents)
+        ns.ShowSkillPlan("Cooking") advance(1)
+        assert(Plan() and Plan():IsShown(), "test setup: the skill plan of Cooking did not open")
+        fire("PLAYER_LEAVING_WORLD")
+        if not noEvents then fire("LOADING_SCREEN_ENABLED") end
+    end
+    local ok, err = pcall(function()
+        -- Codex's close_before_second_end: shown again a frame after
+        -- PLAYER_ENTERING_WORLD, you close it, then LOADING_SCREEN_DISABLED
+        Begin()
+        CloseSpecial() -- the game (its handler before ours)
+        fire("PLAYER_ENTERING_WORLD", false, false)
+        advance(0.1)
+        assert(Plan():IsShown(), "not shown again a frame after PLAYER_ENTERING_WORLD")
+        CloseSpecial() -- you: Escape
+        fire("LOADING_SCREEN_DISABLED")
+        advance(6)
+        assert(not Plan():IsShown(), "closed by you between PLAYER_ENTERING_WORLD and LOADING_SCREEN_DISABLED: opened again")
+        -- Codex's close_before_timer: LOADING_SCREEN_DISABLED right after
+        -- PLAYER_ENTERING_WORLD - the earliest you can close it - before the next frame
+        Begin()
+        CloseSpecial()
+        fire("PLAYER_ENTERING_WORLD", false, false)
+        fire("LOADING_SCREEN_DISABLED")
+        assert(Plan():IsShown(), "not shown again at LOADING_SCREEN_DISABLED (the earliest you can close it)")
+        CloseSpecial()
+        advance(6)
+        assert(not Plan():IsShown(), "closed by you right after the loading screen, before the next frame: opened again")
+        -- the game's handler after ours (the same event): its closing is no
+        -- choice of yours - shown again at the end of the loading screen, once
+        Begin()
+        fire("PLAYER_ENTERING_WORLD", false, false)
+        CloseSpecial()
+        fire("LOADING_SCREEN_DISABLED")
+        assert(Plan():IsShown(), "ours first, then the game: not shown again at the end of the loading screen")
+        advance(0.1)
+        CloseSpecial()
+        advance(6)
+        assert(not Plan():IsShown(), "ours first: closed by you after it was shown again, opened again")
+        -- LOADING_SCREEN_DISABLED before PLAYER_ENTERING_WORLD (should a client
+        -- send them so): shown again after the game's closing, once
+        Begin()
+        fire("LOADING_SCREEN_DISABLED")
+        fire("PLAYER_ENTERING_WORLD", false, false)
+        CloseSpecial()
+        advance(0.1)
+        assert(Plan():IsShown(), "LOADING_SCREEN_DISABLED first: not shown again after the game closed it")
+        CloseSpecial()
+        advance(6)
+        assert(not Plan():IsShown(), "LOADING_SCREEN_DISABLED first: closed by you, opened again")
+        -- a client without the LOADING_SCREEN events: a frame later, once
+        Begin(true)
+        fire("PLAYER_ENTERING_WORLD", false, false)
+        CloseSpecial()
+        advance(0.1)
+        assert(Plan():IsShown(), "a client without LOADING_SCREEN events: not shown again")
+        CloseSpecial()
+        advance(6)
+        assert(not Plan():IsShown(), "a client without LOADING_SCREEN events: closed by you, opened again")
+        -- the next loading screen: what you closed stays closed
+        fire("PLAYER_LEAVING_WORLD") fire("LOADING_SCREEN_ENABLED")
+        CloseSpecial()
+        fire("PLAYER_ENTERING_WORLD", false, false)
+        fire("LOADING_SCREEN_DISABLED")
+        advance(1)
+        assert(not Plan():IsShown(), "the next loading screen opened a window closed before it")
+    end)
+    if Plan() then Plan():Hide() end
+    advance(1)
+    if not ok then error(err, 0) end
+end)
 step("Long run (10 min) for leaks", function() slash("run herb") advance(600) slash("stop") end)
 step("Test mock: OnUpdate runs for the same frames in the same order as going over every frame (tools only)", function()
     -- The mock's advance() goes over the frames that have an OnUpdate only
