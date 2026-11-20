@@ -257,7 +257,6 @@ ns.Locales.ruRU = {
     ["Loaded %d known spawn points for %s."] = "Загружено известных точек появления: %d для %s.",
     ["Loaded %d known spawn points in %d more zones of this continent."] = "Загружено известных точек появления: %d ещё в %d зонах континента.",
     ["All known spawn points of this continent are already loaded."] = "Все известные точки появления этого континента уже загружены.",
-    ["Removed %d old beta nodes nobody confirmed."] = "Удалено старых бета-точек без подтверждения: %d.",
     ["Beta data %s: %d nodes added, %d already known."] = "Бета-данные %s: добавлено точек %d, уже известно %d.",
     ["Unknown Chest"] = "Неизвестный сундук",
     ["Sync %s, public channel %s (%s), guild %s."] = "Синхронизация %s, общий канал %s (%s), гильдия %s.",

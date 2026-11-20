@@ -257,7 +257,6 @@ ns.Locales.frFR = {
     ["Loaded %d known spawn points for %s."] = "%d points d'apparition connus chargés pour %s.",
     ["Loaded %d known spawn points in %d more zones of this continent."] = "%d points d'apparition connus chargés dans %d autres zones de ce continent.",
     ["All known spawn points of this continent are already loaded."] = "Tous les points d'apparition connus de ce continent sont déjà chargés.",
-    ["Removed %d old beta nodes nobody confirmed."] = "%d anciens gisements bêta supprimés, personne ne les a confirmés.",
     ["Beta data %s: %d nodes added, %d already known."] = "Données bêta %s : %d gisements ajoutés, %d déjà connus.",
     ["Unknown Chest"] = "Coffre inconnu",
     ["Sync %s, public channel %s (%s), guild %s."] = "Sync %s, canal public %s (%s), guilde %s.",

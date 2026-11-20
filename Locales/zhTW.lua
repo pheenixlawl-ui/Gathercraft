@@ -257,7 +257,6 @@ ns.Locales.zhTW = {
     ["Loaded %d known spawn points for %s."] = "已載入%d個已知重生點（%s）。",
     ["Loaded %d known spawn points in %d more zones of this continent."] = "已載入%d個已知重生點，位於本大陸另外%d個區域。",
     ["All known spawn points of this continent are already loaded."] = "本大陸的所有已知重生點已載入。",
-    ["Removed %d old beta nodes nobody confirmed."] = "已刪除%d個無人確認的舊測試版採集點。",
     ["Beta data %s: %d nodes added, %d already known."] = "測試版資料%s：新增%d個採集點，%d個已存在。",
     ["Unknown Chest"] = "未知箱子",
     ["Sync %s, public channel %s (%s), guild %s."] = "同步%s，公共頻道%s（%s），公會%s。",

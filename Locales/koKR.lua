@@ -257,7 +257,6 @@ ns.Locales.koKR = {
     ["Loaded %d known spawn points for %s."] = "알려진 출현 지점 %d개를 불러왔습니다 (%s).",
     ["Loaded %d known spawn points in %d more zones of this continent."] = "알려진 출현 지점 %d개를 이 대륙의 다른 지역 %d곳에서 불러왔습니다.",
     ["All known spawn points of this continent are already loaded."] = "이 대륙의 모든 출현 지점을 이미 불러왔습니다.",
-    ["Removed %d old beta nodes nobody confirmed."] = "확인되지 않은 오래된 베타 채집물 %d개를 삭제했습니다.",
     ["Beta data %s: %d nodes added, %d already known."] = "베타 데이터 %s: 채집물 %d개 추가, %d개 이미 있음.",
     ["Unknown Chest"] = "알 수 없는 상자",
     ["Sync %s, public channel %s (%s), guild %s."] = "동기화 %s, 공개 채널 %s (%s), 길드 %s.",

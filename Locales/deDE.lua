@@ -286,7 +286,6 @@ ns.Locales.deDE = {
     ["Loaded %d known spawn points for %s."] = "%d bekannte Spawnpunkte für %s geladen.",
     ["Loaded %d known spawn points in %d more zones of this continent."] = "%d bekannte Spawnpunkte in %d weiteren Gebieten dieses Kontinents geladen.",
     ["All known spawn points of this continent are already loaded."] = "Alle bekannten Spawnpunkte dieses Kontinents sind schon geladen.",
-    ["Removed %d old beta nodes nobody confirmed."] = "%d alte Beta-Vorkommen entfernt, die niemand bestätigt hat.",
     ["Beta data %s: %d nodes added, %d already known."] = "Beta-Daten %s: %d Vorkommen hinzugefügt, %d schon bekannt.",
     ["Unknown Chest"] = "Unbekannte Truhe",
     ["Sync %s, public channel %s (%s), guild %s."] = "Sync %s, öffentlicher Kanal %s (%s), Gilde %s.",

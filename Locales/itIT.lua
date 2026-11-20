@@ -257,7 +257,6 @@ ns.Locales.itIT = {
     ["Loaded %d known spawn points for %s."] = "Caricati %d punti di spawn noti per %s.",
     ["Loaded %d known spawn points in %d more zones of this continent."] = "Caricati %d punti di spawn noti in altre %d zone di questo continente.",
     ["All known spawn points of this continent are already loaded."] = "Tutti i punti di spawn di questo continente sono già caricati.",
-    ["Removed %d old beta nodes nobody confirmed."] = "Rimossi %d vecchi nodi beta mai confermati.",
     ["Beta data %s: %d nodes added, %d already known."] = "Dati beta %s: %d nodi aggiunti, %d già noti.",
     ["Unknown Chest"] = "Forziere sconosciuto",
     ["Sync %s, public channel %s (%s), guild %s."] = "Sync %s, canale pubblico %s (%s), gilda %s.",

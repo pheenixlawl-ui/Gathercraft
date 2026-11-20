@@ -26434,6 +26434,116 @@ step("Starter data 0.2.0: the changelog says where the new spots come from and t
         assert(added:find(said, 1, true), "CHANGELOG, Added: nothing about \"" .. said .. "\"")
     end
 end)
+-- 0.2.1 A1 (Sven, 20.11.2026; Codex, 0.2.0 starter spots round 1 §5): a
+-- starter spot no longer leaves the map because time went by. Up to 0.2.0
+-- every unconfirmed one went 21 days after the import - also in a zone you
+-- never entered (the spots of 0.2.0 from 11.12.2026 on). Now they stay until
+-- you harvest them (then they are yours) - the old beta spots as well; a spot
+-- found empty learns it as before (it rests, its chance drops).
+step("Starter data 0.2.1: spots stay without a visit - after 30 days, the ones 0.2.0 imported too, the old beta spots as well; a harvest still makes one yours (0.2.1 A1)", function()
+    local data = GathercraftStarterData
+    local saved = { nodes = ns.db.nodes, version = ns.db.starterVersion, map = player.map, x = player.x, y = player.y }
+    local loader
+    for f in pairs(eventFrames["PLAYER_LOGOUT"] or {}) do
+        if eventFrames["PLAYER_LOGIN"][f] and not (eventFrames["UNIT_SPELLCAST_CHANNEL_STOP"] or {})[f] then loader = f end
+    end
+    assert(loader, "test setup: starter loader not found")
+    local function Login() loader.__scripts.OnEvent(loader, "PLAYER_LOGIN") end
+    local function Count(z)
+        local c = 0
+        for _, n in ipairs(ns.db.nodes[z] or {}) do if n.source == "starter" then c = c + 1 end end
+        return c
+    end
+    local function All()
+        local c = 0
+        for z in pairs(data.nodes) do c = c + Count(z) end
+        return c
+    end
+    local DAY = 86400
+    local shifted = 0
+    local function Days(d) -- the clock goes on (running timers along, as the self-healing step does it)
+        NOW = NOW + d * DAY
+        for _, t in ipairs(timers) do t.at = t.at + d * DAY end
+        shifted = shifted + d
+    end
+    local rows = 0
+    for _, list in pairs(data.nodes) do rows = rows + #list end
+    local ok, err = pcall(function()
+        -- (1) imported as 0.2.0 does it, then 30 days without going there: every spot is still there, nothing comes twice
+        ns.db.nodes, ns.db.starterVersion = {}, nil
+        ns.ForgetSeenKinds() ns.NotifyNodesChanged()
+        Login()
+        assert(All() == rows, ("a fresh profile: %d of %d spots imported"):format(All(), rows))
+        assert(ns.db.starterVersion == data.version, "the data version is not remembered: " .. tostring(ns.db.starterVersion))
+        local mark = #log
+        Days(30)
+        Login()
+        assert(All() == rows, ("30 days later, never in Riverglades or Mount Hyjal: %d of %d spots left (Riverglades %d of %d, Mount Hyjal %d of %d)"):format(
+            All(), rows, Count(2548), #data.nodes[2548], Count(2482), #data.nodes[2482]))
+        Days(30)
+        Login()
+        assert(All() == rows, ("60 days later: %d of %d spots left"):format(All(), rows))
+        for i = mark + 1, #log do
+            assert(not log[i]:find("nobody confirmed", 1, true), "a spot was removed for its age: " .. log[i])
+            assert(not log[i]:find(data.version, 1, true), "a later login imported the starter data again: " .. log[i])
+        end
+        -- (2) a profile 0.2.0 filled 30 days ago (the data version known, every spot "added" then): kept, not imported again
+        local filled = {}
+        for z, list in pairs(data.nodes) do
+            filled[z] = {}
+            for _, e in ipairs(list) do
+                filled[z][#filled[z] + 1] = { id = e[1], type = ({ h = "herb", o = "ore", c = "chest" })[e[2]], name = e[7], x = e[3] / 10000, y = e[4] / 10000,
+                    count = 1, source = "starter", added = time() - 30 * DAY, last = time() - 30 * DAY }
+            end
+        end
+        ns.db.nodes, ns.db.starterVersion = filled, data.version
+        ns.ForgetSeenKinds() ns.NotifyNodesChanged()
+        mark = #log
+        Login()
+        assert(All() == rows, ("a profile 0.2.0 filled 30 days ago: %d of %d spots left"):format(All(), rows))
+        for z, list in pairs(data.nodes) do
+            assert(#ns.db.nodes[z] == #list, ("zone %d: %d nodes, want %d (nothing imported again)"):format(z, #ns.db.nodes[z], #list))
+        end
+        for i = mark + 1, #log do
+            assert(not log[i]:find(data.version, 1, true), "the same data version was imported again: " .. log[i])
+        end
+        -- (3) an old beta spot (imported with the beta data of 23.10., 40 days ago), never seen or heard of: kept as well
+        local beta = data.nodes[1412][1]
+        ns.db.nodes = { [1412] = { { id = beta[1], type = ({ h = "herb", o = "ore" })[beta[2]], name = beta[7], x = beta[3] / 10000, y = beta[4] / 10000,
+            count = 1, source = "starter", added = time() - 40 * DAY, last = time() - 40 * DAY } } }
+        ns.db.starterVersion = data.version
+        ns.ForgetSeenKinds() ns.NotifyNodesChanged()
+        Login()
+        assert(Count(1412) == 1, "an old beta spot nobody confirmed was removed")
+        -- (4) a harvest still makes a spot yours, as before (30 days on, in Riverglades)
+        ns.db.nodes, ns.db.starterVersion = {}, nil
+        ns.ForgetSeenKinds() ns.NotifyNodesChanged()
+        Login()
+        Days(30)
+        Login()
+        local e = data.nodes[2548][1]
+        local spell = e[2] == "h" and 2366 or 2575
+        player.map, player.x, player.y = 2548, e[3] / 10000, e[4] / 10000
+        fire("UNIT_SPELLCAST_SENT", "player", e[7], "a1cast", spell)
+        fire("UNIT_SPELLCAST_SUCCEEDED", "player", "a1cast", spell)
+        loot = { { guid = "GameObject-0-1-1-1-" .. e[1]:sub(2) .. "-00A1A1", item = e[5], qty = 1 } }
+        fire("LOOT_READY") fire("LOOT_OPENED")
+        advance(3)
+        loot = {}
+        local mine
+        for _, n in ipairs(ns.db.nodes[2548]) do
+            if n.id == e[1] and math.abs(n.x - e[3] / 10000) < 0.002 and math.abs(n.y - e[4] / 10000) < 0.002 then mine = n end
+        end
+        assert(mine and mine.source == nil, "the harvested starter spot is not yours: " .. tostring(mine and mine.source))
+        assert(Count(2548) == #data.nodes[2548] - 1, ("Riverglades after one harvest: %d starter spots, want %d"):format(Count(2548), #data.nodes[2548] - 1))
+    end)
+    if shifted ~= 0 then Days(-shifted) end
+    loot = {}
+    ns.db.nodes, ns.db.starterVersion = saved.nodes, saved.version
+    player.map, player.x, player.y = saved.map, saved.x, saved.y
+    ns.ForgetSeenKinds() ns.NotifyNodesChanged() advance(1)
+    if not ok then error(err, 0) end
+end)
 step("Long run (10 min) for leaks", function() slash("run herb") advance(600) slash("stop") end)
 step("Test mock: OnUpdate runs for the same frames in the same order as going over every frame (tools only)", function()
     -- The mock's advance() goes over the frames that have an OnUpdate only
