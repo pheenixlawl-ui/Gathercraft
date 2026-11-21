@@ -27731,6 +27731,463 @@ step("Minimap tooltip 0.2.2: always, only with Shift or never - learning goes on
     ns.ShowOptionsSection(keep.section)
     if not ok then error(err, 0) end
 end)
+-- The visit log /gcr visitlog (diagnosis D, Sven 20.11.2026; built on
+-- dev-0.2-diag, in the release since 0.2.2 P1 point 3 for the respawn
+-- measurement). Its lines are English, like /gcr detest's.
+local function VisitLines(from) -- what /gcr visitlog printed after log line from, without its "visitlog "
+    local out = {}
+    for i = from + 1, #log do
+        local text = log[i]:match("^PRINT visitlog (.*)$")
+        if text then out[#out + 1] = text end
+    end
+    return out
+end
+-- the saved data without the visit log's own keys (deep copy)
+local function VisitDbCopy()
+    local c = DetestCopy(ns.db)
+    c.visitLogOn, c.visitLog, c.visitLogDropped = nil, nil, nil
+    return c
+end
+step("Visit log: /gcr visitlog on|off|status|clear - off unless turned on, kept in the saved data only, at most 10000 entries (0.2.2 P1 point 3, from dev-0.2-diag 1)", function()
+    local ok, err = pcall(function()
+        -- off unless you turn it on: nothing of it in the saved data
+        assert(ns.db.visitLogOn == nil and ns.db.visitLog == nil and ns.db.visitLogDropped == nil, "the visit log is there before it was turned on")
+        assert(ns.VisitLogOn and ns.VisitLogOn() == false, "ns.VisitLogOn: not off at the start")
+        local db = VisitDbCopy()
+        -- something else than on, off, status or clear: how to use it, nothing turned on
+        local mark = #log
+        slash("visitlog what")
+        local lines = VisitLines(mark)
+        assert(#lines == 1 and lines[1]:find("/gcr visitlog on|off|status|clear", 1, true), "an unknown word: " .. table.concat(lines, " / "))
+        assert(ns.db.visitLogOn == nil, "an unknown word turned it on")
+        -- status, off
+        mark = #log
+        slash("visitlog status")
+        lines = VisitLines(mark)
+        local version = C_AddOns and C_AddOns.GetAddOnMetadata and C_AddOns.GetAddOnMetadata("Gathercraft", "Version") or GetAddOnMetadata("Gathercraft", "Version")
+        assert(#lines == 1 and lines[1] == ("status: off, 0 entries (at most 10000); Gathercraft %s"):format(tostring(version)), "status while off: " .. table.concat(lines, " / "))
+        -- writing while off: nothing
+        ns.VisitLogAdd("V;1;1;herb;o1;0.1;0.1;1;1;empty;T;-;25")
+        assert(ns.db.visitLog == nil, "written while off")
+        -- on: kept in the saved data (stays on over /reload), says that nothing is sent
+        mark = #log
+        slash("visitlog on")
+        lines = VisitLines(mark)
+        assert(#lines == 1 and lines[1]:find("^on: ") and lines[1]:find("only on this computer", 1, true)
+            and lines[1]:find("nothing is sent", 1, true) and lines[1]:find("/gcr visitlog off", 1, true), "on: " .. table.concat(lines, " / "))
+        assert(ns.db.visitLogOn == true and ns.VisitLogOn() == true, "not on in the saved data")
+        assert(ns.db.visitLog == nil, "turning it on wrote an entry")
+        mark = #log
+        slash("visitlog on")
+        lines = VisitLines(mark)
+        assert(#lines == 1 and lines[1]:find("already on", 1, true), "on again: " .. table.concat(lines, " / "))
+        -- at most 10000 entries: the oldest go, and how many is counted
+        assert(ns.VisitLogMax == 10000, "at most: " .. tostring(ns.VisitLogMax))
+        for i = 1, 10005 do ns.VisitLogAdd(("V;%d;1464;ore;o1731;0.5000;0.5000;1.0;1.0;empty;T;-;25"):format(1000000 + i)) end
+        assert(#ns.db.visitLog == 10000 and ns.db.visitLogDropped == 5, ("entries %d, dropped %s"):format(#ns.db.visitLog, tostring(ns.db.visitLogDropped)))
+        assert(ns.db.visitLog[1]:find("^V;1000006;") and ns.db.visitLog[10000]:find("^V;1010005;"), "not the newest 10000: " .. ns.db.visitLog[1])
+        mark = #log
+        slash("visitlog status")
+        lines = VisitLines(mark)
+        local range = (", from %s to %s"):format((date or os.date)("%d.%m. %H:%M", 1000006), (date or os.date)("%d.%m. %H:%M", 1010005))
+        assert(#lines == 1 and lines[1] == ("status: on, 10000 entries (at most 10000), 5 older ones dropped%s; Gathercraft %s"):format(range, tostring(version)),
+            "status while on: " .. table.concat(lines, " / "))
+        mark = #log
+        slash("visitlog")
+        lines = VisitLines(mark)
+        assert(#lines == 2 and lines[1]:find("^status: on, 10000 entries") and lines[2] == "/gcr visitlog on|off|status|clear", "no word: " .. table.concat(lines, " / "))
+        -- off: what was written stays, nothing more is written
+        mark = #log
+        slash("visitlog off")
+        lines = VisitLines(mark)
+        assert(#lines == 1 and lines[1] == "off: 10000 entries kept (/gcr visitlog clear deletes them)", "off: " .. table.concat(lines, " / "))
+        assert(ns.db.visitLogOn == nil and #ns.db.visitLog == 10000, "off: not off, or the entries are gone")
+        ns.VisitLogAdd("V;2000000;1464;ore;o1731;0.5000;0.5000;1.0;1.0;empty;T;-;25")
+        assert(#ns.db.visitLog == 10000 and ns.db.visitLog[10000]:find("^V;1010005;"), "written while off")
+        mark = #log
+        slash("visitlog off")
+        lines = VisitLines(mark)
+        assert(#lines == 1 and lines[1] == "already off", "off again: " .. table.concat(lines, " / "))
+        -- clear: all gone
+        mark = #log
+        slash("visitlog clear")
+        lines = VisitLines(mark)
+        assert(#lines == 1 and lines[1] == "cleared: 10000 entries deleted", "clear: " .. table.concat(lines, " / "))
+        assert(ns.db.visitLog == nil and ns.db.visitLogDropped == nil, "clear left entries")
+        -- the rest of the saved data is as it was
+        local diff = DetestDiff(db, VisitDbCopy(), "ns.db")
+        assert(not diff, "the visit log changed the saved data: " .. tostring(diff))
+        assert(ns.db.visitLogOn == nil, "on at the end")
+    end)
+    if not ok then ns.db.visitLogOn, ns.db.visitLog, ns.db.visitLogDropped = nil, nil, nil end
+    if not ok then error(err, 0) end
+end)
+-- A farm run in Mulgore (1 yd = 0.0002 map x) with one of each kind of
+-- visit: a target harvested, a point passed on the way, a target found
+-- empty, one while fighting, a gather without own loot, /gcr skip, /gcr
+-- unreachable, then two gathers outside a run (a new one, the same spawn
+-- again). Returns what each step needs to check; the visit log is as the
+-- caller set it. Used by points 2 and 3 (log off and on, the same run).
+local function VisitRun()
+    local keepNodes, keepArrive, keepMap, keepX, keepY = ns.db.nodes[1412], ns.db.arriveDist, player.map, player.x, player.y
+    local OBJ = { Earthroot = { 1619, 2449 }, Peacebloom = { 1618, 2447 } }
+    local seq = 0
+    local function Node(name, xYd)
+        return { id = "o" .. OBJ[name][1], name = name, type = "herb", item = OBJ[name][2], x = 0.5 + xYd / 5000, y = 0.5, count = 1, last = 1 }
+    end
+    local function At(xYd) player.map, player.x, player.y = 1412, 0.5 + xYd / 5000, 0.5 end
+    local function Wait(s) for _ = 1, s * 2 do advance(0.5) end end
+    local function Gather(name, spawn, withLoot)
+        seq = seq + 1
+        local id = "visitlog" .. seq
+        fire("UNIT_SPELLCAST_SENT", "player", name, id, 2366)
+        fire("UNIT_SPELLCAST_SUCCEEDED", "player", id, 2366)
+        if withLoot ~= false then
+            loot = { { guid = ("GameObject-0-1-1-1-%d-%s"):format(OBJ[name][1], spawn), item = OBJ[name][2], qty = 2 } }
+            fire("LOOT_READY") fire("LOOT_OPENED")
+            loot = {}
+            fire("LOOT_CLOSED")
+        end
+    end
+    local function aim(node)
+        for _, p in ipairs(ns.run.path) do
+            if p.node == node then ns.run.target, ns.run.targetPoint, ns.run.targetBest = node, p, nil return end
+        end
+        error("node not in the path: " .. tostring(node and node.name))
+    end
+    local A, P, D, C, B, E, F = Node("Earthroot", 0), Node("Earthroot", 150), Node("Earthroot", 300), Node("Earthroot", 450),
+        Node("Earthroot", 600), Node("Earthroot", 750), Node("Peacebloom", 2500)
+    local out = { A = A, P = P, D = D, C = C, B = B, E = E, F = F, arrive = {}, t0 = time(), g0 = GetTime() }
+    local ok, err = pcall(function()
+        ns.db.arriveDist = 20
+        ns.db.nodes[1412] = { A, P, D, C, B, E, F }
+        ns.NotifyNodesChanged() advance(1)
+        At(-200)
+        ns.StartRun("herb", 1412) Wait(1)
+        -- a target, harvested
+        aim(A) At(0) out.arrive.A = time() Wait(1)
+        Gather("Earthroot", "VL0001")
+        Wait(30)
+        -- on the way to the next target: a point passed by, then the target, empty
+        aim(D) At(150) out.arrive.P = time() Wait(30)
+        aim(D) At(300) out.arrive.D = time() Wait(30)
+        -- the target, found empty while fighting
+        aim(C)
+        UnitAffectingCombat = function() return true end
+        At(450) out.arrive.C = time() Wait(30)
+        UnitAffectingCombat = nil
+        -- the target, a gather close by that brings no own loot
+        aim(B) At(600) out.arrive.B = time() Wait(1)
+        Gather("Earthroot", "VL0002", false)
+        Wait(30)
+        -- left out: /gcr skip, then /gcr unreachable
+        aim(E) out.skipAt, out.skipX, out.skipY = time(), E.x, E.y slash("skip") advance(1)
+        aim(F) out.unreachAt = time() slash("unreachable") advance(1)
+        ns.StopRun() advance(1)
+        -- outside a run: a gather at E's place (a new spawn), then the same spawn once more
+        At(752) Wait(1)
+        out.outsideAt = time()
+        Gather("Earthroot", "VL0003")
+        Wait(2)
+        out.againAt = time()
+        Gather("Earthroot", "VL0003")
+        Wait(2)
+    end)
+    UnitAffectingCombat = nil
+    if ns.run then ns.StopRun() end
+    out.nodes = ns.db.nodes[1412]
+    ns.db.nodes[1412], ns.db.arriveDist, player.map, player.x, player.y = keepNodes, keepArrive, keepMap, keepX, keepY
+    ns.NotifyNodesChanged() advance(1)
+    if not ok then error(err, 0) end
+    return out
+end
+-- one entry split into its fields
+local function VisitFields(text)
+    local f = {}
+    for v in (text .. ";"):gmatch("([^;]*);") do f[#f + 1] = v end
+    return f
+end
+step("Visit log: every route point checked or left out with time, zone, point, kind and result, every own gather with its place and point (0.2.2 P1 point 3, from dev-0.2-diag 2)", function()
+    local ok, err = pcall(function()
+        -- off: the same run writes nothing
+        assert(not ns.VisitLogOn(), "on at the start")
+        VisitRun()
+        assert(ns.db.visitLog == nil, "off, and written: " .. tostring(ns.db.visitLog and ns.db.visitLog[1]))
+        -- on
+        slash("visitlog on")
+        local r = VisitRun()
+        local list = ns.db.visitLog or {}
+        local all = table.concat(list, "\n")
+        local function Find(ev, id, result, node)
+            for _, text in ipairs(list) do
+                local f = VisitFields(text)
+                if f[1] == ev and f[10] == result and (not node or f[6] == ("%.4f"):format(node.x)) then return f end
+            end
+            error(("no %s entry %s for %s at x %s:\n%s"):format(ev, result, tostring(id), node and ("%.4f"):format(node.x) or "-", all), 0)
+        end
+        local HBD = LibStub("HereBeDragons-2.0")
+        local function CheckPoint(f, node, ev, x, y)
+            x, y = x or node.x, y or node.y
+            assert(f[3] == "1412" and f[4] == "herb" and f[5] == node.id, ev .. ": zone, type or id: " .. table.concat(f, ";"))
+            assert(f[6] == ("%.4f"):format(x) and f[7] == ("%.4f"):format(y), ev .. ": the point: " .. table.concat(f, ";"))
+            local wx, wy = HBD:GetWorldCoordinatesFromZone(x, y, 1412)
+            assert(f[8] == ("%.1f"):format(wx) and f[9] == ("%.1f"):format(wy), ev .. ": world yards: " .. table.concat(f, ";"))
+            assert(f[12] == "-", ev .. ": sk of an own point: " .. tostring(f[12]))
+        end
+        -- route point checks: the time is the arriving, then the result and target or on the way
+        local want = { { "A", "harvested", "T" }, { "P", "passed", "W" }, { "D", "empty", "T" }, { "C", "empty", "TC" }, { "B", "unclear", "T" } }
+        for _, w in ipairs(want) do
+            local node = r[w[1]]
+            local f = Find("V", w[1], w[2], node)
+            CheckPoint(f, node, "V " .. w[1])
+            assert(#f == 13, "V " .. w[1] .. ": fields " .. #f)
+            -- the time of arriving: the tick that saw you there (this second or the next)
+            local dt = tonumber(f[2]) - r.arrive[w[1]]
+            assert(dt == 0 or dt == 1, ("V %s: time %s, arrived %s"):format(w[1], f[2], tostring(r.arrive[w[1]])))
+            assert(f[11] == w[3], ("V %s: flags %s, want %s"):format(w[1], f[11], w[3]))
+            assert(tonumber(f[13]) and tonumber(f[13]) >= 25 and tonumber(f[13]) <= 31, "V " .. w[1] .. ": seconds to the check " .. f[13])
+        end
+        -- left out
+        local s = Find("S", "E", "skipped", { x = r.skipX })
+        CheckPoint(s, r.E, "S skipped", r.skipX, r.skipY)
+        assert(tonumber(s[2]) == r.skipAt and s[11] == "T" and s[13] == "300", "S skipped: " .. table.concat(s, ";"))
+        local u = Find("S", "F", "unreachable", r.F)
+        assert(u[5] == r.F.id and tonumber(u[2]) == r.unreachAt and u[11] == "T" and tonumber(u[13]) > 0, "S unreachable: " .. table.concat(u, ";"))
+        -- own gathers: where it started, the point it was booked to, how far, in a run or not
+        local gathers = {}
+        for _, text in ipairs(list) do
+            local f = VisitFields(text)
+            if f[1] == "G" then gathers[#gathers + 1] = f end
+        end
+        assert(#gathers == 3, "own gathers: " .. #gathers .. "\n" .. all) -- (the one without own loot is no gather)
+        local g1, g2, g3 = gathers[1], gathers[2], gathers[3]
+        assert(#g1 == 17 and g1[10] == "booked" and g1[11] == "R" and g1[5] == "o1619" and g1[17] == "VL0001", "the harvest in the run: " .. table.concat(g1, ";"))
+        assert(g1[13] == ("%.4f"):format(r.A.x) and tonumber(g1[15]) < 1, "booked to A: " .. table.concat(g1, ";"))
+        assert(g1[6] == ("%.4f"):format(0.5) and g1[7] == ("%.4f"):format(0.5), "where it started: " .. table.concat(g1, ";"))
+        assert(g2[10] == "booked" and g2[11] == "-" and g2[17] == "VL0003" and tonumber(g2[2]) >= r.outsideAt, "the gather outside a run: " .. table.concat(g2, ";"))
+        assert(g2[6] == ("%.4f"):format(0.5 + 752 / 5000), "outside a run, where it started: " .. table.concat(g2, ";"))
+        -- booked to E (750 yd, within 10 yd): E moves to the middle (751 yd), 1 yd from where it started, seen twice now
+        assert(g2[5] == r.E.id and g2[13] == ("%.4f"):format(0.5 + 751 / 5000) and g2[15] == "1.0" and g2[16] == "2",
+            "outside a run, its point: " .. table.concat(g2, ";"))
+        assert(g3[10] == "again" and g3[17] == "VL0003" and tonumber(g3[2]) >= r.againAt, "the same spawn once more: " .. table.concat(g3, ";"))
+        -- in the order they happened
+        local last = 0
+        for _, text in ipairs(list) do
+            local tt = tonumber(VisitFields(text)[2])
+            assert(tt and tt >= last - 31, "out of order: " .. text)
+            last = math.max(last, tt)
+        end
+        slash("visitlog off") slash("visitlog clear")
+    end)
+    if not ok then ns.db.visitLogOn, ns.db.visitLog, ns.db.visitLogDropped = nil, nil, nil end
+    if not ok then error(err, 0) end
+end)
+-- Point 3: what a run leaves behind, so that a run with the visit log off
+-- and one with it on can be compared. Times are taken relative to the run's
+-- start (a whole number within a day after it, and GetTime's seconds with
+-- decimals in a line); counters of the saved data as how much they grew;
+-- everything else as it is.
+local function VisitNorm(v, t0, g0)
+    if type(v) == "number" then
+        if v == math.floor(v) and v >= t0 - 1 and v <= t0 + 86400 then return "T+" .. (v - t0) end
+        return v
+    end
+    if type(v) == "string" then
+        if g0 then
+            v = v:gsub("%d+%.%d+", function(d)
+                local n = tonumber(d)
+                if n and n >= g0 - 1 and n <= g0 + 86400 then return ("G+%.2f"):format(n - g0) end
+            end)
+        end
+        return (v:gsub("%d+", function(d)
+            local n = tonumber(d)
+            if n and n >= t0 - 1 and n <= t0 + 86400 then return "T+" .. (n - t0) end
+        end))
+    end
+    if type(v) ~= "table" then return v end
+    local c = {}
+    for k, x in pairs(v) do c[k] = VisitNorm(x, t0, g0) end
+    return c
+end
+-- every leaf of the saved data a run changed: path -> what it became
+local function VisitChanges(a, b, t0, path, out)
+    out = out or {}
+    if type(a) == "table" and type(b) == "table" then
+        for k, x in pairs(a) do VisitChanges(x, b[k], t0, path .. "." .. tostring(k), out) end
+        for k, x in pairs(b) do if a[k] == nil then VisitChanges(nil, x, t0, path .. "." .. tostring(k), out) end end
+        return out
+    end
+    if a == b then return out end
+    if type(a) == "number" and type(b) == "number" and not (b == math.floor(b) and b >= t0 - 1 and b <= t0 + 86400) then
+        out[path] = ("grew by %s"):format(tostring(b - a))
+    elseif type(b) == "table" then
+        for k, x in pairs(b) do VisitChanges(nil, x, t0, path .. "." .. tostring(k), out) end
+    else
+        out[path] = tostring(VisitNorm(b, t0))
+    end
+    return out
+end
+-- the first difference of two such pictures (deep), or nil
+local function VisitFirstDiff(a, b, path)
+    if type(a) ~= type(b) then return ("%s: %s, now %s"):format(path, tostring(a), tostring(b)) end
+    if type(a) ~= "table" then
+        if a ~= b and not (a ~= a and b ~= b) then return ("%s: %s, now %s"):format(path, tostring(a), tostring(b)) end
+        return nil
+    end
+    for k, x in pairs(a) do
+        local d = VisitFirstDiff(x, b[k], path .. "." .. tostring(k))
+        if d then return d end
+    end
+    for k, x in pairs(b) do if a[k] == nil then return ("%s.%s: new (%s)"):format(path, tostring(k), tostring(x)) end end
+end
+-- one run of VisitRun with the debug lines on, and what it left behind
+local function VisitPicture(logOn)
+    local keepDebug = ns.db.debug
+    ns.db.debug = true
+    ns.db.visitLogOn = logOn or nil
+    advance(120) -- (what sync had queued from before goes out first)
+    local before = VisitDbCopy()
+    local mark, sent = #log, #sentMessages
+    local ok, r = pcall(VisitRun)
+    ns.db.debug = keepDebug
+    ns.db.visitLogOn = nil
+    if not ok then error(r, 0) end
+    -- (sync sends go out on a timer: their place among the other lines depends
+    -- on what was queued before, so they are compared as a sorted list of their own)
+    local lines, msgs = {}, {}
+    for i = mark + 1, #log do
+        if not log[i]:find("^PRINT visitlog ") and not log[i]:find("sync|r sent", 1, true) then lines[#lines + 1] = VisitNorm(log[i], r.t0, r.g0) end
+    end
+    for i = sent + 1, #sentMessages do msgs[#msgs + 1] = VisitNorm(sentMessages[i], r.t0, r.g0) end
+    table.sort(msgs)
+    local nodes = {}
+    for i, n in ipairs(r.nodes) do nodes[i] = VisitNorm(DetestCopy(n), r.t0) end
+    return { lines = lines, sent = msgs, nodes = nodes, db = VisitChanges(before, VisitDbCopy(), r.t0, "ns.db") }
+end
+step("Visit log: on only writes - the same run off, on, and on with an error in every entry leaves the same nodes, choices, lines, sync messages and saved data behind (0.2.2 P1 point 3, from dev-0.2-diag 3)", function()
+    local realConcat = table.concat
+    local ok, err = pcall(function()
+        assert(not ns.VisitLogOn() and ns.db.visitLog == nil, "the visit log is on or has entries at the start")
+        local off = VisitPicture(false)
+        assert(#off.lines > 20 and #off.nodes == 7 and next(off.db), ("the run says too little to compare: %d lines, %d nodes"):format(#off.lines, #off.nodes))
+        assert(ns.db.visitLog == nil, "off, and written")
+        -- on: the same run, and the visit log has its entries
+        local on = VisitPicture(true)
+        local entries = ns.db.visitLog and #ns.db.visitLog or 0
+        assert(entries == 10, "on: entries " .. entries .. " (want 7 checks and left-outs and 3 gathers)")
+        local d = VisitFirstDiff(off, on, "run")
+        assert(not d, "on, the run went differently: " .. tostring(d))
+        -- on, with an error in every entry: nothing written, no error anywhere, the run the same
+        slash("visitlog clear")
+        local errorsBefore = #errors
+        table.concat = function(t, sep, ...)
+            if sep == ";" and type(t) == "table" and (t[1] == "V" or t[1] == "S" or t[1] == "G" or (type(t[1]) == "string" and t[1]:find("^[VSG];"))) then
+                error("visit log test: an error in the entry")
+            end
+            return realConcat(t, sep, ...)
+        end
+        local broken = VisitPicture(true)
+        table.concat = realConcat
+        assert(ns.db.visitLog == nil, "with an error in every entry, still written: " .. tostring(ns.db.visitLog and ns.db.visitLog[1]))
+        assert(#errors == errorsBefore, "the error in an entry reached the addon: " .. tostring(errors[#errors]))
+        d = VisitFirstDiff(off, broken, "run")
+        assert(not d, "with an error in every entry, the run went differently: " .. tostring(d))
+        -- nothing of it in what sync sent
+        for _, m in ipairs(on.sent) do assert(not m:find("V;", 1, true) and not m:find("visit", 1, true), "sent: " .. m) end
+        slash("visitlog clear")
+    end)
+    table.concat = realConcat
+    ns.db.visitLogOn, ns.db.visitLog, ns.db.visitLogDropped = nil, nil, nil
+    if not ok then error(err, 0) end
+end)
+step("Visit log report: tools/visitlog_report.lua reads what the addon writes, from a SavedVariables copy too, and tells a same-point world from a random-point world (0.2.2 P1 point 3, from dev-0.2-diag 4)", function()
+    local chunk = assert(loadfile(ROOT .. "/tools/visitlog_report.lua"), "no tools/visitlog_report.lua")
+    local R = chunk("module")
+    assert(type(R) == "table" and R.Analyse and R.SelfTest and R.ReadFile, "the report has no module part")
+    local ok, err = pcall(function()
+        -- the self-test: three seeds of each toy world, each verdict right
+        for _, x in ipairs(R.SelfTest()) do
+            assert(x.verdict == x.want, ("toy world %s, seed %d: %s, want %s (%s)"):format(x.world, x.seed, x.verdict, x.want, tostring(x.r.why)))
+            assert(x.r.later.harvest[2] >= 20 and x.r.later.empty[2] >= 20, "toy world: too few revisits to judge")
+        end
+        -- the 95 % interval of a share (Wilson): 0 of 0, 5 of 10, 20 of 20
+        local p, l, u = R.Wilson(5, 10)
+        assert(math.abs(p - 0.5) < 1e-9 and math.abs(l - 0.2366) < 1e-3 and math.abs(u - 0.7634) < 1e-3, ("Wilson 5 of 10: %.4f %.4f %.4f"):format(p, l, u))
+        p, l, u = R.Wilson(20, 20)
+        assert(p == 1 and math.abs(l - 0.8389) < 1e-3 and u == 1, ("Wilson 20 of 20: %.4f %.4f %.4f"):format(p, l, u))
+        -- what the addon writes: the run of point 2 with the log on
+        slash("visitlog on")
+        VisitRun()
+        local entries = ns.db.visitLog or {}
+        slash("visitlog off")
+        local r = R.Analyse(entries, { min = 15, radius = 12 })
+        -- full: the harvest in the run and the gather outside it (not the same spawn once more);
+        -- empty: the target found empty (not the one in combat, not the one passed by)
+        assert(r.counts.full == 2 and r.counts.empty == 1, ("looks read from the addon's entries: %d full, %d empty"):format(r.counts.full, r.counts.empty))
+        assert(r.counts.other == #entries - 3, "other entries: " .. r.counts.other)
+        r = R.Analyse(entries, { min = 15, radius = 12, passed = true })
+        assert(r.counts.empty == 2, "with passed=1 the point passed by counts as empty: " .. r.counts.empty)
+        -- a SavedVariables copy: read as data, nothing of it runs in the game's name
+        local dir = os.getenv("TEMP") or os.getenv("TMPDIR") or (ROOT .. "/tools")
+        local path = dir .. "/gathercraft_visitlog_test_1.lua"
+        local f = assert(io.open(path, "w"))
+        f:write("\nGathercraftDB = {\n[\"visitLogOn\"] = true,\n[\"visitLogDropped\"] = 3,\n[\"visitLog\"] = {\n")
+        for _, e in ipairs(entries) do f:write(("%q,\n"):format(e)) end
+        f:write("},\n}\nWoWFFarmDB = nil\n")
+        f:close()
+        local keepDB, keepOld = GathercraftDB, WoWFFarmDB
+        local blocks = R.ReadFile(path)
+        os.remove(path)
+        assert(#blocks == 1 and #blocks[1].entries == #entries and blocks[1].dropped == 3, "a SavedVariables copy: " .. #blocks)
+        -- read in a table of its own: the game's saved data stay as they are
+        assert(GathercraftDB == keepDB and WoWFFarmDB == keepOld and GathercraftDB.visitLogDropped == nil, "reading the copy touched the saved data")
+        -- a route_sim file: one block per run
+        path = dir .. "/gathercraft_visitlog_test_2.txt"
+        f = assert(io.open(path, "w"))
+        f:write("# route_sim zone=1412 seed=1\n", entries[1], "\n", entries[2], "\n# route_sim zone=1412 seed=2\n", entries[3], "\n")
+        f:close()
+        blocks = R.ReadFile(path)
+        os.remove(path)
+        assert(#blocks == 2 and #blocks[1].entries == 2 and #blocks[2].entries == 1, "a route_sim file: blocks " .. #blocks)
+        slash("visitlog clear")
+    end)
+    ns.db.visitLogOn, ns.db.visitLog, ns.db.visitLogDropped = nil, nil, nil
+    if not ok then error(err, 0) end
+end)
+step("Visit log report: no verdict when the revisits come before the respawn time - a same-point world with 30 minutes to grow and rounds of 15 minutes (0.2.2 P1 point 3, from dev-0.2-diag 4b)", function()
+    local R = assert(loadfile(ROOT .. "/tools/visitlog_report.lua"), "no tools/visitlog_report.lua")("module")
+    for seed = 1, 3 do
+        local r = R.Analyse(R.Toy("same", seed, { respawn = 1800, rounds = { 15, 15, 15, 15, 15, 15 } }), { min = 15, radius = 12 })
+        assert(r.later.harvest[2] >= 20 and r.later.empty[2] >= 20, ("seed %d: too few revisits to test the rule (%d, %d)"):format(seed, r.later.harvest[2], r.later.empty[2]))
+        assert(r.verdict == "undecided" and r.why:find("before the respawn time", 1, true),
+            ("seed %d: %s (%s) - after a harvest %.0f %% full"):format(seed, r.verdict, tostring(r.why), r.afterHarvest[1] * 100))
+    end
+    -- the worlds it must still tell apart: three seeds each, and the slow one in the self-test
+    local slow = 0
+    for _, x in ipairs(R.SelfTest()) do
+        assert(x.verdict == x.want, ("self-test %s seed %d: %s, want %s"):format(x.world, x.seed, x.verdict, x.want))
+        if x.world == "same, slow" then slow = slow + 1 end
+    end
+    assert(slow == 3, "the self-test has no slow world: " .. slow)
+end)
+step("Visit log report: after a harvest against after an empty look within each kind - a random-point world with a dense and a sparse kind is no same-point world (0.2.2 P1 point 3, from dev-0.2-diag 4c)", function()
+    local R = assert(loadfile(ROOT .. "/tools/visitlog_report.lua"), "no tools/visitlog_report.lua")("module")
+    for seed = 1, 3 do
+        local r = R.Analyse(R.Toy("pool", seed, { shares = { 0.7, 0.1 } }), { min = 15, radius = 12 })
+        assert(r.pooled and r.difference and r.kindsUsed, "no difference within kinds")
+        -- over all points the dense kind makes "after a harvest" fuller ...
+        assert(r.pooled[1] >= 0.25, ("seed %d: over all %+.0f points - the toy world shows no difference of kinds"):format(seed, r.pooled[1] * 100))
+        -- ... within each kind it is not
+        assert(r.kindsUsed == 2 and math.abs(r.difference[1]) < 0.12, ("seed %d: within kinds %+.0f points (%d kinds)"):format(seed, r.difference[1] * 100, r.kindsUsed))
+        assert(r.verdict == "random free point", ("seed %d: %s (%s)"):format(seed, r.verdict, tostring(r.why)))
+    end
+    -- "same point" needs a point to come back nearly always: 80 % (lower bound) and 25 points within kinds
+    local r = R.Analyse(R.Toy("same", 1), { min = 15, radius = 12 })
+    assert(r.verdict == "same point" and r.afterHarvest[2] >= 0.8 and r.difference[2] >= 0.25, "the same-point world: " .. r.verdict)
+    for _, x in ipairs(R.SelfTest()) do
+        assert(x.verdict == x.want, ("self-test %s seed %d: %s, want %s"):format(x.world, x.seed, x.verdict, x.want))
+    end
+end)
 step("Long run (10 min) for leaks", function() slash("run herb") advance(600) slash("stop") end)
 step("Test mock: OnUpdate runs for the same frames in the same order as going over every frame (tools only)", function()
     -- The mock's advance() goes over the frames that have an OnUpdate only

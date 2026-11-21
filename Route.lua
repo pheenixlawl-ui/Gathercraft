@@ -1791,6 +1791,11 @@ local function GatheringAt(c)
     if d and d <= EMPTY_NEAR then return d, GetTime() - p.sentAt end
 end
 
+-- the visit log (VisitLog.lua, /gcr visitlog): only writes the check down
+local function VisitNote(c, result)
+    if ns.VisitLogVisit then ns.VisitLogVisit(c, result) end
+end
+
 local function PointText(n, mapID)
     return ("%s [%s] map %s %.1f,%.1f"):format(n.name, tostring(n.id), tostring(mapID), (n.x or 0) * 100, (n.y or 0) * 100)
 end
@@ -1818,11 +1823,13 @@ local function CheckPending(run)
             else
                 table.remove(run.checking, i)
                 if h then
+                    VisitNote(c, "harvested")
                     if debug then
                         ns.Debug(("check %s: harvested (%s, %d yd, %d s after arriving)"):format(PointText(c.node, c.mapID),
                             h.node == c.node and "this node" or h.node.name, WDist(h.wx, h.wy, c.wx, c.wy), h.t - c.at))
                     end
                 elseif not c.node.id then
+                    VisitNote(c, "unclear")
                     -- a point without identity (an old "Unknown Herb"): what it is
                     -- is not known, so it learns nothing either way. A harvest of
                     -- its type close by only keeps it from being called empty.
@@ -1841,6 +1848,7 @@ local function CheckPending(run)
                         MarkEmpty(c.node, L["nothing harvested"], "rest")
                     end
                 elseif NearOfType(c, run.harvests, true) then
+                    VisitNote(c, "unclear")
                     -- a gather of its type close by succeeded but could not be
                     -- booked (no loot of its own): not judged, nothing learned
                     if debug then
@@ -1862,6 +1870,7 @@ local function CheckPending(run)
                             PointText(c.node, c.mapID), EMPTY_NEAR, time() - c.at, c.target and "target" or "passed by",
                             c.combat and "combat" or "no combat", before))
                     end
+                    VisitNote(c, c.target and "empty" or "passed")
                     local mode = (c.target and not c.combat) and "full" or "rest"
                     local learned = MarkEmpty(c.node, L["nothing harvested"], mode, { wx = c.wx, wy = c.wy, inst = run.instance })
                     if mode == "full" and learned then
@@ -2162,6 +2171,7 @@ local function SkipNode()
     local node = run.target
     -- out of this run for a while, but nothing learned: you may skip it for
     -- a cliff or a mob in the way, that says nothing about the node
+    if ns.VisitLogLeftOut then ns.VisitLogLeftOut(node, "skipped", SKIP_TIME) end
     node.upAt = nil
     node.emptyUntil = math.max(node.emptyUntil or 0, time() + SKIP_TIME)
     run.visited[node] = true
@@ -2175,6 +2185,7 @@ local function MarkUnreachable(node, seconds)
     if node.unreachUntil and time() - node.unreachUntil > REACH_FORGET then node.reachMiss = nil end
     node.reachMiss = (node.reachMiss or 0) + 1
     seconds = seconds or math.min(UNREACH_MAX, UNREACH_BASE * 2 ^ (node.reachMiss - 1))
+    if ns.VisitLogLeftOut then ns.VisitLogLeftOut(node, "unreachable", seconds) end
     node.unreachUntil = time() + seconds
     ns.Debug(("%s unreachable for %d min (%dx)"):format(node.name, seconds / 60, node.reachMiss))
     if ns.run then ns.run.pointsDirty = true end

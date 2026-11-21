@@ -1061,6 +1061,8 @@ local function TryRecord(p)
 
     local node, again, resumed = AddNodeAt(p.mapID, p.x, p.y, p.name, p.type, id, p.spawn, p.itemID)
     if not node then return end
+    -- the visit log (VisitLog.lua, /gcr visitlog): only writes it down
+    if ns.VisitLogGather then ns.VisitLogGather(p, node, again, resumed) end
     node.emptyUntil = time() + (RESPAWN_BY_TYPE[node.type] or RESPAWN_TIME)
     if not again or resumed then
         lastPick[node] = { mapID = p.mapID, x = p.x, y = p.y, t = time(), spawn = p.spawn }
@@ -1597,6 +1599,8 @@ SlashCmdList.GATHERCRAFT = function(msg)
         if ns.CraftTest then ns.CraftTest() end
     elseif cmd == "detest" then
         if ns.DisenchantTest then ns.DisenchantTest(rest) end
+    elseif cmd == "visitlog" then
+        if ns.VisitLogCommand then ns.VisitLogCommand(rest) end
     elseif cmd == "scan" then
         if ns.StartScan then ns.StartScan() end
     elseif cmd == "plan" then

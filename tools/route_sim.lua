@@ -30,6 +30,8 @@
 --   (environment) SIM_LOG=<Lua pattern>: print the addon's debug lines that match, e.g. SIM_LOG="^loop"
 --   oracle=1         ignore the addon, always ride to the nearest node that is up
 --                    (nobody can know that: the best any route could ever do)
+--   visitlog=0       1 = the visit log on (/gcr visitlog on): it must not change the ride
+--   vlout=<file>     with visitlog=1: append each run's visit log to this file (for tools/visitlog_report.lua)
 --
 -- Model: every spawn point of a kind (e.g. Peacebloom) can hold a node. The
 -- data holds one entry for every sort a spot can grow (Copper, Tin and Silver
@@ -48,6 +50,7 @@ local opts = {
     zone = 1412, mode = "herb", minutes = 60, speed = 11.2, active = 0.35, respawn = 600,
     see = 40, track = 0, arrive = 25, seed = 1, runs = 1, oracle = 0, tune = "",
     dead = 0, skew = 0, warm = 0, skill = 300, goal = "auto", loop = 0, rivals = 0, clock = 0,
+    visitlog = 0, vlout = "",
 }
 for i = 2, #arg do
     local k, v = arg[i]:match("^(%w+)=(.+)$")
@@ -138,6 +141,7 @@ local function RunOnce(seed)
         else ns.RouteTune[k] = tonumber(v) end
     end
     ns.db.debug = false
+    if opts.visitlog == 1 then ns.db.visitLogOn = true end
     -- count every arrival at a spawn point that turned out empty
     local emptyCount = 0
     local Debug = ns.Debug
@@ -441,6 +445,14 @@ local function RunOnce(seed)
     if #h.errors > 0 then
         out("errors:\n")
         for _, e in ipairs(h.errors) do out("  " .. e .. "\n") end
+    end
+    if opts.visitlog == 1 and opts.vlout ~= "" then
+        local f = assert(io.open(opts.vlout, "a"))
+        f:write(("# route_sim zone=%s mode=%s seed=%d respawn=%s active=%s minutes=%s loop=%s rivals=%s entries=%d dropped=%d\n"):format(
+            tostring(opts.zone), opts.mode, seed, tostring(opts.respawn), tostring(opts.active), tostring(opts.minutes), tostring(opts.loop),
+            tostring(opts.rivals), #(ns.db.visitLog or {}), ns.db.visitLogDropped or 0))
+        for _, e in ipairs(ns.db.visitLog or {}) do f:write(e, "\n") end
+        f:close()
     end
     return stats
 end

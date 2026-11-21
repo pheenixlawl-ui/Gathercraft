@@ -51,6 +51,7 @@ Places.lua
 CraftLog.lua
 SkinLog.lua
 DisenchantTest.lua
+VisitLog.lua
 Paths.lua
 Data\StarterData.lua
 Data\QuestieNodes.lua
