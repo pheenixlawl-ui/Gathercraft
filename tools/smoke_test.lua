@@ -28778,7 +28778,32 @@ step("World map pins 0.2.2: the pass every 3 s looks only at the shown ones - no
         Reset()
         ns.PinsUpdateAlpha()
         assert(calls[wa] == 0 and calls[wb] == 0 and calls[wc] == 0, "the map closed again: world map pins looked at")
+        -- 6. your skill changes a colour while the map is closed (rare: a
+        -- skill-up, training): every world map pin takes it at once, shown or not
+        local keepSkill, keepMax = PROFS[2][2], PROFS[2][3]
+        local function Col(pin)
+            local c = pin.ring and pin.ring.__color
+            return c and ("%.2f %.2f %.2f"):format(c[1], c[2], c[3]) or "-"
+        end
+        local okSkill, errSkill = pcall(function()
+            PROFS[2][2], PROFS[2][3] = 1, 300 -- Copper: orange
+            ns.PinsUpdateAlpha()
+            local low = Col(wa)
+            PROFS[2][2] = 200 -- Copper: grey
+            Reset()
+            ns.PinsUpdateAlpha()
+            assert(low ~= "-" and Col(wa) ~= low, "a skill change with the map closed: the hidden pin kept its colour " .. low)
+            assert(calls[wa] == 1 and calls[wb] == 1 and calls[wc] == 1,
+                ("a skill change with the map closed: alpha of the hidden pins %d, %d, %d"):format(calls[wa], calls[wb], calls[wc]))
+            -- the next pass without a change: none again
+            Reset()
+            ns.PinsUpdateAlpha()
+            assert(calls[wa] == 0 and calls[wb] == 0 and calls[wc] == 0, "after the skill change: world map pins still looked at")
+        end)
+        PROFS[2][2], PROFS[2][3] = keepSkill, keepMax
+        ns.PinsUpdateAlpha()
         for f in pairs(calls) do f.SetAlpha = nil end
+        if not okSkill then error(errSkill, 0) end
     end)
     if ns.ClearRouteTarget then ns.ClearRouteTarget() end
     ns.db.nodes[Z] = keep.nodes

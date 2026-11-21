@@ -754,6 +754,9 @@ end
 -- Only the pins that can be seen now: the world map pins shown (none while
 -- the map is closed) and the minimap pins of your zone. A world map pin that
 -- comes into sight gets its colour and alpha then (WorldPinShown).
+-- Only when your skill changed a colour (rare: a skill-up, training, a
+-- profession dropped) do all world map pins, shown or not, take it at once,
+-- as before.
 local greyRebuild = false
 local function UpdateAlpha()
     local changed, greyChanged = CheckSkills()
@@ -766,11 +769,17 @@ local function UpdateAlpha()
             RequestRebuild()
         end)
     end
-    for pin in pairs(worldShown) do
-        -- (the run target's pin keeps its own look: SetAlpha would hide it)
-        if pin.node and not pin.isTarget then
-            if changed then Tint(pin) end
-            SetAlpha(pin)
+    if changed then
+        for _, pins in pairs(pinsByNode) do
+            if pins.world then
+                Tint(pins.world)
+                SetAlpha(pins.world)
+            end
+        end
+    else
+        for pin in pairs(worldShown) do
+            -- (the run target's pin keeps its own look: SetAlpha would hide it)
+            if pin.node and not pin.isTarget then SetAlpha(pin) end
         end
     end
     for m in pairs(miniAll) do
