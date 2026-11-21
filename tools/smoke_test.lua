@@ -28598,9 +28598,9 @@ step("Crafting 0.2.2: a profession's name from the game's list counts by its ski
         local alchemyBefore = Copy(char["Alchemy"])
         ns.db.recipeDB["Angeln"] = { ["Fish Recipe"] = "6303:1:1:0|6256:1" }
         ns.db.recipePending["Kräuterkunde"] = { ["Waiting Herb"] = "0|Item765:1" }
-        -- the game's list of professions in that client
+        -- the game's list of professions in that client; the login reads it
         PROFS[1][1], PROFS[4][1] = "Kräuterkunde", "Angeln"
-        ns.CraftNormalizeAgain()
+        fire("PLAYER_LOGIN") advance(4)
         -- the names count as the professions of their skill lines
         assert(ns.ProfKey("Kräuterkunde") == "Herbalism" and ns.ProfKey("kräuterkunde") == "Herbalism", "Kräuterkunde is " .. tostring(ns.ProfKey("Kräuterkunde")))
         assert(ns.ProfKey("Angeln") == "Fishing", "Angeln is " .. tostring(ns.ProfKey("Angeln")))
@@ -28671,6 +28671,9 @@ step("Crafting 0.2.2: a profession given up leaves the profit list and \"my\" pr
         assert(not l.Leatherworking, "a profession given up is still in the profit list")
         assert(m.Tailoring and l.Tailoring, "a profession in the game's list is not mine")
         assert(m.Alchemy and l.Alchemy, "a profession whose window was read in this session is not mine")
+        -- (the session began with its first login: another login event in it changes nothing)
+        fire("PLAYER_LOGIN") advance(1)
+        assert(Mine().Alchemy, "a second login event of the session: the window read in it no longer counts")
         -- its recipes stay saved; and with only Leatherworking asked for, it is all there
         assert(ns.db.recipes[key].Leatherworking and ns.db.recipes[key].Leatherworking.list["Light Armor Kit"], "the recipes of the one given up were deleted")
         local only = ns.CraftEvaluate("Leatherworking", true)
