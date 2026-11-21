@@ -770,4 +770,6 @@ ns.Locales.deDE = {
     ["Never"] = "Nie",
     ["With Shift: Gathercraft's tooltip on the minimap shows only while you hold Shift. Never: it does not show."] = "Mit Shift: Der Tooltip von Gathercraft auf der Minikarte erscheint nur, solange du Shift hältst. Nie: Er erscheint nicht.",
     ["Learning the nodes you point at works with every setting."] = "Das Lernen der Vorkommen, auf die du zeigst, geht bei jeder Einstellung.",
+    ["  Versions of the players seen (1h): %s"] = "  Versionen der gesehenen Spieler (1 Std.): %s",
+    ["no version heard: %d"] = "keine Version gehört: %d",
 }

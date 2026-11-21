@@ -741,4 +741,6 @@ ns.Locales.koKR = {
     ["Never"] = "안 함",
     ["With Shift: Gathercraft's tooltip on the minimap shows only while you hold Shift. Never: it does not show."] = "Shift 누를 때: 미니맵의 Gathercraft 툴팁은 Shift를 누르고 있는 동안에만 표시됩니다. 안 함: 표시되지 않습니다.",
     ["Learning the nodes you point at works with every setting."] = "가리킨 채집물 배우기는 어떤 설정에서도 작동합니다.",
+    ["  Versions of the players seen (1h): %s"] = "  본 플레이어의 버전 (1시간): %s",
+    ["no version heard: %d"] = "버전 정보 없음: %d",
 }

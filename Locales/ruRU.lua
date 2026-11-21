@@ -741,4 +741,6 @@ ns.Locales.ruRU = {
     ["Never"] = "Никогда",
     ["With Shift: Gathercraft's tooltip on the minimap shows only while you hold Shift. Never: it does not show."] = "С Shift: подсказка Gathercraft на миникарте видна, только пока вы удерживаете Shift. Никогда: она не появляется.",
     ["Learning the nodes you point at works with every setting."] = "Запоминание ресурсов, на которые вы наводите, работает при любой настройке.",
+    ["  Versions of the players seen (1h): %s"] = "  Версии замеченных игроков (1 ч): %s",
+    ["no version heard: %d"] = "версия не получена: %d",
 }

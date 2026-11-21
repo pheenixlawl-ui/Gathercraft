@@ -741,4 +741,6 @@ ns.Locales.zhTW = {
     ["Never"] = "從不",
     ["With Shift: Gathercraft's tooltip on the minimap shows only while you hold Shift. Never: it does not show."] = "按住 Shift：小地圖上的 Gathercraft 提示只在按住 Shift 時顯示。從不：不顯示。",
     ["Learning the nodes you point at works with every setting."] = "學習你指向的採集點在任何設定下都有效。",
+    ["  Versions of the players seen (1h): %s"] = "  看到的玩家的版本（1 小時）：%s",
+    ["no version heard: %d"] = "未收到版本：%d",
 }

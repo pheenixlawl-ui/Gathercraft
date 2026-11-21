@@ -28310,6 +28310,111 @@ step("Sync 0.2.2: at most 4 reporter names per node - the 5th is not kept; push 
     ns.NotifyNodesChanged() advance(1)
     if not ok then error(err, 0) end
 end)
+-- 0.2.2 P1 point 4, d1 (Sync 2.0 analysis of 21.11.2026, part d1): every
+-- client says which Gathercraft it runs - "V:gc<version>", once after it
+-- joined the channel and once per login in the guild, nothing more.
+-- /gcr sync shows the versions of the players of the last hour, and each
+-- player's in the list of the last 8. Old clients leave the message alone:
+-- "V:" is followed by no number (their "^(%u):(%d+)" finds no zone), and a
+-- kind other than N or Q they do not handle (the mixed-version run of
+-- tools/sync_stress.lua shows it with real old clients).
+step("Sync 0.2.2: V:gc<version> once after joining the channel and once per login in the guild; /gcr sync shows the versions of the last hour (0.2.2 P1 d1)", function()
+    local keep = { send = C_ChatInfo.SendAddonMessage, guild = IsInGuild, enabled = ns.db.sync.enabled, public = ns.db.sync.public }
+    local sent = {}
+    local ok, err = pcall(function()
+        C_ChatInfo.SendAddonMessage = function(prefix, msg, chan, target)
+            sent[#sent + 1] = { msg = msg, chan = chan }
+            sentMessages[#sentMessages + 1] = msg
+            return 0
+        end
+        local function V(chan)
+            local k = 0
+            for _, s in ipairs(sent) do
+                if s.msg:sub(1, 2) == "V:" and (not chan or s.chan == chan) then k = k + 1 end
+            end
+            return k
+        end
+        local function Login()
+            wipe(ns.SyncVersionSaid) -- (a login in the game starts afresh)
+            fire("PLAYER_LOGIN") advance(12)
+        end
+        local saidAs = "V:gc" .. C_AddOns.GetAddOnMetadata("Gathercraft", "Version")
+        -- 1. a login, in a guild, the public channel on: one to the channel, one to the guild
+        ns.db.sync.enabled, ns.db.sync.public = true, true
+        IsInGuild = function() return true end
+        Login()
+        assert(V("CHANNEL") == 1 and V("GUILD") == 1, ("a login: %d to the channel, %d to the guild"):format(V("CHANNEL"), V("GUILD")))
+        for _, s in ipairs(sent) do
+            if s.msg:sub(1, 2) == "V:" then assert(s.msg == saidAs, "the message is " .. s.msg) end
+        end
+        -- old clients: no zone in it ("^(%u):(%d+)"), and short
+        assert(not saidAs:match("^(%u):(%d+)") and #saidAs <= 255, "an old client reads a zone from " .. saidAs)
+        -- 2. the same session: a second login event, /gcr sync on - nothing more
+        fire("PLAYER_LOGIN") advance(12)
+        ns.SyncCommand("on") advance(3)
+        assert(V() == 2, ("said again within the session: %d messages"):format(V()))
+        -- 3. the channel left and joined again: once more to the channel
+        ns.SyncCommand("public") advance(1)
+        ns.SyncCommand("public") advance(3)
+        assert(V("CHANNEL") == 2 and V("GUILD") == 1, ("joined again: %d to the channel, %d to the guild"):format(V("CHANNEL"), V("GUILD")))
+        -- 4. no guild: only the channel; channel off: only the guild; sync off: nothing
+        local before = { c = V("CHANNEL"), g = V("GUILD") }
+        IsInGuild = function() return false end
+        Login()
+        assert(V("CHANNEL") == before.c + 1 and V("GUILD") == before.g, "no guild: not just one to the channel")
+        IsInGuild = function() return true end
+        ns.db.sync.public = false
+        before = { c = V("CHANNEL"), g = V("GUILD") }
+        Login()
+        assert(V("CHANNEL") == before.c and V("GUILD") == before.g + 1, "channel off: not just one to the guild")
+        ns.db.sync.public, ns.db.sync.enabled = true, false
+        before = V()
+        Login()
+        assert(V() == before, "sync off: a version was sent")
+        ns.db.sync.enabled = true
+        Login()
+
+        -- 5. heard from others: their versions in /gcr sync; a bad one is not taken
+        local function Msg(text, who) fire("CHAT_MSG_ADDON", "Gathercraft", text, "CHANNEL", who, nil, nil, nil, "GathercraftSync") advance(1) end
+        Msg("N:1412;o1617,h,4458,7168,2447", "Vers Ann")
+        Msg("V:gc0.2.2-a1", "Vers Ann")
+        Msg("V:gc0.2.2-a1", "Vers Bob")
+        Msg("V:gc0.2.3", "Vers Cid")
+        Msg("Q:1412:10", "Vers Dan") -- no version heard
+        Msg("V:gc0.2.2|cffff0000red", "Vers Eve") -- not a version
+        Msg("V:gc" .. ("9"):rep(30), "Vers Fay") -- too long
+        Msg("V:0.2.2", "Vers Gus") -- without gc
+        local mark = #log
+        slash("sync")
+        local said = {}
+        for i = mark + 1, #log do said[#said + 1] = log[i] end
+        local all = table.concat(said, "\n")
+        local head = (ns.L["  Versions of the players seen (1h): %s"]):match("^(.-)%%s")
+        local line
+        for _, l in ipairs(said) do if l:find(head, 1, true) then line = l end end
+        assert(line, "/gcr sync shows no versions line")
+        assert(line:find("0.2.2-a1: 2", 1, true) and line:find("0.2.3: 1", 1, true), "the versions line: " .. line)
+        assert(line:find((ns.L["no version heard: %d"]):match("^(.-)%%d"), 1, true), "the versions line says nothing of the players without one: " .. line)
+        assert(not line:find("|cff", 1, true) and not line:find("9999999999", 1, true) and not line:find("0.2.2: ", 1, true), "a bad version was taken: " .. line)
+        -- the list of the last 8: each player with his version, "-" without one
+        local function Row(name)
+            for _, l in ipairs(said) do if l:find(name, 1, true) then return l end end
+        end
+        assert(Row("Vers Ann") and Row("Vers Ann"):sub(-#" 0.2.2-a1") == " 0.2.2-a1", "Ann's row: " .. tostring(Row("Vers Ann")))
+        assert(Row("Vers Dan") and Row("Vers Dan"):sub(-2) == " -", "Dan's row: " .. tostring(Row("Vers Dan")))
+        -- the version message did not move Ann to another zone
+        assert(Row("Vers Ann"):find(ns.GetZoneName(1412), 1, true), "Ann's zone after her version: " .. Row("Vers Ann"))
+        -- every language has the texts
+        for lang, d in pairs(ns.Locales) do
+            for _, key in ipairs({ "  Versions of the players seen (1h): %s", "no version heard: %d" }) do
+                assert(d[key] and d[key] ~= key, lang .. ": not translated: " .. key)
+            end
+        end
+    end)
+    C_ChatInfo.SendAddonMessage, IsInGuild = keep.send, keep.guild
+    ns.db.sync.enabled, ns.db.sync.public = keep.enabled, keep.public
+    if not ok then error(err, 0) end
+end)
 step("Long run (10 min) for leaks", function() slash("run herb") advance(600) slash("stop") end)
 step("Test mock: OnUpdate runs for the same frames in the same order as going over every frame (tools only)", function()
     -- The mock's advance() goes over the frames that have an OnUpdate only

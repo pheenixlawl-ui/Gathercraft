@@ -741,4 +741,6 @@ ns.Locales.frFR = {
     ["Never"] = "Jamais",
     ["With Shift: Gathercraft's tooltip on the minimap shows only while you hold Shift. Never: it does not show."] = "Avec Maj : l'infobulle de Gathercraft sur la minicarte n'apparaît que tant que vous maintenez Maj. Jamais : elle n'apparaît pas.",
     ["Learning the nodes you point at works with every setting."] = "L'apprentissage des ressources pointées fonctionne avec chaque réglage.",
+    ["  Versions of the players seen (1h): %s"] = "  Versions des joueurs vus (1 h) : %s",
+    ["no version heard: %d"] = "aucune version reçue : %d",
 }

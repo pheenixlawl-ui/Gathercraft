@@ -22,6 +22,7 @@ local L = ns.L or setmetatable({}, { __index = function(_, k) return k end })
 --   Messages (prefix "Gathercraft"):
 --     N:<mapID>;<id>,<h|o>,<x>,<y>,<item>;...   nodes (x/y = 0..10000)
 --     Q:<mapID>:<count>                          "I know <count> nodes here, who has more?"
+--     V:gc<version>                              "I run Gathercraft <version>" (0.2.2 d1, see SayVersion)
 ---------------------------------------------------------------------------
 local PREFIX = "Gathercraft"
 local CHANNEL = "GathercraftSync"
@@ -72,6 +73,7 @@ local QUEUE_MAX = 60          -- outgoing messages waiting at most (about a minu
 local QUEUE_ANSWER_MAX = 20   -- answers to zone queries only while fewer than this wait
 local MAX_ITEM_ID = 2 ^ 31 - 1
 local JOIN_DELAY = 8          -- seconds after login (let General/Trade join first)
+local VERSION_MAX = 24        -- characters of a version a player may send (V:gc<version>)
 
 local TYPE_CODE = { herb = "h", ore = "o", chest = "c" }
 local CODE_TYPE = { h = "herb", o = "ore", c = "chest" }
@@ -222,6 +224,28 @@ local function Enqueue(text, target, answer)
     queue[#queue + 1] = { text = text, target = target, answer = answer }
     return true
 end
+
+-- Which Gathercraft the players run (0.2.2 d1; Sync 2.0 analysis of
+-- 21.11.2026): one message "V:gc<version>" after joining the channel, and
+-- one per login in the guild - nothing more. A kind of its own, never a
+-- token on N: an old client counts every ";..." of an N message as a node,
+-- and a push with two parts would look like an answer to it (AnswerHeard).
+-- The "gc" is on purpose: old clients read "^(%u):(%d+)" and would take a
+-- number right after "V:" for the zone of the player. A kind other than N
+-- or Q they leave alone. The version heard is kept per player in memory
+-- only, with the other things of the last hour (/gcr sync).
+local versionSaid = {} -- "channel" / "guild" -> true once said (this join, this login)
+local function OwnVersion()
+    local v = (C_AddOns and C_AddOns.GetAddOnMetadata and C_AddOns.GetAddOnMetadata(ADDON_NAME, "Version"))
+        or (GetAddOnMetadata and GetAddOnMetadata(ADDON_NAME, "Version"))
+    if type(v) ~= "string" or ns.AnySecret("sync version", v) or #v > VERSION_MAX or not v:match("^[%w%.%-]+$") then return end
+    return v
+end
+local function SayVersion(target)
+    local v = OwnVersion()
+    if v then Enqueue("V:gc" .. v, target) end
+end
+ns.SyncVersionSaid = versionSaid -- (the tests: a new login starts with nothing said)
 
 -- Our answer to a zone question goes out packet by packet, and before every
 -- packet it is asked again whether enough others answer (v0.1.22 S2; Sven's
@@ -1070,6 +1094,11 @@ local function Receive(prefix, text, distribution, sender, dry)
         OnNodes(body, sender, not dry and IsTrusted(sender, distribution), dry)
     elseif kind == "Q" and not dry then
         OnQuery(body, sender, distribution)
+    elseif kind == "V" and not dry then
+        -- the player's version (see SayVersion): plain letters, digits, "." and "-"
+        local v = body:match("^gc([%w%.%-]+)$")
+        local peer = stats.peers[ShortName(sender)]
+        if v and #v <= VERSION_MAX and peer then peer.version = v end
     end
 end
 
@@ -1153,6 +1182,11 @@ local function JoinChannel()
     channelID = id
     HideChannelFromChat()
     Debug("channel " .. CHANNEL .. " = " .. tostring(channelID))
+    -- once after joining: which Gathercraft this is (0.2.2 d1)
+    if channelID and channelID > 0 and not versionSaid.channel then
+        versionSaid.channel = true
+        SayVersion("CHANNEL")
+    end
 end
 
 local function LeaveChannel()
@@ -1160,6 +1194,7 @@ local function LeaveChannel()
         LeaveChannelByName(CHANNEL)
     end
     channelID = nil
+    versionSaid.channel = nil -- (joined again: said again)
 end
 
 local function CurrentZoneQuery()
@@ -1220,14 +1255,27 @@ local function Status()
     print((L["  Not sent (already known): %d   Not sent (busy): %d   Dropped (budget): %d"]):format(
         stats.skippedKnown, stats.skippedBusy, stats.dropped))
     print((L["  Confirmations needed: %d (guild and friends count instantly)"]):format(CONFIRMATIONS))
+    -- the versions of the players of the last hour (0.2.2 d1): a player's
+    -- version is heard once, when he joins - who was online before you, or
+    -- runs a version before 0.2.2, is "no version heard"
+    local versions, unheard, parts = {}, 0, {}
+    for _, r in ipairs(recent) do
+        if r.p.version then versions[r.p.version] = (versions[r.p.version] or 0) + 1 else unheard = unheard + 1 end
+    end
+    local order = {}
+    for v, n in pairs(versions) do order[#order + 1] = { v = v, n = n } end
+    table.sort(order, function(a, b) if a.n ~= b.n then return a.n > b.n end return a.v > b.v end)
+    for _, e in ipairs(order) do parts[#parts + 1] = ("%s: %d"):format(e.v, e.n) end
+    parts[#parts + 1] = (L["no version heard: %d"]):format(unheard)
+    print((L["  Versions of the players seen (1h): %s"]):format(table.concat(parts, " · ")))
     -- who was active where: tells whether someone shared nodes or only asked
     for i = 1, math.min(8, #recent) do
         local r = recent[i]
         local zone = r.p.map and ns.GetZoneName and ns.GetZoneName(r.p.map) or "?"
         local what = (r.p.nodes > 0 and (L["%d nodes shared"]):format(r.p.nodes))
             or (r.p.asked > 0 and L["only asked for nodes"]) or "-"
-        print(("  |cffffd100%s|r  %s  ·  %s  ·  %d min"):format(r.name, zone, what,
-            math.floor((now - r.p.t) / 60)))
+        print(("  |cffffd100%s|r  %s  ·  %s  ·  %d min  ·  %s"):format(r.name, zone, what,
+            math.floor((now - r.p.t) / 60), r.p.version or "-"))
     end
 end
 
@@ -1335,6 +1383,11 @@ frame:SetScript("OnEvent", function(self, event, ...)
         end
         C_Timer.After(JOIN_DELAY, function()
             JoinChannel()
+            -- once per login in the guild: which Gathercraft this is (0.2.2 d1)
+            if DB().enabled and IsInGuild() and not versionSaid.guild then
+                versionSaid.guild = true
+                SayVersion("GUILD")
+            end
             C_Timer.After(2, CurrentZoneQuery)
         end)
     elseif event == "CHAT_MSG_ADDON" then

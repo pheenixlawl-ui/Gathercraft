@@ -206,9 +206,21 @@ local addonRandom
 ---------------------------------------------------------------------------
 -- One simulated player = one addon instance in its own environment
 ---------------------------------------------------------------------------
-local sharedData = {} -- Data/*.lua, loaded once for all players
-local function NewClient(name, guild)
-    local c = { name = name, fullName = name .. "-Forever", guild = guild, online = false, cpu = 0, recvCalls = 0, out = {} }
+local sharedData = {} -- Data/*.lua, loaded once for all players (of one folder)
+-- The version in a folder's TOC (what the client says it runs)
+local tocVersion = {}
+local function TocVersion(root)
+    if tocVersion[root] == nil then
+        local toc = io.open(root .. "/Gathercraft.toc"):read("*a")
+        tocVersion[root] = toc:match("## Version: ([%w%.%-]+)") or "0.1.0"
+    end
+    return tocVersion[root]
+end
+-- root: the Gathercraft folder this player runs (scenario "mixed": an older
+-- version for some of them); ROOT when not given
+local function NewClient(name, guild, root)
+    root = root or ROOT
+    local c = { name = name, fullName = name .. "-Forever", guild = guild, online = false, cpu = 0, recvCalls = 0, out = {}, root = root }
     local E = setmetatable({}, { __index = _G })
     E._G = E
     local player = { map = ZONE, x = 0.5, y = 0.5 }
@@ -259,7 +271,7 @@ local function NewClient(name, guild)
     E.LeaveChannelByName = function() end
     E.ChatFrame_RemoveChannel = function() end
     E.RaidNotice_AddMessage = function() end
-    E.GetAddOnMetadata = function() return "0.1.0" end
+    E.GetAddOnMetadata = function(_, field) if field == "Version" then return TocVersion(root) end return "0.1.0" end
     E.C_AddOns = { GetAddOnMetadata = E.GetAddOnMetadata }
     E.GetPlayerFacing = function() return 0 end
     E.UnitName = function(u) return u == "player" and name or "Mob" end
@@ -432,22 +444,22 @@ local function NewClient(name, guild)
             return debug(text, ...)
         end
     end
-    local toc = io.open(ROOT .. "/Gathercraft.toc"):read("*a")
+    local toc = io.open(root .. "/Gathercraft.toc"):read("*a")
     for line in toc:gmatch("[^\r\n]+") do
         if line:match("^Data") and line:match("%.lua$") and not line:match("QuestieNodes") then
             -- data files only set read-only globals: load them once and share
             -- them (thousands of players fit into memory)
-            local data = sharedData[line]
+            local data = sharedData[root .. "|" .. line]
             if not data then
                 data = {}
-                local chunk = assert(loadfile(ROOT .. "/" .. line:gsub("\\", "/")))
+                local chunk = assert(loadfile(root .. "/" .. line:gsub("\\", "/")))
                 setfenv(chunk, setmetatable(data, { __index = _G }))
                 chunk("Gathercraft", {})
-                sharedData[line] = data
+                sharedData[root .. "|" .. line] = data
             end
             for k, v in pairs(data) do E[k] = v end
         elseif not line:match("^#") and line:match("%.lua$") and not line:match("^Libs") and not line:match("QuestieNodes") then
-            local chunk = assert(loadfile(ROOT .. "/" .. line:gsub("\\", "/")))
+            local chunk = assert(loadfile(root .. "/" .. line:gsub("\\", "/")))
             setfenv(chunk, E)
             local ok, e = pcall(chunk, "Gathercraft", ns)
             if not ok then addError("load " .. line .. ": " .. tostring(e)) end
@@ -522,7 +534,7 @@ end
 -- v0.1.13 had 97 / 99 / 96 %; a recorder that dropped your own gathers of
 -- nodes that came from sync (0.1.14 before the fix) had 51 / 18 / 35 %.
 -- The realm floor is lower: 800 players in 5 min leave the last ones less time.
-local KNOWN_FLOOR = { ["Normal evening"] = 90, ["Launch day rush"] = 90, ["Whole realm in one zone"] = 85 }
+local KNOWN_FLOOR = { ["Normal evening"] = 90, ["Launch day rush"] = 90, ["Whole realm in one zone"] = 85, ["Mixed versions"] = 90 }
 
 local function Report(title, duration, extra)
     local online = {}
@@ -587,10 +599,11 @@ local function Reset()
 end
 
 -- Players log in spread over `spread` seconds, then gather every `every` seconds (random +-50%)
-local function Populate(count, spread, every, freshShare)
+-- rootOf(i): the folder player i runs (scenario "mixed"), nil = ROOT
+local function Populate(count, spread, every, freshShare, rootOf)
     for i = 1, count do
         local guild = (i % 4 ~= 0) and ("G" .. math.floor(i / 10)) or nil
-        local c = NewClient("P" .. i, guild)
+        local c = NewClient("P" .. i, guild, rootOf and rootOf(i))
         clients[#clients + 1] = c
         hpush({ at = NOW + wrandom() * spread, fn = function()
             Login(c)
@@ -645,6 +658,70 @@ scenarios.normal = function()
             sum = sum + k / fresh
         end
         print(("  Late joiners (logged in at minute 25, no guild): know %.0f%% of the new nodes after 5 min"):format(sum / #late * 100))
+    end)
+end
+
+-- 0.2.2 P1 d1: an evening like "normal", every second player with an older
+-- Gathercraft (GC_OLD_ROOT = its folder, e.g. an export of v0.2.1). The new
+-- ones say their version ("V:gc<version>") once after joining; the old ones
+-- must leave it alone: no error, and sharing works as before for both (the
+-- floor of "normal" for each). The new ones hear only new ones' versions.
+scenarios.mixed = function()
+    local OLD = os.getenv("GC_OLD_ROOT")
+    if not OLD or OLD == "" then
+        print("\n=== Mixed versions: skipped (GC_OLD_ROOT = the folder of an older Gathercraft) ===")
+        return
+    end
+    Reset()
+    Seed(1)
+    MakeFreshNodes(60)
+    local function RootOf(i) return (i % 2 == 1) and OLD or nil end
+    Populate(40, 120, 60, 0.3, RootOf)
+    runUntil(NOW + 25 * 60)
+    for i = 1, 6 do
+        local c = NewClient("Late" .. i, nil, RootOf(i))
+        clients[#clients + 1] = c
+        Login(c)
+    end
+    runUntil(NOW + 5 * 60)
+    local newVersion, oldVersion = TocVersion(ROOT), TocVersion(OLD)
+    Report("Mixed versions", 30 * 60, function(online)
+        local groups = { old = {}, new = {} }
+        for _, c in ipairs(online) do table.insert(c.root == OLD and groups.old or groups.new, c) end
+        local fresh = 0
+        for _, s in ipairs(freshNodes) do if s.gathered then fresh = fresh + 1 end end
+        for key, list in pairs(groups) do
+            local sum = 0
+            for _, c in ipairs(list) do
+                local k = 0
+                for _, s in ipairs(freshNodes) do if s.gathered and Knows(c, s) then k = k + 1 end end
+                sum = sum + k / math.max(1, fresh)
+            end
+            local share = #list > 0 and sum / #list * 100 or 0
+            print(("  %s clients (%s): %d online, know %.0f%% of the new nodes on average"):format(key == "old" and "Old" or "New",
+                key == "old" and oldVersion or newVersion, #list, share))
+            if share < KNOWN_FLOOR["Mixed versions"] then
+                addError(("Mixed versions: the %s clients know %.0f%% of the new nodes, the floor is %d%%"):format(key, share, KNOWN_FLOOR["Mixed versions"]))
+            end
+        end
+        -- what the new ones heard: versions of new players only, never one of an old player
+        local most, wrong = 0, 0
+        for _, c in ipairs(groups.new) do
+            c.out = {}
+            c.ns.SyncCommand("")
+            local line
+            for _, l in ipairs(c.out) do if l:find("Versions of the players seen", 1, true) then line = l end end
+            if not line then
+                addError("Mixed versions: " .. c.name .. " shows no versions line")
+            else
+                for v, n in line:gmatch("([%w%.%-]+): (%d+)") do
+                    if v == newVersion then most = math.max(most, tonumber(n)) elseif v ~= "heard" then wrong = wrong + tonumber(n) end
+                end
+            end
+        end
+        print(("  Versions heard by the new clients: at most %d of the %d other new players, %d of another version"):format(most, #groups.new - 1, wrong))
+        if most < 1 or most > #groups.new - 1 then addError(("Mixed versions: a new client heard %d versions of %d other new players"):format(most, #groups.new - 1)) end
+        if wrong > 0 then addError(("Mixed versions: %d versions heard that no client sent"):format(wrong)) end
     end)
 end
 
@@ -1030,7 +1107,7 @@ scenarios.echo = function()
     EchoCase("Echo: 3 start together, nobody hears himself", 3, 120, "missing")
 end
 
-local order = { "fuzz", "normal", "attack", "launch", "mega", "mega3k", "answers", "echo" }
+local order = { "fuzz", "normal", "mixed", "attack", "launch", "mega", "mega3k", "answers", "echo" }
 for _, name in ipairs(order) do
     if (ONLY == "all" and name ~= "mega3k") or ONLY == name then
         local t0 = os.clock()

@@ -741,4 +741,6 @@ ns.Locales.ptBR = {
     ["Never"] = "Nunca",
     ["With Shift: Gathercraft's tooltip on the minimap shows only while you hold Shift. Never: it does not show."] = "Com Shift: a dica do Gathercraft no minimapa só aparece enquanto você segura Shift. Nunca: ela não aparece.",
     ["Learning the nodes you point at works with every setting."] = "Aprender os nós que você aponta funciona com qualquer configuração.",
+    ["  Versions of the players seen (1h): %s"] = "  Versões dos jogadores vistos (1 h): %s",
+    ["no version heard: %d"] = "nenhuma versão recebida: %d",
 }

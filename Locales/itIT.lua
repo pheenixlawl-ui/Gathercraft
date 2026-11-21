@@ -741,4 +741,6 @@ ns.Locales.itIT = {
     ["Never"] = "Mai",
     ["With Shift: Gathercraft's tooltip on the minimap shows only while you hold Shift. Never: it does not show."] = "Con Maiusc: il tooltip di Gathercraft sulla minimappa compare solo mentre tieni premuto Maiusc. Mai: non compare.",
     ["Learning the nodes you point at works with every setting."] = "Imparare i nodi che indichi funziona con ogni impostazione.",
+    ["  Versions of the players seen (1h): %s"] = "  Versioni dei giocatori visti (1 h): %s",
+    ["no version heard: %d"] = "nessuna versione ricevuta: %d",
 }
