@@ -27487,6 +27487,8 @@ step("World map pins 0.2.2: the tooltip always or only with Shift - without Shif
         ns.SetRouteTarget(Z, herb)
         local tw, tm = ns.RouteTargetPins()
         assert(tw and tm, "test setup: no run target pins")
+        -- (right as it is placed, before the map shows it: counter-probe P1e)
+        assert(not tw:IsMouseEnabled(), "With Shift: the run target's pin takes the mouse as it is placed")
         tw:Hide() tw:Show()
         assert(not tw:IsMouseEnabled(), "With Shift: the run target's pin takes the mouse without Shift")
         Press(true)
@@ -27502,7 +27504,9 @@ step("World map pins 0.2.2: the tooltip always or only with Shift - without Shif
             end
         end
 
-        -- 8. kept over a login; the event again only while chosen
+        -- 8. kept over a /reload: the game forgets every registered event,
+        -- the login registers it again while chosen (counter-probe P1h)
+        eventFrames.MODIFIER_STATE_CHANGED = nil
         fire("PLAYER_LOGIN") advance(2)
         assert(ns.db.worldPinTip == "shift" and Watching(), "after a login: With Shift is gone, or nothing watches Shift")
 
