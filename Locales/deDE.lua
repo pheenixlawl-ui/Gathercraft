@@ -762,4 +762,8 @@ ns.Locales.deDE = {
     ["Trainer on another continent: %s (%s)"] = "Lehrer auf einem anderen Kontinent: %s (%s)",
     ["May not teach this rank."] = "Bildet diesen Rang vielleicht nicht aus.",
     ["Place from the Questie database: the NPC may not be there right now."] = "Ort aus der Questie-Datenbank: Der NPC steht vielleicht gerade nicht dort.",
+    ["World map tooltip"] = "Weltkarten-Tooltip",
+    ["Always"] = "Immer",
+    ["With Shift"] = "Mit Shift",
+    ["With Shift: the pins let the mouse through to what lies below them, such as quest symbols. Hold Shift to point at a pin."] = "Mit Shift: Die Symbole lassen die Maus zu dem durch, was darunter liegt, etwa zu Quest-Markierungen. Halte Shift, um auf ein Symbol zu zeigen.",
 }

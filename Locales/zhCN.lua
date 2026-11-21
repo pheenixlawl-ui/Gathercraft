@@ -733,4 +733,8 @@ ns.Locales.zhCN = {
     ["Trainer on another continent: %s (%s)"] = "另一大陆上的训练师：%s（%s）",
     ["May not teach this rank."] = "可能不教授这一级。",
     ["Place from the Questie database: the NPC may not be there right now."] = "位置来自Questie数据库：该NPC现在可能不在那里。",
+    ["World map tooltip"] = "世界地图提示",
+    ["Always"] = "始终",
+    ["With Shift"] = "按住 Shift",
+    ["With Shift: the pins let the mouse through to what lies below them, such as quest symbols. Hold Shift to point at a pin."] = "按住 Shift：图标让鼠标穿过，指向其下方的内容，例如任务标记。按住 Shift 即可指向图标。",
 }

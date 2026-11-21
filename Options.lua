@@ -722,6 +722,74 @@ local function AddMiniAlpha()
     nextY = nextY - 30
 end
 
+-- A row < value > of a few named choices (0.2.2: the tooltip rows of Map &
+-- minimap). list: { { code = ..., name = "..." }, ... }, the first is the
+-- default; get() returns the code now, set(code) saves it; lines: the keys
+-- of the explanation in its tooltip.
+local choiceRows = {} -- each shows its value (Refresh)
+local function AddChoice(labelKey, list, get, set, lines)
+    local label = page:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    label:SetPoint("TOPLEFT", colX + 6, nextY - 4)
+    ns.LText(label, labelKey)
+    fitLabels[#fitLabels + 1] = label
+
+    local minus = CreateFrame("Button", nil, page, "UIPanelButtonTemplate")
+    minus:SetSize(24, 20)
+    minus:SetPoint("TOPLEFT", colX + CONTROL_X, nextY)
+    minus:SetText("<")
+
+    local value = page:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    value:SetPoint("LEFT", minus, "RIGHT", 6, 0)
+    value:SetWidth(VALUE_W)
+
+    local plus = CreateFrame("Button", nil, page, "UIPanelButtonTemplate")
+    plus:SetSize(24, 20)
+    plus:SetPoint("LEFT", value, "RIGHT", 6, 0)
+    plus:SetText(">")
+
+    local function Index()
+        local code = get()
+        for i, c in ipairs(list) do if c.code == code then return i end end
+        return 1
+    end
+    local function Tip(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:AddLine(L[labelKey], 1, 0.82, 0)
+        for _, key in ipairs(lines) do GameTooltip:AddLine(L[key], 1, 1, 1, true) end
+        GameTooltip:Show()
+    end
+    local function Change(self)
+        local i = Index() + (self == minus and -1 or 1)
+        if i < 1 then i = #list elseif i > #list then i = 1 end
+        set(list[i].code)
+        options:Refresh()
+        if GameTooltip:IsOwned(minus) or GameTooltip:IsOwned(plus) then Tip(GameTooltip:IsOwned(minus) and minus or plus) end
+    end
+    minus:SetScript("OnClick", Change)
+    plus:SetScript("OnClick", Change)
+    for _, b in ipairs({ minus, plus }) do
+        b:SetScript("OnEnter", Tip)
+        b:SetScript("OnLeave", GameTooltip_Hide)
+    end
+    choiceRows[#choiceRows + 1] = function() value:SetText(L[list[Index()].name]) end
+    nextY = nextY - 30
+end
+
+-- World map pins: their tooltip < Always | With Shift > (0.2.2 P1, Pins.lua)
+local WORLD_TIPS = {
+    { name = "Always" },
+    { code = "shift", name = "With Shift" },
+}
+local function AddWorldTip()
+    AddChoice("World map tooltip", WORLD_TIPS,
+        function() return ns.db.worldPinTip == "shift" and "shift" or nil end,
+        function(code)
+            ns.db.worldPinTip = code
+            if ns.WorldPinTipChanged then ns.WorldPinTipChanged() end
+        end,
+        { "With Shift: the pins let the mouse through to what lies below them, such as quest symbols. Hold Shift to point at a pin." })
+end
+
 -- Route line look: a color swatch (click: next, right-click: back) and < style >
 local lineSwatch, lineStyleText
 local function Cycle(list, code, delta)
@@ -885,6 +953,7 @@ function options:Refresh()
     if pinSizeText then
         pinSizeText:SetText(tostring(ns.db.pinSize or PIN_SIZE_DEFAULT))
     end
+    for _, show in ipairs(choiceRows) do show() end
     if languageText then
         local name = ns.db.language or "auto"
         for _, lang in ipairs(ns.LANGUAGES) do
@@ -961,6 +1030,7 @@ local function Build()
     AddMiniStyle()
     AddMiniAlpha()
     AddPinSize()
+    AddWorldTip() -- (0.2.2 P1)
 
     Section("runs")
     AddRouteMode()

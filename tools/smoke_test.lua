@@ -27282,9 +27282,14 @@ step("Options 0.2.2: the questing block is under Leveling - its rows flow in eve
                 end
             end
         end
-        -- Map & minimap: room for two rows of buttons (30 px each)
-        local used = ns.OptionsUsedHeight()
-        assert(used.map <= ROOM - 2 * 30, ("Map & minimap goes down to %d px of %d: no room for two rows"):format(used.map, ROOM))
+        -- Map & minimap: room for the two tooltip rows (30 px each), the
+        -- ones there already counted in
+        local used, there = ns.OptionsUsedHeight(), 0
+        for _, key in ipairs({ "World map tooltip", "Minimap tooltip" }) do
+            local fs = Label(key)
+            if fs and PageOf(fs) == "map" then there = there + 1 end
+        end
+        assert(used.map + (2 - there) * 30 <= ROOM, ("Map & minimap goes down to %d px of %d: no room for the %d tooltip rows still to come"):format(used.map, ROOM, 2 - there))
         -- the radius row hangs on a holder: its label and its < button
         local radius = Label(RADIUS)
         local holder = radius.__pts.TOPLEFT[1]
@@ -27346,6 +27351,190 @@ step("Options 0.2.2: the questing block is under Leveling - its rows flow in eve
     ns.ShowOptionsSection(saved.section)
     opts:Refresh()
     assert(ok, err)
+end)
+-- 0.2.2 P1 point 1 (a CurseForge comment, 21.11.2026): our world map pins
+-- lie on quest symbols and take the mouse from them. Options > Map &
+-- minimap: "World map tooltip < Always | With Shift >". Always is the
+-- default, as before. With Shift: without Shift a world map pin takes no
+-- mouse - what lies below it gets it -, with Shift held as before; the run
+-- target's pin too. A Shift press switches only the shown pins, from the
+-- game's MODIFIER_STATE_CHANGED, which is registered only while "With
+-- Shift" is chosen. Minimap pins never take the mouse, either way.
+step("World map pins 0.2.2: the tooltip always or only with Shift - without Shift the mouse goes through; Shift as before; the run target too (0.2.2 P1)", function()
+    local Z = 1439
+    local opts = _G.GathercraftOptions
+    local ROOM = 640 - 112 - 18 - 4 - 66
+    local keep = { nodes = ns.db.nodes[Z], tip = ns.db.worldPinTip, shift = IsShiftKeyDown, owner = rawget(GameTooltip, "GetOwner"),
+        hide = rawget(GameTooltip, "Hide"), section = ns.db.optionsSection }
+    local ok, err = pcall(function()
+        local function Watching()
+            for _ in pairs(eventFrames.MODIFIER_STATE_CHANGED or {}) do return true end
+            return false
+        end
+        local shift = false
+        IsShiftKeyDown = function() return shift end
+        local function Press(down, key)
+            shift = down
+            fire("MODIFIER_STATE_CHANGED", key or "LSHIFT", down and 1 or 0)
+        end
+        ns.db.worldPinTip = nil
+        ns.WorldPinTipChanged()
+        local herb = { id = "o1617", name = "Silverleaf", type = "herb", x = 0.30, y = 0.40, count = 1, last = 1 }
+        local ore = { id = "o1731", name = "Copper Vein", type = "ore", x = 0.60, y = 0.40, count = 1, last = 1 }
+        ns.db.nodes[Z] = { herb }
+        ns.NotifyNodesChanged() advance(1)
+        -- the newest world map pin of a node (pins are made again and reused)
+        local function World(n)
+            local found
+            for _, f in ipairs(allFrames) do
+                if f.node == n and f.isWorld and not f.isTarget then found = f end
+            end
+            return found
+        end
+        local pin = World(herb)
+        assert(pin, "test setup: no world map pin for the herb")
+        -- HereBeDragons shows it when the map opens (not the mock)
+        pin:Hide() pin:Show()
+
+        -- 1. as before: the pin takes the mouse, nothing watches Shift
+        assert(pin:IsMouseEnabled(), "Always: the world map pin takes no mouse")
+        assert(not Watching(), "Always: something watches the Shift key (MODIFIER_STATE_CHANGED registered)")
+        Press(true) Press(false)
+        assert(pin:IsMouseEnabled(), "Always: a Shift press took the mouse from the pin")
+
+        -- 2. the row under Map & minimap: < Always | With Shift >
+        ns.ShowOptionsSection("map")
+        opts:Refresh()
+        local label, value, minus, plus
+        for _, o in ipairs(allFrames) do
+            if o.__kind == "FontString" and o.__text == ns.L["World map tooltip"] and o.__pts and o.__pts.TOPLEFT then label = o end
+        end
+        assert(label, "no row 'World map tooltip' in the options")
+        local p = label.__parent
+        while p and not p.key do p = p.__parent end
+        assert(p and p.key == "map", "the row is not under Map & minimap")
+        local y = label.__pts.TOPLEFT[2] + 4
+        for _, o in ipairs(allFrames) do
+            if o.__kind == "Button" and o.__parent == label.__parent and o.__pts and o.__pts.TOPLEFT and o.__pts.TOPLEFT[2] == y then minus = o end
+        end
+        assert(minus, "test setup: the < button of the row")
+        for _, o in ipairs(allFrames) do
+            if o.__kind == "FontString" and o.__pts and o.__pts.LEFT and o.__pts.LEFT[1] == minus then value = o end
+        end
+        for _, o in ipairs(allFrames) do
+            if o.__kind == "Button" and value and o.__pts and o.__pts.LEFT and o.__pts.LEFT[1] == value then plus = o end
+        end
+        assert(value and plus, "test setup: the value and the > button of the row")
+        assert(value:GetText() == ns.L["Always"], "the row does not show Always by default: " .. tostring(value:GetText()))
+        assert(pcall(minus.__scripts.OnEnter, minus), "the row's tooltip")
+        plus.__scripts.OnClick(plus)
+        assert(ns.db.worldPinTip == "shift" and value:GetText() == ns.L["With Shift"], "> does not choose With Shift: " .. tostring(ns.db.worldPinTip))
+        assert(Watching(), "With Shift: nothing watches the Shift key")
+
+        -- 3. With Shift: the shown pin lets the mouse through ...
+        assert(not pin:IsMouseEnabled(), "With Shift, no Shift held: the pin still takes the mouse")
+        -- ... Shift held: it takes it, its tooltip shows as before
+        Press(true)
+        assert(pin:IsMouseEnabled(), "Shift held: the pin takes no mouse")
+        local mark = #log
+        pin.__scripts.OnEnter(pin)
+        local named = false
+        for i = mark + 1, #log do if log[i] == "TT " .. herb.name then named = true end end
+        assert(named, "Shift held: the pin's tooltip does not name the herb")
+        -- ... Shift let go while its tooltip shows: the mouse goes through, the tooltip goes
+        local hidden = 0
+        GameTooltip.GetOwner = function() return pin end
+        GameTooltip.Hide = function() hidden = hidden + 1 end
+        Press(false)
+        assert(not pin:IsMouseEnabled(), "Shift let go: the pin still takes the mouse")
+        assert(hidden >= 1, "Shift let go: the pin's tooltip stays")
+        GameTooltip.GetOwner, GameTooltip.Hide = keep.owner, keep.hide
+        -- the right Shift too; another key changes nothing
+        Press(true, "RSHIFT")
+        assert(pin:IsMouseEnabled(), "right Shift held: the pin takes no mouse")
+        Press(false, "RSHIFT")
+        fire("MODIFIER_STATE_CHANGED", "LCTRL", 1)
+        assert(not pin:IsMouseEnabled(), "Ctrl pressed: the pin takes the mouse")
+
+        -- 4. the map opens while Shift is held, or not: each pin as Shift is now
+        pin:Hide()
+        shift = true
+        pin:Show()
+        assert(pin:IsMouseEnabled(), "shown while Shift is held: the pin takes no mouse")
+        pin:Hide()
+        shift = false
+        pin:Show()
+        assert(not pin:IsMouseEnabled(), "shown without Shift: the pin takes the mouse")
+        -- a hidden pin is not touched by a Shift press (only the shown ones are)
+        pin:Hide()
+        Press(true)
+        assert(not pin:IsMouseEnabled(), "a Shift press switched a hidden pin")
+        Press(false)
+        pin:Show()
+
+        -- 5. a new node's pin, made while With Shift is chosen
+        table.insert(ns.db.nodes[Z], ore)
+        ns.NotifyNodesChanged("add", Z, ore) advance(1)
+        local orePin = World(ore)
+        assert(orePin and not orePin:IsMouseEnabled(), "a new pin takes the mouse without Shift")
+
+        -- 6. the run target's pin: the same; its minimap pin never takes the mouse
+        ns.SetRouteTarget(Z, herb)
+        local tw, tm = ns.RouteTargetPins()
+        assert(tw and tm, "test setup: no run target pins")
+        tw:Hide() tw:Show()
+        assert(not tw:IsMouseEnabled(), "With Shift: the run target's pin takes the mouse without Shift")
+        Press(true)
+        assert(tw:IsMouseEnabled(), "Shift held: the run target's pin takes no mouse")
+        assert(not tm:IsMouseEnabled(), "the run target's minimap pin takes the mouse")
+        Press(false)
+        assert(not tw:IsMouseEnabled(), "Shift let go: the run target's pin still takes the mouse")
+
+        -- 7. minimap pins never take the mouse, either way
+        for _, f in ipairs(allFrames) do
+            if (f.node == herb or f.node == ore) and f.isMini then
+                assert(not f:IsMouseEnabled(), "a minimap pin takes the mouse")
+            end
+        end
+
+        -- 8. kept over a login; the event again only while chosen
+        fire("PLAYER_LOGIN") advance(2)
+        assert(ns.db.worldPinTip == "shift" and Watching(), "after a login: With Shift is gone, or nothing watches Shift")
+
+        -- 9. back to Always: every pin takes the mouse, the shown, the hidden, the run target's; nothing watches Shift
+        ns.ShowOptionsSection("map")
+        opts:Refresh()
+        for _, o in ipairs(allFrames) do
+            if o.__kind == "FontString" and o.__text == ns.L["World map tooltip"] and o.__pts and o.__pts.TOPLEFT then label = o end
+        end
+        y = label.__pts.TOPLEFT[2] + 4
+        for _, o in ipairs(allFrames) do
+            if o.__kind == "Button" and o.__parent == label.__parent and o.__pts and o.__pts.TOPLEFT and o.__pts.TOPLEFT[2] == y then minus = o end
+        end
+        orePin:Hide()
+        minus.__scripts.OnClick(minus)
+        assert(ns.db.worldPinTip == nil, "< does not go back to Always: " .. tostring(ns.db.worldPinTip))
+        assert(pin:IsMouseEnabled() and orePin:IsMouseEnabled() and tw:IsMouseEnabled(), "Always again: a pin takes no mouse")
+        assert(not Watching(), "Always again: something still watches the Shift key")
+
+        -- 10. every language has the texts; the page fits
+        for lang, d in pairs(ns.Locales) do
+            for _, key in ipairs({ "World map tooltip", "Always", "With Shift",
+                "With Shift: the pins let the mouse through to what lies below them, such as quest symbols. Hold Shift to point at a pin." }) do
+                assert(d[key] and d[key] ~= key, lang .. ": not translated: " .. key)
+            end
+        end
+        local used = ns.OptionsUsedHeight()
+        assert(used.map <= ROOM, ("Map & minimap goes down to %d px of %d"):format(used.map, ROOM))
+    end)
+    if ns.ClearRouteTarget then ns.ClearRouteTarget() end
+    IsShiftKeyDown, GameTooltip.GetOwner, GameTooltip.Hide = keep.shift, keep.owner, keep.hide
+    ns.db.worldPinTip = keep.tip
+    if ns.WorldPinTipChanged then ns.WorldPinTipChanged() end
+    ns.db.nodes[Z] = keep.nodes
+    ns.NotifyNodesChanged() advance(1)
+    ns.ShowOptionsSection(keep.section)
+    if not ok then error(err, 0) end
 end)
 step("Long run (10 min) for leaks", function() slash("run herb") advance(600) slash("stop") end)
 step("Test mock: OnUpdate runs for the same frames in the same order as going over every frame (tools only)", function()

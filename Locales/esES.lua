@@ -733,4 +733,8 @@ ns.Locales.esES = {
     ["Trainer on another continent: %s (%s)"] = "Instructor en otro continente: %s (%s)",
     ["May not teach this rank."] = "Puede que no enseñe este rango.",
     ["Place from the Questie database: the NPC may not be there right now."] = "Lugar de la base de datos de Questie: puede que el PNJ no esté ahí ahora.",
+    ["World map tooltip"] = "Descripción del mapa del mundo",
+    ["Always"] = "Siempre",
+    ["With Shift"] = "Con Mayús",
+    ["With Shift: the pins let the mouse through to what lies below them, such as quest symbols. Hold Shift to point at a pin."] = "Con Mayús: los iconos dejan pasar el ratón a lo que hay debajo, como los símbolos de misión. Mantén Mayús para señalar un icono.",
 }

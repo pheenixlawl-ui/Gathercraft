@@ -733,4 +733,8 @@ ns.Locales.itIT = {
     ["Trainer on another continent: %s (%s)"] = "Istruttore in un altro continente: %s (%s)",
     ["May not teach this rank."] = "Potrebbe non insegnare questo grado.",
     ["Place from the Questie database: the NPC may not be there right now."] = "Luogo dal database di Questie: il PNG potrebbe non trovarsi lì in questo momento.",
+    ["World map tooltip"] = "Tooltip della mappa del mondo",
+    ["Always"] = "Sempre",
+    ["With Shift"] = "Con Maiusc",
+    ["With Shift: the pins let the mouse through to what lies below them, such as quest symbols. Hold Shift to point at a pin."] = "Con Maiusc: le icone lasciano passare il mouse a ciò che sta sotto, come i simboli delle missioni. Tieni premuto Maiusc per puntare un'icona.",
 }

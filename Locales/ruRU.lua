@@ -733,4 +733,8 @@ ns.Locales.ruRU = {
     ["Trainer on another continent: %s (%s)"] = "Наставник на другом континенте: %s (%s)",
     ["May not teach this rank."] = "Возможно, не обучает этому уровню.",
     ["Place from the Questie database: the NPC may not be there right now."] = "Место из базы данных Questie: НИП может сейчас там не быть.",
+    ["World map tooltip"] = "Подсказка на карте мира",
+    ["Always"] = "Всегда",
+    ["With Shift"] = "С Shift",
+    ["With Shift: the pins let the mouse through to what lies below them, such as quest symbols. Hold Shift to point at a pin."] = "С Shift: значки пропускают мышь к тому, что под ними, например к значкам заданий. Удерживайте Shift, чтобы навести на значок.",
 }

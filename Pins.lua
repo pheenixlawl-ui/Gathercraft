@@ -253,9 +253,33 @@ local function KeepLayer(pin)
     if level and not pin.isTarget then pin:SetFrameLevel(level + (pin.layer or 1) + (pin.isMini and 1 or 0)) end
 end
 
+-- World map pins: their tooltip always (the default, as before), or only
+-- with Shift (0.2.2 P1; a CurseForge comment, 21.11.2026: our pins lay on
+-- quest symbols and took the mouse from them). "shift": without Shift a
+-- world map pin takes no mouse - what lies below it gets it -, with Shift
+-- held as before. The shown world map pins are kept in a set (OnShow and
+-- OnHide of our own pins); a Shift press goes over that set only, from the
+-- game's MODIFIER_STATE_CHANGED - no OnUpdate, and the event is registered
+-- only while the choice is "shift". EnableMouse on our own frames (no
+-- secure template, nothing protected hangs on them) is allowed in combat.
+local worldShown = {} -- shown world map pins (pin -> true)
+local function WorldTipShift() return ns.db ~= nil and ns.db.worldPinTip == "shift" end
+local function WorldMouse()
+    if not WorldTipShift() then return true end
+    return IsShiftKeyDown and IsShiftKeyDown() and true or false
+end
+local function WorldPinShown(pin)
+    if not pin.isWorld then return end
+    worldShown[pin] = true
+    pin:EnableMouse(WorldMouse())
+end
+local function WorldPinHidden(pin) worldShown[pin] = nil end
+
 local function CreatePin()
     local pin = CreateFrame("Frame", nil, UIParent)
     pin:HookScript("OnShow", KeepLayer)
+    pin:HookScript("OnShow", WorldPinShown)
+    pin:HookScript("OnHide", WorldPinHidden)
     pin.icon = pin:CreateTexture(nil, "OVERLAY")
     pin.icon:SetAllPoints()
     pin.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92) -- crop the icon border
@@ -659,8 +683,8 @@ local function AddNodePins(mapID, n)
     local w, m
     if showWorld then
         w = table.remove(freeWorld) or CreatePin()
-        w.node, w.mapID, w.isMini, w.layer = n, mapID, nil, Layer(n)
-        w:EnableMouse(true)
+        w.node, w.mapID, w.isMini, w.layer, w.isWorld = n, mapID, nil, Layer(n), true
+        w:EnableMouse(WorldMouse()) -- (see WorldMouse: always, or with Shift)
         w:SetSize(worldSize, worldSize)
         w.icon:SetTexture(icon)
         w.icon:SetDesaturated(n.pendingReport and true or false)
@@ -877,6 +901,7 @@ local function PlaceTarget()
     if not (n and mapID and n.x and n.y) then return end
     local worldSize = Sizes()
     target.world = target.world or TargetPin()
+    target.world.isWorld = true -- (the tooltip choice holds for it too)
     target.mini = target.mini or TargetPin()
     local miniTarget, ringOnly = MiniTargetLook()
     for _, pair in ipairs({ { target.world, math.floor(worldSize * 1.7 + 0.5), false }, { target.mini, miniTarget, ringOnly } }) do
@@ -890,7 +915,7 @@ local function PlaceTarget()
         pin.icon:SetShown(not bare)
         pin:SetAlpha(1)
     end
-    target.world:EnableMouse(true)
+    target.world:EnableMouse(WorldMouse())
     target.mini:EnableMouse(false) -- like all minimap pins (see AddNodePins)
     HBDPins:AddWorldMapIconMap(TARGET_REF, target.world, mapID, n.x, n.y, HBD_PINS_WORLDMAP_SHOW_PARENT or 1)
     HBDPins:AddMinimapIconMap(TARGET_REF, target.mini, mapID, n.x, n.y, false, true)
@@ -1189,6 +1214,33 @@ ns.SetRouteTarget = SetRouteTarget
 ns.ClearRouteTarget = ClearRouteTarget
 ns.RouteTargetPins = function() return target.world, target.mini end
 
+-- The world map tooltip choice (see WorldMouse): Shift pressed or let go
+-- while it is "shift" - the shown world map pins take the mouse or let it
+-- through; the tooltip of a pin that let it go goes too
+local modWatch = CreateFrame("Frame")
+modWatch:SetScript("OnEvent", function(_, _, key)
+    if key ~= "LSHIFT" and key ~= "RSHIFT" then return end
+    local on = WorldMouse()
+    for pin in pairs(worldShown) do pin:EnableMouse(on) end
+    local owner = not on and GameTooltip:GetOwner()
+    if owner and worldShown[owner] then GameTooltip:Hide() end
+end)
+-- the choice changed (Options) or the saved data is there (login): every
+-- world map pin as the choice says; the event only while it is "shift"
+local function ApplyWorldTip()
+    if WorldTipShift() then
+        modWatch:RegisterEvent("MODIFIER_STATE_CHANGED")
+    else
+        modWatch:UnregisterEvent("MODIFIER_STATE_CHANGED")
+    end
+    local on = WorldMouse()
+    for _, pins in pairs(pinsByNode) do
+        if pins.world then pins.world:EnableMouse(on) end
+    end
+    if target.world then target.world:EnableMouse(on) end
+end
+ns.WorldPinTipChanged = ApplyWorldTip
+
 -- Where the minimap pins are (world yards) and how big (pixels): the route
 -- line leaves a little gap around each one (Route.lua)
 ns.MinimapPinSpots = function()
@@ -1215,6 +1267,7 @@ loader:SetScript("OnEvent", function(_, event)
         ns.MigratePinSwitches()
         if ns.MigrateLineSwitch then ns.MigrateLineSwitch() end
         playerMap = ns.GetPlayerPos()
+        ApplyWorldTip() -- (the tooltip choice: the Shift event only when chosen)
         C_Timer.After(1, Rebuild)
         C_Timer.NewTicker(3, UpdateAlpha) -- cooldowns run out
         C_Timer.NewTicker(MINI_TICK, MiniTick) -- minimap pins: only the ones near you

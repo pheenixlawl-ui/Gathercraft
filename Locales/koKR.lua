@@ -733,4 +733,8 @@ ns.Locales.koKR = {
     ["Trainer on another continent: %s (%s)"] = "다른 대륙의 전문기술 상급자: %s (%s)",
     ["May not teach this rank."] = "이 단계를 가르치지 않을 수 있습니다.",
     ["Place from the Questie database: the NPC may not be there right now."] = "Questie 데이터베이스의 위치: NPC가 지금 그곳에 없을 수 있습니다.",
+    ["World map tooltip"] = "세계 지도 툴팁",
+    ["Always"] = "항상",
+    ["With Shift"] = "Shift 누를 때",
+    ["With Shift: the pins let the mouse through to what lies below them, such as quest symbols. Hold Shift to point at a pin."] = "Shift 누를 때: 아이콘이 아래에 있는 것(예: 퀘스트 표시)으로 마우스를 통과시킵니다. 아이콘을 가리키려면 Shift를 누르고 있으세요.",
 }

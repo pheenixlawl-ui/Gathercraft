@@ -733,4 +733,8 @@ ns.Locales.frFR = {
     ["Trainer on another continent: %s (%s)"] = "Maître sur un autre continent : %s (%s)",
     ["May not teach this rank."] = "N'enseigne peut-être pas ce rang.",
     ["Place from the Questie database: the NPC may not be there right now."] = "Lieu tiré de la base de données de Questie : le PNJ n'y est peut-être pas en ce moment.",
+    ["World map tooltip"] = "Infobulle de la carte du monde",
+    ["Always"] = "Toujours",
+    ["With Shift"] = "Avec Maj",
+    ["With Shift: the pins let the mouse through to what lies below them, such as quest symbols. Hold Shift to point at a pin."] = "Avec Maj : les icônes laissent passer la souris vers ce qui se trouve dessous, comme les symboles de quête. Maintenez Maj pour pointer une icône.",
 }
