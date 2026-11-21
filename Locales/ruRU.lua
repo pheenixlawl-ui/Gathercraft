@@ -744,4 +744,5 @@ ns.Locales.ruRU = {
     ["  Versions of the players seen (1h): %s"] = "  Версии замеченных игроков (1 ч): %s",
     ["no version heard: %d"] = "версия не получена: %d",
     ["  Refused by the game when sending (since login): %d throttled, %d channel throttled, %d channel not valid"] = "  Отклонено игрой при отправке (с входа): %d ограничено, %d канал ограничен, %d канал недействителен",
+    ["  Received but not counted (all sessions): %d repeats (the same player again), %d for spots already confirmed by %d players"] = "  Получено, но не учтено (за все сеансы): %d повторов (тот же игрок снова), %d для точек, уже подтверждённых %d игроками",
 }

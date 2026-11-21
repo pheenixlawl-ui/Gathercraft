@@ -744,4 +744,5 @@ ns.Locales.frFR = {
     ["  Versions of the players seen (1h): %s"] = "  Versions des joueurs vus (1 h) : %s",
     ["no version heard: %d"] = "aucune version reçue : %d",
     ["  Refused by the game when sending (since login): %d throttled, %d channel throttled, %d channel not valid"] = "  Refusés par le jeu à l'envoi (depuis la connexion) : %d limités, %d canal limité, %d canal non valide",
+    ["  Received but not counted (all sessions): %d repeats (the same player again), %d for spots already confirmed by %d players"] = "  Reçus mais non comptés (toutes les sessions) : %d répétitions (le même joueur à nouveau), %d pour des points déjà confirmés par %d joueurs",
 }

@@ -744,4 +744,5 @@ ns.Locales.koKR = {
     ["  Versions of the players seen (1h): %s"] = "  본 플레이어의 버전 (1시간): %s",
     ["no version heard: %d"] = "버전 정보 없음: %d",
     ["  Refused by the game when sending (since login): %d throttled, %d channel throttled, %d channel not valid"] = "  보낼 때 게임이 거부함 (접속 후): 제한 %d, 채널 제한 %d, 잘못된 채널 %d",
+    ["  Received but not counted (all sessions): %d repeats (the same player again), %d for spots already confirmed by %d players"] = "  받았지만 세지 않음 (모든 세션): 반복 %d (같은 플레이어가 다시), 확인이 끝난 곳 %d (이미 플레이어 %d명이 확인)",
 }

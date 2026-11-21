@@ -818,6 +818,16 @@ table.insert(ns.nodeListeners, function(kind, mapID, node)
     end
 end)
 
+-- What arrived and is not counted by Counted (0.2.2 d1, honest counters;
+-- Sync 2.0 analysis of 21.11.2026): the same player again for a spot or a
+-- waiting report ("repeats"), and a spot HEARD_KEEP players confirmed
+-- already ("full"). Over all sessions, like the counts above.
+local function NotCounted(what)
+    local db = DB()
+    db.counts = db.counts or {}
+    db.counts[what] = (db.counts[what] or 0) + 1
+end
+
 -- A node we know was named by `who`: remember that others know it too (for push suppression)
 local function HeardKnown(known, who, mapID)
     known.heardBy = known.heardBy or {}
@@ -832,7 +842,11 @@ local function HeardKnown(known, who, mapID)
             Counted("confirmed")
             -- someone new has it: it is real after all
             if known.parked then Unpark(known, "reported by " .. who, mapID) end
+        else
+            NotCounted("full")
         end
+    else
+        NotCounted("repeats")
     end
 end
 
@@ -842,6 +856,8 @@ local function HeardPending(mapID, list, p, who, trusted, dry)
     if not p.reporters[who] then
         p.reporters[who] = true
         p.rc = p.rc + 1
+    elseif not dry then
+        NotCounted("repeats")
     end
 
     if trusted or p.rc >= CONFIRMATIONS then
@@ -1278,6 +1294,9 @@ local function Status()
     local c = DB().counts or {}
     print((L["  Received from other players (all sessions): %d spots, %d new (%d guild/friends, %d public, confirmed), %d confirm spots you know"]):format(
         c.received or 0, c.new or 0, c.trusted or 0, c.public or 0, c.confirmed or 0))
+    -- (0.2.2 d1) what arrived and is not counted there
+    print((L["  Received but not counted (all sessions): %d repeats (the same player again), %d for spots already confirmed by %d players"]):format(
+        c.repeats or 0, c.full or 0, HEARD_KEEP))
     print((L["  Not sent (already known): %d   Not sent (busy): %d   Dropped (budget): %d"]):format(
         stats.skippedKnown, stats.skippedBusy, stats.dropped))
     print((L["  Refused by the game when sending (since login): %d throttled, %d channel throttled, %d channel not valid"]):format(

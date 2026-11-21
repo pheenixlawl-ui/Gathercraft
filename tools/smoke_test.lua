@@ -28482,6 +28482,64 @@ step("Sync 0.2.2: what the game says to a send - throttled, channel throttled, c
     ns.NotifyNodesChanged() advance(1)
     if not ok then error(err, 0) end
 end)
+-- 0.2.2 P1 point 4, d1 (Sync 2.0 analysis of 21.11.2026): honest counters.
+-- What arrives and is not counted in "Received from other players" gets a
+-- line of its own in /gcr sync: repeats (the same player again for a spot
+-- or a waiting report) and spots already confirmed by 4 players (d4).
+step("Sync 0.2.2: /gcr sync counts repeats and spots already confirmed by 4 players apart from what it counts (0.2.2 P1 d1)", function()
+    local Z, NEW = 1469, 1470
+    local keep = { nodes = ns.db.nodes[Z], pending = ns.db.sync.pending[NEW], spawns = ns.HasKnownSpawns }
+    local ok, err = pcall(function()
+        local function Report(who, x, map)
+            fire("CHAT_MSG_ADDON", "Gathercraft", ("N:%d;o1731,o,%d,5000,2770"):format(map or Z, x), "CHANNEL", who, nil, nil, nil, "GathercraftSync")
+            advance(1)
+        end
+        local key = "  Received but not counted (all sessions): %d repeats (the same player again), %d for spots already confirmed by %d players"
+        local function Line()
+            local mark = #log
+            slash("sync")
+            local head = ns.L[key]:match("^(.-)%%d")
+            for i = mark + 1, #log do
+                local at = log[i]:find(head, 1, true)
+                if at then
+                    local a, b, c = log[i]:sub(at + #head):match("^(%d+)%D+(%d+)%D+(%d+)")
+                    return tonumber(a), tonumber(b), tonumber(c)
+                end
+            end
+        end
+        local r0, f0, keepN = Line()
+        assert(r0 and f0 and keepN == 4, "/gcr sync shows no line of what is not counted, or not 4 players: " .. tostring(keepN))
+        local c0 = select(3, ns.SyncCounts())
+        local n = { id = "o1731", name = "Copper Vein", type = "ore", x = 0.40, y = 0.50, count = 1, last = 1,
+            source = "sync", heard = 1, heardBy = { ["Rep A"] = true } }
+        ns.db.nodes[Z] = { n }
+        ns.NotifyNodesChanged() advance(1)
+        Report("Rep A", 4000) -- the same player again: a repeat
+        for _, who in ipairs({ "Rep B", "Rep C", "Rep D" }) do Report(who, 4000) end -- confirmations 2 to 4
+        Report("Rep E", 4000) -- a 5th: already confirmed by 4
+        Report("Rep E", 4000) -- (and again: his name is not kept, so it is the same)
+        -- a waiting report in a zone without known spawn points, sent twice by one player
+        ns.HasKnownSpawns = function(m) if m == NEW then return false end return keep.spawns and keep.spawns(m) end
+        Report("Rep X", 3000, NEW)
+        Report("Rep X", 3000, NEW)
+        local r1, f1 = Line()
+        assert(r1 - r0 == 2, ("repeats: %d counted, 2 wanted (Rep A again, Rep X again)"):format(r1 - r0))
+        assert(f1 - f0 == 2, ("already confirmed by 4: %d counted, 2 wanted (Rep E twice)"):format(f1 - f0))
+        assert(select(3, ns.SyncCounts()) - c0 == 3, ("confirmations: %d counted, 3 wanted"):format(select(3, ns.SyncCounts()) - c0))
+        -- kept over a reload: in the saved data
+        assert(ns.db.sync.counts.repeats and ns.db.sync.counts.full, "not in the saved data")
+        -- the stress test (fake data) counts nothing
+        local before = { r = ns.db.sync.counts.repeats, f = ns.db.sync.counts.full }
+        ns.SyncCommand("stress 50 2") advance(4)
+        assert(ns.db.sync.counts.repeats == before.r and ns.db.sync.counts.full == before.f, "the stress test was counted")
+        for lang, d in pairs(ns.Locales) do
+            assert(d[key] and d[key] ~= key and select(2, d[key]:gsub("%%d", "")) == 3, lang .. ": not translated, or not three numbers")
+        end
+    end)
+    ns.db.nodes[Z], ns.db.sync.pending[NEW], ns.HasKnownSpawns = keep.nodes, keep.pending, keep.spawns
+    ns.NotifyNodesChanged() advance(1)
+    if not ok then error(err, 0) end
+end)
 step("Long run (10 min) for leaks", function() slash("run herb") advance(600) slash("stop") end)
 step("Test mock: OnUpdate runs for the same frames in the same order as going over every frame (tools only)", function()
     -- The mock's advance() goes over the frames that have an OnUpdate only

@@ -744,4 +744,5 @@ ns.Locales.zhTW = {
     ["  Versions of the players seen (1h): %s"] = "  看到的玩家的版本（1 小時）：%s",
     ["no version heard: %d"] = "未收到版本：%d",
     ["  Refused by the game when sending (since login): %d throttled, %d channel throttled, %d channel not valid"] = "  傳送時被遊戲拒絕（登入以來）：%d 次限流，%d 次頻道限流，%d 次頻道無效",
+    ["  Received but not counted (all sessions): %d repeats (the same player again), %d for spots already confirmed by %d players"] = "  收到但未計入（所有工作階段）：%d 次重複（同一玩家再次傳送），%d 次針對已被 %d 名玩家確認的點位",
 }
