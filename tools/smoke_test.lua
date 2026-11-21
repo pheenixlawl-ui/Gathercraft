@@ -28671,7 +28671,9 @@ step("Crafting 0.2.2: a profession given up leaves the profit list and \"my\" pr
         assert(not l.Leatherworking, "a profession given up is still in the profit list")
         assert(m.Tailoring and l.Tailoring, "a profession in the game's list is not mine")
         assert(m.Alchemy and l.Alchemy, "a profession whose window was read in this session is not mine")
-        -- (the session began with its first login: another login event in it changes nothing)
+        -- (the session began with its first login: another login event in it,
+        -- a while later, changes nothing - counter-probe b4)
+        advance(30)
         fire("PLAYER_LOGIN") advance(1)
         assert(Mine().Alchemy, "a second login event of the session: the window read in it no longer counts")
         -- its recipes stay saved; and with only Leatherworking asked for, it is all there
