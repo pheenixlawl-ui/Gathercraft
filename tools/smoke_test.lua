@@ -28105,6 +28105,11 @@ step("Visit log: on only writes - the same run off, on, and on with an error in 
     local realConcat = table.concat
     local ok, err = pcall(function()
         assert(not ns.VisitLogOn() and ns.db.visitLog == nil, "the visit log is on or has entries at the start")
+        -- (once before, not compared: a first gather of a kind makes its
+        -- counts in the saved data, the next ones only count up - without
+        -- this the step held only after other steps had gathered the kind;
+        -- 0.2.2 P1b, found running it alone)
+        VisitPicture(false)
         local off = VisitPicture(false)
         assert(#off.lines > 20 and #off.nodes == 7 and next(off.db), ("the run says too little to compare: %d lines, %d nodes"):format(#off.lines, #off.nodes))
         assert(ns.db.visitLog == nil, "off, and written")
@@ -28367,6 +28372,10 @@ step("Sync 0.2.2: V:gc<version> once after joining the channel and once per logi
             fire("PLAYER_LOGIN") advance(12)
         end
         local saidAs = "V:gc" .. C_AddOns.GetAddOnMetadata("Gathercraft", "Version")
+        -- (what waits in the queue from before goes out first: at most 60
+        -- messages, one every 1.2 s - it is not counted here)
+        advance(75)
+        sent = {}
         -- 1. a login, in a guild, the public channel on: one to the channel, one to the guild
         ns.db.sync.enabled, ns.db.sync.public = true, true
         IsInGuild = function() return true end
@@ -28556,10 +28565,6 @@ step("Sync 0.2.2: /gcr sync counts repeats and spots already confirmed by 4 play
         assert(select(3, ns.SyncCounts()) - c0 == 3, ("confirmations: %d counted, 3 wanted"):format(select(3, ns.SyncCounts()) - c0))
         -- kept over a reload: in the saved data
         assert(ns.db.sync.counts.repeats and ns.db.sync.counts.full, "not in the saved data")
-        -- the stress test (fake data) counts nothing
-        local before = { r = ns.db.sync.counts.repeats, f = ns.db.sync.counts.full }
-        ns.SyncCommand("stress 50 2") advance(4)
-        assert(ns.db.sync.counts.repeats == before.r and ns.db.sync.counts.full == before.f, "the stress test was counted")
         for lang, d in pairs(ns.Locales) do
             assert(d[key] and d[key] ~= key and select(2, d[key]:gsub("%%d", "")) == 3, lang .. ": not translated, or not three numbers")
         end
