@@ -10069,15 +10069,18 @@ step("Questing mode: on and off by command, Ctrl + right-click, key and option; 
         assert(ns.QuestModeOn(), "the key did not turn it on")
         Gathercraft_QuestMode()
         assert(not ns.QuestModeOn(), "the key did not turn it off")
-        -- Options > Map & minimap
+        -- Options > Leveling (since 0.2.2, Sven 21.11.2026: Map & minimap
+        -- makes room for the tooltip choices; its rows flow there, the label
+        -- hangs on its box by TOPLEFT)
         local box
         for _, o in ipairs(allFrames) do
-            if o.__kind == "FontString" and o:GetText() == L["Questing mode"] and o.__pts and o.__pts.LEFT then
-                local cb = o.__pts.LEFT[1]
-                if cb and cb.__kind == "CheckButton" and cb.get then box = cb end
+            local at = o.__kind == "FontString" and o:GetText() == L["Questing mode"] and o.__pts and (o.__pts.TOPLEFT or o.__pts.LEFT)
+            if at and type(at[1]) == "table" and at[1].__kind == "CheckButton" then
+                local cb = at[1]
+                if cb.get then box = cb end
                 local p = o.__parent
                 while p and not p.key do p = p.__parent end
-                assert(p and p.key == "map", "the switch is not under Map & minimap")
+                assert(p and p.key == "level", "the switch is not under Leveling")
             end
         end
         assert(box, "no switch in the options")
@@ -10319,18 +10322,18 @@ step("Questing mode: radius 50 / 75 / 100 yd and the arrow to the nearest ring (
             end
         end
         Check(75)
-        -- the < > control in Options > Map & minimap (open, so it shows its value)
+        -- the < > control in Options > Leveling (since 0.2.2; open, so it shows its value)
         if not win:IsShown() then ns.ToggleOptions() end
-        ns.ShowOptionsSection("map")
+        ns.ShowOptionsSection("level")
         win:Refresh()
         local valueText, plus, minus
         for _, o in ipairs(allFrames) do
-            if o.__kind == "FontString" and o:GetText() == (L["%d yd"]):format(75) and PageOf(o) == "map" and o.__pts and o.__pts.LEFT then
+            if o.__kind == "FontString" and o:GetText() == (L["%d yd"]):format(75) and PageOf(o) == "level" and o.__pts and o.__pts.LEFT then
                 minus = o.__pts.LEFT[1]
                 valueText = o
             end
         end
-        assert(valueText and minus and minus.__kind == "Button", "no radius control under Map & minimap")
+        assert(valueText and minus and minus.__kind == "Button", "no radius control under Leveling")
         for _, o in ipairs(allFrames) do
             if o.__kind == "Button" and o.__pts and o.__pts.LEFT and o.__pts.LEFT[1] == valueText then plus = o end
         end
@@ -10357,9 +10360,10 @@ step("Questing mode: radius 50 / 75 / 100 yd and the arrow to the nearest ring (
         assert(arrow and not arrow:IsShown() and not ns.QuestArrowNode(), "the arrow shows although it is off")
         local box
         for _, o in ipairs(allFrames) do
-            if o.__kind == "FontString" and o:GetText() == L["Arrow to the nearest gold ring"] and o.__pts and o.__pts.LEFT then
-                box = o.__pts.LEFT[1]
-                assert(PageOf(o) == "map", "the arrow switch is not under Map & minimap")
+            local at = o.__kind == "FontString" and o:GetText() == L["Arrow to the nearest gold ring"] and o.__pts and (o.__pts.TOPLEFT or o.__pts.LEFT)
+            if at and type(at[1]) == "table" and at[1].__kind == "CheckButton" then
+                box = at[1]
+                assert(PageOf(o) == "level", "the arrow switch is not under Leveling (since 0.2.2)")
             end
         end
         assert(box and box.get and box.get() ~= true, "no arrow switch, or it is on")
@@ -27240,6 +27244,108 @@ step("Windows 0.2.1: shown again once per loading screen - one you close right a
     if Plan() then Plan():Hide() end
     advance(1)
     if not ok then error(err, 0) end
+end)
+-- 0.2.2 P1 (Sven, 21.11.2026): Map & minimap was full to the last pixel
+-- (440 of 440). The questing block - the switch, its radius, the arrow -
+-- moved to Leveling, whose rows flow; the tooltip choices of 0.2.2 get its
+-- room. A row of buttons on a page that flows hangs on a holder that moves
+-- with the rows above it.
+step("Options 0.2.2: the questing block is under Leveling - its rows flow in every language; Map & minimap has room for two rows (0.2.2 P1)", function()
+    local opts = _G.GathercraftOptions
+    local ROOM = 640 - 112 - 18 - 4 - 66
+    local saved = { lang = ns.db.language, height = methods.GetStringHeight, section = ns.db.optionsSection }
+    local page
+    local ok, err = pcall(function()
+        local function PageOf(f)
+            local p = f and f.__parent
+            while p and not p.key do p = p.__parent end
+            return p and p.key
+        end
+        -- the newest copy (every login of the mock builds the pages again)
+        local function Label(key)
+            local found
+            for _, o in ipairs(allFrames) do
+                if o.__kind == "FontString" and o.__text == ns.L[key] and o.__pts and o.__pts.TOPLEFT and PageOf(o) then found = o end
+            end
+            return found
+        end
+        local QUEST, RADIUS, ARROW = "Questing mode", "Questing radius", "Arrow to the nearest gold ring"
+        local REMIND = "Remind me to visit the trainer (5 points before the end of a rank)"
+        -- where they are: Leveling, and nowhere on Map & minimap
+        for _, key in ipairs({ QUEST, RADIUS, ARROW }) do
+            local fs = Label(key)
+            assert(fs, "no '" .. key .. "' in the options")
+            assert(PageOf(fs) == "level", ("'%s' is on the page %s, not Leveling"):format(key, tostring(PageOf(fs))))
+            for _, o in ipairs(allFrames) do
+                if o.__kind == "FontString" and o.__text == ns.L[key] then
+                    assert(PageOf(o) ~= "map", ("'%s' is still on Map & minimap"):format(key))
+                end
+            end
+        end
+        -- Map & minimap: room for two rows of buttons (30 px each)
+        local used = ns.OptionsUsedHeight()
+        assert(used.map <= ROOM - 2 * 30, ("Map & minimap goes down to %d px of %d: no room for two rows"):format(used.map, ROOM))
+        -- the radius row hangs on a holder: its label and its < button
+        local radius = Label(RADIUS)
+        local holder = radius.__pts.TOPLEFT[1]
+        assert(type(holder) == "table" and holder.__kind == "Frame" and PageOf(holder) == "level", "the radius row does not hang on a holder")
+        local minus
+        for _, o in ipairs(allFrames) do
+            if o.__kind == "Button" and o.__pts and o.__pts.TOPLEFT and o.__pts.TOPLEFT[1] == holder then minus = o end
+        end
+        assert(minus, "the radius buttons do not hang on the holder")
+        page = holder.__parent
+
+        -- every language: the rows lie one below the other, the radius row
+        -- moves with them, the page stays above the footer. Mock text layout
+        -- as on the fishing page: 6 px a Latin letter, 11 px a CJK sign,
+        -- 12 px a line.
+        local function Px(text)
+            local px = 0
+            for ch in (text or ""):gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""):gmatch("[%z\1-\127\194-\244][\128-\191]*") do px = px + (#ch >= 3 and 11 or 6) end
+            return px
+        end
+        local WIDTH = 470
+        methods.GetStringHeight = function(self)
+            local w = (self.__parent and self.__parent.__w or WIDTH) - 34
+            return 12 * math.max(1, math.ceil(Px(self.__text) / w))
+        end
+        page.__w = WIDTH
+        local seen, langs = {}, 0
+        for _, lang in ipairs(ns.LANGUAGES) do
+            if lang.code ~= "auto" then
+                langs = langs + 1
+                ns.db.language = lang.code ns.ApplyLanguage() opts:Refresh()
+                ns.ShowOptionsSection("level")
+                local remind, quest, arrow = Label(REMIND), Label(QUEST), Label(ARROW)
+                assert(remind and quest and arrow and Label(RADIUS) == radius, lang.code .. ": a row of the block is not there")
+                local function Top(fs) return fs.__pts.TOPLEFT[1].__pts.TOPLEFT[2] end
+                local function Ends(fs) return Top(fs) - math.max(26, fs:GetStringHeight() + 12) end
+                local q, h, a = Top(quest), holder.__pts.TOPLEFT[2], Top(arrow)
+                assert(q <= Ends(remind), ("%s: the questing switch starts at %s, the trainer row ends at %s"):format(lang.code, q, Ends(remind)))
+                assert(h <= Ends(quest), ("%s: the radius row starts at %s, the questing switch ends at %s"):format(lang.code, h, Ends(quest)))
+                assert(a <= h - 30, ("%s: the arrow switch starts at %s, the radius row ends at %s"):format(lang.code, a, h - 30))
+                assert(-Ends(arrow) <= ROOM, ("%s: Leveling goes down to %d px of %d"):format(lang.code, -Ends(arrow), ROOM))
+                seen[h] = true
+            end
+        end
+        assert(langs == 10, "test setup: " .. langs .. " languages") -- (esMX speaks esES)
+        local places = 0
+        for _ in pairs(seen) do places = places + 1 end
+        assert(places > 1, "the radius row stands at the same place in every language: it does not move with the rows above it")
+        -- narrower: the rows wrap more, the radius row goes down with them
+        ns.db.language = "deDE" ns.ApplyLanguage() opts:Refresh()
+        local wide = holder.__pts.TOPLEFT[2]
+        page.__w = 300
+        page.__scripts.OnSizeChanged(page, 300, 400)
+        assert(holder.__pts.TOPLEFT[2] < wide, ("narrower: the radius row did not move down (%s / %s)"):format(wide, holder.__pts.TOPLEFT[2]))
+    end)
+    methods.GetStringHeight = saved.height
+    if page then page.__w = nil end
+    ns.db.language = saved.lang ns.ApplyLanguage()
+    ns.ShowOptionsSection(saved.section)
+    opts:Refresh()
+    assert(ok, err)
 end)
 step("Long run (10 min) for leaks", function() slash("run herb") advance(600) slash("stop") end)
 step("Test mock: OnUpdate runs for the same frames in the same order as going over every frame (tools only)", function()

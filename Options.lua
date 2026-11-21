@@ -119,8 +119,12 @@ local function Reflow(p)
     if not p.rows then return end
     local y = p.rowsTop
     for _, r in ipairs(p.rows) do
-        local h = r.fs:GetStringHeight() or 0
-        if r.cb then
+        local h = r.fs and r.fs:GetStringHeight() or 0
+        if r.holder then
+            -- a row of buttons (< value >): always one line high
+            r.holder:SetPoint("TOPLEFT", r.x, y)
+            y = y - r.h
+        elseif r.cb then
             r.cb:SetPoint("TOPLEFT", r.x, y)
             y = y - math.max(26, h + 12)
         else
@@ -242,6 +246,17 @@ local function AddHint(text)
     ns.LText(fs, text)
     if page.rows then page.rows[#page.rows + 1] = { fs = fs, x = colX } end
     nextY = nextY - 16
+end
+
+-- A row of buttons (< value >) on a page whose rows flow (Leveling): its
+-- parts hang on a holder that Reflow moves with the rows above it. nil on
+-- the other pages (0.2.2: the questing block moved to Leveling).
+local function ControlHolder()
+    if not page.rows then return nil end
+    local holder = CreateFrame("Frame", nil, page)
+    holder:SetSize(1, 1)
+    page.rows[#page.rows + 1] = { holder = holder, h = 30, x = colX }
+    return holder
 end
 
 -- get() returns the current state, set(on) changes it
@@ -611,14 +626,23 @@ end
 -- Questing mode radius: < 75 yd >  (50, 75, 100)
 local questRadiusText
 local function AddQuestRadius()
+    local holder = ControlHolder() -- (on Leveling since 0.2.2: its rows flow)
     local label = page:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    label:SetPoint("TOPLEFT", colX + 6, nextY - 4)
+    if holder then
+        label:SetPoint("TOPLEFT", holder, "TOPLEFT", 6, -4)
+    else
+        label:SetPoint("TOPLEFT", colX + 6, nextY - 4)
+    end
     ns.LText(label, "Questing radius")
     fitLabels[#fitLabels + 1] = label
 
     local minus = CreateFrame("Button", nil, page, "UIPanelButtonTemplate")
     minus:SetSize(24, 20)
-    minus:SetPoint("TOPLEFT", colX + CONTROL_X, nextY)
+    if holder then
+        minus:SetPoint("TOPLEFT", holder, "TOPLEFT", CONTROL_X, 0)
+    else
+        minus:SetPoint("TOPLEFT", colX + CONTROL_X, nextY)
+    end
     minus:SetText("<")
 
     questRadiusText = page:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
@@ -937,17 +961,6 @@ local function Build()
     AddMiniStyle()
     AddMiniAlpha()
     AddPinSize()
-    -- v0.1.19: nearby nodes you can gather get a gold ring (Quest.lua)
-    AddCheck("Questing mode",
-        function() return ns.QuestModeOn and ns.QuestModeOn() end,
-        function(on) if ns.SetQuestMode then ns.SetQuestMode(on) end end)
-    AddQuestRadius()
-    AddCheck("Arrow to the nearest gold ring",
-        function() return ns.db.questArrow end,
-        function(on)
-            ns.db.questArrow = on or nil
-            if ns.UpdateArrow then ns.UpdateArrow() end
-        end)
 
     Section("runs")
     AddRouteMode()
@@ -1017,6 +1030,19 @@ local function Build()
     AddCheck("Remind me to visit the trainer (5 points before the end of a rank)",
         function() return not ns.db.trainerRemindOff end,
         function(on) ns.db.trainerRemindOff = not on end)
+    -- v0.1.19: nearby nodes you can gather get a gold ring (Quest.lua). Here
+    -- since 0.2.2 (Sven, 21.11.2026): Map & minimap makes room for the
+    -- tooltip choices.
+    AddCheck("Questing mode",
+        function() return ns.QuestModeOn and ns.QuestModeOn() end,
+        function(on) if ns.SetQuestMode then ns.SetQuestMode(on) end end)
+    AddQuestRadius()
+    AddCheck("Arrow to the nearest gold ring",
+        function() return ns.db.questArrow end,
+        function(on)
+            ns.db.questArrow = on or nil
+            if ns.UpdateArrow then ns.UpdateArrow() end
+        end)
 
     Section("sync")
     AddCheck("Share nodes with other players",
