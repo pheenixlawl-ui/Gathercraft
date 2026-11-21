@@ -28699,6 +28699,94 @@ step("Crafting 0.2.2: a profession given up leaves the profit list and \"my\" pr
     ns.db.recipes, GetProfessions, PROFS[5], issecretvalue = keep.recipes, keep.profs, keep.p5, keep.secret
     if not ok then error(err, 0) end
 end)
+-- 0.2.2 P2e (Nachtrag zum Fahrplan, 21.11.2026; P2d counted 19,472 world
+-- map pins in 45 zones with Sven's saved data, every one looked at every
+-- 3 s): the pass every 3 s looks only at the pins that can be seen - the
+-- world map pins shown now (none while the map is closed) and the minimap
+-- pins of your zone. A world map pin coming into sight gets its colour and
+-- alpha right then; the run target's pin keeps its own look.
+step("World map pins 0.2.2: the pass every 3 s looks only at the shown ones - none while the map is closed; a pin coming into sight is right at once (0.2.2 P2e)", function()
+    local Z = 1471
+    local keep = { nodes = ns.db.nodes[Z], map = player.map, x = player.x, y = player.y }
+    local ok, err = pcall(function()
+        local function Node(x, extra)
+            local n = { id = "o1731", name = "Copper Vein", type = "ore", x = x, y = 0.5, count = 1, last = 1 }
+            for k, v in pairs(extra or {}) do n[k] = v end
+            return n
+        end
+        local A, B, C = Node(0.40), Node(0.50, { emptyUntil = time() + 600 }), Node(0.60, { emptyUntil = time() + 600 })
+        ns.db.nodes[Z] = { A, B, C }
+        player.map, player.x, player.y = Z, 0.5, 0.5
+        fire("ZONE_CHANGED_NEW_AREA") advance(1)
+        ns.NotifyNodesChanged() advance(1)
+        local function Pin(n, mini)
+            local found
+            for _, f in ipairs(allFrames) do
+                if f.node == n and not f.isTarget and ((mini and f.isMini) or (not mini and f.isWorld)) then found = f end
+            end
+            return found
+        end
+        local calls = {}
+        local function Spy(f)
+            if rawget(f, "SetAlpha") then return f end
+            calls[f] = 0
+            f.SetAlpha = function(self, a) calls[self] = calls[self] + 1 self.__alpha = a end
+            return f
+        end
+        local wa, wb, wc = Spy(Pin(A)), Spy(Pin(B)), Spy(Pin(C))
+        local mc = Spy(Pin(C, true))
+        assert(wa and wb and wc and mc, "test setup: the pins of the three nodes")
+        local function Reset() for f in pairs(calls) do calls[f] = 0 end end
+        -- 1. the map closed: no world map pin is looked at; the minimap pins are
+        Reset()
+        ns.PinsUpdateAlpha()
+        assert(calls[wa] == 0 and calls[wb] == 0 and calls[wc] == 0, ("the map closed: world map pins looked at (%d, %d, %d)"):format(calls[wa], calls[wb], calls[wc]))
+        assert(calls[mc] > 0, "the minimap pin of your zone is not looked at")
+        -- 2. the map shows A: A is looked at, B and C not
+        Reset()
+        wa:Show()
+        assert(calls[wa] == 1, "A came into sight and got no alpha: " .. calls[wa])
+        ns.PinsUpdateAlpha()
+        assert(calls[wa] == 2 and calls[wb] == 0 and calls[wc] == 0, ("A shown: A %d, B %d, C %d calls"):format(calls[wa], calls[wb], calls[wc]))
+        -- 3. B's cooldown ran out while it was out of sight: right as soon as it shows
+        assert(wb.__alpha and wb.__alpha < 1, "test setup: B is not dimmed while on cooldown")
+        B.emptyUntil = time() - 1
+        ns.PinsUpdateAlpha()
+        assert(wb.__alpha < 1, "test setup: B was looked at although hidden")
+        local tinted = 0
+        local ring = wb.ring
+        if ring then
+            local real = ring.SetVertexColor
+            ring.SetVertexColor = function(self, ...) tinted = tinted + 1 return real(self, ...) end
+        end
+        wb:Show()
+        assert(wb.__alpha == 1, "B came into sight still dimmed: " .. tostring(wb.__alpha))
+        assert(not ring or tinted > 0, "B came into sight without its colour")
+        if ring then ring.SetVertexColor = nil end
+        -- 4. the run target's pin is shown and keeps its look; its node's own pin steps aside as before
+        ns.SetRouteTarget(Z, C)
+        local tw = ns.RouteTargetPins()
+        tw:Hide() tw:Show()
+        wc:Show()
+        Reset()
+        ns.PinsUpdateAlpha()
+        assert(tw:GetAlpha() == 1, "the run target's pin was made see-through: " .. tostring(tw:GetAlpha()))
+        assert(calls[wc] == 1 and wc.__alpha == 0, "C's own pin under the gold ring: not hidden")
+        ns.ClearRouteTarget()
+        -- 5. the map closed again: nothing
+        wa:Hide() wb:Hide() wc:Hide() tw:Hide()
+        Reset()
+        ns.PinsUpdateAlpha()
+        assert(calls[wa] == 0 and calls[wb] == 0 and calls[wc] == 0, "the map closed again: world map pins looked at")
+        for f in pairs(calls) do f.SetAlpha = nil end
+    end)
+    if ns.ClearRouteTarget then ns.ClearRouteTarget() end
+    ns.db.nodes[Z] = keep.nodes
+    player.map, player.x, player.y = keep.map, keep.x, keep.y
+    fire("ZONE_CHANGED_NEW_AREA") advance(1)
+    ns.NotifyNodesChanged() advance(1)
+    if not ok then error(err, 0) end
+end)
 step("Long run (10 min) for leaks", function() slash("run herb") advance(600) slash("stop") end)
 step("Test mock: OnUpdate runs for the same frames in the same order as going over every frame (tools only)", function()
     -- The mock's advance() goes over the frames that have an OnUpdate only

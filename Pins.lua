@@ -268,10 +268,14 @@ local function WorldMouse()
     if not WorldTipShift() then return true end
     return IsShiftKeyDown and IsShiftKeyDown() and true or false
 end
+-- (0.2.2 P2e) the pass every 3 s (UpdateAlpha) looks at the shown world map
+-- pins only: one that comes into sight gets its colour and alpha now
+local RefreshPin -- (below, once Tint and SetAlpha are there)
 local function WorldPinShown(pin)
     if not pin.isWorld then return end
     worldShown[pin] = true
     pin:EnableMouse(WorldMouse())
+    if RefreshPin and pin.node and not pin.isTarget then RefreshPin(pin) end
 end
 local function WorldPinHidden(pin) worldShown[pin] = nil end
 
@@ -448,6 +452,10 @@ local function SetAlpha(pin)
     if pin.level == "grey" then alpha = alpha * GREY_ALPHA end
     Fade(pin, alpha)
     pin.icon:SetAlpha(pin.subtle and SUBTLE_ICON_ALPHA or 1)
+end
+RefreshPin = function(pin)
+    Tint(pin)
+    SetAlpha(pin)
 end
 
 -- Adds the two pins (world map + minimap) of one node
@@ -740,7 +748,12 @@ end
 ---------------------------------------------------------------------------
 -- Build / update
 ---------------------------------------------------------------------------
--- Every few seconds: cooldowns run out, and your skill may have gone up
+-- Every few seconds: cooldowns run out, and your skill may have gone up.
+-- (0.2.2 P2e; P2d's count with Sven's saved data: 19,472 world map pins in
+-- 45 zones, every one of them looked at every 3 s, the map open or not.)
+-- Only the pins that can be seen now: the world map pins shown (none while
+-- the map is closed) and the minimap pins of your zone. A world map pin that
+-- comes into sight gets its colour and alpha then (WorldPinShown).
 local greyRebuild = false
 local function UpdateAlpha()
     local changed, greyChanged = CheckSkills()
@@ -753,17 +766,19 @@ local function UpdateAlpha()
             RequestRebuild()
         end)
     end
-    for _, pins in pairs(pinsByNode) do
-        if pins.world then
-            if changed then Tint(pins.world) end
-            SetAlpha(pins.world)
-        end
-        if pins.mini then
-            if changed then Tint(pins.mini) end
-            SetAlpha(pins.mini)
+    for pin in pairs(worldShown) do
+        -- (the run target's pin keeps its own look: SetAlpha would hide it)
+        if pin.node and not pin.isTarget then
+            if changed then Tint(pin) end
+            SetAlpha(pin)
         end
     end
+    for m in pairs(miniAll) do
+        if changed then Tint(m) end
+        SetAlpha(m)
+    end
 end
+ns.PinsUpdateAlpha = UpdateAlpha -- (the tests)
 
 -- The plan run began, ended or needs other materials: every pin gets its
 -- ring and its alpha anew, now (not with the next round a few seconds on)
