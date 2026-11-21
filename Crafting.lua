@@ -96,6 +96,7 @@ local PROF_LINE = {
     [129] = "First Aid",
 }
 local profAlias
+local sessionStart -- (0.2.2 P2b) time() of the first login of this session, see StillMine
 -- The names in the game's list of your professions, by their skill line
 -- (0.2.2 P2a; Belgeron's German client, CurseForge: recipes and skills were
 -- kept under "Kräuterkunde" and "Angeln" - the skill list's names, which are
@@ -1082,6 +1083,8 @@ events:SetScript("OnEvent", function(_, event, arg1)
         if #missingEvents > 0 then ns.Debug("CRAFT events the client doesn't know: " .. MissingEventsText()) end
         -- (0.2.2 P2a) the names of the game's list of professions
         C_Timer.After(3, NormalizeAgain)
+        -- (0.2.2 P2b) a window read from now on is one of this session
+        sessionStart = sessionStart or time()
         C_Timer.After(20, function()
             if not ns.db then return end
             -- older versions took the "Use:" line of enchanting formulas as the item
@@ -1233,6 +1236,40 @@ local function RequiredSkill(prof, name)
 end
 ns.CraftRequiredSkill = RequiredSkill
 
+-- The professions this character has now (0.2.2 P2b; Sven: Leatherworking
+-- given up, its recipes stayed in the list of his professions): the game's
+-- list of professions, by skill line or by name. nil when that list can't
+-- tell - none in this client, a hidden place, nothing in it, or a place we
+-- can't name (the Forever numbers of some professions are not seen yet):
+-- then every profession kept counts, as before. A profession given up keeps
+-- its recipes in the saved data - learnt again, they are back.
+-- A profession the list does not name still counts when its window was read
+-- in this session (sessionStart: the first login of it): whose window opens,
+-- has the profession. So one given up leaves the list from the next login on.
+-- (sessionStart is declared at the top: the login handler sets it)
+local function StillMine(prof, info, now)
+    if not now or now[prof] then return true end
+    return sessionStart ~= nil and (info and info.updated or 0) >= sessionStart
+end
+local function CurrentProfessions()
+    if not ns.ProfessionSlots then return nil end
+    local slots, unclear, places = ns.ProfessionSlots()
+    if not places or unclear or #slots == 0 then return nil end
+    local set = {}
+    for _, s in ipairs(slots) do
+        local en = PROF_LINE[s.line]
+        if not en and type(s.name) == "string" and not ns.AnySecret("crafting", s.name) then
+            local key = ProfKey(s.name)
+            for _, p in ipairs(PROFESSIONS) do if p.name == key then en = key end end
+            for _, e in pairs(PROF_LINE) do if e == key then en = key end end
+        end
+        if not en then return nil end
+        set[en] = true
+    end
+    return set
+end
+ns.CraftCurrentProfessions = CurrentProfessions -- (the tests)
+
 -- One profession (or nil = the ones this character has), with numbers,
 -- best profit first. mineOnly = only recipes this character knows.
 local function Evaluate(profFilter, mineOnly)
@@ -1242,7 +1279,10 @@ local function Evaluate(profFilter, mineOnly)
     if profFilter then
         profs[1] = profFilter
     else
-        for prof in pairs(mine) do profs[#profs + 1] = prof end
+        local now = CurrentProfessions()
+        for prof, info in pairs(mine) do
+            if StillMine(prof, info, now) then profs[#profs + 1] = prof end
+        end
     end
     for _, prof in ipairs(profs) do
         local known = mine[prof] and mine[prof].list or {}
@@ -1351,9 +1391,14 @@ local function ValueText(r, short)
     return ns.Money(r.value, short)
 end
 
+ns.CraftEvaluate = Evaluate -- (the tests)
+
 local function Professions()
     local list = {}
-    for prof in pairs(CharRecipes()) do list[#list + 1] = prof end
+    local now = CurrentProfessions() -- (0.2.2 P2b: not one given up)
+    for prof, info in pairs(CharRecipes()) do
+        if StillMine(prof, info, now) then list[#list + 1] = prof end
+    end
     table.sort(list)
     return list
 end

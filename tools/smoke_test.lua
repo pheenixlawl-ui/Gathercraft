@@ -28635,6 +28635,65 @@ step("Crafting 0.2.2: a profession's name from the game's list counts by its ski
     ns.db.recipes, ns.db.recipeDB, ns.db.recipePending = keep.recipes, keep.db, keep.pending
     if not ok then error(err, 0) end
 end)
+-- 0.2.2 P2b (Merkliste aus 0.1.23; Sven: Leatherworking given up, its
+-- recipes stayed in the list of his professions): "my" professions are the
+-- ones the game's list of professions names now - or whose window was read
+-- in this session. One given up keeps its recipes in the saved data (learnt
+-- again, they are back) but leaves the profit list and "my" professions.
+-- When the game's list can't tell (none, a hidden place, a place we can't
+-- name), every profession kept counts, as before.
+step("Crafting 0.2.2: a profession given up leaves the profit list and \"my\" professions - its recipes stay saved; when the game's list can't tell, all count (0.2.2 P2b)", function()
+    local key = (UnitName("player") or "?") .. "-" .. GetNormalizedRealmName()
+    local keep = { recipes = ns.db.recipes, profs = GetProfessions, p5 = PROFS[5], secret = issecretvalue }
+    local ok, err = pcall(function()
+        ns.db.recipes = { [key] = {
+            -- read long ago, before this session: given up
+            Leatherworking = { list = { ["Light Armor Kit"] = "2304:1:1:1|2318:1" }, updated = 1, rank = 75, rankAt = 1 },
+            -- read long ago, and in the game's list now
+            Tailoring = { list = { ["Bolt of Linen Cloth"] = "2996:1:1:1|2589:2" }, updated = 1, rank = 60, rankAt = 1 },
+            -- not in the game's list, but its window was read in this session
+            Alchemy = { list = { ["Minor Healing Potion"] = "118:1:1:1|2447:1,765:1" }, updated = time(), rank = 40, rankAt = time() },
+        } }
+        PROFS[5] = { "Tailoring", 60, 75, 197, 0 }
+        GetProfessions = function() return 1, 2, nil, 4, 5, nil end
+        local function Mine()
+            local set = {}
+            for _, p in ipairs(ns.CraftData.MyProfessions()) do set[p] = true end
+            return set
+        end
+        local function ListProfs()
+            local set = {}
+            for _, r in ipairs(ns.CraftEvaluate(nil, true)) do set[r.prof] = true end
+            return set
+        end
+        local m, l = Mine(), ListProfs()
+        assert(not m.Leatherworking, "a profession given up is still one of mine")
+        assert(not l.Leatherworking, "a profession given up is still in the profit list")
+        assert(m.Tailoring and l.Tailoring, "a profession in the game's list is not mine")
+        assert(m.Alchemy and l.Alchemy, "a profession whose window was read in this session is not mine")
+        -- its recipes stay saved; and with only Leatherworking asked for, it is all there
+        assert(ns.db.recipes[key].Leatherworking and ns.db.recipes[key].Leatherworking.list["Light Armor Kit"], "the recipes of the one given up were deleted")
+        local only = ns.CraftEvaluate("Leatherworking", true)
+        assert(#only == 1 and only[1].prof == "Leatherworking", "Leatherworking on its own: " .. #only .. " rows")
+        -- learnt again: its window is read now - it is back
+        ns.db.recipes[key].Leatherworking.updated = time()
+        assert(Mine().Leatherworking and ListProfs().Leatherworking, "learnt again and its window read: not back")
+        ns.db.recipes[key].Leatherworking.updated = 1
+        -- the game's list can't tell: every profession counts, as before
+        PROFS[5] = { "Werkkunst", 60, 75, 9999, 0 } -- a place we can't name
+        assert(Mine().Leatherworking and ListProfs().Leatherworking, "a place we can't name: a profession was left out")
+        PROFS[5] = { "Tailoring", 60, 75, 197, 0 }
+        local SECRET = newproxy(true)
+        issecretvalue = function(v) return rawequal(v, SECRET) end
+        GetProfessions = function() return 1, SECRET, nil, 4, 5, nil end -- a hidden place
+        assert(Mine().Leatherworking, "a hidden place: a profession was left out")
+        issecretvalue = keep.secret
+        GetProfessions = nil -- no such list in this client
+        assert(Mine().Leatherworking and ListProfs().Leatherworking, "no list in this client: a profession was left out")
+    end)
+    ns.db.recipes, GetProfessions, PROFS[5], issecretvalue = keep.recipes, keep.profs, keep.p5, keep.secret
+    if not ok then error(err, 0) end
+end)
 step("Long run (10 min) for leaks", function() slash("run herb") advance(600) slash("stop") end)
 step("Test mock: OnUpdate runs for the same frames in the same order as going over every frame (tools only)", function()
     -- The mock's advance() goes over the frames that have an OnUpdate only
