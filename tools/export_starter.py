@@ -20,6 +20,23 @@ Questie spawn points: a node of the same kind (type and name, so Wilted
 Peacebloom is not Peacebloom) within --radius of a spawn point in
 Data/QuestieNodes.lua is already shipped there. Another kind on a Questie spot
 (a new Forever plant) stays. What each rule left out is printed.
+
+Refresh (0.2.2 P1 point 5; Sync 2.0 analysis of 21.11.2026, part e2):
+    python export_starter.py --refresh ../Data/StarterData.lua SV.lua -o ../Data/StarterData.lua
+                             --version forever-2026-11-21 [--zones 2548,2482,2521]
+  The shipped file stays the base: every row of it is kept (never lose a spot:
+  tools/starter_shipped.txt lists every row ever shipped, and the run stops when
+  one of them is missing). From one SavedVariables copy it adds
+    - in --zones only: real gathers - own nodes and nodes confirmed by sync,
+      herbs and ores - that no shipped row has within --radius; an object the
+      spawn data does not know only when its item is a herb or ore item, so a
+      quest object never comes in; doubles within --radius are one row;
+    - in every zone: a shipped spot other players confirmed live (its node is
+      still "starter" and was heard from at least one player, heard >= 1) gets
+      1 + heard as its count of reporters ("Seen N times").
+  Left out and counted: minimap guesses, parked nodes, unconfirmed reports,
+  chests, other items. No player names: rows hold object, type, place, item,
+  a count and the kind's name.
 """
 import argparse, datetime, os, re, sys
 
@@ -118,9 +135,162 @@ def item_names():
     text = open(os.path.join(HERE, "..", "Data", "ItemNames.lua"), encoding="utf-8").read()
     return {int(i): n for i, n in re.findall(r"^(\d+)\t(.+)$", text, re.M)}
 
+ROW = re.compile(r'\{"(o\d+)","(\w)",(\d+),(\d+),(\d+),(\d+),"((?:\\.|[^"\\])*)"\}')
+LEDGER = os.path.join(HERE, "starter_shipped.txt")
+
+
+def read_shipped(path):
+    """mapID -> rows [id, t, x, y, item, reporters, name] of a StarterData.lua, and its version"""
+    text = open(path, encoding="utf-8").read()
+    zones = {}
+    for m in re.finditer(r"        \[(\d+)\] = \{\n(.*?)\n        \},\n", text, re.S):
+        zones[int(m.group(1))] = [list(ROW.search(l).groups()) for l in m.group(2).split("\n")]
+    assert sum(len(v) for v in zones.values()) == len(ROW.findall(text)), "the shipped file has rows outside the zone blocks"
+    return zones, re.search(r'version = "([^"]+)"', text).group(1)
+
+
+def ledger_key(z, r):
+    return "%d,%s,%s,%s,%s,%s" % (z, r[0], r[1], r[2], r[3], r[4])
+
+
+def refresh(args):
+    """See the module text: --refresh SHIPPED SV -o OUT --version V [--zones ...]"""
+    shipped, old_version = read_shipped(args.refresh)
+    assert args.version != old_version, "the version must be new: every profile imports a new version once"
+    assert len(args.files) == 1, "one SavedVariables copy"
+    # every row ever shipped (no names, no counts): kept, or the run stops
+    ledger_path = args.ledger or LEDGER
+    if os.path.exists(ledger_path):
+        ledger = [l for l in open(ledger_path, encoding="utf-8").read().split("\n") if l and not l.startswith("#")]
+    else:
+        ledger = sorted(ledger_key(z, r) for z, rows in shipped.items() for r in rows)
+    have = {ledger_key(z, r) for z, rows in shipped.items() for r in rows}
+    lost = [k for k in ledger if k not in have]
+    assert not lost, "%d rows shipped before are not in %s: %s" % (len(lost), args.refresh, lost[:3])
+
+    qkinds, _ = questie_spawns()
+    names = item_names()
+    text = open(os.path.join(HERE, "..", "Data", "QuestieNodes.lua"), encoding="utf-8").read()
+    real_items = {}
+    for oid, t, item in re.findall(r'\["(o\d+)"\]\s*=\s*\{"(\w)",(\d+),"(?:\\.|[^"\\])*"\}', text):
+        if t in ("h", "o") and int(item) > 0:
+            real_items.setdefault(int(item), set()).add(t)
+    saved = Parser(open(args.files[0], encoding="utf-8").read()).assignments()
+    db = saved.get("GathercraftDB") or {}
+    nodes = db.get("nodes") or {}
+    zones = [int(z) for z in args.zones.split(",")] if args.zones else sorted(z for z in shipped if z not in known_zones())
+    CODE = {"herb": "h", "ore": "o"}
+    near = lambda a, b: a[0] == b["id"] and abs(int(a[2]) / 10000 - b["x"]) <= args.radius and abs(int(a[3]) / 10000 - b["y"]) <= args.radius
+
+    # 1. shipped spots other players confirmed live: 1 + heard reporters (in every zone)
+    confirmed = {}
+    for z, rows in shipped.items():
+        for n in as_list(nodes.get(z) or {}):
+            if n.get("source") != "starter" or (n.get("heard") or 0) < 1 or not isinstance(n.get("x"), (int, float)):
+                continue
+            for r in rows:
+                if near(r, n):
+                    want = 1 + int(n["heard"])
+                    if want > int(r[5]):
+                        r[5] = str(want)
+                        confirmed[z] = confirmed.get(z, 0) + 1
+                    break
+
+    # 2. new real gathers in the given zones
+    left_out, added, names_of = {}, {}, {}
+    def drop(z, t, rule):
+        left_out[(z, t, rule)] = left_out.get((z, t, rule), 0) + 1
+    for z in zones:
+        new = []
+        for n in as_list(nodes.get(z) or {}):
+            nid, ntype, src = n.get("id"), n.get("type"), n.get("source")
+            t = ntype or "?"
+            if ntype == "chest":
+                drop(z, t, "chest (not herb or ore)"); continue
+            if not (isinstance(nid, str) and re.fullmatch(r"o\d+", nid)) or ntype not in CODE:
+                drop(z, t, "no game object id or type"); continue
+            if n.get("seenOnly"):
+                drop(z, t, "minimap guess (seenOnly)"); continue
+            if n.get("parked"):
+                drop(z, t, "parked"); continue
+            if src == "starter":
+                drop(z, t, "shipped already (starter)"); continue
+            if src not in (None, "sync"):
+                drop(z, t, "source %s" % src); continue
+            item = n.get("item") or 0
+            known = qkinds.get(nid)
+            # a herb or vein of the spawn data is one whatever it dropped; an object the spawn data does not know
+            # only when its item is a herb or ore item (a quest object drops a quest item: never comes in)
+            if (known and known[0] != CODE[ntype]) or (not known and CODE[ntype] not in real_items.get(item, set())):
+                drop(z, t, "item %s is no herb or ore item" % item); continue
+            if any(near(r, n) for r in shipped.get(z, [])):
+                drop(z, t, "shipped already (a row within the radius)"); continue
+            nm = n.get("name") or ""
+            if nm and not nm.startswith("Unknown"):
+                names_of.setdefault(nid, {})
+                names_of[nid][nm] = names_of[nid].get(nm, 0) + 1
+            hit = next((e for e in new if e["id"] == nid and abs(e["x"] - n["x"]) <= args.radius and abs(e["y"] - n["y"]) <= args.radius), None)
+            if hit:
+                hit["k"] += 1
+                hit["x"] += (n["x"] - hit["x"]) / hit["k"]
+                hit["y"] += (n["y"] - hit["y"]) / hit["k"]
+                drop(z, t, "double of a new row (merged)")
+                continue
+            new.append({"id": nid, "t": CODE[ntype], "x": n["x"], "y": n["y"], "item": item, "k": 1})
+        for p in as_list(((db.get("sync") or {}).get("pending") or {}).get(z) or {}):
+            drop(z, p.get("type") or "?", "unconfirmed sync report (pending)")
+        added[z] = new
+
+    def kind_name(nid, item):
+        k = qkinds.get(nid)
+        if k:
+            return k[1]
+        if names_of.get(nid):
+            return max(names_of[nid].items(), key=lambda kv: (kv[1], kv[0]))[0]
+        return names.get(item) or nid
+
+    before = {z: {t: sum(1 for r in rows if r[1] == t) for t in "hoc"} for z, rows in shipped.items()}
+    out = {z: [list(r) for r in rows] for z, rows in shipped.items()}
+    for z, new in added.items():
+        for e in new:
+            out.setdefault(z, []).append([e["id"], e["t"], str(round(e["x"] * 10000)), str(round(e["y"] * 10000)), str(int(e["item"])), "1",
+                                          lua_str(kind_name(e["id"], e["item"]))[1:-1]])
+    lines = ["-- Generated by tools/export_starter.py, do not edit by hand.",
+             "-- {id, type (h/o), x*10000, y*10000, itemID, reporters, name}",
+             "GathercraftStarterData = {",
+             "    version = %s," % lua_str(args.version),
+             "    nodes = {"]
+    for z in sorted(out):
+        rows = sorted(out[z], key=lambda r: (r[0], int(r[2]), int(r[3])))
+        lines.append("        [%d] = {" % z)
+        for r in rows:
+            lines.append('            {"%s","%s",%s,%s,%s,%s,"%s"},' % tuple(r))
+        lines.append("        },")
+    lines += ["    },", "}", ""]
+    for z in sorted(out):
+        after = {t: sum(1 for r in out[z] if r[1] == t) for t in "hoc"}
+        print("zone %5d: herb %4d -> %4d, ore %4d -> %4d, chest %d -> %d; new %d; confirmed live %d" % (
+            z, before.get(z, {}).get("h", 0), after["h"], before.get(z, {}).get("o", 0), after["o"],
+            before.get(z, {}).get("c", 0), after["c"], len(added.get(z, [])), confirmed.get(z, 0)), file=sys.stderr)
+    for (z, t, rule), k in sorted(left_out.items()):
+        print("left out: zone %5d %-5s %4d  %s" % (z, t, k, rule), file=sys.stderr)
+    with open(args.out, "w", encoding="utf-8", newline="\n") as f:
+        f.write("\n".join(lines))
+    keys = sorted(set(ledger) | {ledger_key(z, r) for z, rows in out.items() for r in rows})
+    with open(ledger_path, "w", encoding="utf-8", newline="\n") as f:
+        f.write("# every row Data/StarterData.lua ever shipped: mapID,id,type,x*10000,y*10000,item (tools/export_starter.py --refresh)\n")
+        f.write("\n".join(keys) + "\n")
+    print("wrote %d rows in %d zones to %s (version %s, before %s: %d rows); %d rows in %s" % (
+        sum(len(v) for v in out.values()), len(out), args.out, args.version, old_version, sum(len(v) for v in shipped.values()),
+        len(keys), ledger_path), file=sys.stderr)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("files", nargs="+")
+    ap.add_argument("--refresh", metavar="SHIPPED", help="keep this StarterData.lua and add to it (see the module text)")
+    ap.add_argument("--ledger", default="", help="with --refresh: the list of rows ever shipped (default tools/starter_shipped.txt)")
+    ap.add_argument("--zones", default="", help="with --refresh: the zones new spots come in for (default: zones without spawn data)")
     ap.add_argument("-o", "--out", default="StarterData.lua")
     ap.add_argument("--version", default="beta-" + datetime.date.today().isoformat())
     ap.add_argument("--radius", type=float, default=0.003, help="merge distance as map fraction")
@@ -130,6 +300,8 @@ def main():
                     help="zones without known spawn points only: also export unconfirmed sync reports "
                          "that N or more different players sent (0 = off)")
     args = ap.parse_args()
+    if args.refresh:
+        return refresh(args)
     if args.include_pending == 1:
         ap.error("--include-pending needs 2 or more: starter nodes join routes, one stranger's report must not")
 
