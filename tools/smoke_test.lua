@@ -28573,6 +28573,68 @@ step("Sync 0.2.2: /gcr sync counts repeats and spots already confirmed by 4 play
     ns.NotifyNodesChanged() advance(1)
     if not ok then error(err, 0) end
 end)
+-- 0.2.2 P2a (Merkliste aus 0.1.23; Belgeron's German client): recipes and
+-- skills were kept under "Kräuterkunde" and "Angeln" - the names of the
+-- game's skill list, which are not the spells' names ProfKey knew. Now the
+-- names of the game's list of professions count by their skill line, the
+-- gathering spells too, and after the login saved data under such a name
+-- move to the English one: two lists of one profession are put together,
+-- nothing of either is lost.
+step("Crafting 0.2.2: a profession's name from the game's list counts by its skill line - saved data under \"Kräuterkunde\" or \"Angeln\" move to Herbalism and Fishing, nothing lost (0.2.2 P2a)", function()
+    local key = (UnitName("player") or "?") .. "-" .. GetNormalizedRealmName()
+    local keep = { names = { PROFS[1][1], PROFS[4][1] }, recipes = ns.db.recipes, db = ns.db.recipeDB, pending = ns.db.recipePending }
+    local ok, err = pcall(function()
+        local function Copy(t) local c = {} for k, v in pairs(t) do c[k] = type(v) == "table" and Copy(v) or v end return c end
+        ns.db.recipes = keep.recipes and Copy(keep.recipes) or {}
+        ns.db.recipeDB = keep.db and Copy(keep.db) or {}
+        ns.db.recipePending = keep.pending and Copy(keep.pending) or {}
+        -- what an older version kept for this character in a German client
+        local char = ns.db.recipes[key] or {}
+        ns.db.recipes[key] = char
+        char["Kräuterkunde"] = { list = { ["Herb Recipe A"] = "2447:1:1:1|765:1" }, rank = 120, rankAt = 2000, updated = 2000 }
+        char["Herbalism"] = { list = { ["Herb Recipe B"] = "2449:1:1:1|785:1", ["Herb Recipe A"] = "2447:2:2:1|765:2" }, rank = 100, rankAt = 1000, updated = 1000 }
+        char["Angeln"] = { list = {}, rank = 50, rankAt = 1500 }
+        char["Alchemy"] = { list = { ["Minor Healing Potion"] = "118:1:1:1|2447:1,765:1" }, rank = 60, rankAt = 1200 }
+        local alchemyBefore = Copy(char["Alchemy"])
+        ns.db.recipeDB["Angeln"] = { ["Fish Recipe"] = "6303:1:1:0|6256:1" }
+        ns.db.recipePending["Kräuterkunde"] = { ["Waiting Herb"] = "0|Item765:1" }
+        -- the game's list of professions in that client
+        PROFS[1][1], PROFS[4][1] = "Kräuterkunde", "Angeln"
+        ns.CraftNormalizeAgain()
+        -- the names count as the professions of their skill lines
+        assert(ns.ProfKey("Kräuterkunde") == "Herbalism" and ns.ProfKey("kräuterkunde") == "Herbalism", "Kräuterkunde is " .. tostring(ns.ProfKey("Kräuterkunde")))
+        assert(ns.ProfKey("Angeln") == "Fishing", "Angeln is " .. tostring(ns.ProfKey("Angeln")))
+        assert(ns.ProfKey("Alchemy") == "Alchemy" and ns.ProfKey("Herbalism") == "Herbalism", "an English name changed")
+        -- the character's lists: one Herbalism with both recipes, the later skill; Fishing; Alchemy as it was
+        assert(char["Kräuterkunde"] == nil and char["Angeln"] == nil, "a German name is still kept")
+        local h = char["Herbalism"]
+        assert(h and h.list["Herb Recipe A"] and h.list["Herb Recipe B"], "Herbalism lost a recipe")
+        assert(h.list["Herb Recipe A"] == "2447:2:2:1|765:2", "a recipe both had: not the English list's")
+        assert(h.rank == 120 and h.rankAt == 2000, ("Herbalism's skill: %s, the later one is 120"):format(tostring(h.rank)))
+        assert(char["Fishing"] and char["Fishing"].rank == 50, "Fishing's skill is lost")
+        for k, v in pairs(alchemyBefore) do
+            if type(v) ~= "table" then assert(char["Alchemy"][k] == v, "Alchemy changed: " .. k) end
+        end
+        assert(char["Alchemy"].list["Minor Healing Potion"] == alchemyBefore.list["Minor Healing Potion"], "Alchemy's recipe changed")
+        -- the account's recipe book and the waiting recipes
+        assert(ns.db.recipeDB["Angeln"] == nil and ns.db.recipeDB["Fishing"] and ns.db.recipeDB["Fishing"]["Fish Recipe"], "the recipe book still has Angeln")
+        assert(ns.db.recipePending["Kräuterkunde"] == nil and ns.db.recipePending["Herbalism"] and ns.db.recipePending["Herbalism"]["Waiting Herb"],
+            "the waiting recipes still have Kräuterkunde")
+        -- a recipe a trainer names under "Angeln" waits under Fishing
+        ns.RememberRecipe("Angeln", 0, "A Product Nobody Knows", { { "Nothing Like It", 1 } })
+        assert(ns.db.recipePending["Angeln"] == nil and ns.db.recipePending["Fishing"] and ns.db.recipePending["Fishing"]["A Product Nobody Knows"],
+            "a trainer's recipe waits under Angeln")
+        -- again: nothing moves, nothing is lost
+        local snapshot = Copy(ns.db.recipes[key])
+        ns.CraftNormalizeAgain()
+        for prof, info in pairs(snapshot) do
+            for name in pairs(info.list or {}) do assert(ns.db.recipes[key][prof].list[name], "a second time lost " .. prof .. " " .. name) end
+        end
+    end)
+    PROFS[1][1], PROFS[4][1] = keep.names[1], keep.names[2]
+    ns.db.recipes, ns.db.recipeDB, ns.db.recipePending = keep.recipes, keep.db, keep.pending
+    if not ok then error(err, 0) end
+end)
 step("Long run (10 min) for leaks", function() slash("run herb") advance(600) slash("stop") end)
 step("Test mock: OnUpdate runs for the same frames in the same order as going over every frame (tools only)", function()
     -- The mock's advance() goes over the frames that have an OnUpdate only

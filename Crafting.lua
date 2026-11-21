@@ -85,8 +85,35 @@ end
 local PROF_SPELLS = {
     Alchemy = 2259, Blacksmithing = 2018, Enchanting = 7411, Engineering = 4036, Leatherworking = 2108,
     Tailoring = 3908, Cooking = 2550, ["First Aid"] = 3273, Mining = 2575,
+    -- (0.2.2 P2a) the gathering ones: their names were kept as the client wrote them
+    Herbalism = 2366, Fishing = 7620, Skinning = 8613,
+}
+-- the game's skill line of each profession (GetProfessionInfo): the name
+-- the client gives with it is that profession, whatever the language
+local PROF_LINE = {
+    [171] = "Alchemy", [164] = "Blacksmithing", [333] = "Enchanting", [202] = "Engineering", [165] = "Leatherworking",
+    [197] = "Tailoring", [186] = "Mining", [182] = "Herbalism", [393] = "Skinning", [356] = "Fishing", [185] = "Cooking",
+    [129] = "First Aid",
 }
 local profAlias
+-- The names in the game's list of your professions, by their skill line
+-- (0.2.2 P2a; Belgeron's German client, CurseForge: recipes and skills were
+-- kept under "Kräuterkunde" and "Angeln" - the skill list's names, which are
+-- not the spells' names). Read when the list can be read; until then the
+-- other names do. True when a name came in that was not known before.
+local function LearnSlotNames()
+    if not (profAlias and ns.ProfessionSlots) then return false end
+    local new = false
+    for _, slot in ipairs(ns.ProfessionSlots()) do
+        local en = PROF_LINE[slot.line]
+        local name = slot.name
+        if en and type(name) == "string" and name ~= "" and not ns.AnySecret("crafting", name) and profAlias[name:lower()] ~= en then
+            profAlias[name:lower()] = en
+            new = true
+        end
+    end
+    return new
+end
 local function ProfKey(name)
     if not name or name == "" then return name end
     if not profAlias then
@@ -101,6 +128,7 @@ local function ProfKey(name)
         end
         local smelting = SpellNameOf(2656)
         if smelting and smelting ~= "" then profAlias[smelting:lower()] = "Mining" end
+        LearnSlotNames()
     end
     return profAlias[name:lower()] or name
 end
@@ -219,6 +247,10 @@ end
 -- the English names (once per session). The recipe book counts as changed
 -- only when a profession or a recipe really moved: saved data that is in
 -- order already - every login after the first - is the same book as before.
+-- (0.2.2 P2a) Two names of one profession meet (a German "Kräuterkunde" and
+-- its "Herbalism"): their lists are put together, nothing of either is lost -
+-- a recipe both have keeps the English list's; the skill seen later stays.
+-- The recipes waiting for their items (recipePending) move the same way.
 local normalized = false
 local function Normalize()
     if normalized or not ns.db then return end
@@ -228,6 +260,7 @@ local function Normalize()
     local db = ns.db.recipeDB or {}
     local profs, moved = {}, false
     for prof in pairs(db) do profs[#profs + 1] = prof end
+    table.sort(profs) -- (the same result whatever order pairs() gives)
     for _, prof in ipairs(profs) do
         local key, list = ProfKey(prof), db[prof]
         local fixed = (key ~= prof and db[key]) or {}
@@ -241,22 +274,64 @@ local function Normalize()
         db[key] = fixed
     end
     if moved then recipeRev = recipeRev + 1 end
-    -- each character: prof -> { list = name -> packed }
+    -- waiting recipes: prof -> product name -> "req|reagents"
+    local pending = ns.db.recipePending or {}
+    local pprofs = {}
+    for prof in pairs(pending) do pprofs[#pprofs + 1] = prof end
+    table.sort(pprofs)
+    for _, prof in ipairs(pprofs) do
+        local key = ProfKey(prof)
+        if key ~= prof then
+            local into = pending[key] or {}
+            for product, text in pairs(pending[prof]) do into[product] = into[product] or text end
+            pending[prof], pending[key] = nil, into
+        end
+    end
+    -- each character: prof -> { list = name -> packed, rank, rankAt, updated }
     for _, char in pairs(ns.db.recipes or {}) do
         local cprofs = {}
         for prof in pairs(char) do cprofs[#cprofs + 1] = prof end
+        table.sort(cprofs, function(a, b)
+            -- the one already under its English name first: the others join it
+            local ea, eb = ProfKey(a) == a, ProfKey(b) == b
+            if ea ~= eb then return ea end
+            return a < b
+        end)
         for _, prof in ipairs(cprofs) do
             local key, info = ProfKey(prof), char[prof]
             local fixed = {}
             for name, packed in pairs(info.list or {}) do
                 fixed[Canon(key, name, ProductOf(packed))] = packed
             end
-            info.list = fixed
             char[prof] = nil
-            char[key] = info
+            local into = char[key]
+            if into and into ~= info then
+                for name, packed in pairs(fixed) do
+                    into.list = into.list or {}
+                    into.list[name] = into.list[name] or packed
+                end
+                if info.rank and (not into.rank or (info.rankAt or 0) > (into.rankAt or 0)) then into.rank, into.rankAt = info.rank, info.rankAt end
+                into.updated = math.max(into.updated or 0, info.updated or 0)
+            else
+                info.list = fixed
+                char[key] = info
+            end
         end
     end
 end
+-- (0.2.2 P2a) after the login, once the game's list of professions can be
+-- read: its names are learned, and if one was new the saved data are put
+-- under the English names again
+local function NormalizeAgain()
+    if not ns.db then return end
+    local fresh = not profAlias
+    if fresh then ProfKey("?") end -- (builds the names, the list's among them)
+    if LearnSlotNames() or fresh then
+        normalized = false
+        Normalize()
+    end
+end
+ns.CraftNormalizeAgain = NormalizeAgain -- (the tests)
 
 local function CharRecipes()
     ns.db.recipes = ns.db.recipes or {}
@@ -786,6 +861,7 @@ end
 
 local lastIndexBuild
 local function RememberRecipe(prof, req, product, reagents)
+    prof = ProfKey(prof) -- (0.2.2 P2a: a waiting recipe under the English name too)
     if ns.db.recipeDB and ns.db.recipeDB[prof] and ns.db.recipeDB[prof][product] then
         if req and req > 0 then MergeRecipe(prof, product, tonumber(ns.db.recipeDB[prof][product]:match("^(%d+)")), nil, nil, req,
             ns.db.recipeDB[prof][product]:match("|(.*)$")) end
@@ -1004,6 +1080,8 @@ events:SetScript("OnEvent", function(_, event, arg1)
         if arg1 then OnItemLoaded(arg1) end
     elseif event == "PLAYER_LOGIN" then
         if #missingEvents > 0 then ns.Debug("CRAFT events the client doesn't know: " .. MissingEventsText()) end
+        -- (0.2.2 P2a) the names of the game's list of professions
+        C_Timer.After(3, NormalizeAgain)
         C_Timer.After(20, function()
             if not ns.db then return end
             -- older versions took the "Use:" line of enchanting formulas as the item
@@ -1874,15 +1952,11 @@ local function SkillListLines()
     return out
 end
 
--- The professions by the number of their skill line: the same in every
--- language (v0.1.23 P6). Seen live in the Forever client (Sven, 14.11.2026):
--- 182, 186, 129, 356, 185. The others are the game's usual numbers, not
--- seen there yet - /gcr crafttest shows the number of each of yours.
-local PROF_LINE = {
-    [171] = "Alchemy", [164] = "Blacksmithing", [333] = "Enchanting", [202] = "Engineering", [165] = "Leatherworking",
-    [197] = "Tailoring", [186] = "Mining", [182] = "Herbalism", [393] = "Skinning", [356] = "Fishing", [185] = "Cooking",
-    [129] = "First Aid",
-}
+-- PROF_LINE (at the top, next to ProfKey): the professions by the number of
+-- their skill line, the same in every language (v0.1.23 P6). Seen live in
+-- the Forever client (Sven, 14.11.2026): 182, 186, 129, 356, 185. The
+-- others are the game's usual numbers, not seen there yet - /gcr crafttest
+-- shows the number of each of yours.
 
 -- for /gcr crafttest: the game's list of your professions, place by place
 local function ProfessionLines()
