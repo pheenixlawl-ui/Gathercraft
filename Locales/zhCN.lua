@@ -743,4 +743,5 @@ ns.Locales.zhCN = {
     ["Learning the nodes you point at works with every setting."] = "学习你指向的采集点在任何设置下都有效。",
     ["  Versions of the players seen (1h): %s"] = "  看到的玩家的版本（1 小时）：%s",
     ["no version heard: %d"] = "未收到版本：%d",
+    ["  Refused by the game when sending (since login): %d throttled, %d channel throttled, %d channel not valid"] = "  发送时被游戏拒绝（登录以来）：%d 次限流，%d 次频道限流，%d 次频道无效",
 }

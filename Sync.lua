@@ -126,9 +126,11 @@ local function PerfNow()
     if not cur or cur.minute ~= minute then
         if cur then
             -- (minutes nothing happened in are full minutes of zeros)
-            perf.last = cur.minute == minute - 1 and cur or { minute = minute - 1, msgIn = 0, msgOut = 0, other = 0, nodes = 0, overBudget = 0, overLimit = 0, ms = 0 }
+            perf.last = cur.minute == minute - 1 and cur or { minute = minute - 1, msgIn = 0, msgOut = 0, other = 0, nodes = 0, overBudget = 0, overLimit = 0, ms = 0,
+                throttled = 0, chanThrottled = 0, badChannel = 0 }
         end
-        cur = { minute = minute, msgIn = 0, msgOut = 0, other = 0, nodes = 0, overBudget = 0, overLimit = 0, ms = 0 }
+        cur = { minute = minute, msgIn = 0, msgOut = 0, other = 0, nodes = 0, overBudget = 0, overLimit = 0, ms = 0,
+            throttled = 0, chanThrottled = 0, badChannel = 0 }
         perf.cur = cur
     end
     return cur
@@ -162,9 +164,9 @@ local function Perf()
     if ns.MiniPinCounts then near, inZone = ns.MiniPinCounts() end
     -- (own messages heard back: since login - does this realm send our own
     -- messages back to us? AnswerStops counts on it and has a rule without it)
-    ns.Print(("perf (%s): sync messages received %d, send attempts %d; nodes announced %d (before any check); refused: %d messages over the budget, %d nodes over the limit per player; other addons' messages %d; time in the receive and send handlers %.1f ms; own messages heard back %d of %d send attempts since login; %s; minimap pins: %d near / %d in zone"):format(
-        what, b.msgIn, b.msgOut, b.nodes, b.overBudget, b.overLimit, b.other, b.ms, perf.back or 0, perf.sent or 0,
-        kb and ("memory %.1f MB"):format(kb / 1024) or "memory not readable in this client", near, inZone))
+    ns.Print(("perf (%s): sync messages received %d, send attempts %d; nodes announced %d (before any check); refused: %d messages over the budget, %d nodes over the limit per player; refused by the game when sending: %d throttled, %d channel throttled, %d channel not valid; other addons' messages %d; time in the receive and send handlers %.1f ms; own messages heard back %d of %d send attempts since login; %s; minimap pins: %d near / %d in zone"):format(
+        what, b.msgIn, b.msgOut, b.nodes, b.overBudget, b.overLimit, b.throttled or 0, b.chanThrottled or 0, b.badChannel or 0, b.other, b.ms,
+        perf.back or 0, perf.sent or 0, kb and ("memory %.1f MB"):format(kb / 1024) or "memory not readable in this client", near, inZone))
 end
 
 ---------------------------------------------------------------------------
@@ -356,6 +358,27 @@ local function AnswerHeard(a, sender, nodes)
     end
 end
 
+-- What the game said to a send (0.2.2 d1; Sync 2.0 analysis of 21.11.2026):
+-- SendAddonMessage returns a result code (Enum.SendAddonMessageResult; an
+-- older client true or false). Three of them are counted - throttled (the
+-- limit per prefix), the channel throttled, the channel not valid - in the
+-- minute (/gcr perf) and since login (/gcr sync). The message is dropped
+-- as before, never retried.
+local RESULT = (Enum and Enum.SendAddonMessageResult) or {}
+local REFUSED = {
+    [RESULT.AddonMessageThrottle or 3] = "throttled",
+    [RESULT.ChannelThrottle or 8] = "chanThrottled",
+    [RESULT.InvalidChannel or 7] = "badChannel",
+}
+local sendRefused = { throttled = 0, chanThrottled = 0, badChannel = 0 } -- since login
+local function NoteResult(result)
+    local what = type(result) == "number" and REFUSED[result]
+    if not what then return end
+    sendRefused[what] = sendRefused[what] + 1
+    local cur = PerfNow()
+    cur[what] = (cur[what] or 0) + 1
+end
+
 -- A client that refuses addon messages (e.g. a trial account) may throw
 -- instead of saying no: the message is dropped either way, never retried
 local function Send(...)
@@ -363,7 +386,10 @@ local function Send(...)
     cur.msgOut = cur.msgOut + 1
     perf.sent = (perf.sent or 0) + 1
     local fine, result = pcall(C_ChatInfo.SendAddonMessage, ...)
-    if fine then return result end
+    if fine then
+        if not ns.AnySecret("sync send", result) then NoteResult(result) end
+        return result
+    end
     return false, result
 end
 
@@ -1254,6 +1280,8 @@ local function Status()
         c.received or 0, c.new or 0, c.trusted or 0, c.public or 0, c.confirmed or 0))
     print((L["  Not sent (already known): %d   Not sent (busy): %d   Dropped (budget): %d"]):format(
         stats.skippedKnown, stats.skippedBusy, stats.dropped))
+    print((L["  Refused by the game when sending (since login): %d throttled, %d channel throttled, %d channel not valid"]):format(
+        sendRefused.throttled, sendRefused.chanThrottled, sendRefused.badChannel))
     print((L["  Confirmations needed: %d (guild and friends count instantly)"]):format(CONFIRMATIONS))
     -- the versions of the players of the last hour (0.2.2 d1): a player's
     -- version is heard once, when he joins - who was online before you, or

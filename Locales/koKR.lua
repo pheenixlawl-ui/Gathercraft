@@ -743,4 +743,5 @@ ns.Locales.koKR = {
     ["Learning the nodes you point at works with every setting."] = "가리킨 채집물 배우기는 어떤 설정에서도 작동합니다.",
     ["  Versions of the players seen (1h): %s"] = "  본 플레이어의 버전 (1시간): %s",
     ["no version heard: %d"] = "버전 정보 없음: %d",
+    ["  Refused by the game when sending (since login): %d throttled, %d channel throttled, %d channel not valid"] = "  보낼 때 게임이 거부함 (접속 후): 제한 %d, 채널 제한 %d, 잘못된 채널 %d",
 }

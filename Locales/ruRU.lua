@@ -743,4 +743,5 @@ ns.Locales.ruRU = {
     ["Learning the nodes you point at works with every setting."] = "Запоминание ресурсов, на которые вы наводите, работает при любой настройке.",
     ["  Versions of the players seen (1h): %s"] = "  Версии замеченных игроков (1 ч): %s",
     ["no version heard: %d"] = "версия не получена: %d",
+    ["  Refused by the game when sending (since login): %d throttled, %d channel throttled, %d channel not valid"] = "  Отклонено игрой при отправке (с входа): %d ограничено, %d канал ограничен, %d канал недействителен",
 }

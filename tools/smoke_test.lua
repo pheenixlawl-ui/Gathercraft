@@ -28415,6 +28415,73 @@ step("Sync 0.2.2: V:gc<version> once after joining the channel and once per logi
     ns.db.sync.enabled, ns.db.sync.public = keep.enabled, keep.public
     if not ok then error(err, 0) end
 end)
+-- 0.2.2 P1 point 4, d1 (Sync 2.0 analysis of 21.11.2026): what the game
+-- says to a send is read. SendAddonMessage returns a result code; three
+-- are counted - throttled, the channel throttled, the channel not valid -
+-- in /gcr perf (the minute) and /gcr sync (since login). The message is
+-- dropped as before; true, false, success and other codes count nothing.
+step("Sync 0.2.2: what the game says to a send - throttled, channel throttled, channel not valid - in /gcr perf and /gcr sync (0.2.2 P1 d1)", function()
+    local Z = 1468
+    local keep = { send = C_ChatInfo.SendAddonMessage, nodes = ns.db.nodes[Z], map = player.map }
+    local ok, err = pcall(function()
+        -- the game's answers to our messages of this zone, one after the other
+        local answers = { 3, 8, 7, 3, 0, true, false, 99 }
+        local mine = 0
+        C_ChatInfo.SendAddonMessage = function(prefix, msg, chan)
+            sentMessages[#sentMessages + 1] = msg
+            if msg:find("N:" .. Z .. ";", 1, true) then
+                mine = mine + 1
+                return answers[mine]
+            end
+            return 0
+        end
+        local function Refused()
+            local mark = #log
+            slash("sync")
+            local head = (ns.L["  Refused by the game when sending (since login): %d throttled, %d channel throttled, %d channel not valid"]):match("^(.-)%%d")
+            for i = mark + 1, #log do
+                if log[i]:find(head, 1, true) then
+                    local a, b, c = log[i]:sub(log[i]:find(head, 1, true) + #head):match("^(%d+)%D+(%d+)%D+(%d+)")
+                    return tonumber(a), tonumber(b), tonumber(c)
+                end
+            end
+        end
+        local a0, b0, c0 = Refused()
+        assert(a0 and b0 and c0, "/gcr sync shows no line of what the game refused")
+        -- eight own spots of this zone, each sent to the channel and the guild:
+        -- the first eight messages get the eight answers
+        local list = {}
+        for i = 1, 4 do list[i] = { id = "o1731", name = "Copper Vein", type = "ore", x = 0.1 + i * 0.15, y = 0.5, count = 1, last = 1 } end
+        ns.db.nodes[Z] = list
+        ns.NotifyNodesChanged() advance(1)
+        -- start at a new minute, so the minute of /gcr perf holds all of them
+        advance(60 - GetTime() % 60 + 0.5)
+        for _, n in ipairs(list) do ns.SyncShare(Z, n) end
+        advance(15)
+        assert(mine == 8, ("test setup: %d messages of the zone sent, 8 wanted"):format(mine))
+        local a1, b1, c1 = Refused()
+        assert(a1 - a0 == 2 and b1 - b0 == 1 and c1 - c0 == 1,
+            ("/gcr sync: %d throttled, %d channel throttled, %d channel not valid - 2, 1, 1 wanted"):format(a1 - a0, b1 - b0, c1 - c0))
+        -- /gcr perf: the last full minute
+        advance(60 - GetTime() % 60 + 0.5)
+        local mark = #log
+        ns.SyncPerf()
+        local perfLine
+        for i = mark + 1, #log do if log[i]:find("perf (last full minute)", 1, true) then perfLine = log[i] end end
+        assert(perfLine, "test setup: no /gcr perf line of the last full minute")
+        assert(perfLine:find("refused by the game when sending: 2 throttled, 1 channel throttled, 1 channel not valid", 1, true),
+            "/gcr perf: " .. perfLine)
+        -- every language has the line, with its three numbers
+        for lang, d in pairs(ns.Locales) do
+            local key = "  Refused by the game when sending (since login): %d throttled, %d channel throttled, %d channel not valid"
+            assert(d[key] and d[key] ~= key and select(2, d[key]:gsub("%%d", "")) == 3, lang .. ": not translated, or not three numbers")
+        end
+    end)
+    C_ChatInfo.SendAddonMessage = keep.send
+    ns.db.nodes[Z], player.map = keep.nodes, keep.map
+    ns.NotifyNodesChanged() advance(1)
+    if not ok then error(err, 0) end
+end)
 step("Long run (10 min) for leaks", function() slash("run herb") advance(600) slash("stop") end)
 step("Test mock: OnUpdate runs for the same frames in the same order as going over every frame (tools only)", function()
     -- The mock's advance() goes over the frames that have an OnUpdate only

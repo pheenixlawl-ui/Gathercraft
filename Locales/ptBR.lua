@@ -743,4 +743,5 @@ ns.Locales.ptBR = {
     ["Learning the nodes you point at works with every setting."] = "Aprender os nós que você aponta funciona com qualquer configuração.",
     ["  Versions of the players seen (1h): %s"] = "  Versões dos jogadores vistos (1 h): %s",
     ["no version heard: %d"] = "nenhuma versão recebida: %d",
+    ["  Refused by the game when sending (since login): %d throttled, %d channel throttled, %d channel not valid"] = "  Recusados pelo jogo ao enviar (desde o login): %d limitados, %d canal limitado, %d canal inválido",
 }
