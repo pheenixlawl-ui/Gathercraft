@@ -737,4 +737,8 @@ ns.Locales.koKR = {
     ["Always"] = "항상",
     ["With Shift"] = "Shift 누를 때",
     ["With Shift: the pins let the mouse through to what lies below them, such as quest symbols. Hold Shift to point at a pin."] = "Shift 누를 때: 아이콘이 아래에 있는 것(예: 퀘스트 표시)으로 마우스를 통과시킵니다. 아이콘을 가리키려면 Shift를 누르고 있으세요.",
+    ["Minimap tooltip"] = "미니맵 툴팁",
+    ["Never"] = "안 함",
+    ["With Shift: Gathercraft's tooltip on the minimap shows only while you hold Shift. Never: it does not show."] = "Shift 누를 때: 미니맵의 Gathercraft 툴팁은 Shift를 누르고 있는 동안에만 표시됩니다. 안 함: 표시되지 않습니다.",
+    ["Learning the nodes you point at works with every setting."] = "가리킨 채집물 배우기는 어떤 설정에서도 작동합니다.",
 }

@@ -790,6 +790,26 @@ local function AddWorldTip()
         { "With Shift: the pins let the mouse through to what lies below them, such as quest symbols. Hold Shift to point at a pin." })
 end
 
+-- Our minimap tooltip: < Always | With Shift | Never > (0.2.2 P1, Core.lua)
+local MINI_TIPS = {
+    { name = "Always" },
+    { code = "shift", name = "With Shift" },
+    { code = "never", name = "Never" },
+}
+local function AddMiniTip()
+    AddChoice("Minimap tooltip", MINI_TIPS,
+        function()
+            local mode = ns.db.miniPinTip
+            return (mode == "shift" or mode == "never") and mode or nil
+        end,
+        function(code)
+            ns.db.miniPinTip = code
+            if ns.UpdateMinimapTooltip then ns.UpdateMinimapTooltip() end
+        end,
+        { "With Shift: Gathercraft's tooltip on the minimap shows only while you hold Shift. Never: it does not show.",
+          "Learning the nodes you point at works with every setting." })
+end
+
 -- Route line look: a color swatch (click: next, right-click: back) and < style >
 local lineSwatch, lineStyleText
 local function Cycle(list, code, delta)
@@ -1031,6 +1051,7 @@ local function Build()
     AddMiniAlpha()
     AddPinSize()
     AddWorldTip() -- (0.2.2 P1)
+    AddMiniTip()
 
     Section("runs")
     AddRouteMode()

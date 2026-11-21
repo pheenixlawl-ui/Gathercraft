@@ -27536,6 +27536,201 @@ step("World map pins 0.2.2: the tooltip always or only with Shift - without Shif
     ns.ShowOptionsSection(keep.section)
     if not ok then error(err, 0) end
 end)
+-- 0.2.2 P1 point 2 (a CurseForge user: "any way to hide or change the
+-- tooltips"): Options > Map & minimap, "Minimap tooltip < Always | With
+-- Shift | Never >". Always is the default (0.2.1 A5 stays). With Shift: ours
+-- only while Shift is held; Never: ours never. The learning by pointing
+-- ("Learn nodes you point at") goes on with every choice.
+-- And Sven's debug line of 21.11.2026 while looting a quest object
+-- ("minimap tooltip [LootFrame.ScrollBox.ScrollTarget..., ignored]"): the
+-- loot window lay over the minimap, the game's tooltip was the loot item's.
+-- Under the mouse is the loot button, not the minimap: ours does not show,
+-- nothing is learned - the line only says what was ignored.
+step("Minimap tooltip 0.2.2: always, only with Shift or never - learning goes on either way; a loot window over the minimap shows none of ours (0.2.2 P1)", function()
+    local Z = 1466
+    local opts = _G.GathercraftOptions
+    local names = GathercraftNodeNames and GathercraftNodeNames[GetLocale()]
+    local herbName = names and names[1618] or "Peacebloom"
+    local keep = { nodes = ns.db.nodes[Z], map = player.map, x = player.x, y = player.y, foci = GetMouseFoci, focus = GetMouseFocus,
+        cursor = GetCursorPosition, cvar = GetCVar, learnOff = ns.db.minimapLearnOff, tip = ns.db.miniPinTip, shift = IsShiftKeyDown,
+        section = ns.db.optionsSection }
+    local mm, gt, texts = {}, {}, {}
+    for _, k in ipairs({ "IsMouseOver", "GetCenter", "GetWidth", "GetHeight", "GetZoom", "GetEffectiveScale" }) do mm[k] = rawget(Minimap, k) end
+    for _, k in ipairs({ "IsShown", "GetOwner", "NumLines" }) do gt[k] = rawget(GameTooltip, k) end
+    local pinOver = {}
+    local ok, err = pcall(function()
+        local lines, owner, onPin, shift = {}, UIParent, false, false
+        IsShiftKeyDown = function() return shift end
+        Minimap.IsMouseOver = function() return true end
+        Minimap.GetCenter = function() return 500, 400 end
+        Minimap.GetWidth = function() return 140 end
+        Minimap.GetHeight = function() return 140 end
+        Minimap.GetZoom = function() return 0 end
+        Minimap.GetEffectiveScale = function() return 1 end
+        GameTooltip.IsShown = function() return #lines > 0 end
+        GameTooltip.GetOwner = function() return owner end
+        GameTooltip.NumLines = function() return #lines end
+        for i = 1, 3 do
+            local fs = _G["GameTooltipTextLeft" .. i] or newObject("FontString", "GameTooltipTextLeft" .. i)
+            _G["GameTooltipTextLeft" .. i] = fs
+            texts[i] = rawget(fs, "GetText")
+            fs.GetText = function() return lines[i] end
+        end
+        GetCursorPosition = function() return 540, 400 end
+        GetCVar = function() return "0" end
+        GetMouseFoci = function() return { Minimap } end
+        ns.db.minimapLearnOff, ns.db.miniPinTip = nil, nil
+        player.map, player.x, player.y = Z, 0.5, 0.5
+        local mapID, cx, cy = ns.CursorOnMap()
+        assert(mapID == Z and cx and cy, "test setup: the cursor on the map")
+        local herb = { id = "o1618", name = herbName, type = "herb", x = cx, y = cy, count = 1, last = 1 }
+        ns.db.nodes[Z] = { herb }
+        ns.NotifyNodesChanged()
+        fire("ZONE_CHANGED_NEW_AREA") advance(1)
+        local function HerbPins()
+            for _, f in ipairs(allFrames) do
+                if f.node == herb and f.isMini and not f.isTarget and not pinOver[f] then
+                    pinOver[f] = { rawget(f, "IsMouseOver"), f.__shown }
+                    pinOver[#pinOver + 1] = f
+                    f.IsMouseOver = function() return onPin end
+                end
+                if pinOver[f] and f.node == herb then f.__shown = true end
+            end
+        end
+        local function Wait(t)
+            for _ = 1, math.floor(t / 0.05 + 0.5) do HerbPins() advance(0.05) end
+        end
+        local function Tip() return _G.GathercraftMinimapTooltip end
+        local function Shows() local t = Tip() return t ~= nil and t:IsShown() and t.node == herb end
+        -- the mouse away (long enough that the same name counts again), then
+        -- onto the herb with the game showing these lines, owned by ...
+        local function Point(newLines, newOwner)
+            onPin, lines = false, {}
+            Wait(6)
+            assert(not Shows(), "test setup: ours still shown with the mouse away")
+            herb.seenAt, herb.upAt = nil, nil
+            onPin, lines, owner = true, newLines, newOwner
+            Wait(1)
+        end
+        HerbPins()
+
+        -- 1. Always (the default, as before): ours shows; the look is learned
+        Point({ herbName }, UIParent)
+        assert(Shows(), "Always: ours does not show")
+        assert(herb.seenAt, "Always: the look is not learned")
+
+        -- 2. the row under Map & minimap: < Always | With Shift | Never >
+        ns.ShowOptionsSection("map")
+        opts:Refresh()
+        local label, value, minus, plus
+        for _, o in ipairs(allFrames) do
+            if o.__kind == "FontString" and o.__text == ns.L["Minimap tooltip"] and o.__pts and o.__pts.TOPLEFT then label = o end
+        end
+        assert(label, "no row 'Minimap tooltip' in the options")
+        local p = label.__parent
+        while p and not p.key do p = p.__parent end
+        assert(p and p.key == "map", "the row is not under Map & minimap")
+        local y = label.__pts.TOPLEFT[2] + 4
+        for _, o in ipairs(allFrames) do
+            if o.__kind == "Button" and o.__parent == label.__parent and o.__pts and o.__pts.TOPLEFT and o.__pts.TOPLEFT[2] == y then minus = o end
+        end
+        for _, o in ipairs(allFrames) do
+            if o.__kind == "FontString" and minus and o.__pts and o.__pts.LEFT and o.__pts.LEFT[1] == minus then value = o end
+        end
+        for _, o in ipairs(allFrames) do
+            if o.__kind == "Button" and value and o.__pts and o.__pts.LEFT and o.__pts.LEFT[1] == value then plus = o end
+        end
+        assert(minus and value and plus, "test setup: the buttons and the value of the row")
+        assert(value:GetText() == ns.L["Always"], "the row does not show Always by default: " .. tostring(value:GetText()))
+        assert(pcall(plus.__scripts.OnEnter, plus), "the row's tooltip")
+        plus.__scripts.OnClick(plus)
+        assert(ns.db.miniPinTip == "shift" and value:GetText() == ns.L["With Shift"], "> does not choose With Shift: " .. tostring(ns.db.miniPinTip))
+
+        -- 3. With Shift: ours not without Shift - the look is learned all the same
+        Point({ herbName }, UIParent)
+        assert(not Shows(), "With Shift, no Shift held: ours shows")
+        assert(herb.seenAt, "With Shift: the look is not learned any more")
+        -- Shift held: ours, below the game's as in 0.2.1; let go: gone
+        shift = true
+        Wait(0.3)
+        assert(Shows(), "With Shift, Shift held: ours does not show")
+        local at = Tip().__pts and Tip().__pts.TOPLEFT
+        assert(at and at[1] == GameTooltip, "Shift held: ours is not below the game's tooltip")
+        shift = false
+        Wait(0.3)
+        assert(not Shows(), "With Shift, Shift let go: ours stays")
+
+        -- 4. Never: not even with Shift - the look is learned all the same
+        plus.__scripts.OnClick(plus)
+        assert(ns.db.miniPinTip == "never" and value:GetText() == ns.L["Never"], "> does not choose Never: " .. tostring(ns.db.miniPinTip))
+        Point({ herbName }, UIParent)
+        assert(not Shows(), "Never: ours shows")
+        assert(herb.seenAt, "Never: the look is not learned any more")
+        shift = true
+        Wait(0.3)
+        assert(not Shows(), "Never, Shift held: ours shows")
+        shift = false
+        -- the game shows nothing there: ours not next to the pin either
+        Point({}, UIParent)
+        assert(not Shows(), "Never, the game shows nothing: ours shows next to the pin")
+        -- the switch "Learn nodes you point at" still works on its own
+        ns.db.minimapLearnOff = true
+        Point({ herbName }, UIParent)
+        assert(herb.seenAt == nil, "learning off: the look is learned")
+        ns.db.minimapLearnOff = nil
+
+        -- 5. > again: back to Always; kept as Always (nothing saved)
+        plus.__scripts.OnClick(plus)
+        assert(ns.db.miniPinTip == nil and value:GetText() == ns.L["Always"], "> after Never does not go back to Always: " .. tostring(ns.db.miniPinTip))
+        Point({ herbName }, UIParent)
+        assert(Shows(), "Always again: ours does not show")
+        -- an odd saved value: Always
+        ns.db.miniPinTip = "sometimes"
+        Point({ herbName }, UIParent)
+        assert(Shows(), "an odd saved value: ours does not show")
+        ns.db.miniPinTip = nil
+
+        -- 6. Sven's loot window over the minimap: the game's tooltip is the
+        -- loot item's, under the mouse the loot button - ours does not show,
+        -- nothing is learned (the debug line says "ignored")
+        local lootFrame = newObject("Frame", nil, UIParent) -- (a loot window: not a child of the minimap)
+        local lootButton = newObject("Button", nil, lootFrame)
+        lootButton:SetSize(150, 40)
+        Point({}, UIParent)
+        herb.seenAt = nil
+        GetMouseFoci = function() return { lootButton } end
+        lines, owner = { herbName, "Quest Item" }, lootButton
+        Wait(1)
+        assert(not Shows(), "a loot window over the minimap: ours shows")
+        assert(herb.seenAt == nil, "a loot window over the minimap: the loot item's tooltip is learned as a look")
+        GetMouseFoci = function() return { Minimap } end
+        onPin, lines = false, {}
+        Wait(0.3)
+
+        -- 7. every language has the texts; the page fits
+        for lang, d in pairs(ns.Locales) do
+            for _, key in ipairs({ "Minimap tooltip", "Never",
+                "With Shift: Gathercraft's tooltip on the minimap shows only while you hold Shift. Never: it does not show.",
+                "Learning the nodes you point at works with every setting." }) do
+                assert(d[key] and d[key] ~= key, lang .. ": not translated: " .. key)
+            end
+        end
+        local used = ns.OptionsUsedHeight()
+        local ROOM = 640 - 112 - 18 - 4 - 66
+        assert(used.map <= ROOM, ("Map & minimap goes down to %d px of %d"):format(used.map, ROOM))
+    end)
+    for _, f in ipairs(pinOver) do f.IsMouseOver, f.__shown = pinOver[f][1], pinOver[f][2] end
+    GetMouseFoci, GetMouseFocus, GetCursorPosition, GetCVar, IsShiftKeyDown = keep.foci, keep.focus, keep.cursor, keep.cvar, keep.shift
+    for _, k in ipairs({ "IsMouseOver", "GetCenter", "GetWidth", "GetHeight", "GetZoom", "GetEffectiveScale" }) do Minimap[k] = mm[k] end
+    for _, k in ipairs({ "IsShown", "GetOwner", "NumLines" }) do GameTooltip[k] = gt[k] end
+    for i = 1, 3 do if _G["GameTooltipTextLeft" .. i] then _G["GameTooltipTextLeft" .. i].GetText = texts[i] end end
+    ns.db.nodes[Z], ns.db.minimapLearnOff, ns.db.miniPinTip = keep.nodes, keep.learnOff, keep.tip
+    player.map, player.x, player.y = keep.map, keep.x, keep.y
+    fire("ZONE_CHANGED_NEW_AREA") advance(1)
+    ns.NotifyNodesChanged() advance(1)
+    ns.ShowOptionsSection(keep.section)
+    if not ok then error(err, 0) end
+end)
 step("Long run (10 min) for leaks", function() slash("run herb") advance(600) slash("stop") end)
 step("Test mock: OnUpdate runs for the same frames in the same order as going over every frame (tools only)", function()
     -- The mock's advance() goes over the frames that have an OnUpdate only

@@ -2159,7 +2159,18 @@ local function MiniTipTarget(names)
     local pin = ns.MinimapPinUnderCursor and ns.MinimapPinUnderCursor()
     return pin and pin.node, pin, false
 end
+-- Our minimap tooltip: always (the default, as before), only while Shift is
+-- held, or never - Options > Map & minimap (0.2.2 P1, point 2; a CurseForge
+-- user: "any way to hide or change the tooltips"). Only our tooltip: the
+-- learning by pointing (seenFrame below) goes on with every choice.
+local function MiniTipWanted()
+    local mode = ns.db.miniPinTip
+    if mode == "never" then return false end
+    if mode == "shift" then return IsShiftKeyDown and IsShiftKeyDown() and true or false end
+    return true
+end
 local function UpdateMiniTip()
+    if not MiniTipWanted() then return HideMiniTip() end
     if not (ns.AddNodeTooltipLines and Minimap:IsMouseOver()) then return HideMiniTip() end
     if not MouseOnMinimapItself() then return HideMiniTip() end
     local gameUp = GameTooltip:IsShown() and true or false

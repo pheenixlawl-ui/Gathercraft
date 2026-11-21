@@ -737,4 +737,8 @@ ns.Locales.ruRU = {
     ["Always"] = "Всегда",
     ["With Shift"] = "С Shift",
     ["With Shift: the pins let the mouse through to what lies below them, such as quest symbols. Hold Shift to point at a pin."] = "С Shift: значки пропускают мышь к тому, что под ними, например к значкам заданий. Удерживайте Shift, чтобы навести на значок.",
+    ["Minimap tooltip"] = "Подсказка на миникарте",
+    ["Never"] = "Никогда",
+    ["With Shift: Gathercraft's tooltip on the minimap shows only while you hold Shift. Never: it does not show."] = "С Shift: подсказка Gathercraft на миникарте видна, только пока вы удерживаете Shift. Никогда: она не появляется.",
+    ["Learning the nodes you point at works with every setting."] = "Запоминание ресурсов, на которые вы наводите, работает при любой настройке.",
 }

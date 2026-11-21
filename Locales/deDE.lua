@@ -766,4 +766,8 @@ ns.Locales.deDE = {
     ["Always"] = "Immer",
     ["With Shift"] = "Mit Shift",
     ["With Shift: the pins let the mouse through to what lies below them, such as quest symbols. Hold Shift to point at a pin."] = "Mit Shift: Die Symbole lassen die Maus zu dem durch, was darunter liegt, etwa zu Quest-Markierungen. Halte Shift, um auf ein Symbol zu zeigen.",
+    ["Minimap tooltip"] = "Minikarten-Tooltip",
+    ["Never"] = "Nie",
+    ["With Shift: Gathercraft's tooltip on the minimap shows only while you hold Shift. Never: it does not show."] = "Mit Shift: Der Tooltip von Gathercraft auf der Minikarte erscheint nur, solange du Shift hältst. Nie: Er erscheint nicht.",
+    ["Learning the nodes you point at works with every setting."] = "Das Lernen der Vorkommen, auf die du zeigst, geht bei jeder Einstellung.",
 }

@@ -737,4 +737,8 @@ ns.Locales.itIT = {
     ["Always"] = "Sempre",
     ["With Shift"] = "Con Maiusc",
     ["With Shift: the pins let the mouse through to what lies below them, such as quest symbols. Hold Shift to point at a pin."] = "Con Maiusc: le icone lasciano passare il mouse a ciò che sta sotto, come i simboli delle missioni. Tieni premuto Maiusc per puntare un'icona.",
+    ["Minimap tooltip"] = "Tooltip della minimappa",
+    ["Never"] = "Mai",
+    ["With Shift: Gathercraft's tooltip on the minimap shows only while you hold Shift. Never: it does not show."] = "Con Maiusc: il tooltip di Gathercraft sulla minimappa compare solo mentre tieni premuto Maiusc. Mai: non compare.",
+    ["Learning the nodes you point at works with every setting."] = "Imparare i nodi che indichi funziona con ogni impostazione.",
 }

@@ -737,4 +737,8 @@ ns.Locales.frFR = {
     ["Always"] = "Toujours",
     ["With Shift"] = "Avec Maj",
     ["With Shift: the pins let the mouse through to what lies below them, such as quest symbols. Hold Shift to point at a pin."] = "Avec Maj : les icônes laissent passer la souris vers ce qui se trouve dessous, comme les symboles de quête. Maintenez Maj pour pointer une icône.",
+    ["Minimap tooltip"] = "Infobulle de la minicarte",
+    ["Never"] = "Jamais",
+    ["With Shift: Gathercraft's tooltip on the minimap shows only while you hold Shift. Never: it does not show."] = "Avec Maj : l'infobulle de Gathercraft sur la minicarte n'apparaît que tant que vous maintenez Maj. Jamais : elle n'apparaît pas.",
+    ["Learning the nodes you point at works with every setting."] = "L'apprentissage des ressources pointées fonctionne avec chaque réglage.",
 }

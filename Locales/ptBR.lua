@@ -737,4 +737,8 @@ ns.Locales.ptBR = {
     ["Always"] = "Sempre",
     ["With Shift"] = "Com Shift",
     ["With Shift: the pins let the mouse through to what lies below them, such as quest symbols. Hold Shift to point at a pin."] = "Com Shift: os ícones deixam o mouse passar para o que está embaixo, como os símbolos de missão. Segure Shift para apontar um ícone.",
+    ["Minimap tooltip"] = "Dica do minimapa",
+    ["Never"] = "Nunca",
+    ["With Shift: Gathercraft's tooltip on the minimap shows only while you hold Shift. Never: it does not show."] = "Com Shift: a dica do Gathercraft no minimapa só aparece enquanto você segura Shift. Nunca: ela não aparece.",
+    ["Learning the nodes you point at works with every setting."] = "Aprender os nós que você aponta funciona com qualquer configuração.",
 }

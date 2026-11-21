@@ -737,4 +737,8 @@ ns.Locales.esES = {
     ["Always"] = "Siempre",
     ["With Shift"] = "Con Mayús",
     ["With Shift: the pins let the mouse through to what lies below them, such as quest symbols. Hold Shift to point at a pin."] = "Con Mayús: los iconos dejan pasar el ratón a lo que hay debajo, como los símbolos de misión. Mantén Mayús para señalar un icono.",
+    ["Minimap tooltip"] = "Descripción del minimapa",
+    ["Never"] = "Nunca",
+    ["With Shift: Gathercraft's tooltip on the minimap shows only while you hold Shift. Never: it does not show."] = "Con Mayús: la descripción de Gathercraft en el minimapa solo aparece mientras mantienes Mayús. Nunca: no aparece.",
+    ["Learning the nodes you point at works with every setting."] = "Aprender los nodos que señalas funciona con cualquier ajuste.",
 }

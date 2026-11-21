@@ -737,4 +737,8 @@ ns.Locales.zhTW = {
     ["Always"] = "總是",
     ["With Shift"] = "按住 Shift",
     ["With Shift: the pins let the mouse through to what lies below them, such as quest symbols. Hold Shift to point at a pin."] = "按住 Shift：圖標讓滑鼠穿過，指向其下方的內容，例如任務標記。按住 Shift 即可指向圖標。",
+    ["Minimap tooltip"] = "小地圖提示",
+    ["Never"] = "從不",
+    ["With Shift: Gathercraft's tooltip on the minimap shows only while you hold Shift. Never: it does not show."] = "按住 Shift：小地圖上的 Gathercraft 提示只在按住 Shift 時顯示。從不：不顯示。",
+    ["Learning the nodes you point at works with every setting."] = "學習你指向的採集點在任何設定下都有效。",
 }
