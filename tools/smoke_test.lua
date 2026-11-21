@@ -28231,6 +28231,85 @@ step("Version 0.2.2-a1: the TOC says it, /gcr shows it, no What's new window aft
     C_AddOns.GetAddOnMetadata, ns.db.lastVersion, ns.freshInstall = keep.meta, keep.last, keep.fresh
     if not ok then error(err, 0) end
 end)
+-- 0.2.2 P1 point 4, d4 (Sync 2.0 analysis of 21.11.2026, part d4): a node
+-- keeps at most 4 reporter names, not 8. Only the push brake (from 3),
+-- self-healing (real from more than 3), unparking (a new name) and the
+-- merge read them. Names already saved stay (no migration).
+step("Sync 0.2.2: at most 4 reporter names per node - the 5th is not kept; push brake, self-healing and unparking as before; names saved before stay (0.2.2 P1 d4)", function()
+    local Z = 1467
+    local keep = { nodes = ns.db.nodes[Z], counts = ns.db.sync.counts and ns.db.sync.counts.confirmed or 0 }
+    local function Names(n) local k = 0 for _ in pairs(n.heardBy or {}) do k = k + 1 end return k end
+    local function jump(sec)
+        NOW = NOW + sec
+        for _, t in ipairs(timers) do t.at = t.at + sec end
+    end
+    local function Report(who, x)
+        fire("CHAT_MSG_ADDON", "Gathercraft", ("N:%d;o1731,o,%d,5000,2770"):format(Z, x), "CHANNEL", who, nil, nil, nil, "GathercraftSync")
+        advance(1)
+    end
+    local ok, err = pcall(function()
+        -- a spot from sync, reported by one player so far
+        local n = { id = "o1731", name = "Copper Vein", type = "ore", x = 0.40, y = 0.50, count = 1, last = 1,
+            source = "sync", heard = 1, heardBy = { ["Rep A"] = true } }
+        -- a spot saved by an older version with 8 names
+        local old = { id = "o1731", name = "Copper Vein", type = "ore", x = 0.70, y = 0.50, count = 1, last = 1,
+            source = "sync", heard = 8, heardBy = {} }
+        for i = 1, 8 do old.heardBy["Old " .. i] = true end
+        ns.db.nodes[Z] = { n, old }
+        ns.NotifyNodesChanged() advance(1)
+        local counts = function() return (ns.db.sync.counts or {}).confirmed or 0 end
+        local before = counts()
+        -- three more players: names 2, 3 and 4 are kept and counted
+        for _, who in ipairs({ "Rep B", "Rep C", "Rep D" }) do Report(who, 4000) end
+        assert(Names(n) == 4 and n.heard == 4, ("4 players: %d names kept, heard %s"):format(Names(n), tostring(n.heard)))
+        assert(counts() == before + 3, ("4 players: %d confirmations counted, 3 wanted"):format(counts() - before))
+        -- the 5th: not kept, not counted as a confirmation
+        Report("Rep E", 4000)
+        assert(Names(n) == 4 and not n.heardBy["Rep E"] and n.heard == 4, ("the 5th player: %d names, heard %s"):format(Names(n), tostring(n.heard)))
+        assert(counts() == before + 3, "the 5th player was counted as a confirmation")
+        -- names saved before stay: 8, and a new player is not added
+        Report("Rep F", 7000)
+        assert(Names(old) == 8 and old.heard == 8 and not old.heardBy["Rep F"], ("an older spot with 8 names: now %d, heard %s"):format(Names(old), tostring(old.heard)))
+        -- push brake: an own spot that 4 others reported is not sent after a
+        -- harvest (from 3 on, as before); one that 2 reported still is
+        local mine = { id = "o1731", name = "Copper Vein", type = "ore", x = 0.25, y = 0.50, count = 1, last = 1 }
+        local two = { id = "o1731", name = "Copper Vein", type = "ore", x = 0.55, y = 0.50, count = 1, last = 1 }
+        table.insert(ns.db.nodes[Z], mine)
+        table.insert(ns.db.nodes[Z], two)
+        ns.NotifyNodesChanged() advance(1)
+        for _, who in ipairs({ "Rep B", "Rep C", "Rep D", "Rep E", "Rep F" }) do Report(who, 2500) end
+        for _, who in ipairs({ "Rep B", "Rep C" }) do Report(who, 5500) end
+        assert(Names(mine) == 4 and mine.heard == 4, ("an own spot, 5 players: %d names, heard %s"):format(Names(mine), tostring(mine.heard)))
+        advance(5)
+        local function Sent(x)
+            local k = 0
+            for _, m in ipairs(sentMessages) do if m:find(("o1731,o,%d,5000"):format(x), 1, true) then k = k + 1 end end
+            return k
+        end
+        local was25, was55 = Sent(2500), Sent(5500)
+        ns.SyncShare(Z, mine)
+        ns.SyncShare(Z, two)
+        advance(5)
+        assert(Sent(2500) == was25, "push brake: an own spot that 4 others reported was sent")
+        assert(Sent(5500) > was55, "test setup: an own spot that 2 others reported was not sent") -- (to the channel and the guild)
+        -- self-healing: with 4 reporters the spot counts as real - never parked
+        for _ = 1, 30 do ns.SyncSelfHeal(n) jump(1800) end
+        assert(not ns.IsParked(n), "4 reporters: parked by self-healing")
+        -- unparking: only spots with at most 3 reporters are ever parked
+        -- (self-healing leaves the others alone); a 4th player brings one
+        -- back, and his name is kept
+        local p3 = { id = "o1731", name = "Copper Vein", type = "ore", x = 0.10, y = 0.50, count = 1, last = 1,
+            source = "sync", heard = 3, heardBy = { ["Alt 1"] = true, ["Alt 2"] = true, ["Alt 3"] = true }, parked = time() }
+        table.insert(ns.db.nodes[Z], p3)
+        ns.NotifyNodesChanged() advance(1)
+        assert(ns.IsParked(p3), "test setup: parked")
+        Report("Rep G", 1000)
+        assert(not ns.IsParked(p3) and p3.heardBy["Rep G"] and Names(p3) == 4, "a 4th player did not bring back a parked spot with 3 reporters")
+    end)
+    ns.db.nodes[Z] = keep.nodes
+    ns.NotifyNodesChanged() advance(1)
+    if not ok then error(err, 0) end
+end)
 step("Long run (10 min) for leaks", function() slash("run herb") advance(600) slash("stop") end)
 step("Test mock: OnUpdate runs for the same frames in the same order as going over every frame (tools only)", function()
     -- The mock's advance() goes over the frames that have an OnUpdate only

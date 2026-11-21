@@ -40,7 +40,12 @@ local HEAL_MISSES = 5              -- empty visits (on the run target, not in co
 local HEAL_SPACING = 600           -- ... at least this many seconds apart ...
 local HEAL_SPAN = 12 * 3600        -- ... spread over at least this long
 local HEAL_RESET = 3 * 24 * 3600   -- no empty visit for this long: start counting again
-local HEARD_KEEP = 8               -- reporter names remembered per node
+-- reporter names remembered per node: 4 since 0.2.2 (Sync 2.0 analysis,
+-- 21.11.2026, d4; up to 0.2.1: 8). They are read only by the push brake
+-- (from 3), self-healing (real from more than 3), unparking (a new name)
+-- and the merge of two nodes (Core.lua) - none needs more than 4. Names
+-- already saved stay as they are (no migration).
+local HEARD_KEEP = 4
 local SEND_INTERVAL = 1.2     -- seconds between outgoing messages
 local MAX_MSG_LEN = 240
 local RECV_BUDGET = 40        -- max incoming messages processed per second
