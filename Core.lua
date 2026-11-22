@@ -521,7 +521,10 @@ end
 -- Selection from the zones window (/gcr zones): what "Start run" farms (and
 -- the map, only with the option "Hide zones and materials unticked ...").
 -- A node is used only if all levels are checked: continent, zone, material in the zone.
-local function IsNodeEnabled(n, mapID)
+--   (0.2.3 lauf-last B4) noKinds: the caller has looked once that no kind
+--   of this zone is unticked (Route.lua's collect of a run's points): the
+--   kind's key is not built for each node then - the answer is the same.
+local function IsNodeEnabled(n, mapID, noKinds)
     local db = ns.db
     if db.disabledZones[mapID] then return false end
     local continent = GetContinent(mapID)
@@ -530,6 +533,7 @@ local function IsNodeEnabled(n, mapID)
     -- (continent-wide material filters are gone: the old "None" button set
     -- them and nothing in the window could undo it)
     if not next(db.disabledKinds) then return true end
+    if noKinds then return true end
     if db.disabledKinds[mapID .. ":" .. KindKey(n)] then return false end
     return true
 end

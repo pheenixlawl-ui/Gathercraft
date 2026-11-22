@@ -301,8 +301,22 @@ end
 local function ZoneTaken(mapID, zone)
     return (not zone or mapID == zone) and (zone or not ns.db.disabledZones[mapID])
 end
-local function NodeTaken(n, mapID, filter, quick)
-    return MatchesFilter(n, filter) and (quick or ns.IsNodeEnabled(n, mapID)) and not (ns.IsParked and ns.IsParked(n))
+local function NodeTaken(n, mapID, filter, quick, noKinds)
+    return MatchesFilter(n, filter) and (quick or ns.IsNodeEnabled(n, mapID, noKinds)) and not (ns.IsParked and ns.IsParked(n))
+end
+-- (0.2.3 lauf-last B4) the zones with an unticked kind (Zones tab), by the
+-- part of the key before its first ":": the key of a node's kind in a zone
+-- is "<map>:<kind>" (Core.lua IsNodeEnabled), so in any other zone no node's
+-- key can be there. Looked at once a collect. nil: a key that is no text -
+-- then every node is looked at, as before.
+local function KindZones()
+    local zones = {}
+    for key in pairs(ns.db.disabledKinds) do
+        if type(key) ~= "string" then return nil end
+        local z = key:match("^([^:]*):")
+        if z then zones[z] = true end
+    end
+    return zones
 end
 
 -- quick = a run started where you are: your Zones tab selection doesn't count
@@ -321,10 +335,12 @@ local function CollectPoints(filter, instance, zone, quick, keep)
         gen = (keep.gen or 0) + 1
         keep.gen = gen
     end
+    local kindZones = not quick and KindZones() or nil
     for mapID, nodes in pairs(ns.db.nodes) do
         if ZoneTaken(mapID, zone) then
+            local noKinds = kindZones and not kindZones[tostring(mapID)] or nil
             for _, n in ipairs(nodes) do
-                if NodeTaken(n, mapID, filter, quick) then
+                if NodeTaken(n, mapID, filter, quick, noKinds) then
                     local wx, wy, inst = WorldPos(n, mapID)
                     if wx and inst == instance then
                         local p = keep and keep.of[n]

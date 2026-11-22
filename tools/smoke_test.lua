@@ -15547,6 +15547,65 @@ step("Route: a run keeps its points - collected again (a harvest of the target),
     advance(1)
     if not ok then error(err, 0) end
 end)
+step("Route: a run's collect builds a node's kind key only in zones with an unticked kind (Zones tab) - the same nodes are taken; a kind unticked meanwhile counts at the next collect (0.2.3 lauf-last B4)", function()
+    -- Order 0.2.3-lauf-last, part B4 (22.11.2026): every collect of a run's
+    -- points (each harvest of the target) built for every node of every zone
+    -- the key of its kind ("1413:herb:peacebloom", lower case) to look in
+    -- the unticked kinds - in the mock a quarter of the time of a plan after
+    -- a harvest. Sven's data has 10 unticked kinds in 6 zones. Now the collect
+    -- looks once which zones have an unticked kind; only there a node's key
+    -- is built. In any other zone no node's key can be among them.
+    local saved = { map = player.map, x = player.x, y = player.y, kinds = ns.db.disabledKinds, lower = string.lower }
+    local calls = 0
+    local function KindOf(n) return (n.type or "?") .. ":" .. saved.lower(ns.CanonicalName(n.id, n.name) or n.id or "?") end
+    local ok, err = pcall(function()
+        player.map, player.x, player.y = 1412, 0.45, 0.72
+        -- one kind unticked in another zone only
+        ns.db.disabledKinds = { ["1411:herb:peacebloom"] = true }
+        ns.StartRun("herb") advance(2)
+        local run = ns.run
+        assert(run and run.points and #run.points >= 3, "test setup: a run with points")
+        string.lower = function(s, ...)
+            local info = debug.getinfo(2, "S")
+            if info and info.short_src and info.short_src:find("Core.lua", 1, true) then calls = calls + 1 end
+            return saved.lower(s, ...)
+        end
+        ns.RouteNodeListChanged() ns.RouteReplan()
+        string.lower = saved.lower
+        assert(calls == 0, ("collected again: %d kind keys built, though no kind of the run's zones is unticked"):format(calls))
+        local n0 = #run.points
+        -- a kind of the run's zone unticked meanwhile: its nodes are out at the next collect, the others stay
+        local gone
+        for _, p in ipairs(run.points) do if p.mapID == 1412 then gone = p break end end
+        assert(gone, "test setup: no point in Mulgore")
+        local key = "1412:" .. KindOf(gone.node)
+        ns.db.disabledKinds[key] = true
+        string.lower = function(s, ...)
+            local info = debug.getinfo(2, "S")
+            if info and info.short_src and info.short_src:find("Core.lua", 1, true) then calls = calls + 1 end
+            return saved.lower(s, ...)
+        end
+        ns.RouteNodeListChanged() ns.RouteReplan()
+        string.lower = saved.lower
+        assert(calls > 0, "a kind of the run's zone is unticked, but no node's key was looked at")
+        local left, same = 0, 0
+        for _, p in ipairs(run.points) do
+            if p.mapID == 1412 and "1412:" .. KindOf(p.node) == key then left = left + 1 end
+        end
+        assert(left == 0, left .. " nodes of the unticked kind are still in the run")
+        -- every point the run has is one the plain check (without the hint) takes too
+        for _, p in ipairs(run.points) do
+            if ns.IsNodeEnabled(p.node, p.mapID) then same = same + 1 end
+        end
+        assert(same == #run.points and #run.points < n0, ("%d of %d points pass the plain check (%d before)"):format(same, #run.points, n0))
+    end)
+    string.lower = saved.lower
+    ns.db.disabledKinds = saved.kinds
+    if ns.run then ns.StopRun(true) end
+    player.map, player.x, player.y = saved.map, saved.x, saved.y
+    advance(1)
+    if not ok then error(err, 0) end
+end)
 step("Settings: no game setting is changed in combat - the gathering help and the bobber settings follow at the end of the fight (v0.1.22 R1, combat)", function()
     -- Sven, 13.11.2026 (live, 0.1.22 a62cefe): the questing mode switched on
     -- in a fight - "[ADDON_ACTION_BLOCKED] AddOn 'Gathercraft' tried to call
