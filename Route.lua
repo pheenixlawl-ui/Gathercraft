@@ -1040,6 +1040,10 @@ end
 ns.RouteLineLength = LineLength
 
 local function WorldLineShown() return not ns.db.routeLineHidden end
+-- (0.2.2 W5) the line's world map dots only while the world map is open: the game's
+-- map takes a pin for every dot added, also while it is closed (diagnosis of
+-- 22.11.2026, part A 1.5); opened, the line is drawn (the hooks at the end)
+local function WorldMapOpen() return not (WorldMapFrame and WorldMapFrame.IsShown) or WorldMapFrame:IsShown() and true or false end
 local function MiniLineShown() return not ns.db.routeLineMiniHidden end
 
 -- The minimap line stops a little before each pin, so no node is ever
@@ -1109,10 +1113,12 @@ local function MakeDot(mini)
     return dot
 end
 local headShown = 0
+local headOnMap = false -- (0.2.2 W5) head dots are on the world map now
 ClearHead = function()
     if not HBDPins then return end
+    -- (0.2.2 W5) in one call, and only when there are some: each call goes over every pin the map holds
+    if headOnMap then HBDPins:RemoveAllWorldMapIcons(HEAD_REF) headOnMap = false end
     for i = 1, headShown do
-        HBDPins:RemoveWorldMapIcon(HEAD_REF, headWorld[i])
         HBDPins:RemoveMinimapIcon(HEAD_REF, headMini[i])
         headWorld[i]:Hide()
         headMini[i]:Hide()
@@ -1125,7 +1131,10 @@ local function DrawHead(px, py, instance)
     if not (HBDPins and tp and px) or not (WorldLineShown() or MiniLineShown()) or LineLength() == "off" then return ClearHead() end
     run.headX, run.headY, run.headTarget = px, py, tp
     local style, rgb = LineStyle(), LineColor().rgb
-    local world, mini = WorldLineShown(), MiniLineShown()
+    local world, mini = WorldLineShown() and WorldMapOpen(), MiniLineShown()
+    -- (0.2.2 W5) the head's world map dots off in one call before they are added
+    -- again: added while still on the map, each would hold one more of its pins
+    if headOnMap then HBDPins:RemoveAllWorldMapIcons(HEAD_REF) headOnMap = false end
     local clear = mini and MiniGapTest(px, py)
     local seg = WDist(px, py, tp.wx, tp.wy)
     local spacing = math.max(style.near, seg / HEAD_MAX_DOTS)
@@ -1145,15 +1154,14 @@ local function DrawHead(px, py, instance)
             m.tex:SetVertexColor(rgb[1], rgb[2], rgb[3], 0.9)
             local t = d / seg
             local x, y = px + (tp.wx - px) * t, py + (tp.wy - py) * t
-            if world then HBDPins:AddWorldMapIconWorld(HEAD_REF, w, instance, x, y, showFlag)
-            else HBDPins:RemoveWorldMapIcon(HEAD_REF, w) w:Hide() end
+            if world then HBDPins:AddWorldMapIconWorld(HEAD_REF, w, instance, x, y, showFlag) headOnMap = true
+            else w:Hide() end
             if mini and (not clear or clear(x, y)) then HBDPins:AddMinimapIconWorld(HEAD_REF, m, instance, x, y, false)
             else HBDPins:RemoveMinimapIcon(HEAD_REF, m) m:Hide() end
         end
         d = d + spacing
     end
     for i = n + 1, headShown do
-        HBDPins:RemoveWorldMapIcon(HEAD_REF, headWorld[i])
         HBDPins:RemoveMinimapIcon(HEAD_REF, headMini[i])
         headWorld[i]:Hide()
         headMini[i]:Hide()
@@ -1215,7 +1223,7 @@ local function DrawLine(path, length, instance, px, py)
             cx, cy = p.wx, p.wy
         end
     end
-    if WorldLineShown() then
+    if WorldLineShown() and WorldMapOpen() then
         Walk(math.max(style.far, length / MAX_DOTS), function(x, y)
             HBDPins:AddWorldMapIconWorld(LINE_REF, GetDot(style.map, rgb), instance, x, y, showFlag)
         end)
@@ -2467,6 +2475,11 @@ end
 local zoomWatch = CreateFrame("Frame")
 zoomWatch:RegisterEvent("MINIMAP_UPDATE_ZOOM")
 zoomWatch:SetScript("OnEvent", function() RedrawLine() end)
+-- (0.2.2 W5) the world map opened: the line on it; closed: off it again
+if WorldMapFrame and WorldMapFrame.HookScript then
+    WorldMapFrame:HookScript("OnShow", function() RedrawLine() end)
+    WorldMapFrame:HookScript("OnHide", function() RedrawLine() end)
+end
 ns.OnHarvested = OnHarvested
 ns.OnGatherUncertain = OnGatherUncertain
 ns.DistanceToTarget = DistanceToTarget

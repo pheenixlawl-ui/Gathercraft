@@ -360,6 +360,34 @@ libs["HereBeDragons-Pins-2.0"] = {
     RemoveWorldMapIcon = function() pinCount = pinCount - 1 end, RemoveMinimapIcon = function() pinCount = pinCount - 1 end,
     RemoveAllWorldMapIcons = function() end, RemoveAllMinimapIcons = function() end,
 }
+-- (0.2.2 W-A/W-B) what the library has registered for the world map, per owner, and how it was
+-- taken off: one by one or all in one call. An icon added again while it is still registered holds
+-- one more map pin in the game (the head of the route line, diagnosis of 22.11.2026, part A 1.5).
+-- Some steps swap the library's functions for a while: the steps that read this set it up first.
+HBD_WORLD = { reg = {}, adds = {}, dup = {}, rmOne = {}, rmAll = {} }
+do
+    local P, W = libs["HereBeDragons-Pins-2.0"], HBD_WORLD
+    local function Reg(ref) W.reg[ref] = W.reg[ref] or {} return W.reg[ref] end
+    local function Add(ref, icon)
+        local r = Reg(ref)
+        W.adds[ref] = (W.adds[ref] or 0) + 1
+        if r[icon] then W.dup[ref] = (W.dup[ref] or 0) + 1 end
+        r[icon] = true
+    end
+    local addMap, addWorld, rem, remAll = P.AddWorldMapIconMap, P.AddWorldMapIconWorld, P.RemoveWorldMapIcon, P.RemoveAllWorldMapIcons
+    P.AddWorldMapIconMap = function(self, ref, icon, ...) Add(ref, icon) return addMap(self, ref, icon, ...) end
+    P.AddWorldMapIconWorld = function(self, ref, icon, ...) Add(ref, icon) return addWorld(self, ref, icon, ...) end
+    P.RemoveWorldMapIcon = function(self, ref, icon, ...)
+        W.rmOne[ref] = (W.rmOne[ref] or 0) + 1
+        Reg(ref)[icon] = nil
+        return rem(self, ref, icon, ...)
+    end
+    P.RemoveAllWorldMapIcons = function(self, ref, ...)
+        W.rmAll[ref] = (W.rmAll[ref] or 0) + 1
+        W.reg[ref] = {}
+        return remAll(self, ref, ...)
+    end
+end
 local ldbObj
 libs["LibDataBroker-1.1"] = { NewDataObject = function(_, name, o) ldbObj = o return o end }
 libs["LibDBIcon-1.0"] = { Register = function() end, Show = function() end, Hide = function() end, SetButtonIcon = function() end }
@@ -29077,6 +29105,83 @@ step("World map pins 0.2.2: the pass every 3 s looks only at the shown ones - no
     player.map, player.x, player.y = keep.map, keep.x, keep.y
     fire("ZONE_CHANGED_NEW_AREA") advance(1)
     ns.NotifyNodesChanged() advance(1)
+    if not ok then error(err, 0) end
+end)
+step("World map pins 0.2.2 W-B1: the route line on the world map only while the map is open, the head taken off in one call before it is drawn again - riding adds no map pins (0.2.2 W5)", function()
+    -- Sven, 22.11.2026 (the performance diagnosis, part A 1.5; his check L4:
+    -- a run, the world map opened once and closed, 2-3 minutes of riding -
+    -- Gathercraft's memory 99 -> 155 MB). The head of the route line (you ->
+    -- next node) added its dots to the world map again every 0.1 s while you
+    -- ride, without taking them off: the game's map took a new pin for each.
+    -- W5: the line's world map dots only while the map is open; the head's
+    -- taken off in one call before they are added again; opened, the line is
+    -- there as before, closed, it is off the world map. The minimap line
+    -- stays as it was.
+    local W = HBD_WORLD
+    local HEAD, LINE = "GathercraftRouteHead", "GathercraftRoute"
+    local Z = 1473
+    local saved = { map = player.map, x = player.x, y = player.y, lineHidden = ns.db.routeLineHidden, miniHidden = ns.db.routeLineMiniHidden,
+        length = ns.db.routeLineLength, mode = ns.db.routeMode, nodes = ns.db.nodes[Z] }
+    -- (both lines on, the length as it comes, a Smart run - whatever the steps before left)
+    ns.db.routeLineHidden, ns.db.routeLineMiniHidden, ns.db.routeLineLength, ns.db.routeMode = nil, nil, nil, nil
+    local function Count(ref) local n = 0 for _ in pairs(W.reg[ref] or {}) do n = n + 1 end return n end
+    local function Ride(seconds)
+        for _ = 1, seconds * 2 do
+            local t = ns.run and ns.run.target
+            if t then
+                local dx, dy = t.x - player.x, t.y - player.y
+                local d = math.sqrt(dx * dx + dy * dy)
+                if d > 0.001 then player.x, player.y = player.x + dx / d * 0.0005, player.y + dy / d * 0.0005 end
+            end
+            advance(0.5)
+        end
+    end
+    local ok, err = pcall(function()
+        -- a zone of its own with veins in a row (as in "Farm run: the line to the next node follows you")
+        local function own(x, y) return { id = "o1731", name = "Copper Vein", type = "ore", x = x, y = y, count = 3, last = 1 } end
+        ns.db.nodes[Z] = { own(0.30, 0.50), own(0.40, 0.55), own(0.50, 0.45), own(0.60, 0.55), own(0.70, 0.50) }
+        player.map, player.x, player.y = Z, 0.25, 0.50
+        ns.StartRun("ore", Z) advance(2)
+        assert(ns.run and ns.run.target and ns.run.path, "no run with a path")
+        -- the world map closed: the line is drawn again - on the minimap as before, not on the world map
+        local lineMini0 = HBD_ADDS[LINE] and HBD_ADDS[LINE].mini or 0
+        WorldMapFrame:Hide() advance(1)
+        assert((HBD_ADDS[LINE] and HBD_ADDS[LINE].mini or 0) > lineMini0, "the world map closed: the route line on the minimap was not drawn again")
+        -- riding with it closed: no world map dots, the head on the minimap goes on
+        local function Mini() return HBD_ADDS[HEAD] and HBD_ADDS[HEAD].mini or 0 end
+        local a0 = { head = W.adds[HEAD] or 0, line = W.adds[LINE] or 0, mini = Mini(), all = W.rmAll[HEAD] or 0 }
+        Ride(10)
+        -- (nothing of the head is on the map: it does not take it off again and again - each call goes over every pin the map holds)
+        assert((W.rmAll[HEAD] or 0) == a0.all, ((W.rmAll[HEAD] or 0) - a0.all) .. " calls took the head off the closed world map while riding")
+        assert((W.adds[HEAD] or 0) == a0.head and (W.adds[LINE] or 0) == a0.line,
+            ("riding with the world map closed added %d head and %d line dots to the world map"):format((W.adds[HEAD] or 0) - a0.head, (W.adds[LINE] or 0) - a0.line))
+        assert(Count(HEAD) == 0 and Count(LINE) == 0, ("the world map closed, still %d head and %d line dots on it"):format(Count(HEAD), Count(LINE)))
+        assert(Mini() > a0.mini, "the head of the route line on the minimap was not drawn while riding")
+        -- opened: the line is there; riding on, no dot is added while it is on the map
+        WorldMapFrame:Show() advance(0.5)
+        assert(Count(LINE) > 0, "the world map opened during a run: no route line on it")
+        local d0 = { head = W.dup[HEAD] or 0, line = W.dup[LINE] or 0 }
+        Ride(5)
+        assert((W.dup[HEAD] or 0) == d0.head and (W.dup[LINE] or 0) == d0.line,
+            ("with the map open %d head and %d line dots were added again while still on the map"):format((W.dup[HEAD] or 0) - d0.head, (W.dup[LINE] or 0) - d0.line))
+        -- the same line every time it is drawn on the open map
+        LINE_PTS = {}
+        ns.RedrawRouteLine()
+        local first = LINE_PTS
+        LINE_PTS = {}
+        ns.RedrawRouteLine()
+        assert(#first > 0 and #first == #LINE_PTS, ("the line on the open map: %d dots, then %d"):format(#first, #LINE_PTS))
+        for i, p in ipairs(first) do assert(p[1] == LINE_PTS[i][1] and p[2] == LINE_PTS[i][2], "the line on the open map moved at dot " .. i) end
+        -- closed again: off the world map
+        WorldMapFrame:Hide() advance(0.5)
+        assert(Count(HEAD) == 0 and Count(LINE) == 0, ("closed again, still %d head and %d line dots on the world map"):format(Count(HEAD), Count(LINE)))
+    end)
+    ns.StopRun()
+    WorldMapFrame:Show()
+    ns.db.nodes[Z] = saved.nodes
+    player.map, player.x, player.y = saved.map, saved.x, saved.y
+    ns.db.routeLineHidden, ns.db.routeLineMiniHidden, ns.db.routeLineLength, ns.db.routeMode = saved.lineHidden, saved.miniHidden, saved.length, saved.mode
+    advance(2)
     if not ok then error(err, 0) end
 end)
 step("Long run (10 min) for leaks", function() slash("run herb") advance(600) slash("stop") end)
