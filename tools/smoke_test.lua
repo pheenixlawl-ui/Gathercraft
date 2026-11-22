@@ -28828,6 +28828,144 @@ step("Crafting 0.2.2: a hidden profession name is asked about first - nothing lo
     if ns.CraftNamesAnew then ns.CraftNamesAnew() ns.CraftNormalizeAgain() end
     if not ok then error(err, 0) end
 end)
+-- 0.2.2 P2 R2-M1 (Codex, P2 round 2): a hidden profession name the game
+-- gives - a trainer's, the profession window's, or one handed to
+-- RememberRecipe - stores nothing: no recipe, no waiting recipe, no
+-- character's list under it, and nothing looks at it on the way (ProfKey
+-- hands it back as it came, P2-M2; the ones who use it stop). A readable
+-- name beside each case is stored as before. The hidden name is a Lua
+-- stand-in, as in the P2-M2 step; the game's own hidden strings can only be
+-- seen in the client.
+step("Crafting 0.2.2: a hidden profession name stores nothing - not through RememberRecipe, not from a trainer, not from the profession window; a readable one as before (0.2.2 P2 R2-M1)", function()
+    local G = { "GetNumTrainerServices", "GetTrainerServiceInfo", "GetTrainerServiceItemLink", "GetTrainerServiceSkillReq",
+        "GetTrainerServiceSkillLine", "GetTrainerServiceNumReagents", "GetTrainerServiceReagentInfo", "GetTrainerServiceReagentLink",
+        "ClassTrainerFrameTitleText", "ClassTrainerFrame", "C_TooltipInfo", "GetTradeSkillLine", "GetNumTradeSkills", "GetTradeSkillInfo",
+        "GetTradeSkillItemLink", "GetTradeSkillNumMade", "GetTradeSkillNumReagents", "GetTradeSkillReagentInfo",
+        "GetTradeSkillReagentItemLink", "issecretvalue" }
+    local keep = {}
+    for _, k in ipairs(G) do keep[k] = rawget(_G, k) end
+    local keepDB = { ns.db.recipes, ns.db.recipeDB, ns.db.recipePending }
+    local realType = type
+    local SECRET = newproxy(true)
+    local asked, looks = false, {}
+    local function Look(how) looks[#looks + 1] = how .. (asked and " (after it was found hidden)" or " (before the secret check)") end
+    local mt = getmetatable(SECRET)
+    mt.__index = function(_, k) Look("index " .. realType(k) .. " " .. (realType(k) == "string" and k or "?")) return function() return "x" end end
+    mt.__eq = function() Look("==") return false end
+    mt.__lt = function() Look("<") return false end
+    mt.__le = function() Look("<=") return false end
+    mt.__concat = function() Look("..") return "x" end
+    mt.__len = function() Look("#") return 1 end
+    mt.__tostring = function() Look("tostring") return "x" end
+    local function Keys(t)
+        local n = 0
+        for _ in pairs(t or {}) do n = n + 1 end
+        return n
+    end
+    local function Fresh()
+        ns.db.recipes, ns.db.recipeDB, ns.db.recipePending = {}, {}, {}
+        asked = false
+    end
+    -- nothing stored at all (the tables were empty), nothing looked at
+    local function Nothing(what)
+        assert(asked, what .. ": test setup: the hidden name was not asked about")
+        assert(#looks == 0, what .. ": looked at the hidden name - " .. table.concat(looks, ", "))
+        assert(rawget(ns.db.recipeDB, SECRET) == nil and rawget(ns.db.recipePending, SECRET) == nil,
+            what .. ": a recipe stored under the hidden profession name")
+        assert(Keys(ns.db.recipeDB) == 0 and Keys(ns.db.recipePending) == 0,
+            what .. ": a recipe stored - " .. Keys(ns.db.recipeDB) .. " professions with recipes, " .. Keys(ns.db.recipePending) .. " with waiting ones")
+        for _, char in pairs(ns.db.recipes) do
+            assert(rawget(char, SECRET) == nil and Keys(char) == 0, what .. ": a character's profession list stored")
+        end
+    end
+    local NAME, REAGENT = "R2 Unknown Elixir", "R2 Unknown Root"
+    local ok, err = pcall(function()
+        issecretvalue = function(v) if rawequal(v, SECRET) then asked = true return true end return false end
+        type = function(v) if rawequal(v, SECRET) then Look("type") return "string" end return realType(v) end
+        -- 1. RememberRecipe handed a hidden name (Codex's R2 probe)
+        Fresh()
+        ns.RememberRecipe(SECRET, 1, NAME, { { REAGENT, 1 } })
+        Nothing("RememberRecipe")
+        Fresh()
+        assert(ns.RememberRecipe("Alchemy", 1, NAME, { { REAGENT, 1 } }) == false and ns.db.recipePending.Alchemy
+            and ns.db.recipePending.Alchemy[NAME], "test setup: RememberRecipe with Alchemy - the recipe does not wait")
+        -- 2. a trainer without links (Forever): the profession by the skill
+        -- line, the reagents from the tooltip (Codex's R2 trainer probe); the
+        -- trainer's title names Alchemy - a hidden name is not read as the
+        -- title's either
+        ClassTrainerFrameTitleText, ClassTrainerFrame = { GetText = function() return "Alchemy Trainer" end }, nil
+        GetNumTrainerServices = function() return 1 end
+        GetTrainerServiceInfo = function() return NAME, nil, "available" end
+        GetTrainerServiceItemLink = function() return nil end
+        GetTrainerServiceNumReagents = function() return 0 end
+        C_TooltipInfo = { GetTrainerService = function() return { lines = { { leftText = NAME }, { leftText = "Reagents: " .. REAGENT } } } end }
+        local skillReq, skillLine
+        GetTrainerServiceSkillReq = function() return skillReq, 1 end
+        GetTrainerServiceSkillLine = function() return skillLine end
+        -- each read is a visit of its own (its message is said), and a hidden
+        -- entry counts as one without skill: "none noted"
+        local NONE = (ns.L["Trainer: %d entries, none noted (headers %d, no item %d, no skill %d, no reagents %d). Please send this line."]):format(1, 0, 0, 1, 0)
+        local function Trainer(what)
+            fire("TRAINER_CLOSED")
+            local mark = #log
+            ns.ReadTrainer()
+            if not what then return end
+            Nothing(what)
+            local said = false
+            for i = mark + 1, #log do if log[i]:find(NONE, 1, true) then said = true end end
+            assert(said, what .. ": the trainer does not say \"" .. NONE .. "\"")
+        end
+        Fresh()
+        skillReq, skillLine = nil, "Alchemy"
+        Trainer()
+        assert(ns.db.recipePending.Alchemy and ns.db.recipePending.Alchemy[NAME], "test setup: a trainer's readable Alchemy - the recipe does not wait")
+        Fresh()
+        skillReq, skillLine = nil, SECRET
+        Trainer("a trainer without links, a hidden skill line")
+        Fresh()
+        skillReq, skillLine = SECRET, "Alchemy"
+        Trainer("a trainer without links, a hidden required skill")
+        -- 3. a trainer with links: the recipe is complete at once
+        GetTrainerServiceItemLink = function() return "|Hitem:118::|h" end
+        GetTrainerServiceNumReagents = function() return 1 end
+        GetTrainerServiceReagentInfo = function() return "Peacebloom", 134400, 1 end
+        GetTrainerServiceReagentLink = function() return "|Hitem:2447::|h" end
+        Fresh()
+        skillReq, skillLine = "Alchemy", nil
+        Trainer()
+        assert(Keys(ns.db.recipeDB.Alchemy) == 1, "test setup: a trainer's readable Alchemy with links - not stored")
+        Fresh()
+        skillReq, skillLine = SECRET, nil
+        Trainer("a trainer with links, a hidden required skill")
+        fire("TRAINER_CLOSED")
+        -- 4. the profession window names its profession
+        local windowName
+        GetTradeSkillLine = function() return windowName, 77, 150 end
+        GetNumTradeSkills = function() return 1 end
+        GetTradeSkillInfo = function() return "R2 Window Potion", "optimal" end
+        GetTradeSkillItemLink = function() return "|Hitem:118::|h" end
+        GetTradeSkillNumMade = function() return 1, 1 end
+        GetTradeSkillNumReagents = function() return 1 end
+        GetTradeSkillReagentInfo = function() return "Peacebloom", 134400, 1, 0 end
+        GetTradeSkillReagentItemLink = function() return "|Hitem:2447::|h" end
+        Fresh()
+        windowName = "Alchemy"
+        fire("TRADE_SKILL_SHOW") advance(1)
+        local stored = false
+        for _, char in pairs(ns.db.recipes) do
+            if char.Alchemy and Keys(char.Alchemy.list) == 1 then stored = true end
+        end
+        assert(stored and Keys(ns.db.recipeDB.Alchemy) == 1, "test setup: the profession window's readable Alchemy - not stored")
+        Fresh()
+        windowName = SECRET
+        fire("TRADE_SKILL_SHOW") advance(1)
+        Nothing("the profession window, a hidden name")
+    end)
+    type = realType
+    for _, k in ipairs(G) do _G[k] = keep[k] end
+    ns.db.recipes, ns.db.recipeDB, ns.db.recipePending = keepDB[1], keepDB[2], keepDB[3]
+    if not ok then error(err, 0) end
+end)
 -- 0.2.2 P2e (Nachtrag zum Fahrplan, 21.11.2026; P2d counted 19,472 world
 -- map pins in 45 zones with Sven's saved data, every one looked at every
 -- 3 s): the pass every 3 s looks only at the pins that can be seen - the

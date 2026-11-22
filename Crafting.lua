@@ -459,6 +459,9 @@ local function Learn(reader)
         ns.Debug("CRAFT read failed: " .. tostring(prof))
         return
     end
+    -- (0.2.2 P2 R2-M1, Codex) the window names its profession hidden: nothing
+    -- of it is stored, under that name or any other
+    if ns.AnySecret("crafting", prof) then return end
     if not (prof and recipes) then return end
     local shownProf = prof
     prof = ProfKey(prof)
@@ -605,15 +608,22 @@ local function ReadTrainerServices()
         else
             local skill, req = nil, nil
             if GetTrainerServiceSkillReq then skill, req = GetTrainerServiceSkillReq(i) end
-            if skill == "" then skill = nil end
-            skill = skill or (GetTrainerServiceSkillLine and GetTrainerServiceSkillLine(i)) or fallbackSkill
+            -- (0.2.2 P2 R2-M1, Codex) a hidden profession name: this entry is
+            -- not read (it counts as "no skill"), not under another name either
+            local hidden = ns.AnySecret("trainer", skill)
+            if not hidden and skill == "" then skill = nil end
+            if not hidden and not skill and GetTrainerServiceSkillLine then
+                skill = GetTrainerServiceSkillLine(i)
+                hidden = ns.AnySecret("trainer", skill)
+            end
+            if not hidden then skill = skill or fallbackSkill end
             local reagents = {}
             for r = 1, (GetTrainerServiceNumReagents and GetTrainerServiceNumReagents(i)) or 0 do
                 local _, _, n = GetTrainerServiceReagentInfo(i, r)
                 local id = ItemIDFromLink(GetTrainerServiceReagentLink and GetTrainerServiceReagentLink(i, r))
                 if id and n then reagents[#reagents + 1] = id .. ":" .. n end
             end
-            if not skill then
+            if hidden or not skill then
                 why.noSkill = why.noSkill + 1
             elseif product and #reagents > 0 then
                 MergeRecipe(skill, name, product, nil, nil, tonumber(req), table.concat(reagents, ","))
@@ -873,6 +883,10 @@ end
 
 local lastIndexBuild
 local function RememberRecipe(prof, req, product, reagents)
+    -- (0.2.2 P2 R2-M1, Codex) a hidden profession name: no recipe is kept
+    -- under it - nothing looked up, nothing stored (nil: neither added nor
+    -- waiting)
+    if ns.AnySecret("crafting", prof) then return nil end
     prof = ProfKey(prof) -- (0.2.2 P2a: a waiting recipe under the English name too)
     if ns.db.recipeDB and ns.db.recipeDB[prof] and ns.db.recipeDB[prof][product] then
         if req and req > 0 then MergeRecipe(prof, product, tonumber(ns.db.recipeDB[prof][product]:match("^(%d+)")), nil, nil, req,
