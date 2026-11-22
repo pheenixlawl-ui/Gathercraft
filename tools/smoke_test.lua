@@ -13626,6 +13626,100 @@ step("Paths: crossing from one 25-yard square into the next is counted, with a c
     if not ok then error(err, 0) end
 end)
 
+step("Paths: a jump is no fall - the time in the air counts from the second look up there; a fall is a second up there for sure, its crossings get it as before (0.2.3 paths jump)", function()
+    -- Fable's study of S1 (22.11.2026, 7.1), order of 23.11.2026: Look counted
+    -- at every look in the air the whole time since the look before. Two looks
+    -- of a jump (about 0.8 s) made a second, a "fall" - in Sven's data one
+    -- piece in five has one. Now the first look in the air counts from 0 (how
+    -- long you have been up there is not known): a fall is three looks up
+    -- there in a row. Crossings made on the way down before the fall is known
+    -- get it when it is, as the old count gave it them; landing first, not.
+    local W = PathsWorld()
+    local windows, lastLook, taxiAt = nil, nil, nil
+    local keep = { fall = IsFalling, taxi = UnitOnTaxi }
+    -- in the air: within one of the windows {from, to} (both ends included)
+    IsFalling = function()
+        lastLook = GetTime()
+        if windows then
+            for _, w in ipairs(windows) do if lastLook >= w[1] and lastLook <= w[2] then return true end end
+            return false
+        end
+        return W.falling
+    end
+    UnitOnTaxi = function() return taxiAt ~= nil and math.abs(GetTime() - taxiAt) < 0.01 end
+    local row = 120
+    -- a ride along a fresh row from 19.5 yards into square 100 (the next looks at 23, 26.5, 30, ... yards:
+    -- the edge of 101 at 25); the windows in seconds from the next look; the falls of the pieces 100 to 103
+    local function Ride(list, taxi)
+        row = row + 2
+        W.Start(100, row)
+        W.Go(1, 0, 7)
+        local t0 = lastLook + 0.5
+        windows = {}
+        for i, w in ipairs(list) do windows[i] = { t0 + w[1], t0 + w[2] } end
+        taxiAt = taxi and t0 + taxi or nil
+        W.Go(1, 0, 70)
+        windows, taxiAt = nil, nil
+        local falls = {}
+        for tx = 100, 103 do
+            local _, _, f = W.Piece(tx, row, 1, 0)
+            falls[#falls + 1] = f or 0
+        end
+        return falls, table.concat(falls, " ")
+    end
+    local function Sum(f) return f[1] + f[2] + f[3] + f[4] end
+    local ok, err = pcall(function()
+        -- 1. a jump of 0.8 s, wherever it lies between the looks (0 to 0.45 s after one): never a fall
+        for i = 0, 9 do
+            local from = i * 0.05
+            local f, s = Ride({ { from, from + 0.8 - 1e-6 } })
+            assert(Sum(f) == 0, ("a jump of 0.8 s, %.2f s after a look: falls %s"):format(from, s))
+        end
+        -- 2. a fall of 1.0 s seen at three looks: a fall - for the piece crossed on the way down too (as before)
+        local f, s = Ride({ { 0, 1.0 } })
+        assert(s == "1 1 0 0", "a fall of 1.0 s (three looks up there) across the edge of 101: falls " .. s .. ", want 1 1 0 0")
+        -- 1.4 s: a fall
+        f, s = Ride({ { 0, 1.4 } })
+        assert(s == "1 1 0 0", "a fall of 1.4 s: falls " .. s .. ", want 1 1 0 0")
+        -- a fall that starts at the look that crosses the edge: the piece before it keeps no fall (as before)
+        f, s = Ride({ { 0.5, 1.5 } })
+        assert(s == "0 1 0 0", "a fall from the crossing of the edge on: falls " .. s .. ", want 0 1 0 0")
+        -- 0.99 s, wherever it lies: no fall
+        for i = 0, 9 do
+            local from = i * 0.05
+            f, s = Ride({ { from, from + 0.99 } })
+            assert(Sum(f) == 0, ("0.99 s in the air, %.2f s after a look: falls %s"):format(from, s))
+        end
+        -- 1.5 s, wherever it lies: always a fall (it is up there at three looks)
+        for i = 0, 9 do
+            local from = i * 0.05
+            f, s = Ride({ { from, from + 1.5 - 1e-6 } })
+            assert(Sum(f) >= 1, ("1.5 s in the air, %.2f s after a look: no fall"):format(from))
+        end
+        -- 3. a jump across the edge, landed, then a fall in the next square: the jump's crossing keeps no fall
+        f, s = Ride({ { 0, 0.8 - 1e-6 }, { 2.0, 3.0 } })
+        assert(s == "0 1 0 0", "a jump across the edge and a fall later in 101: falls " .. s .. ", want 0 1 0 0")
+        -- 4. up there across the edge, then a taxi in the middle of it (the looks start anew), then on in the
+        -- air: the crossing before the taxi keeps no fall, the count starts anew after it
+        f, s = Ride({ { 0, 3.6 } }, 1.0)
+        assert(f[1] == 0, "a crossing before a break (taxi) got the fall of the way down after it: falls " .. s)
+        -- 5. a piece at its most crossings (255): a fall on it changes nothing, as before
+        row = row + 2
+        local key = (row * 1024 + 100) * 9 + 5 -- (square 100 of the row, to the east)
+        local day = math.floor(time() / 86400) - 20454
+        local z = ns.db.paths.zones[1412]
+        z.e[key] = ((0 * 256 + 0) * 1024 + 100) * 256 * 16384 + 255 * 16384 + day
+        z.n = z.n + 1
+        ns.db.paths.total = ns.db.paths.total + 1
+        row = row - 2 -- (Ride takes the next row: this one)
+        f, s = Ride({ { 0, 1.0 } })
+        local count = W.Piece(100, row, 1, 0)
+        assert(count == 255 and f[1] == 0, ("a piece at 255 crossings: count %s, falls %s (want 255, 0 first)"):format(tostring(count), s))
+    end)
+    IsFalling, UnitOnTaxi = keep.fall, keep.taxi
+    W.Done()
+    if not ok then error(err, 0) end
+end)
 step("Paths: nothing is learned where you are carried, dead, in an instance, teleported or where the client hides values (v0.1.22 W3)", function()
     local W = PathsWorld()
     local SECRET = newproxy(true)

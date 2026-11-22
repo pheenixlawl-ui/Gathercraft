@@ -18,7 +18,15 @@ local L = ns.L or setmetatable({}, { __index = function(_, k) return k end })
 --       a wall you ran along. Speed x time makes walking, riding and every
 --       level the same,
 --     - how often you fell on it (in the air for a second or more - a jump
---       is shorter; such a piece may only go downwards),
+--       is shorter; such a piece may only go downwards). (0.2.3, 23.11.2026)
+--       The time up there counts from the second look in the air on: at the
+--       first one it is not known how long you have been up there. So a fall
+--       is three looks in the air in a row, a second or more for sure; a
+--       jump (about 0.8 s, two looks at most) never is one. Before, the
+--       first look counted the whole half second before it, and two looks
+--       of a jump made a "fall". Crossings made on the way down before the
+--       fall is known get it when it is (as the old count gave it them);
+--       landing first, they do not.
 --     - how often you swam on it,
 --     - the day you last used it (the day only, never a time).
 --   No trace is kept: no list of the squares in the order you went, no
@@ -216,7 +224,8 @@ local function Record(p, mapID, tx, ty, dx, dy, cost, fell, swam)
     local v = z.e[key]
     if v then
         local count, mean, falls, swims = Unpack(v)
-        if count < COUNT_MAX then
+        local counted = count < COUNT_MAX
+        if counted then
             count = count + 1
             if fell then falls = falls + 1 end
             if swam then swims = swims + 1 end
@@ -236,7 +245,7 @@ local function Record(p, mapID, tx, ty, dx, dy, cost, fell, swam)
             mean = mean + (diff > 0 and step or -step)
         end
         z.e[key] = Pack(count, max(100, min(COST_MAX, mean)), falls, swims, Today())
-        return
+        return counted, key
     end
     if z.n >= MAX_ZONE then
         Prune(p, mapID)
@@ -257,12 +266,26 @@ local function Record(p, mapID, tx, ty, dx, dy, cost, fell, swam)
     z.e[key] = Pack(1, hundredths, fell and 1 or 0, swam and 1 or 0, Today())
     z.n = z.n + 1
     p.total = p.total + 1
+    return true, key
+end
+
+-- (0.2.3) a fall known only now: one more for a piece that counted its
+-- crossing a moment ago without it (gone meanwhile: nothing)
+local function AddFall(p, mapID, key)
+    local z = p.zones[mapID]
+    local v = z and z.e[key]
+    if not v then return end
+    local count, cost, falls, swims, day = Unpack(v)
+    if falls < count then z.e[key] = Pack(count, cost, falls + 1, swims, day) end
 end
 
 ---------------------------------------------------------------------------
 -- Looking: twice a second, a fixed handful of calls each time (W5)
 ---------------------------------------------------------------------------
 local here = {} -- the square you are in: map, tx, ty, way (yards made in it), air, fell, swam, at
+-- (0.2.3) and the way down: aloft (the look before was in the air too), air0 (the time before the first
+-- look up there), the crossings made up there that wait for the fall to be known (map and key, the first pendN)
+here.pendMap, here.pendKey, here.pendN = {}, {}, 0
 
 local function Forget()
     here.map = nil
@@ -307,14 +330,25 @@ local function Look()
     if here.map ~= mapID then
         -- a new start (login, another zone, after anything that was skipped)
         here.map, here.tx, here.ty, here.way, here.air, here.fell, here.swam = mapID, tx, ty, 0, 0, false, false
+        here.aloft, here.air0, here.pendN = false, 0, 0
         return
     end
     if speed > 0 then here.way = here.way + speed * dt end
     if falling == true then
-        here.air = here.air + dt
-        if here.air >= FALL_SECONDS then here.fell = true end
+        if here.aloft then
+            here.air = here.air + dt
+        else
+            -- the first look in the air: how long you have been up there is not known - from here on
+            here.aloft, here.air, here.air0 = true, 0, dt
+        end
+        if here.air >= FALL_SECONDS then
+            here.fell = true
+            -- the crossings of this way down that waited: theirs too
+            for i = 1, here.pendN do AddFall(p, here.pendMap[i], here.pendKey[i]) end
+            here.pendN = 0
+        end
     else
-        here.air = 0
+        here.aloft, here.air, here.pendN = false, 0, 0
     end
     if swimming == true then here.swam = true end
 
@@ -335,7 +369,13 @@ local function Look()
         -- half the straight line had to be made in the square - the gaps in
         -- the net came mostly from that.
         if speed > 0 then
-            Record(p, mapID, here.tx, here.ty, dx, dy, here.way / line, here.fell, here.swam)
+            local counted, key = Record(p, mapID, here.tx, here.ty, dx, dy, here.way / line, here.fell, here.swam)
+            -- (0.2.3) crossed in the air before a fall is known, where the old count (from the look before the
+            -- first one up there) had a second already: it waits - the fall is its, if it comes
+            if counted and here.aloft and not here.fell and here.air + here.air0 >= FALL_SECONDS then
+                here.pendN = here.pendN + 1
+                here.pendMap[here.pendN], here.pendKey[here.pendN] = mapID, key
+            end
         end
     end
     -- (further than a neighbour in one look: a teleport or a hitch - no piece, a new start here)
