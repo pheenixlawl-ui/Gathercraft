@@ -28699,6 +28699,71 @@ step("Crafting 0.2.2: a profession given up leaves the profit list and \"my\" pr
     ns.db.recipes, GetProfessions, PROFS[5], issecretvalue = keep.recipes, keep.profs, keep.p5, keep.secret
     if not ok then error(err, 0) end
 end)
+-- 0.2.2 P2-M1 (Codex, P2 round 1): a place of the game's list of professions
+-- that is in use but gives no skill line (maybe not loaded yet) is not a free
+-- place. The list is not read in full then and can't tell what you have:
+-- nothing leaves "my" professions. Only a list read in full can tell that a
+-- profession is gone.
+step("Crafting 0.2.2: a place in use whose skill line the game does not give leaves the list unread - no profession leaves \"my\" professions until it is read in full (0.2.2 P2-M1)", function()
+    local key = (UnitName("player") or "?") .. "-" .. GetNormalizedRealmName()
+    local keep = { recipes = ns.db.recipes, profs = GetProfessions, p2 = PROFS[2], secret = issecretvalue }
+    local ok, err = pcall(function()
+        -- both read long ago, before this session: only the game's list counts
+        ns.db.recipes = { [key] = {
+            Mining = { list = { ["Smelt Copper"] = "2840:1:1:1|2770:1" }, updated = 1, rank = 30, rankAt = 1 },
+            Alchemy = { list = { ["Minor Healing Potion"] = "118:1:1:1|2447:1,765:1" }, updated = 1, rank = 40, rankAt = 1 },
+        } }
+        local function Mine()
+            local set = {}
+            for _, p in ipairs(ns.CraftData.MyProfessions()) do set[p] = true end
+            return set
+        end
+        -- 1. Codex' case: two places, Herbalism with its line, Mining without one
+        GetProfessions = function() return 1, 2 end
+        PROFS[2] = { "Mining", 30, 75, nil, 0 }
+        local slots, unclear, places, complete = ns.ProfessionSlots()
+        assert(places == 2 and not unclear and #slots == 1 and slots[1].line == 182, "test setup: the readable places")
+        assert(Mine().Mining, "an incomplete profession list excluded Mining")
+        assert(ns.CraftCurrentProfessions() == nil, "an incomplete profession list tells what you have")
+        assert(complete == false, "a place in use without its line: the list counts as read in full")
+        -- (Alchemy is in no place either way: the list read in full would drop it - below)
+        -- 2. read in full again: Mining is yours, Alchemy (in no place) is not
+        PROFS[2] = { "Mining", 30, 75, 186, 0 }
+        assert(select(4, ns.ProfessionSlots()) == true, "the list read in full: not complete")
+        local now = ns.CraftCurrentProfessions()
+        assert(now and now.Mining and now.Herbalism, "the list read in full: Mining or Herbalism not in it")
+        local m = Mine()
+        assert(m.Mining and not m.Alchemy, ("the list read in full: Mining %s, Alchemy %s"):format(tostring(m.Mining), tostring(m.Alchemy)))
+        -- 3. Mining given up: its place is free now - it leaves "my" professions
+        GetProfessions = function() return 1, nil end
+        assert(select(4, ns.ProfessionSlots()) == true, "a free place: the list counts as not read in full")
+        assert(not Mine().Mining, "Mining given up (its place free) is still one of mine")
+        assert(ns.db.recipes[key].Mining and ns.db.recipes[key].Mining.list["Smelt Copper"], "the recipes of the one given up were deleted")
+        -- 4. a place in use for which the game gives nothing at all: unread as well
+        GetProfessions = function() return 1, 2 end
+        PROFS[2] = {}
+        assert(select(4, ns.ProfessionSlots()) == false and Mine().Mining, "a place in use with no answer: Mining left")
+        -- 5. a hidden place and a place we can't name: as before (not mine to change here)
+        PROFS[2] = { "Werkkunst", 30, 75, 9999, 0 }
+        assert(select(4, ns.ProfessionSlots()) == true and ns.CraftCurrentProfessions() == nil and Mine().Mining, "a place we can't name: Mining left")
+        local SECRET = newproxy(true)
+        issecretvalue = function(v) return rawequal(v, SECRET) end
+        GetProfessions = function() return 1, SECRET end
+        local _, unclear2, _, complete2 = ns.ProfessionSlots()
+        assert(unclear2 and complete2 == false and Mine().Mining, "a hidden place: Mining left, or the list counts as read in full")
+        issecretvalue = keep.secret
+        -- 6. /gcr crafttest says so
+        GetProfessions = function() return 1, 2 end
+        PROFS[2] = { "Mining", 30, 75, nil, 0 }
+        local mark = #log
+        slash("crafttest")
+        local said
+        for i = mark + 1, #log do if log[i]:find("(a place in use without its line)", 1, true) then said = true end end
+        assert(said, "/gcr crafttest does not say a place in use gives no line")
+    end)
+    ns.db.recipes, GetProfessions, PROFS[2], issecretvalue = keep.recipes, keep.profs, keep.p2, keep.secret
+    if not ok then error(err, 0) end
+end)
 -- 0.2.2 P2e (Nachtrag zum Fahrplan, 21.11.2026; P2d counted 19,472 world
 -- map pins in 45 zones with Sven's saved data, every one looked at every
 -- 3 s): the pass every 3 s looks only at the pins that can be seen - the

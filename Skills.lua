@@ -76,11 +76,16 @@ end
 -- hidden is never compared: it makes the answer "unclear".
 -- Returns the readable places { place, name, rank, maxRank, line, modifier }
 -- (rank, maxRank and name as the game gave them: they may be hidden), whether
--- something was hidden, and how many places there are (nil: no such list).
+-- something was hidden, how many places there are (nil: no such list), and
+-- whether the list was read in full: every place free or readable with its
+-- line. (0.2.2 P2-M1, Codex: a place in use whose line the game does not
+-- give, maybe not loaded yet, is not a free place - left out of the readable
+-- ones, it makes the list incomplete; only a list read in full can tell that
+-- a profession is gone.)
 local function Counted(...) return select("#", ...), { ... } end
 local function ProfessionSlots()
-    local out, unclear = {}, false
-    if not (GetProfessions and GetProfessionInfo) then return out, unclear, nil end
+    local out, unclear, unread = {}, false, false
+    if not (GetProfessions and GetProfessionInfo) then return out, unclear, nil, false end
     local places, profs = Counted(GetProfessions())
     for i = 1, places do
         local index = profs[i]
@@ -93,10 +98,12 @@ local function ProfessionSlots()
                 unclear = true
             elseif skillLine ~= nil then
                 out[#out + 1] = { place = i, name = name, rank = rank, maxRank = maxRank, line = skillLine, modifier = modifier }
+            else
+                unread = true -- in use, its line not given
             end
         end
     end
-    return out, unclear, places
+    return out, unclear, places, not unclear and not unread
 end
 ns.ProfessionSlots = ProfessionSlots
 

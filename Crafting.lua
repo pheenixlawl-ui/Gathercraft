@@ -1239,8 +1239,10 @@ ns.CraftRequiredSkill = RequiredSkill
 -- The professions this character has now (0.2.2 P2b; Sven: Leatherworking
 -- given up, its recipes stayed in the list of his professions): the game's
 -- list of professions, by skill line or by name. nil when that list can't
--- tell - none in this client, a hidden place, nothing in it, or a place we
--- can't name (the Forever numbers of some professions are not seen yet):
+-- tell - none in this client, a hidden place, a place in use whose line it
+-- does not give (0.2.2 P2-M1: not read in full), nothing in it (maybe not
+-- loaded yet), or a place we can't name (the Forever numbers of some
+-- professions are not seen yet):
 -- then every profession kept counts, as before. A profession given up keeps
 -- its recipes in the saved data - learnt again, they are back.
 -- A profession the list does not name still counts when its window was read
@@ -1253,8 +1255,8 @@ local function StillMine(prof, info, now)
 end
 local function CurrentProfessions()
     if not ns.ProfessionSlots then return nil end
-    local slots, unclear, places = ns.ProfessionSlots()
-    if not places or unclear or #slots == 0 then return nil end
+    local slots, unclear, places, complete = ns.ProfessionSlots()
+    if not places or unclear or not complete or #slots == 0 then return nil end
     local set = {}
     for _, s in ipairs(slots) do
         local en = PROF_LINE[s.line]
@@ -2005,8 +2007,8 @@ end
 
 -- for /gcr crafttest: the game's list of your professions, place by place
 local function ProfessionLines()
-    local slots, unclear, places = {}, false, nil
-    if ns.ProfessionSlots then slots, unclear, places = ns.ProfessionSlots() end
+    local slots, unclear, places, complete = {}, false, nil, false
+    if ns.ProfessionSlots then slots, unclear, places, complete = ns.ProfessionSlots() end
     if not places then return { "  professions (GetProfessions): not in this client" } end
     local parts = {}
     for _, s in ipairs(slots) do
@@ -2015,7 +2017,7 @@ local function ProfessionLines()
             tostring(maxRank or "?"), tostring(s.line), PROF_LINE[s.line] or "not recognised")
     end
     return { ("  professions (GetProfessions, %d places): %s%s"):format(places, #parts > 0 and table.concat(parts, ", ") or "-",
-        unclear and " (some hidden)" or "") }
+        unclear and " (some hidden)" or not complete and " (a place in use without its line)" or "") }
 end
 
 -- Your skill in a profession - the skill you have NOW: the game's list of
