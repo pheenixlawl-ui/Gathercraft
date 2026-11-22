@@ -337,6 +337,11 @@ end
 --   read (kind, d). A node twice in one collect gets a point of its own each
 --   time, as before. Without keep (the preview, "Best place to farm") all
 --   points are new, as before.
+--   (R1 M1, Codex 23.11.2026) How long it lives is bound, also under the
+--   rules of Lua 5.1: a point holds its node, so weak keys never let a
+--   removed node go. So at the end of each collect the store keeps only the
+--   nodes this collect took - one not taken any more goes at the next
+--   collect at the latest - and StopRun lets go of the whole store.
 local function CollectPoints(filter, instance, zone, quick, keep)
     local points = {}
     local gen
@@ -362,6 +367,16 @@ local function CollectPoints(filter, instance, zone, quick, keep)
                         if n.learnStay then learnStays[n] = true end
                     end
                 end
+            end
+        end
+    end
+    -- (R1 M1) what this collect did not take goes from the store (clearing
+    -- fields while going over them is allowed in Lua)
+    if keep then
+        for n, g in pairs(keep.at) do
+            if g ~= gen then
+                keep.at[n] = nil
+                keep.of[n] = nil
             end
         end
     end
@@ -1387,6 +1402,9 @@ local function StopRun(silent, summary)
     preview = nil
     if ns.run then
         local wasPlan = ns.run.plan
+        -- (0.2.3 lauf-last R1 M1) the store of its points goes now, after the
+        -- snapshot above: the run itself may still be held (the run history)
+        ns.run.keepPoints = nil
         ns.run = nil
         if wasPlan and ns.PlanRunStopped then ns.PlanRunStopped() end
         if ns.UpdateGatherHelp then ns.UpdateGatherHelp("run stop") end
@@ -1415,8 +1433,8 @@ Plan = function(quick)
     -- a plan run: what the plan needs now (a change collects the nodes anew)
     if run.plan and ns.PlanRunRefresh then ns.PlanRunRefresh(run) end
     if not run.points or run.pointsDirty or run.pointsInstance ~= instance then
-        -- (B3: the run's points kept by node, weak: a node deleted meanwhile drops out)
-        run.keepPoints = run.keepPoints or { of = setmetatable({}, { __mode = "k" }), at = setmetatable({}, { __mode = "k" }) }
+        -- (B3: the run's points kept by node; R1 M1: only the nodes of the last collect, let go at StopRun)
+        run.keepPoints = run.keepPoints or { of = {}, at = {} }
         run.points = CollectPoints(run.filter, instance, run.zone, run.quick, run.keepPoints)
         -- picked zones far apart: the group of neighbouring zones near you.
         -- Chosen once; again on another continent, when you are in a picked

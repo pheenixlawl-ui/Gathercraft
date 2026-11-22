@@ -15641,6 +15641,93 @@ step("Route: a run keeps its points - collected again (a harvest of the target),
     advance(1)
     if not ok then error(err, 0) end
 end)
+step("Route: the store of a run's points lives no longer than its nodes and its run - a removed node goes, adding and removing does not make it grow, a stopped run lets go of it (0.2.3 lauf-last R1 M1)", function()
+    -- Codex, review of lauf-last round 1 (23.11.2026), M1: the store of B3
+    -- had weak keys, but each point holds its node: under Lua 5.1 a removed
+    -- node never went (1,000 removed nodes, 1,000 entries, about 700 KB),
+    -- and after a stop the store stayed with the run the run history still
+    -- holds. Now a collect keeps only the nodes it took, and StopRun lets go
+    -- of the store. Codex's three cases.
+    local saved = { map = player.map, x = player.x, y = player.y }
+    local list
+    local function Entries(store)
+        local n, m = 0, 0
+        for _ in pairs(store.of) do n = n + 1 end
+        for _ in pairs(store.at) do m = m + 1 end
+        return n, m
+    end
+    local function Distinct(points)
+        local seen, n = {}, 0
+        for _, p in ipairs(points) do if not seen[p.node] then seen[p.node], n = true, n + 1 end end
+        return n
+    end
+    local function Collect() ns.RouteNodeListChanged() ns.RouteReplan() end
+    local function Full() collectgarbage("collect") collectgarbage("collect") end
+    local ok, err = pcall(function()
+        player.map, player.x, player.y = 1412, 0.45, 0.72
+        ns.StartRun("herb") advance(2)
+        local run = ns.run
+        assert(run and run.points and #run.points >= 3, "test setup: a run with points")
+        list = ns.db.nodes[1412]
+        -- A. one node removed, all cleaned up: node and point are gone, the store has no entry for it
+        local probe = setmetatable({}, { __mode = "v" })
+        local function AddAndRemove()
+            local n = { name = "Peacebloom", type = "herb", x = player.x + 0.001, y = player.y, id = 1618 }
+            list[#list + 1] = n
+            Collect()
+            local p
+            for _, q in ipairs(run.points) do if q.node == n then p = q end end
+            assert(p, "test setup: the added node is not in the run")
+            probe.node, probe.point = n, p
+            for i = #list, 1, -1 do if list[i] == n then table.remove(list, i) end end
+            Collect()
+            for _, q in ipairs(run.points) do assert(q.node ~= n, "the removed node is still a point of the run") end
+            assert(run.keepPoints.of[n] == nil and run.keepPoints.at[n] == nil, "the store keeps an entry for the removed node")
+        end
+        local n0, m0 = Entries(run.keepPoints)
+        AddAndRemove()
+        Full()
+        assert(probe.node == nil and probe.point == nil, "a removed node and its point are still held after a full clean-up")
+        local n, m = Entries(run.keepPoints)
+        assert(n == n0 and m == m0, ("the store has %d / %d entries, %d / %d before the node came and went"):format(n, m, n0, m0))
+        -- B. added, collected, removed, collected - 1,000 times: the store stays at the run's nodes
+        local function Churn()
+            for _ = 1, 1000 do
+                local x = { name = "Peacebloom", type = "herb", x = player.x + 0.002, y = player.y, id = 1618 }
+                list[#list + 1] = x
+                Collect()
+                table.remove(list)
+                Collect()
+            end
+        end
+        Churn()
+        Full()
+        n, m = Entries(run.keepPoints)
+        assert(n == n0 and m == m0, ("after 1,000 nodes added and removed the store has %d / %d entries, %d / %d before"):format(n, m, n0, m0))
+        -- (it holds the nodes the collect took: none more than the run's zones have)
+        local taken = 0
+        for _, list2 in pairs(ns.db.nodes) do taken = taken + #list2 end
+        assert(n <= taken and Distinct(run.points) <= n, ("the store has %d entries, %d nodes saved, %d in the run"):format(n, taken, Distinct(run.points)))
+        -- C. start, stop, timers on, all cleaned up: the store of the stopped run cannot be reached any more,
+        -- though the run itself may be (the run history holds it)
+        local store = setmetatable({}, { __mode = "v" })
+        local held = setmetatable({}, { __mode = "v" })
+        local function StartStop()
+            ns.StartRun("herb") advance(2)
+            assert(ns.run and ns.run.keepPoints, "test setup: no store of the run's points")
+            store.it, held.run = ns.run.keepPoints, ns.run
+            ns.StopRun(true)
+            advance(11)
+        end
+        StartStop()
+        Full()
+        assert(store.it == nil, "the store of a stopped run's points is still reachable" .. (held.run and " (the run is still held)" or ""))
+    end)
+    if ns.run then ns.StopRun(true) end
+    player.map, player.x, player.y = saved.map, saved.x, saved.y
+    advance(1)
+    if not ok then error(err, 0) end
+end)
 step("Route: a run's collect builds a node's kind key only in zones with an unticked kind (Zones tab) - the same nodes are taken; a kind unticked meanwhile counts at the next collect (0.2.3 lauf-last B4)", function()
     -- Order 0.2.3-lauf-last, part B4 (22.11.2026): every collect of a run's
     -- points (each harvest of the target) built for every node of every zone

@@ -13,10 +13,12 @@ local L = ns.L or setmetatable({}, { __index = function(_, k) return k end })
 --   the numbers.
 --   (0.2.3 lauf-last C) The garbage too: the Lua memory is read before and
 --   after each measured call, booked to its part without the measured calls
---   inside it (they book their own). The game cleans up meanwhile: a call in
---   which the memory went down books nothing, so each part's garbage is at
---   least that much; the line says how many calls saw a cleanup. Off, no
---   wrapper looks at the memory.
+--   inside it (they book their own). A call is measured in stretches: from
+--   its start or the end of a measured call inside it to the next such mark.
+--   The game cleans up meanwhile: a stretch in which the memory went down
+--   books nothing - the other stretches of the same call still count - so
+--   each part's garbage is at least that much; the line says how many calls
+--   ended below where they started. Off, no wrapper looks at the memory.
 --   At the start and at the end: the addon's memory (the game adds it up for
 --   all addons, so only then), the Lua memory of all addons (rough: the game
 --   collects garbage meanwhile) and how many world map pins HereBeDragons has
