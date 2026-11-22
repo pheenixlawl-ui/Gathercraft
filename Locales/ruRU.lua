@@ -756,4 +756,9 @@ ns.Locales.ruRU = {
     ["How far Find Herbs shows nodes (ore: assumed the same)"] = "Дальность поиска трав (руда: принята такой же)",
     ["Show the search range on the minimap during farm runs"] = "Показывать дальность поиска на миникарте во время маршрутов",
     ["In search range - no yellow dot? Press Skip."] = "В зоне поиска – нет жёлтой точки? Нажмите «Пропуск».",
+    -- /gcr perf on (0.2.3)
+    ["Gathercraft perf: measuring for one minute. /gcr perf off stops it early."] = "Gathercraft perf: измерение в течение минуты. /gcr perf off остановит раньше.",
+    ["Gathercraft perf: already measuring, %d s to go."] = "Gathercraft perf: измерение уже идёт, осталось %d с.",
+    ["Press Ctrl+C to copy the perf result:"] = "Нажмите Ctrl+C, чтобы скопировать результат:",
+    ["Gathercraft perf: not measuring. /gcr perf on starts a minute."] = "Gathercraft perf: измерение не запущено. /gcr perf on измеряет минуту.",
 }

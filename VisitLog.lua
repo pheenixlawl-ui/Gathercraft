@@ -1,4 +1,5 @@
 local ADDON_NAME, ns = ...
+local Wrap = ns.PerfWrap or function(_, fn) return fn end -- (/gcr perf on, Perf.lua: measured only while it is on)
 
 ---------------------------------------------------------------------------
 -- /gcr visitlog - the visit log (diagnosis D, Sven 20.11.2026; built on
@@ -197,3 +198,7 @@ function ns.VisitLogGather(p, node, again, resumed)
     if not On() or not (p and node) then return end
     Write(GatherText, p, node, again, resumed)
 end
+-- (/gcr perf on: what Core.lua and Route.lua call here, measured while it is on)
+ns.VisitLogVisit = Wrap("VisitLog", ns.VisitLogVisit)
+ns.VisitLogLeftOut = Wrap("VisitLog", ns.VisitLogLeftOut)
+ns.VisitLogGather = Wrap("VisitLog", ns.VisitLogGather)

@@ -14417,6 +14417,193 @@ step("/gcr perf: after minutes in which nothing at all ran, the last full minute
     advance(180)
     if not ok then error(err, 0) end
 end)
+step("/gcr perf on: one minute of time per part of the addon, the memory and the world map pins of HereBeDragons - measured only while on, no setting changed, the line to copy (0.2.3 perf)", function()
+    -- Sven, 22.11.2026 (the performance diagnosis, part B): a friend reports
+    -- strong lags. /gcr perf on measures one minute and then says what each
+    -- part of the addon took in its own handlers (in all, per second, the
+    -- longest single call), the addon's memory and the Lua memory of all
+    -- addons at the start and at the end, and how many world map pins
+    -- HereBeDragons has in use (the head of the route line, part A 1.5).
+    -- Off, nothing is measured: a wrapper only passes the call on. No game
+    -- setting (CVar) is set. The line also comes in a box to copy (Ctrl+C):
+    -- chat lines cannot be copied in the game. /gcr perf alone stays the
+    -- sync line of before; nothing of this is saved.
+    local L = ns.L
+    local MODULES = { "Route", "Pins", "Minimap", "Sync", "Tooltip", "Prices", "Rares", "SearchRange", "RunHistory", "VisitLog" }
+    local BUSY = { "Route", "Pins", "Minimap", "Sync", "Tooltip", "Prices", "Rares", "SearchRange", "RunHistory", "VisitLog" }
+    local TEXTS = { "Gathercraft perf: measuring for one minute. /gcr perf off stops it early.",
+        "Gathercraft perf: already measuring, %d s to go.", "Press Ctrl+C to copy the perf result:",
+        "Gathercraft perf: not measuring. /gcr perf on starts a minute." }
+    local HBDP = LibStub("HereBeDragons-Pins-2.0")
+    local saved = { dps = debugprofilestop, update = UpdateAddOnMemoryUsage, get = GetAddOnMemoryUsage, setcvar = SetCVar, ccvar = C_CVar,
+        pool = HBDP.worldmapPinsPool, dialogs = StaticPopupDialogs, show = StaticPopup_Show, getItem = GameTooltip.GetItem }
+    local dbKeys = {}
+    local fromPerf, cvars, updates, memCalls, active, shownName, copied = 0, 0, 0, 0, 100, nil, nil
+    local function Printed(mark)
+        local out = {}
+        for i = mark + 1, #log do if log[i]:find("^PRINT") then out[#out + 1] = log[i] end end
+        return out
+    end
+    -- a bit of everything the parts do: a farm run, a tooltip, a nameplate,
+    -- the auction house, a sync question, a look of the visit log
+    local function Busy(seconds)
+        slash("run herb")
+        GameTooltip.GetItem = function() return "Peacebloom", "|cffffffff|Hitem:2447::::::::12:::::|h[Peacebloom]|h|r" end
+        for s = 1, seconds do
+            if s % 10 == 1 then GameTooltip.__scripts.OnTooltipSetItem(GameTooltip) end
+            if s % 10 == 2 then fire("NAME_PLATE_UNIT_ADDED", "nameplate1") end
+            if s % 10 == 3 then fire("AUCTION_HOUSE_SHOW") end
+            if s % 10 == 4 then fire("AUCTION_HOUSE_CLOSED") end
+            if s % 10 == 5 then fire("CHAT_MSG_ADDON", "Gathercraft", "Q:1412:999", "CHANNEL", "Asker-Realm", nil, nil, nil, "GathercraftSync") end
+            if s % 10 == 6 and ns.VisitLogVisit then ns.VisitLogVisit(nil, "perf") end
+            advance(1)
+        end
+        slash("stop")
+        advance(1)
+    end
+    local ok, err = pcall(function()
+        assert(type(ns.PerfWrap) == "function", "no ns.PerfWrap")
+        debugprofilestop = function()
+            local info = debug.getinfo(2, "S")
+            if info and info.short_src and info.short_src:find("Perf.lua", 1, true) then fromPerf = fromPerf + 1 end
+            return saved.dps()
+        end
+        -- (a game setting set by the measurement itself; other parts may set theirs
+        -- meanwhile, as in the whole test run - those go through as before)
+        local function FromPerf()
+            local info = debug.getinfo(3, "S")
+            return info and info.short_src and info.short_src:find("Perf.lua", 1, true)
+        end
+        SetCVar = function(...)
+            if FromPerf() then cvars = cvars + 1 end
+            if saved.setcvar then return saved.setcvar(...) end
+        end
+        C_CVar = setmetatable({ SetCVar = function(...)
+            if FromPerf() then cvars = cvars + 1 end
+            if saved.ccvar and saved.ccvar.SetCVar then return saved.ccvar.SetCVar(...) end
+        end }, { __index = saved.ccvar or {} })
+        UpdateAddOnMemoryUsage = function() updates = updates + 1 end
+        GetAddOnMemoryUsage = function(name)
+            assert(name == "Gathercraft", "memory asked for " .. tostring(name))
+            memCalls = memCalls + 1
+            return memCalls == 1 and 50000 or 51200
+        end
+        HBDP.worldmapPinsPool = { GetNumActive = function() return active end }
+        StaticPopupDialogs = {}
+        StaticPopup_Show = function(name)
+            shownName = name
+            local d = StaticPopupDialogs[name]
+            assert(d and d.hasEditBox, "the box to copy has no edit box")
+            local eb = { SetText = function(_, t) copied = t end, SetFocus = function() end, HighlightText = function() end,
+                SetMaxLetters = function() end, SetMaxBytes = function() end, GetParent = function() return { Hide = function() end } end }
+            local dialog = { editBox = eb }
+            if d.OnShow then d.OnShow(dialog) end
+            return dialog
+        end
+        -- 1. off: nothing reads the clock for it, whatever runs
+        Busy(12)
+        assert(fromPerf == 0, ("off, the perf wrappers read the clock %d times"):format(fromPerf))
+        -- (the saved data as it is now that the run, the auction house and the rest have been there once)
+        for k in pairs(ns.db) do dbKeys[k] = true end
+        local mark = #log
+        slash("perf off")
+        local said = Printed(mark)
+        assert(#said == 1 and said[1]:find(L[TEXTS[4]], 1, true), "/gcr perf off while not measuring: " .. tostring(said[1]))
+
+        -- 2. on: one minute
+        mark = #log
+        slash("perf on")
+        said = Printed(mark)
+        assert(#said == 1 and said[1]:find(L[TEXTS[1]], 1, true), "/gcr perf on says: " .. tostring(said[1]))
+        Busy(20)
+        active = 300 advance(3) active = 200
+        assert(fromPerf > 0, "on, nothing was measured")
+        -- on again while on: it says how long it still takes, and does not start again
+        local left = 60 - 24
+        mark = #log
+        slash("perf on")
+        said = Printed(mark)
+        assert(#said == 1 and said[1]:find((L[TEXTS[2]]):format(left), 1, true), ("on while on (want %d s to go): %s"):format(left, tostring(said[1])))
+        Busy(20)
+        mark = #log
+        advance(15)
+        said = Printed(mark)
+        local line
+        for _, l in ipairs(said) do if l:find("perf, 60 s:", 1, true) then line = l end end
+        assert(line, "after a minute no result: " .. table.concat(said, " | "))
+        -- every part named, with its numbers that fit together
+        for _, mod in ipairs(MODULES) do
+            local total, per, longest, calls = line:match(mod .. " ([%d.]+) ms %(([%d.]+) ms/s, longest ([%d.]+) ms, (%d+) calls%)")
+            assert(total, mod .. " is not in the line: " .. line)
+            total, per, longest, calls = tonumber(total), tonumber(per), tonumber(longest), tonumber(calls)
+            assert(math.abs(per - total / 60) <= 0.01 + total * 0.001, ("%s: %.2f ms/s does not fit %.1f ms in 60 s"):format(mod, per, total))
+            assert(longest <= total + 0.05, mod .. ": a single call longer than all of them")
+            for _, busy in ipairs(BUSY) do
+                if busy == mod then assert(calls > 0, mod .. " ran, but no call was counted: " .. line) end
+            end
+        end
+        assert(line:find("memory: addon 48.8 -> 50.0 MB", 1, true), "the addon's memory: " .. line)
+        assert(updates == 2, ("the memory was read %d times (want 2: at the start and at the end)"):format(updates))
+        assert(line:find("Lua of all addons [%d.]+ %-> [%d.]+ MB"), "the Lua memory of all addons: " .. line)
+        assert(line:find("world map pins in HereBeDragons: 200 now, at most 300", 1, true), "the world map pins in use: " .. line)
+        local ours = tonumber(line:match("ours (%d+)"))
+        assert(ours and ns.WorldPinCount and ours == ns.WorldPinCount(), "our world map pins: " .. line)
+        assert(shownName and copied and line:find(copied, 1, true), "the line is not in the box to copy: " .. tostring(copied))
+        -- over: nothing measured any more
+        fromPerf = 0
+        Busy(12)
+        assert(fromPerf == 0, ("after the minute the wrappers still read the clock (%d times)"):format(fromPerf))
+
+        -- 3. stopped early: what it has, with its seconds
+        slash("perf on")
+        advance(10)
+        mark = #log
+        slash("perf off")
+        said = Printed(mark)
+        assert(#said >= 1 and said[#said]:find("perf, 10 s:", 1, true), "stopped after 10 s: " .. tostring(said[#said]))
+        fromPerf = 0
+        Busy(5)
+        assert(fromPerf == 0, "after /gcr perf off the wrappers still read the clock")
+        -- the world map pins: a client without the pool says so
+        HBDP.worldmapPinsPool = nil
+        slash("perf on") advance(2)
+        mark = #log
+        slash("perf off")
+        said = Printed(mark)
+        assert(said[#said]:find("world map pins in HereBeDragons: not readable", 1, true), "no pool: " .. tostring(said[#said]))
+
+        -- 4. no game setting, nothing saved, /gcr perf alone as before, the help, the texts
+        assert(cvars == 0, cvars .. " game settings (CVars) set")
+        for k in pairs(ns.db) do
+            assert(dbKeys[k], "saved data got a new key: " .. tostring(k))
+            assert(not tostring(k):lower():find("perf", 1, true), "saved data has a key of the measurement: " .. tostring(k))
+        end
+        mark = #log
+        slash("perf")
+        said = Printed(mark)
+        assert(#said == 1 and said[1]:find("sync messages received", 1, true), "/gcr perf alone: " .. tostring(said[1]))
+        mark = #log
+        local named = false
+        slash("help")
+        for i = mark + 1, #log do if log[i]:find("/gcr perf on", 1, true) then named = true end end
+        assert(named, "/gcr help does not name /gcr perf on")
+        for _, key in ipairs(TEXTS) do
+            for _, lang in ipairs({ "deDE", "esES", "frFR", "itIT", "koKR", "ptBR", "ruRU", "zhCN", "zhTW" }) do
+                local tr = ns.Locales[lang] and ns.Locales[lang][key]
+                assert(type(tr) == "string" and tr ~= "" and tr ~= key, ("no %s translation of %q"):format(lang, key))
+                local _, want = key:gsub("%%d", "")
+                local _, got = tr:gsub("%%d", "")
+                assert(want == got, ("%s: %q has %d placeholders, want %d"):format(lang, tr, got, want))
+            end
+        end
+    end)
+    slash("perf off")
+    debugprofilestop, UpdateAddOnMemoryUsage, GetAddOnMemoryUsage = saved.dps, saved.update, saved.get
+    SetCVar, C_CVar, HBDP.worldmapPinsPool = saved.setcvar, saved.ccvar, saved.pool
+    StaticPopupDialogs, StaticPopup_Show, GameTooltip.GetItem = saved.dialogs, saved.show, saved.getItem
+    advance(2)
+    if not ok then error(err, 0) end
+end)
 step("Settings: no game setting is changed in combat - the gathering help and the bobber settings follow at the end of the fight (v0.1.22 R1, combat)", function()
     -- Sven, 13.11.2026 (live, 0.1.22 a62cefe): the questing mode switched on
     -- in a fight - "[ADDON_ACTION_BLOCKED] AddOn 'Gathercraft' tried to call

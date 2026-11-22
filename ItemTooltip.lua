@@ -1,4 +1,6 @@
 local ADDON_NAME, ns = ...
+local Wrap = ns.PerfWrap or function(_, fn) return fn end -- (/gcr perf on, Perf.lua: measured only while it is on)
+local C_Timer = (C_Timer and ns.PerfTimers) and ns.PerfTimers("Tooltip") or C_Timer -- (/gcr perf on: every timer of this file)
 local L = ns.L or setmetatable({}, { __index = function(_, k) return k end })
 
 ---------------------------------------------------------------------------
@@ -469,23 +471,23 @@ if not ns.itemTooltipHooked then
     ns.itemTooltipHooked = true
     if TooltipDataProcessor and TooltipDataProcessor.AddTooltipPostCall and Enum and Enum.TooltipDataType and Enum.TooltipDataType.Item then
         stats.way = "TooltipDataProcessor"
-        TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Item, function(tooltip, data)
+        TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Item, Wrap("Tooltip", function(tooltip, data)
             tooltip, data = ReadableTable(tooltip, "item tooltip"), ReadableTable(data, "item tooltip")
             if not (tooltip and data and tooltip.AddDoubleLine) then return end
             local itemID = ns.Readable(data.id, "item tooltip")
             if type(itemID) ~= "number" then return end
             OnItem(tooltip, itemID)
-        end)
+        end))
     else
         for _, name in ipairs({ "GameTooltip", "ItemRefTooltip" }) do
             local tt = _G[name]
             if tt and tt.HookScript then
                 stats.way = "OnTooltipSetItem"
-                tt:HookScript("OnTooltipSetItem", function(self)
+                tt:HookScript("OnTooltipSetItem", Wrap("Tooltip", function(self)
                     local _, link = self:GetItem()
                     local itemID = ItemIDFromLink(link)
                     if itemID and OnItem(self, itemID) then self:Show() end
-                end)
+                end))
             end
         end
     end
@@ -582,3 +584,5 @@ ns.TooltipTest = function()
     print(("  Cost of our lines: %.3f ms a build on average (%d builds, %.1f ms together)"):format(
         stats.renders > 0 and stats.ms / stats.renders or 0, stats.renders, stats.ms))
 end
+-- (/gcr perf on: the event script above, measured while it is on)
+events:SetScript("OnEvent", Wrap("Tooltip", events:GetScript("OnEvent")))

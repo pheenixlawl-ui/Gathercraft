@@ -1,4 +1,6 @@
 local ADDON_NAME, ns = ...
+local Wrap = ns.PerfWrap or function(_, fn) return fn end -- (/gcr perf on, Perf.lua: measured only while it is on)
+local C_Timer = (C_Timer and ns.PerfTimers) and ns.PerfTimers("Pins") or C_Timer -- (/gcr perf on: every timer of this file)
 local L = ns.L or setmetatable({}, { __index = function(_, k) return k end })
 
 ---------------------------------------------------------------------------
@@ -280,16 +282,19 @@ local function WorldPinShown(pin)
 end
 local function WorldPinHidden(pin) worldShown[pin] = nil end
 
+-- (/gcr perf on: the pins' own scripts, wrapped once - not once per pin)
+local KeepLayerW, WorldPinShownW, WorldPinHiddenW = Wrap("Pins", KeepLayer), Wrap("Pins", WorldPinShown), Wrap("Pins", WorldPinHidden)
+local ShowTooltipW = Wrap("Pins", ShowTooltip)
 local function CreatePin()
     local pin = CreateFrame("Frame", nil, UIParent)
-    pin:HookScript("OnShow", KeepLayer)
-    pin:HookScript("OnShow", WorldPinShown)
-    pin:HookScript("OnHide", WorldPinHidden)
+    pin:HookScript("OnShow", KeepLayerW)
+    pin:HookScript("OnShow", WorldPinShownW)
+    pin:HookScript("OnHide", WorldPinHiddenW)
     pin.icon = pin:CreateTexture(nil, "OVERLAY")
     pin.icon:SetAllPoints()
     pin.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92) -- crop the icon border
     pin:EnableMouse(true)
-    pin:SetScript("OnEnter", ShowTooltip)
+    pin:SetScript("OnEnter", ShowTooltipW)
     pin:SetScript("OnLeave", function() GameTooltip:Hide() end)
     pin:Hide()
     return pin
@@ -611,6 +616,12 @@ end
 
 -- /gcr perf: how many minimap pins are registered, and how many the zone has
 ns.MiniPinCounts = function() return miniCount.near, miniCount.zone end
+-- our world map pins registered with HereBeDragons (/gcr perf on)
+ns.WorldPinCount = function()
+    local n = 0
+    for _, pins in pairs(pinsByNode) do if pins.world then n = n + 1 end end
+    return n
+end
 -- one look now, whatever the clock says (the tests measure it with this)
 ns.MiniPinLook = function()
     if here.map and MiniHere(here.map) then MiniLook() end
@@ -1258,7 +1269,7 @@ if not (HBD and HBDPins) then
     return
 end
 
-table.insert(ns.nodeListeners, OnNodesChanged)
+table.insert(ns.nodeListeners, Wrap("Pins", OnNodesChanged))
 
 -- Sync: one report arrived ("add") or left ("remove": confirmed, or the
 -- oldest dropped). Only that report's pin changes, nothing is rebuilt.
@@ -1406,3 +1417,6 @@ ns.PinTest = function()
     for _ in pairs(ns.db.disabledContinentKinds or {}) do nCont = nCont + 1 end
     print(("  unticked materials: %d in zones, %d on continents"):format(nKinds, nCont))
 end
+-- (/gcr perf on: the event scripts above, measured while it is on)
+modWatch:SetScript("OnEvent", Wrap("Pins", modWatch:GetScript("OnEvent")))
+loader:SetScript("OnEvent", Wrap("Pins", loader:GetScript("OnEvent")))

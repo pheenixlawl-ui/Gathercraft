@@ -1,4 +1,5 @@
 local ADDON_NAME, ns = ...
+local Wrap = ns.PerfWrap or function(_, fn) return fn end -- (/gcr perf on, Perf.lua: measured only while it is on)
 local L = ns.L or setmetatable({}, { __index = function(_, k) return k end })
 
 ---------------------------------------------------------------------------
@@ -1075,12 +1076,12 @@ local function OnTooltipLines(lines)
     if prof then RememberRecipe(prof, req, product, reagents) end
 end
 if TooltipDataProcessor and TooltipDataProcessor.AddTooltipPostCall and Enum and Enum.TooltipDataType then
-    TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Item, function(tooltip, data)
+    TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Item, Wrap("Tooltip", function(tooltip, data)
         if not ns.db then return end
         local lines, complete = ReadableLines(data, "recipe tooltip")
         if not (lines and complete) then return end
         pcall(OnTooltipLines, lines) -- (a safety net only: the check above comes first)
-    end)
+    end))
 end
 
 local events = CreateFrame("Frame")

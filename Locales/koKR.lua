@@ -756,4 +756,9 @@ ns.Locales.koKR = {
     ["How far Find Herbs shows nodes (ore: assumed the same)"] = "약초 찾기가 채집물을 보여주는 거리 (광물: 같다고 가정)",
     ["Show the search range on the minimap during farm runs"] = "채집 경로 중 미니맵에 찾기 범위 표시",
     ["In search range - no yellow dot? Press Skip."] = "찾기 범위 안 – 노란 점이 없나요? 건너뛰기를 누르세요.",
+    -- /gcr perf on (0.2.3)
+    ["Gathercraft perf: measuring for one minute. /gcr perf off stops it early."] = "Gathercraft perf: 1분 동안 측정합니다. /gcr perf off로 먼저 멈출 수 있습니다.",
+    ["Gathercraft perf: already measuring, %d s to go."] = "Gathercraft perf: 이미 측정 중입니다. %d초 남았습니다.",
+    ["Press Ctrl+C to copy the perf result:"] = "Ctrl+C를 눌러 결과를 복사하세요:",
+    ["Gathercraft perf: not measuring. /gcr perf on starts a minute."] = "Gathercraft perf: 측정 중이 아닙니다. /gcr perf on으로 1분 동안 측정합니다.",
 }

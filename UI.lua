@@ -1,4 +1,6 @@
 local ADDON_NAME, ns = ...
+local Wrap = ns.PerfWrap or function(_, fn) return fn end -- (/gcr perf on, Perf.lua: measured only while it is on)
+local C_Timer = (C_Timer and ns.PerfTimers) and ns.PerfTimers("UI") or C_Timer -- (/gcr perf on: every timer of this file)
 local L = ns.L or setmetatable({}, { __index = function(_, k) return k end })
 
 ---------------------------------------------------------------------------
@@ -98,14 +100,14 @@ ns.RunSnapshot = function()
     return snap
 end
 
-table.insert(ns.gatherListeners, function(node, p)
+table.insert(ns.gatherListeners, Wrap("UI", function(node, p)
     local s = RunStats()
     if s then
         s.nodes = s.nodes + 1
         s.value = s.value + (p and p.value or 0)
         s.source = ns.BetterPriceSource(s.source, p and p.valueSource)
     end
-end)
+end))
 
 ---------------------------------------------------------------------------
 -- Farm panel
@@ -468,3 +470,6 @@ loader:SetScript("OnEvent", function()
         UpdateArrow()
     end)
 end)
+-- (/gcr perf on: the scripts above, measured while it is on)
+arrowFrame:SetScript("OnUpdate", Wrap("UI", arrowFrame:GetScript("OnUpdate")))
+loader:SetScript("OnEvent", Wrap("UI", loader:GetScript("OnEvent")))

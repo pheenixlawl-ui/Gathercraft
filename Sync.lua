@@ -1,4 +1,6 @@
 local ADDON_NAME, ns = ...
+local Wrap = ns.PerfWrap or function(_, fn) return fn end -- (/gcr perf on, Perf.lua: measured only while it is on)
+local C_Timer = (C_Timer and ns.PerfTimers) and ns.PerfTimers("Sync") or C_Timer -- (/gcr perf on: every timer of this file)
 local L = ns.L or setmetatable({}, { __index = function(_, k) return k end })
 
 ---------------------------------------------------------------------------
@@ -799,7 +801,7 @@ local function ExactGone(mapID, p)
 end
 
 -- Core.lua tells every change of the nodes (NotifyNodesChanged)
-table.insert(ns.nodeListeners, function(kind, mapID, node)
+table.insert(ns.nodeListeners, Wrap("Sync", function(kind, mapID, node)
     if kind == "add" and mapID and node then
         local zone = exact[mapID]
         if zone and node.x and node.y then
@@ -816,7 +818,7 @@ table.insert(ns.nodeListeners, function(kind, mapID, node)
     else
         ExactDrop()
     end
-end)
+end))
 
 -- What arrived and is not counted by Counted (0.2.2 d1, honest counters;
 -- Sync 2.0 analysis of 21.11.2026): the same player again for a spot or a
@@ -1479,3 +1481,5 @@ ns.SyncDisplayName = DisplayName
 ns.SyncCommand = Command
 ns.SyncSetAnnounce = SetAnnounce
 ns.SyncPerf = Perf
+-- (/gcr perf on: the event script above, measured while it is on)
+frame:SetScript("OnEvent", Wrap("Sync", frame:GetScript("OnEvent")))

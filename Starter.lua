@@ -1,4 +1,6 @@
 local ADDON_NAME, ns = ...
+local Wrap = ns.PerfWrap or function(_, fn) return fn end -- (/gcr perf on, Perf.lua: measured only while it is on)
+local C_Timer = (C_Timer and ns.PerfTimers) and ns.PerfTimers("Questie") or C_Timer -- (/gcr perf on: every timer of this file)
 local L = ns.L or setmetatable({}, { __index = function(_, k) return k end })
 
 ---------------------------------------------------------------------------
@@ -81,7 +83,7 @@ local function LocalizeNodeNames()
     if changed > 0 and ns.NotifyNodesChanged then ns.NotifyNodesChanged() end
 end
 ns.LocalizeNodeNames = LocalizeNodeNames
-table.insert(ns.languageListeners, LocalizeNodeNames)
+table.insert(ns.languageListeners, Wrap("Questie", LocalizeNodeNames))
 
 local function ImportQuestieZone(mapID, quiet, hold)
     local data = GathercraftQuestieData
@@ -308,10 +310,10 @@ loader:SetScript("OnEvent", function(_, event)
     C_Timer.After(2, ImportCurrentZone)
     -- Zones looked at on the world map are loaded too
     if WorldMapFrame and WorldMapFrame.OnMapChanged and hooksecurefunc then
-        hooksecurefunc(WorldMapFrame, "OnMapChanged", function(frame)
+        hooksecurefunc(WorldMapFrame, "OnMapChanged", Wrap("Questie", function(frame)
             local ok, mapID = pcall(frame.GetMapID, frame)
             if ok and mapID then ImportQuestieZone(mapID) end
-        end)
+        end))
     end
 end)
 
@@ -320,3 +322,6 @@ zoneWatch:RegisterEvent("ZONE_CHANGED_NEW_AREA")
 zoneWatch:SetScript("OnEvent", function()
     C_Timer.After(1, ImportCurrentZone)
 end)
+-- (/gcr perf on: the event scripts above, measured while it is on)
+loader:SetScript("OnEvent", Wrap("Questie", loader:GetScript("OnEvent")))
+zoneWatch:SetScript("OnEvent", Wrap("Questie", zoneWatch:GetScript("OnEvent")))

@@ -20,6 +20,8 @@
 -- of riding. Per hour is per hour from start to end, as the run summary shows
 -- it: a pause only makes a run slower, never better.
 local _, ns = ...
+local Wrap = ns.PerfWrap or function(_, fn) return fn end -- (/gcr perf on, Perf.lua: measured only while it is on)
+local C_Timer = (C_Timer and ns.PerfTimers) and ns.PerfTimers("RunHistory") or C_Timer -- (/gcr perf on: every timer of this file)
 
 local KEEP = 20          -- runs kept per zone; the oldest goes
 local MIN_ACTIVE = 600   -- seconds of riding before a run counts for a best run
@@ -45,14 +47,14 @@ local function Acc(run)
     return acc
 end
 
-table.insert(ns.gatherListeners, function(_, p)
+table.insert(ns.gatherListeners, Wrap("RunHistory", function(_, p)
     local run = ns.run
     if not run then return end
     local a = Acc(run)
     a.lastGather = GetTime()
     -- (Prices.lua, before this: items of the node without a price)
     if p and (p.valueMissing or 0) > 0 then a.unknown = a.unknown + 1 end
-end)
+end))
 
 -- where you are, if it can be read (a hidden position is never compared)
 local function Position()

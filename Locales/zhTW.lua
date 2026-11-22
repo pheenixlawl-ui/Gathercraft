@@ -756,4 +756,9 @@ ns.Locales.zhTW = {
     ["How far Find Herbs shows nodes (ore: assumed the same)"] = "尋找草藥顯示採集點的距離（礦物：假定相同）",
     ["Show the search range on the minimap during farm runs"] = "採集路線中在小地圖上顯示搜尋範圍",
     ["In search range - no yellow dot? Press Skip."] = "在搜尋範圍內——沒有黃點？請按跳過。",
+    -- /gcr perf on (0.2.3)
+    ["Gathercraft perf: measuring for one minute. /gcr perf off stops it early."] = "Gathercraft 效能：正在測量一分鐘。/gcr perf off 可提前停止。",
+    ["Gathercraft perf: already measuring, %d s to go."] = "Gathercraft 效能：已在測量，還剩 %d 秒。",
+    ["Press Ctrl+C to copy the perf result:"] = "按 Ctrl+C 複製結果：",
+    ["Gathercraft perf: not measuring. /gcr perf on starts a minute."] = "Gathercraft 效能：目前沒有測量。/gcr perf on 測量一分鐘。",
 }

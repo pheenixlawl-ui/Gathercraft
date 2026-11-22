@@ -756,4 +756,9 @@ ns.Locales.esES = {
     ["How far Find Herbs shows nodes (ore: assumed the same)"] = "Hasta dónde Buscar hierbas muestra nodos (minerales: se supone igual)",
     ["Show the search range on the minimap during farm runs"] = "Mostrar el alcance de búsqueda en el minimapa durante las rutas",
     ["In search range - no yellow dot? Press Skip."] = "En alcance de búsqueda: ¿sin punto amarillo? Pulsa Saltar.",
+    -- /gcr perf on (0.2.3)
+    ["Gathercraft perf: measuring for one minute. /gcr perf off stops it early."] = "Gathercraft perf: midiendo durante un minuto. /gcr perf off lo detiene antes.",
+    ["Gathercraft perf: already measuring, %d s to go."] = "Gathercraft perf: ya se está midiendo, faltan %d s.",
+    ["Press Ctrl+C to copy the perf result:"] = "Pulsa Ctrl+C para copiar el resultado:",
+    ["Gathercraft perf: not measuring. /gcr perf on starts a minute."] = "Gathercraft perf: no hay ninguna medición. /gcr perf on mide un minuto.",
 }

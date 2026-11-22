@@ -1,4 +1,6 @@
 local ADDON_NAME, ns = ...
+local Wrap = ns.PerfWrap or function(_, fn) return fn end -- (/gcr perf on, Perf.lua: measured only while it is on)
+local C_Timer = (C_Timer and ns.PerfTimers) and ns.PerfTimers("Route") or C_Timer -- (/gcr perf on: every timer of this file)
 local L = ns.L or setmetatable({}, { __index = function(_, k) return k end })
 
 ---------------------------------------------------------------------------
@@ -2477,7 +2479,7 @@ end
 -- the minimap zoom changes the gap around the pins: draw the line again
 local zoomWatch = CreateFrame("Frame")
 zoomWatch:RegisterEvent("MINIMAP_UPDATE_ZOOM")
-zoomWatch:SetScript("OnEvent", function() RedrawLine() end)
+zoomWatch:SetScript("OnEvent", Wrap("Route", function() RedrawLine() end))
 -- (0.2.2 W5) the world map opened: the line on it; closed: off it again
 if WorldMapFrame and WorldMapFrame.HookScript then
     WorldMapFrame:HookScript("OnShow", function() RedrawLine() end)
@@ -2486,4 +2488,4 @@ end
 ns.OnHarvested = OnHarvested
 ns.OnGatherUncertain = OnGatherUncertain
 ns.DistanceToTarget = DistanceToTarget
-table.insert(ns.nodeListeners, RequestPlan)
+table.insert(ns.nodeListeners, Wrap("Route", RequestPlan))

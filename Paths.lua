@@ -1,4 +1,6 @@
 local ADDON_NAME, ns = ...
+local Wrap = ns.PerfWrap or function(_, fn) return fn end -- (/gcr perf on, Perf.lua: measured only while it is on)
+local C_Timer = (C_Timer and ns.PerfTimers) and ns.PerfTimers("Paths") or C_Timer -- (/gcr perf on: every timer of this file)
 local L = ns.L or setmetatable({}, { __index = function(_, k) return k end })
 
 ---------------------------------------------------------------------------
@@ -461,3 +463,5 @@ ns.PathsSquare = function(mapID, x, y)
     if not w then return end
     return floor(x * w / TILE), floor(y * h / TILE)
 end
+-- (/gcr perf on: the event script above, measured while it is on)
+frame:SetScript("OnEvent", Wrap("Paths", frame:GetScript("OnEvent")))

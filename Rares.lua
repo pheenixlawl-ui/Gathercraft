@@ -1,4 +1,5 @@
 local ADDON_NAME, ns = ...
+local Wrap = ns.PerfWrap or function(_, fn) return fn end -- (/gcr perf on, Perf.lua: measured only while it is on)
 local L = ns.L or setmetatable({}, { __index = function(_, k) return k end })
 
 ---------------------------------------------------------------------------
@@ -86,3 +87,5 @@ ns.TestRareAlert = function()
         RaidNotice_AddMessage(RaidWarningFrame, "RARE: Test Rare (12)", { r = 1, g = 0.55, b = 0.1 })
     end
 end
+-- (/gcr perf on: the event script above, measured while it is on)
+events:SetScript("OnEvent", Wrap("Rares", events:GetScript("OnEvent")))

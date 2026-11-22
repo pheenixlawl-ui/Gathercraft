@@ -14,6 +14,7 @@
 -- On request (Options: "Show the search range on the minimap", off by
 -- default) a ring of dots around you on the minimap shows the range.
 local _, ns = ...
+local C_Timer = (C_Timer and ns.PerfTimers) and ns.PerfTimers("SearchRange") or C_Timer -- (/gcr perf on: every timer of this file)
 
 local DEFAULT, MIN, MAX = 150, 60, 250
 ns.SEARCH_LIMITS = { MIN, MAX, DEFAULT }

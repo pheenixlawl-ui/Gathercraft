@@ -1,4 +1,6 @@
 local ADDON_NAME, ns = ...
+local Wrap = ns.PerfWrap or function(_, fn) return fn end -- (/gcr perf on, Perf.lua: measured only while it is on)
+local C_Timer = (C_Timer and ns.PerfTimers) and ns.PerfTimers("Prices") or C_Timer -- (/gcr perf on: every timer of this file)
 local L = ns.L or setmetatable({}, { __index = function(_, k) return k end })
 
 ---------------------------------------------------------------------------
@@ -178,7 +180,7 @@ end
 ---------------------------------------------------------------------------
 local session = { value = 0, start = GetTime(), sources = {} }
 
-table.insert(ns.gatherListeners, function(node, p)
+table.insert(ns.gatherListeners, Wrap("Prices", function(node, p)
     local value, source, missing = 0, nil, 0
     for _, it in ipairs(p and p.items or {}) do
         local price, from = GetPrice(it.id)
@@ -194,7 +196,7 @@ table.insert(ns.gatherListeners, function(node, p)
     end
     session.value = session.value + value
     if source then session.sources[source] = true end
-end)
+end))
 
 -- Value of a list of loot { {id, qty}, ... } -> copper, best source
 local function LootValue(items)
@@ -747,14 +749,14 @@ local function CreateScanButton()
         GameTooltip:Show()
     end)
     scanButton:SetScript("OnLeave", function() GameTooltip:Hide() end)
-    scanButton:SetScript("OnUpdate", function(self, elapsed)
+    scanButton:SetScript("OnUpdate", Wrap("Prices", function(self, elapsed)
         self.t = (self.t or 0) + elapsed
         if self.t > 1 then
             self.t = 0
             UpdateButton()
             PlaceButton() -- other addons may add tabs later
         end
-    end)
+    end))
 end
 
 ---------------------------------------------------------------------------
@@ -1146,3 +1148,5 @@ ns.PriceHistory = PriceHistory
 ns.LootValue = LootValue
 ns.AddSessionValue = AddSessionValue
 ns.SessionValue = function() return session.value, session.start, SessionSource() end
+-- (/gcr perf on: the event script above, measured while it is on)
+ahEvents:SetScript("OnEvent", Wrap("Prices", ahEvents:GetScript("OnEvent")))

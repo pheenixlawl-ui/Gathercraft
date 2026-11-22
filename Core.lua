@@ -1,4 +1,5 @@
 local ADDON_NAME, ns = ...
+local Wrap = ns.PerfWrap or function(_, fn) return fn end -- (/gcr perf on, Perf.lua: measured only while it is on)
 local L = ns.L or setmetatable({}, { __index = function(_, k) return k end })
 
 -- Locales.lua missing (a /reload after an update that added files: only a
@@ -1505,6 +1506,7 @@ local function Help()
     print(L["  /gcr debug        - toggle debug output"])
     print("  /gcr test         - API check")
     print("  /gcr perf         - sync messages and handler time of the last minute, the addon's memory")
+    print("  /gcr perf on      - one minute: the time of each part of the addon, memory, map pins - a line to copy")
     print(L["  /gcr scan         - scan auction house prices (at the auction house)"])
     print(L["  /gcr ahtest       - price sources and auction house check"])
 end
@@ -1577,7 +1579,13 @@ SlashCmdList.GATHERCRAFT = function(msg)
     elseif cmd == "paths" then
         if ns.PathsCommand then ns.PathsCommand(rest) end
     elseif cmd == "perf" then
-        if ns.SyncPerf then ns.SyncPerf() end
+        -- (on / off: one minute per part of the addon, Perf.lua; alone: the sync line of before)
+        local what = rest:lower()
+        if (what == "on" or what == "off") and ns.PerfCommand then
+            ns.PerfCommand(what)
+        elseif ns.SyncPerf then
+            ns.SyncPerf()
+        end
     elseif cmd == "loadall" then
         if ns.LoadQuestieContinent then ns.LoadQuestieContinent() end
     elseif cmd == "rare" then
@@ -2302,3 +2310,5 @@ ns.FindNode = FindNode
 ns.KnownName = KnownName
 ns.SetWaypoint = SetWaypoint
 ns.ClearWaypoint = ClearWaypoint
+-- (/gcr perf on: the minimap watcher above - learning and our minimap tooltip -, measured while it is on)
+seenFrame:SetScript("OnUpdate", Wrap("Minimap", seenFrame:GetScript("OnUpdate")))
