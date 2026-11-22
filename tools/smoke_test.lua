@@ -5482,7 +5482,7 @@ step("Places: your faction cannot be read - only a trainer or vendor friendly to
     fire("ZONE_CHANGED_NEW_AREA")
     if not ok then error(err, 0) end
 end)
-step("Skill plan 2.0: texts in every language, the release 0.2.0 - its what's new stays, the TOC and the changelog are 0.2.1's (v0.2 A7)", function()
+step("Skill plan 2.0: texts in every language, the release 0.2.0 - its what's new stays, the TOC and the changelog are 0.2.2's (v0.2 A7)", function()
     -- 0.2 was built block by block under internal marks (b1 ... b3) and was
     -- published as one release: the TOC said 0.2.0, "What's new" has its
     -- entry and the changelog had its section with the date.
@@ -5490,8 +5490,8 @@ step("Skill plan 2.0: texts in every language, the release 0.2.0 - its what's ne
     -- 0.2.1: the TOC says 0.2.1; what follows checks the What's new of 0.2.0,
     -- which stays for players who skip a version. The changelog holds the
     -- current version only: the 0.2.0 section is in the history (tag v0.2.0).
-    -- 0.2.2 P1: the test build says 0.2.2-a1; the changelog is still 0.2.1's
-    assert(version == "0.2.2-a8", "TOC version: " .. tostring(version))
+    -- 0.2.2: the TOC says 0.2.2 and the changelog is 0.2.2's (0.2.1's is in the history, tag v0.2.1)
+    assert(version == "0.2.2", "TOC version: " .. tostring(version))
     version = "0.2.0"
     -- the two files of building block 2 load last: they read the data files only after login
     assert(toc:gsub("\r", ""):match("\nStarter%.lua\nSpawnCounts%.lua\nItemTooltip%.lua\n?$"), "the TOC does not end with Starter.lua, SpawnCounts.lua, ItemTooltip.lua")
@@ -5510,7 +5510,7 @@ step("Skill plan 2.0: texts in every language, the release 0.2.0 - its what's ne
         "Coming next is not the three points after 0.2.0")
     assert(not welcome:find("Shopping list on the map", 1, true), "Coming next still names what 0.2.0 ships")
     local heading = changelog:match("^(## v[^\r\n]*)")
-    assert(heading == "## v0.2.1 – 2026-11-21", "CHANGELOG heading: " .. tostring(heading))
+    assert(heading == "## v0.2.2 – 2026-11-23", "CHANGELOG heading: " .. tostring(heading))
     -- the release shows "what's new" at the first login after 0.1.23, with the text of 0.2.0
     local keep = { meta = C_AddOns.GetAddOnMetadata, last = ns.db.lastVersion, fresh = ns.freshInstall }
     C_AddOns.GetAddOnMetadata = function() return version end
@@ -16643,114 +16643,102 @@ step("Welcome, what's new and the run summary (v0.1.13)", function()
     ns.db.summaryOff = nil
     SendChatMessage = nil
 end)
-step("What's new: 0.2.1 after an update, in this language and all translations", function()
+step("What's new: 0.2.2 after an update, in this language and all translations", function()
     local version = toc:match("## Version: ([%w%.%-]+)")
-    -- 0.2.2 P1: the TOC says 0.2.2-a1; the window checked is 0.2.1's
-    assert(version == "0.2.2-a8", "TOC version: " .. tostring(version))
-    version = "0.2.1"
+    -- the release 0.2.2 (Sven, 22.11.2026): the TOC says 0.2.2
+    assert(version == "0.2.2", "TOC version: " .. tostring(version))
     assert(toc:match("## Interface: (%d+)") == "16001", "TOC interface changed")
     local f = assert(io.open(ROOT .. "/Welcome.lua"))
     local src = f:read("*a") f:close()
-    local key = src:match('%["0%.2%.1"%] = "([^"]+)"')
-    assert(key and key:find("Gathercraft windows such as the skill plan stay open over a loading screen", 1, true)
-        and key:find("the minimap tooltip sits below the game's", 1, true)
-        and key:find("The shipped spots of Riverglades, Mount Hyjal and Zephras Isle no longer leave your map after 21 days", 1, true)
-        and key:find("Quest objects are no longer recorded as herbs or ore", 1, true),
-        "no entry for 0.2.1 in Welcome.lua")
-    assert(not src:find('%["0%.2%.1%-'), "What's new has an entry for an internal build")
-    -- said as it is: what the code does, and no promise - a shipped spot
-    -- stays until you harvest it (not for ever), a quest object is told by
-    -- its loot, no spot is said to be parked
-    for _, word in ipairs({ "cheapest", "fastest", "guarantee", "always", "never", "exact", "%", "every node", "best", "correct", "forever", "for ever", "park" }) do
-        assert(not key:lower():find(word, 1, true), "what's new 0.2.1 says \"" .. word .. "\"")
+    local key = src:match('%["0%.2%.2"%] = "([^"]+)"')
+    assert(key and key:find("Lighter on the game while you farm", 1, true)
+        and key:find("the route line no longer piles up world map pins", 1, true)
+        and key:find("map and minimap pins are only updated where they show", 1, true)
+        and key:find("New in Options, Map & minimap: World map tooltip and Minimap tooltip", 1, true)
+        and key:find("only with Shift, or not at all on the minimap", 1, true),
+        "no entry for 0.2.2 in Welcome.lua")
+    assert(not src:find('%["0%.2%.2%-'), "What's new has an entry for an internal build")
+    -- said as it is: what changes, no promise - no frame rates, no "no lag"
+    for _, word in ipairs({ "cheapest", "fastest", "guarantee", "fps", "no lag", "lag-free", "smooth", "%", "every node", "best", "correct", "forever", "for ever", "park", "always" }) do
+        assert(not key:lower():find(word, 1, true), "what's new 0.2.2 says \"" .. word .. "\"")
     end
     -- no longer than the longest entry before (0.1.22, 404 characters; the
-    -- height of the window in this language is the step below)
-    assert(#key <= 404, "what's new 0.2.1 is long: " .. #key .. " characters")
+    -- height of the window in this language is a step of its own)
+    assert(#key <= 404, "what's new 0.2.2 is long: " .. #key .. " characters")
     -- the entries before stay for players who skip a version
-    assert(src:match('%["0%.1%.23"%] = "([^"]+)"') and src:match('%["0%.2%.0"%] = "([^"]+)"'), "the 0.1.23 or 0.2.0 entry is gone")
-    -- every translation names the skill plan as the addon shows it, the 21
-    -- days and the three zones - by the names of the English text: what the
-    -- other clients call Riverglades and Zephras Isle is not known to us
+    assert(src:match('%["0%.2%.0"%] = "([^"]+)"') and src:match('%["0%.2%.1"%] = "([^"]+)"'), "the 0.2.0 or 0.2.1 entry is gone")
+    -- every translation names the options page and the two rows as the addon shows them
     for _, code in ipairs({ "deDE", "esES", "frFR", "itIT", "koKR", "ptBR", "ruRU", "zhCN", "zhTW" }) do
         local loc = ns.Locales[code]
         local t = loc and loc[key]
         assert(type(t) == "string" and t ~= "" and t ~= key, "no translation in " .. code)
-        assert(loc["Skill plan"] and t:find(loc["Skill plan"], 1, true), code .. ": the skill plan is not named as the addon shows it")
-        assert(t:find("21", 1, true), code .. ": the 21 days are not named")
-        for _, zone in ipairs({ "Riverglades", "Mount Hyjal", "Zephras Isle" }) do
-            assert(t:find(zone, 1, true), ("%s: %s is not named"):format(code, zone))
+        for _, name in ipairs({ "Map & minimap", "World map tooltip", "Minimap tooltip" }) do
+            assert(loc[name] and t:find(loc[name], 1, true), ("%s: %s is not named as the addon shows it"):format(code, name))
         end
+        assert(t:find("Shift", 1, true) or t:find(loc["With Shift"]:gsub("^.-([^%s]+)$", "%1"), 1, true), code .. ": the Shift key is not named")
         assert(not t:find('"', 1, true) and not t:find("\\", 1, true) and not t:find("%", 1, true), code .. ": a sign that does not belong into the text")
     end
-    -- the name the text uses is the one of the addon
-    assert(ns.Locales.deDE["Skill plan"], "no text \"Skill plan\" in the addon")
-    -- README and CHANGELOG say it
+    -- README: unchanged (0.2.2 has no line of its own there)
     local rf = assert(io.open(ROOT .. "/README.md"))
     local readme = rf:read("*a") rf:close()
     assert(readme:find("Questing mode – gather along the way", 1, true) and readme:find("`/gcr quest`", 1, true), "README: no questing mode")
-    assert(readme:find("Open the auction house and Gathercraft reads every auction", 1, true) and readme:find("the scan starts by itself", 1, true),
-        "README: the scan is still said to need a click")
-    assert(not readme:find("One click on the Gathercraft tab at the auction house reads", 1, true), "README: the scan is still said to need a click")
-    assert(readme:find("rares & prices, fishing, general", 1, true), "README: the options page Fishing is not named")
-    -- (R1-N4) where the scan on opening is turned off
-    assert(readme:find('To turn that off: Options › Rares & prices › "Scan the auction house automatically when I open it".', 1, true),
-        "README: not said where the scan on opening is turned off")
-    -- (0.2.0) what is new stands in the list of what is live, a short line
-    -- each - and the rebuilt skill plan no longer under "Next up"
     local live = readme:match("Live now.-\n\n(.-)\n\n")
     assert(live, "README: no list \"Live now\"")
     for _, said in ipairs({ "- **Skill plan 2.0** – ", "- **Farm for plan** – ", "- **Item tooltips for herbs, ores and reagents** – ", "- **Nearest trainer and recipe vendor** – " }) do
-        local line = live:match("\n?(" .. said:gsub("%p", "%%%0") .. "[^\n]*)")
-        assert(line, "README, Live now: no line " .. said)
-        assert(#line <= 170, "README, Live now: a long line: " .. line)
+        assert(live:find(said, 1, true), "README, Live now: no line " .. said)
     end
-    local nextUp = readme:match("Next up.-\n\n(.-)\n\n")
-    assert(nextUp and not nextUp:find("Skill plan", 1, true), "README: the skill plan is still under \"Next up\"")
-    assert(not readme:lower():find("cheapest", 1, true), "README says \"cheapest\"")
+    -- the changelog: 0.2.2 only, with the date of the release
     local cf = assert(io.open(ROOT .. "/CHANGELOG.md"))
     local changelog = cf:read("*a") cf:close()
-    assert(changelog:find("^## v0%.2%.1") and not changelog:find("## v0.2.0", 1, true), "CHANGELOG: not 0.2.1 only")
-    -- the release (Sven, 21.11.2026): the heading carries the date
-    local heading = changelog:match("^(## v0%.2%.1[^\r\n]*)")
-    assert(heading == "## v0.2.1 – 2026-11-21", "CHANGELOG heading: " .. tostring(heading))
-    -- two groups, in this order: 0.2.1 adds nothing, it changes and mends
+    assert(changelog:find("^## v0%.2%.2") and not changelog:find("## v0.2.1", 1, true), "CHANGELOG: not 0.2.2 only")
+    local heading = changelog:match("^(## v0%.2%.2[^\r\n]*)")
+    assert(heading == "## v0.2.2 – 2026-11-23", "CHANGELOG heading: " .. tostring(heading))
+    -- three groups, in this order
     local added, changed, fixed = changelog:find("\n### Added\n", 1, true), changelog:find("\n### Changed\n", 1, true), changelog:find("\n### Fixed\n", 1, true)
-    assert(not added and changed and fixed and changed < fixed, "CHANGELOG: not the groups Changed, Fixed")
+    assert(added and changed and fixed and added < changed and changed < fixed, "CHANGELOG: not the groups Added, Changed, Fixed")
     for _, said in ipairs({
-        -- A1: the shipped spots stay - and what the 0.2.0 notes said is set right
-        "**Shipped spots stay on your map:**", "the herb and ore spots for Riverglades, Mount Hyjal and Zephras Isle no longer disappear after 21 days",
-        "The 0.2.0 notes said unconfirmed spots would leave", "that clock also ran in zones you had never visited", "the first would have gone on 11 December",
-        "Now they stay until you harvest them, including those 0.2.0 already added",
-        -- A2: the words the tooltip and the chat line show
-        "**\"Starter data\", not \"beta\":**", "\"Gathercraft starter data (not harvested by you yet)\" in their tooltip", "starts with \"Starter data\"",
-        -- A3 and B1: told from the loot, and what is recorded as before
-        "**Quest objects are not recorded as herbs or ore:**", "some quest objects in Riverglades show up in the herb and ore search",
-        "If an unknown object gives only quest items, Gathercraft no longer records or shares it",
-        "New herbs and veins are recorded as before, and so is any gather whose loot can't be fully read",
-        -- A4 and B2: once after the loading screen, and one you close stays closed
-        "**Windows stay open over a loading screen:**", "after a hearthstone, portal or instance, the game closed Gathercraft's windows",
-        "Now a window that was open comes back once after the loading screen; one you close stays closed",
-        -- A5: below the game's tooltip, also with quest lines
-        "**Minimap tooltip below the game's:**", "now sits below the game's tooltip instead of on top of it", "also when the game adds quest lines to it" }) do
+        -- P1 1 and 2: the two rows, by their names
+        "**Tooltip options for the map pins:**", "Options › Map & minimap", "\"World map tooltip\": Always or With Shift",
+        "the world map pins let the mouse through to what lies below them, such as quest symbols", "\"Minimap tooltip\": Always, With Shift or Never",
+        "Learning the nodes you point at works with every setting",
+        -- P1 3: off unless turned on, only on this computer
+        "**`/gcr visitlog`:**", "off unless you turn it on", "`/gcr visitlog on`", "only on this computer", "nothing is sent",
+        -- P1: the questing block
+        "**Questing options on Leveling:**", "Options › Leveling",
+        -- P2e, W1-W4: what changes, and an honest note
+        "**World map and minimap pins do less work:**", "looks only at the pins that are shown", "a login builds the world map pins once",
+        "adds only its own pins", "the 3-second pass looks only at the pins near you", "Very dense zones can still cost performance on the world map",
+        "turn off \"Show nodes on the world map\"",
+        -- d1 and d4
+        "**Sharing:**", "`/gcr sync` shows which Gathercraft versions", "what the game refused to send", "what was received but not counted",
+        "at most 4 reporter names instead of 8",
+        -- P1 5
+        "**Starter data refreshed:**", "Mount Hyjal, Riverglades and Zephras Isle", "every spot shipped before stays",
+        -- P2a and P2b
+        "**Professions on German and other clients:**", "by its skill line, not by its name",
+        "**A profession you gave up:**", "leaves the Crafting tab's profit list (\"Mine\")", "its recipes stay saved",
+        -- W5
+        "**The route line no longer piles up world map pins:**", "the addon's memory kept growing while you rode",
+        "drawn only while the world map is open" }) do
         assert(changelog:find(said, 1, true), "CHANGELOG: nothing about \"" .. said .. "\"")
     end
-    -- what the changelog must not promise
-    for _, said in ipairs({ "cheapest", "fastest", "FPS", "no lag", "always", "every profession without", "never need", "the best", "all nodes", "forever", "for ever" }) do
+    -- what the changelog must not promise: no frame rates (Codex), no "no lag"
+    for _, said in ipairs({ "cheapest", "fastest", "FPS", "fps", "frames per second", "no lag", "lag-free", "always", "the best", "all nodes", "forever", "for ever" }) do
         assert(not changelog:find(said, 1, true), "CHANGELOG says \"" .. said .. "\"")
     end
-    -- "Fixed" holds what was seen broken and seen mended in the game, and
-    -- that is one point: the minimap tooltip (Sven, 21.11.2026, twice, also
-    -- with quest lines). The windows over a loading screen were seen closing
-    -- (20.11.2026), not yet seen staying open: "Changed" (Sven, 21.11.2026)
+    -- "Fixed" holds what was seen broken and seen mended in the game: one
+    -- point, the route line (Sven, 22.11.2026: 99 -> 155 MB before; after it
+    -- 82 MB before and after 4 minutes of riding). The profession given up
+    -- was not tested live: "Changed" (Sven, 22.11.2026)
     local changedPart = changelog:sub(changed + 1, fixed)
-    assert(changedPart:find("**Windows stay open over a loading screen:**", 1, true), "CHANGELOG: the windows over a loading screen are not under Changed")
+    assert(changedPart:find("**A profession you gave up:**", 1, true), "CHANGELOG: the profession given up is not under Changed")
     local fixedPart = changelog:sub(fixed + 1)
     local points = 0
     for line in fixedPart:gmatch("[^\n]+") do if line:sub(1, 2) == "- " then points = points + 1 end end
-    assert(points == 1 and fixedPart:find("**Minimap tooltip below the game's:**", 1, true), "CHANGELOG, Fixed: " .. points .. " points")
+    assert(points == 1 and fixedPart:find("**The route line no longer piles up world map pins:**", 1, true), "CHANGELOG, Fixed: " .. points .. " points")
     -- the texts the changelog quotes are the ones the addon shows
-    for _, name in ipairs({ "Gathercraft starter data (not harvested by you yet)", "Starter data %s: %d nodes added, %d already known." }) do
+    for _, name in ipairs({ "Map & minimap", "World map tooltip", "Minimap tooltip", "Always", "With Shift", "Never", "Show nodes on the world map", "Leveling",
+        "Learning the nodes you point at works with every setting." }) do
         assert(ns.Locales.deDE[name], "the changelog quotes \"" .. name .. "\", which the addon does not show")
     end
     local function said(text)
@@ -16763,10 +16751,9 @@ step("What's new: 0.2.1 after an update, in this language and all translations",
         local text = ns.L[key]
         assert(LOCALE == "enUS" or text ~= key, "English text in " .. LOCALE)
         -- the login after the update shows it once, in this language
-        -- (since 0.1.19 in its own window, Q5)
         local win = _G.GathercraftWhatsNew
         if win then win:Hide() end
-        ns.db.lastVersion = "0.2.0"
+        ns.db.lastVersion = "0.2.1"
         ns.WelcomeOnLogin()
         win = _G.GathercraftWhatsNew
         assert(win and win:IsShown() and win.body:GetText() == text and win.title:GetText():find(version, 1, true),
@@ -16787,7 +16774,7 @@ end)
 step("What's new: a window with a box \"Coming next\", once per update, /gcr news (v0.1.19 Q5)", function()
     local L = ns.L
     local keep = { meta = C_AddOns.GetAddOnMetadata, last = ns.db.lastVersion, fresh = ns.freshInstall, height = methods.GetStringHeight }
-    local version = "0.2.1" -- the release: its text is the one that has to fit the window
+    local version = "0.2.2" -- the release: its text is the one that has to fit the window
     local ok, err = pcall(function()
         C_AddOns.GetAddOnMetadata = function() return version end
         ns.freshInstall = false
@@ -24179,7 +24166,7 @@ step("Farm for plan: every text in nine languages with the same placeholders, th
     -- The order's part 6; concept test 10 (long names in all 11 language
     -- codes). Since the release 0.2.0 the changelog and "What's new" name it.
     local toc = assert(io.open(ROOT .. "/Gathercraft.toc")):read("*a")
-    assert(toc:match("## Version: ([%w%.%-]+)") == "0.2.2-a8", "TOC version: " .. tostring(toc:match("## Version: ([%w%.%-]+)"))) -- (0.2.2 P1)
+    assert(toc:match("## Version: ([%w%.%-]+)") == "0.2.2", "TOC version: " .. tostring(toc:match("## Version: ([%w%.%-]+)"))) -- (0.2.2)
     local function Read(name) return assert(io.open(ROOT .. "/" .. name)):read("*a") end
     local farm = Read("PlanFarm.lua")
     -- ---- the texts: every L["..."] of PlanFarm.lua, the reasons it looks up, and the three in Route.lua and UI.lua
@@ -26499,27 +26486,25 @@ end)
 -- import, also in zones never visited (the first spots on 11 December), and
 -- it is gone (A1). It does not say starter spots are parked: the sync
 -- self-healing parks spots that came by sync only, never a starter spot.
-step("Starter data 0.2.1: the changelog sets right what 0.2.0 said about 21 days and says nothing of parking (0.2.1 A1)", function()
+step("Starter data 0.2.2: the changelog says where the new spots are, that every spot shipped before stays, no promise and nothing of parking (0.2.2)", function()
+    -- 0.2.2 P1 point 5: the starter data refreshed from the saved data of
+    -- 21.11.2026, 797 -> 897 rows, none lost (tools/starter_shipped.txt). What
+    -- 0.2.1 said about the 21 days is in the history (tag v0.2.1).
     local f = assert(io.open(ROOT .. "/CHANGELOG.md"))
     local changelog = f:read("*a") f:close()
     local changed = changelog:match("\n### Changed\n(.-)\n### ")
     assert(changed, "CHANGELOG: no Changed")
-    local point = changed:match("%- %*%*Shipped spots stay on your map:%*%*[^\n]*")
-    assert(point, "CHANGELOG, Changed: no point about the shipped spots")
-    for _, said in ipairs({ "Riverglades, Mount Hyjal and Zephras Isle", "herb and ore spots", "no longer disappear after 21 days",
-        "The 0.2.0 notes said unconfirmed spots would leave", "also ran in zones you had never visited", "the first would have gone on 11 December",
-        "Now they stay until you harvest them", "including those 0.2.0 already added" }) do
-        assert(point:find(said, 1, true), "CHANGELOG, shipped spots: nothing about \"" .. said .. "\"")
+    local point = changed:match("%- %*%*Starter data refreshed:%*%*[^\n]*")
+    assert(point, "CHANGELOG, Changed: no point about the starter data")
+    for _, said in ipairs({ "new herb and ore spots", "Mount Hyjal, Riverglades and Zephras Isle", "gathered and shared up to 21 November",
+        "every spot shipped before stays" }) do
+        assert(point:find(said, 1, true), "CHANGELOG, starter data: nothing about \"" .. said .. "\"")
     end
-    -- the day it names: 21 days after the first day 0.2.0 could add them
-    -- (its data are of 20 November 2026, the day of the release; the data of
-    -- 0.2.2 are newer, the sentence is about those of 0.2.0)
-    local y, m, d = ("forever-2026-11-20"):match("(%d%d%d%d)%-(%d%d)%-(%d%d)$")
-    local day = os.date("*t", os.time({ year = tonumber(y), month = tonumber(m), day = tonumber(d), hour = 12 }) + 21 * 86400)
-    assert(day.month == 12 and day.day == 11, ("21 days after %s-%s-%s is not 11 December: %d.%d."):format(y, m, d, day.day, day.month))
-    -- not parked: no word of it, nor of the self-healing
+    -- the data it speaks of: the version of the shipped file is of that day
+    assert(GathercraftStarterData and GathercraftStarterData.version == "forever-2026-11-21", "test setup: the starter data are not those of 21.11.2026")
+    -- no promise of completeness, not parked: no word of it, nor of the self-healing
     local low = changelog:lower()
-    for _, said in ipairs({ "park", "self-heal", "self heal", "selfheal" }) do
+    for _, said in ipairs({ "complete", "all spots", "every spot in", "park", "self-heal", "self heal", "selfheal" }) do
         assert(not low:find(said, 1, true), "CHANGELOG says \"" .. said .. "\"")
     end
 end)
@@ -26922,8 +26907,8 @@ end)
 -- 0.2.1-a1 or after an older version shows the window of 0.2.1, once.
 step("Version 0.2.1: the TOC says it, /gcr shows it, the What's new window of 0.2.1 once after 0.2.0, 0.2.1-a1 or 0.1.23 (0.2.1)", function()
     local version = toc:match("## Version: ([%w%.%-]+)")
-    -- 0.2.2 P1: the TOC says 0.2.2-a1 (own step); the window checked is 0.2.1's
-    assert(version == "0.2.2-a8", "TOC version: " .. tostring(version))
+    -- 0.2.2: the TOC says 0.2.2 (own step); the window checked is 0.2.1's
+    assert(version == "0.2.2", "TOC version: " .. tostring(version))
     version = "0.2.1"
     local function Read(name) local f = assert(io.open(ROOT .. "/" .. name)) local s = f:read("*a") f:close() return s end
     -- "What's new" has the entry of 0.2.1, none for the test build
@@ -26931,8 +26916,8 @@ step("Version 0.2.1: the TOC says it, /gcr shows it, the What's new window of 0.
     local entry = welcome:match('%["0%.2%.1"%] = "([^"]+)"')
     assert(entry, "Welcome.lua has no What's new entry for 0.2.1")
     assert(not welcome:find('["0.2.1-a1"]', 1, true), "Welcome.lua has a What's new entry for the test build")
-    -- the changelog has its section, with the date
-    assert(Read("CHANGELOG.md"):match("^(## v[^\r\n]*)") == "## v0.2.1 – 2026-11-21", "the changelog has no section for 0.2.1")
+    -- the changelog is the next release's: 0.2.1's section is in the history (tag v0.2.1)
+    assert(Read("CHANGELOG.md"):match("^(## v[^\r\n]*)") == "## v0.2.2 – 2026-11-23", "the changelog is not 0.2.2's")
     -- /gcr: the main window shows the TOC version ("v" and it)
     assert(Read("Main.lua"):find('version:SetText(v and ("v" .. v) or "")', 1, true), "the main window does not show the TOC version")
     local keep = { meta = C_AddOns.GetAddOnMetadata, last = ns.db.lastVersion, fresh = ns.freshInstall }
@@ -28268,35 +28253,42 @@ step("Visit log report: after a harvest against after an empty look within each 
         assert(x.verdict == x.want, ("self-test %s seed %d: %s, want %s"):format(x.world, x.seed, x.verdict, x.want))
     end
 end)
--- 0.2.2 P1 (Fahrplan ab 0.2.2): a test build under its own mark, like
--- 0.2.1-a1 before it - 0.2.2-a1 for part 1a, 0.2.2-a2 for part 1b, 0.2.2-a3 for P2,
--- 0.2.2-a4 for its R1 fixes, 0.2.2-a5 for its R2 fix, 0.2.2-a6 for the route line's
--- world map dots (W5), 0.2.2-a7 for W1-W3, 0.2.2-a8 for W4. No What's new window for it: "0.2.2", its changelog
--- and its What's new come with the release commit.
-step("Version 0.2.2-a8: the TOC says it, /gcr shows it, no What's new window after 0.2.2-a7, 0.2.2-a6, 0.2.2-a5, 0.2.2-a4, 0.2.2-a3, 0.2.2-a2, 0.2.2-a1, 0.2.1, 0.2.1-a1, 0.2.0 or 0.1.23 (0.2.2 W4)", function()
+-- 0.2.2 P1 (Fahrplan ab 0.2.2): the test builds had marks of their own -
+-- 0.2.2-a1 for part 1a, 0.2.2-a2 for part 1b, 0.2.2-a3 for P2, 0.2.2-a4 for its R1
+-- fixes, 0.2.2-a5 for its R2 fix, 0.2.2-a6 for the route line's world map dots
+-- (W5), 0.2.2-a7 for W1-W3, 0.2.2-a8 for W4 - and no What's new window. The
+-- release (Sven, 22.11.2026) says 0.2.2, has its What's new and the changelog
+-- with the date.
+step("Version 0.2.2: the TOC says it, /gcr shows it, the What's new window of 0.2.2 once after 0.2.2-a8, 0.2.2-a7, 0.2.2-a6, 0.2.2-a5, 0.2.2-a4, 0.2.2-a3, 0.2.2-a2, 0.2.2-a1, 0.2.1, 0.2.1-a1, 0.2.0 or 0.1.23 (0.2.2)", function()
     local version = toc:match("## Version: ([%w%.%-]+)")
-    assert(version == "0.2.2-a8", "TOC version: " .. tostring(version))
+    assert(version == "0.2.2", "TOC version: " .. tostring(version))
     local function Read(name) local f = assert(io.open(ROOT .. "/" .. name)) local s = f:read("*a") f:close() return s end
-    -- "What's new" has no entry for it, and none for 0.2.2 yet: the build is not a release
+    -- "What's new" has the entry of 0.2.2, none for a test build
     local welcome = Read("Welcome.lua")
-    assert(not welcome:find('["0.2.2-a1"]', 1, true) and not welcome:find('["0.2.2-a2"]', 1, true) and not welcome:find('["0.2.2-a3"]', 1, true) and not welcome:find('["0.2.2-a4"]', 1, true) and not welcome:find('["0.2.2-a5"]', 1, true) and not welcome:find('["0.2.2-a6"]', 1, true) and not welcome:find('["0.2.2-a7"]', 1, true) and not welcome:find('["0.2.2-a8"]', 1, true) and not welcome:find('["0.2.2"]', 1, true), "Welcome.lua has a What's new entry for 0.2.2")
-    -- the changelog is still 0.2.1's
-    local changelog = Read("CHANGELOG.md")
-    assert(changelog:match("^(## v[^\r\n]*)") == "## v0.2.1 – 2026-11-21" and not changelog:find("0.2.2", 1, true), "the changelog has a 0.2.2 section")
+    local entry = welcome:match('%["0%.2%.2"%] = "([^"]+)"')
+    assert(entry, "Welcome.lua has no What's new entry for 0.2.2")
+    for _, mark in ipairs({ "0.2.2-a8", "0.2.2-a7", "0.2.2-a6", "0.2.2-a5", "0.2.2-a4", "0.2.2-a3", "0.2.2-a2", "0.2.2-a1" }) do
+        assert(not welcome:find('["' .. mark .. '"]', 1, true), "Welcome.lua has a What's new entry for the test build " .. mark)
+    end
+    -- the changelog has its section, with the date
+    assert(Read("CHANGELOG.md"):match("^(## v[^\r\n]*)") == "## v0.2.2 – 2026-11-23", "the changelog has no section for 0.2.2")
     -- /gcr: the main window shows the TOC version ("v" and it)
     assert(Read("Main.lua"):find('version:SetText(v and ("v" .. v) or "")', 1, true), "the main window does not show the TOC version")
     local keep = { meta = C_AddOns.GetAddOnMetadata, last = ns.db.lastVersion, fresh = ns.freshInstall }
     local ok, err = pcall(function()
         C_AddOns.GetAddOnMetadata = function(_, field) if field == "Version" then return version end end
         ns.freshInstall = false
-        for _, before in ipairs({ "0.2.2-a7", "0.2.2-a6", "0.2.2-a5", "0.2.2-a4", "0.2.2-a3", "0.2.2-a2", "0.2.2-a1", "0.2.1", "0.2.1-a1", "0.2.0", "0.1.23" }) do
+        for _, before in ipairs({ "0.2.2-a8", "0.2.2-a7", "0.2.2-a6", "0.2.2-a5", "0.2.2-a4", "0.2.2-a3", "0.2.2-a2", "0.2.2-a1", "0.2.1", "0.2.1-a1", "0.2.0", "0.1.23" }) do
             local win = _G.GathercraftWhatsNew
             if win then win:Hide() end
             ns.db.lastVersion = before
             ns.WelcomeOnLogin()
             win = _G.GathercraftWhatsNew
-            assert(not (win and win:IsShown()), "a What's new window after " .. before)
-            assert(ns.db.lastVersion == "0.2.2-a8", "after " .. before .. " not remembered: " .. tostring(ns.db.lastVersion))
+            assert(win and win:IsShown() and win.body:GetText() == ns.L[entry], "no What's new window of 0.2.2 after " .. before)
+            assert(ns.db.lastVersion == "0.2.2", "after " .. before .. " not remembered: " .. tostring(ns.db.lastVersion))
+            win:Hide()
+            ns.WelcomeOnLogin()
+            assert(not win:IsShown(), "the What's new window again at the next login after " .. before)
         end
     end)
     local win = _G.GathercraftWhatsNew
