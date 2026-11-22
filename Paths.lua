@@ -39,7 +39,6 @@ local MAX_ZONE = 8000     -- ... and in one zone
 local PRUNE_SHARE = 0.1   -- at a limit this share goes, the longest unused first
 local COUNT_MAX = 255     -- counts stop here (8 bits)
 local COST_MAX = 1023     -- cost in hundredths stops here (10 bits: 10.23)
-local MIN_WAY = 0.5       -- a crossing counts when you made at least this share of the straight line yourself
 local FALL_SECONDS = 1.0  -- in the air this long without a break: a fall (a jump takes about 0.8 s)
 local GAP_MAX = 2         -- seconds between two looks: longer was a hitch or a loading screen
 local DAY0 = 20454        -- the day 2026-01-01, counted from 1970: days are kept from here (14 bits)
@@ -331,7 +330,11 @@ local function Look()
         --     either; the next ride over it is.)
         --   - standing still changes nothing: the way made so far stays;
         --   - the square you arrive in starts from nothing either way.
-        if speed > 0 and here.way >= line * MIN_WAY then
+        -- (0.2.3 S0, Sven 22.11.2026) Any way of your own will do: a square
+        -- cut at its corner is a piece too (its cost is then 1.00). Before,
+        -- half the straight line had to be made in the square - the gaps in
+        -- the net came mostly from that.
+        if speed > 0 then
             Record(p, mapID, here.tx, here.ty, dx, dy, here.way / line, here.fell, here.swam)
         end
     end

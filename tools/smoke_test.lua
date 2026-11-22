@@ -13689,7 +13689,8 @@ step("Paths: nothing is learned where you are carried, dead, in an instance, tel
         W.Step(40 * 25, 0)
         assert(W.Total() == before, "a teleport made a piece")
         W.Go(1, 0, 60)
-        assert(W.Total() == before + 2 and W.Piece(141, row, 1, 0) == 1, "after a teleport nothing is learned at the new place")
+        -- (0.2.3 S0: the first crossing after it - 7 yards of your own - is a piece too, a corner cut counts)
+        assert(W.Total() == before + 3 and W.Piece(140, row, 1, 0) == 1 and W.Piece(141, row, 1, 0) == 1, "after a teleport nothing is learned at the new place")
         -- two squares in one look (a hitch): no piece either, not a made-up one
         row = row + 2
         W.Start(100, row)
@@ -14214,19 +14215,34 @@ step("Paths: a crossing you are carried over is no piece, however far you went y
         assert(count == 1 and cost <= 1.05, ("the square after a carried crossing: count %s, cost %s (the way before it was counted in)"):format(tostring(count), tostring(cost)))
 
         -- carried over several squares, walking a little in between: no piece of a carried crossing
+        -- (0.2.3 S0: a step of your own on the deck that goes across an edge is a piece since a
+        -- corner cut counts - which steps those are, the test notes as it goes; none of the
+        -- crossings you were carried over is a piece)
         W.Start(100, 54)
         local before = W.Total()
+        local own, carried = {}, {}
+        local function Square() return (ns.PathsSquare(1412, player.x, player.y)) end
         for _ = 1, 6 do
-            W.speed = 7
-            W.Step(3.5, 0)  -- a few steps on the deck
-            W.speed = 0
-            W.Step(12, 0)   -- the boat moves on
-            W.Step(12, 0)
+            for _, s in ipairs({ { 7, 3.5 }, { 0, 12 }, { 0, 12 } }) do -- a few steps on the deck, then the boat moves on
+                W.speed = s[1]
+                local from = Square()
+                W.Step(s[2], 0)
+                if Square() ~= from then
+                    local list = s[1] > 0 and own or carried
+                    list[#list + 1] = from
+                end
+            end
         end
         local x = select(1, ns.PathsSquare(1412, player.x, player.y))
-        assert(x >= 106, "test setup: carried six squares on, at " .. tostring(x))
+        assert(x >= 106 and #carried >= 5, ("test setup: carried six squares on, at %s, %d carried crossings"):format(tostring(x), #carried))
         local made = W.Total() - before
-        assert(made == 0, "carried over six squares with a few steps of your own: " .. made .. " pieces")
+        for _, tx in ipairs(carried) do
+            assert(W.Piece(tx, 54, 1, 0) == nil, "carried from square " .. tx .. " into the next: a piece was kept")
+        end
+        for _, tx in ipairs(own) do
+            assert(W.Piece(tx, 54, 1, 0) == 1, "a step of your own from square " .. tx .. " into the next: no piece")
+        end
+        assert(made == #own, ("carried over six squares with a few steps of your own: %d pieces, %d steps of your own across an edge"):format(made, #own))
 
         -- standing still at the edge and then going on yourself is a piece as before
         W.Start(100, 58)
@@ -14417,30 +14433,129 @@ step("Paths: after more than 2 seconds without a look no piece is made, also int
         assert(Ride(2, 2) == 1, "exactly 2 seconds between two looks is still a piece")
         assert(Ride(3, 2.5) == nil, "2.5 seconds without a look, then the next square: a piece was made")
         assert(Ride(4, 30) == nil, "30 seconds without a look, then the next square: a piece was made")
-        -- ... and after the gap everything starts anew: the way made before it is not counted in
+        -- ... and after the gap everything starts anew: the way made before it is not counted in.
+        -- (0.2.3 S0: the crossing after the gap is a piece now - 10 yards of your own - and its
+        -- cost is that of those 10 yards alone, 1.00; with the 20 yards before the gap it would be 1.20)
         local y = 5 * 25 + 12.5
         clock = clock + 10
-        W.speed = 10
-        Look(302, y) Look(307, y) Look(312, y) -- 10 yards made in square 12: not enough for a piece
+        W.speed = 20
+        Look(302, y) Look(307, y) Look(312, y) Look(317, y) -- 20 yards made in square 12 (a detour)
         Look(318, y, 5)                         -- a gap, still in square 12
         Look(322, y)                            -- (seen again: a new start)
-        Look(327, y)                            -- across with 5 yards made since the gap
-        assert(Piece(12, 5) == nil, "the way made before a gap was counted in after it")
+        Look(327, y)                            -- across with 10 yards made since the gap
+        local n5, cost5 = ns.PathsPiece(1412, 12, 5, 1, 0)
+        assert(n5 == 1 and cost5 <= 1.05, ("the way made before a gap was counted in after it: count %s, cost %s"):format(tostring(n5), tostring(cost5)))
         -- (without the gap the same looks are a piece: 15 yards made)
+        W.speed = 10
         clock = clock + 10
         y = 7 * 25 + 12.5
         Look(302, y) Look(307, y) Look(312, y) Look(318, y) Look(322, y) Look(327, y)
         assert(Piece(12, 7) == 1, "test setup: the same looks without a gap are a piece")
         W.speed = 25
         -- a clock that goes backwards makes nothing either. (A tenth of a
-        -- second only, and after 25 yards made: going back takes way off
-        -- again, and with too little left the rule for the way made alone
-        -- already makes no piece - 2.5 yards off 25 leave 22.5, enough.)
+        -- second only, after 25 yards made: a look with a clock that went
+        -- back is no look - whatever was made before it.)
         clock = clock + 10
         y = 6 * 25 + 12.5
         Look(302, y) Look(308, y) Look(315, y) Look(322, y) -- (the first look after the pause is the start, the second the start in the square)
         Look(327, y, -0.1)
         assert(Piece(12, 6) == nil, "the clock went back and a piece was made")
+    end)
+    GetTime = keepClock
+    W.Done()
+    if not ok then error(err, 0) end
+end)
+step("Paths: a crossing at the corner of a square is a piece too, as long as you moved yourself - standing, being carried, a teleport, a gap, a taxi or an instance still make none (0.2.3 S0)", function()
+    -- Sven, 22.11.2026 (the analysis of the path net, stage S0): most gaps in
+    -- the net came from the rule that a crossing counted only after half the
+    -- straight line made yourself in the square before - a square cut at its
+    -- corner made no piece. Now every crossing made on your own feet is one
+    -- (its cost is then 1.00 - no detour). Everything else stays: the format,
+    -- the limits, and no piece where you did not move yourself.
+    local W = PathsWorld()
+    local keepClock = GetTime
+    local ok, err = pcall(function()
+        W.speed = 7
+        -- somewhere far away first: the next look near a corner is a new start there
+        local function Away() W.Start(10, 10) end
+        -- (1) 2 yards inside square (100, 90) at its top edge, then 3.5 yards north: across into (100, 89)
+        local function Cut(row)
+            Away()
+            W.At(100 * 25 + 10, row * 25 + 2)
+            advance(0.5)
+            W.Step(0, -3.5)
+        end
+        Cut(90)
+        local count, cost, falls, swims, day = W.Piece(100, 90, 0, -1)
+        assert(count == 1 and cost == 1 and falls == 0 and swims == 0 and day == math.floor(time() / 86400) - 20454,
+            ("a square cut at its edge after 3.5 yards: count %s, cost %s"):format(tostring(count), tostring(cost)))
+        -- ... and at a corner, diagonally: 2 yards inside, then into the square across the corner
+        Away()
+        W.At(100 * 25 + 24, 92 * 25 + 24)
+        advance(0.5)
+        W.Step(2, 2)
+        count, cost = W.Piece(100, 92, 1, 1)
+        assert(count == 1 and cost == 1, ("a square cut at its corner: count %s, cost %s"):format(tostring(count), tostring(cost)))
+        -- the same cut again: counted twice, as every piece
+        Cut(90)
+        assert(W.Piece(100, 90, 0, -1) == 2, "the same corner cut twice is not counted twice")
+
+        -- (2) the same cut where you did not move yourself: no piece
+        local function None(row, what, before, after)
+            local total = W.Total()
+            if before then before() end
+            Cut(row)
+            if after then after() end
+            assert(W.Piece(100, row, 0, -1) == nil and W.Total() == total, what .. ": a corner cut made a piece")
+        end
+        None(94, "carried (no speed of your own)", function() W.speed = 0 end, function() W.speed = 7 end)
+        local keep = { taxi = UnitOnTaxi, dead = UnitIsDeadOrGhost, vehicle = UnitInVehicle, fly = IsFlying, inst = IsInInstance }
+        None(96, "on a taxi", function() UnitOnTaxi = function() return true end end, function() UnitOnTaxi = keep.taxi end)
+        None(98, "dead", function() UnitIsDeadOrGhost = function() return true end end, function() UnitIsDeadOrGhost = keep.dead end)
+        None(100, "in a vehicle", function() UnitInVehicle = function() return true end end, function() UnitInVehicle = keep.vehicle end)
+        None(102, "flying", function() IsFlying = function() return true end end, function() IsFlying = keep.fly end)
+        None(104, "in an instance", function() IsInInstance = function() return true, "party" end end, function() IsInInstance = keep.inst end)
+        -- a teleport: from 2 yards inside straight over a square into the one after it
+        Away()
+        local total = W.Total()
+        W.At(100 * 25 + 10, 106 * 25 + 2)
+        advance(0.5)
+        W.Step(0, -30)
+        assert(select(2, ns.PathsSquare(1412, player.x, player.y)) == 104, "test setup: two squares on in one look")
+        assert(W.Total() == total, "a jump over a square made a piece")
+        -- a gap of more than 2 seconds between two looks: the corner cut after it is no piece
+        local clock = GetTime()
+        GetTime = function() return clock end
+        local function Look(x, y, after)
+            W.At(x, y)
+            clock = clock + (after or 0.5)
+            ns.PathsLook()
+        end
+        clock = clock + 10
+        total = W.Total()
+        Look(100 * 25 + 10, 108 * 25 + 2)
+        Look(100 * 25 + 10, 108 * 25 - 1.5, 2.5)
+        assert(W.Piece(100, 108, 0, -1) == nil and W.Total() == total, "a corner cut after 2.5 seconds without a look made a piece")
+        Look(100 * 25 + 10, 110 * 25 + 2)
+        Look(100 * 25 + 10, 110 * 25 - 1.5, 2)
+        assert(W.Piece(100, 110, 0, -1) == 1, "test setup: exactly 2 seconds is still a look")
+        GetTime = keepClock
+
+        -- (3) the format and the limits stay; what was kept before stays as it was
+        local f = assert(io.open(ROOT .. "/Paths.lua"))
+        local src = f:read("*a")
+        f:close()
+        assert(src:find("\nlocal MAX_TOTAL = 30000 ", 1, true) and src:find("\nlocal MAX_ZONE = 8000 ", 1, true) and src:find("\nlocal TILE = 25 ", 1, true),
+            "the limits or the size of a square changed")
+        local keepPieces = {}
+        for key, value in pairs(ns.db.paths.zones[1412].e) do keepPieces[key] = value end
+        W.speed = 7
+        Cut(112)
+        local changed, added = 0, 0
+        for key, value in pairs(ns.db.paths.zones[1412].e) do
+            if keepPieces[key] == nil then added = added + 1 elseif keepPieces[key] ~= value then changed = changed + 1 end
+        end
+        assert(changed == 0 and added == 1, ("a new corner cut changed %d pieces kept before, added %d"):format(changed, added))
     end)
     GetTime = keepClock
     W.Done()
