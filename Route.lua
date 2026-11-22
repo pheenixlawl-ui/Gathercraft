@@ -1050,25 +1050,46 @@ local function MiniLineShown() return not ns.db.routeLineMiniHidden end
 
 -- The minimap line stops a little before each pin, so no node is ever
 -- covered: gap = half the pin plus a few pixels, in yards at the zoom now
+--   (0.2.3 lauf-last B1) Asked 10 times a second while you ride (the head):
+--   the pins near you go into one list kept for it, its entries used again,
+--   and the test is one function - no tables, no function made per call.
+--   What it says is the same as before. The list holds until the next call:
+--   each caller uses the test right away (DrawHead, DrawLine).
 local MINI_GAP_PX = 3
+local near, nearN = {}, 0 -- { wx, wy, r * r } of the pins near you, the first nearN in use
+local nearX, nearY, nearReach2, nearYPP
+local function NoteSpot(wx, wy, size)
+    local dx, dy = wx - nearX, wy - nearY
+    if dx * dx + dy * dy <= nearReach2 then
+        local r = (size / 2 + MINI_GAP_PX) * nearYPP
+        nearN = nearN + 1
+        local s = near[nearN]
+        if not s then
+            s = {}
+            near[nearN] = s
+        end
+        s[1], s[2], s[3] = wx, wy, r * r
+    end
+end
+local function MiniClear(x, y)
+    for i = 1, nearN do
+        local s = near[i]
+        local dx, dy = x - s[1], y - s[2]
+        if dx * dx + dy * dy < s[3] then return false end
+    end
+    return true
+end
 local function MiniGapTest(px, py)
     local ypp = ns.MinimapYardsPerPixel and ns.MinimapYardsPerPixel()
     if not (ypp and ns.MinimapPinSpots) then return nil end
-    local near, reach = {}, MINI_YARDS + 50
-    for _, s in ipairs(ns.MinimapPinSpots()) do
-        local dx, dy = s.wx - px, s.wy - py
-        if dx * dx + dy * dy <= reach * reach then
-            local r = (s.px / 2 + MINI_GAP_PX) * ypp
-            near[#near + 1] = { s.wx, s.wy, r * r }
-        end
+    local reach = MINI_YARDS + 50
+    nearX, nearY, nearReach2, nearYPP, nearN = px, py, reach * reach, ypp, 0
+    if ns.EachMinimapPinSpot then
+        ns.EachMinimapPinSpot(NoteSpot)
+    else
+        for _, s in ipairs(ns.MinimapPinSpots()) do NoteSpot(s.wx, s.wy, s.px) end
     end
-    return function(x, y)
-        for _, s in ipairs(near) do
-            local dx, dy = x - s[1], y - s[2]
-            if dx * dx + dy * dy < s[3] then return false end
-        end
-        return true
-    end
+    return MiniClear
 end
 
 local ClearHead -- below

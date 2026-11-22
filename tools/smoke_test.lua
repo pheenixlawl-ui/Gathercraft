@@ -15340,6 +15340,151 @@ step("/gcr perf on: the garbage of each part too, in KB/s - its own calls withou
     ns.Print, StaticPopup_Show, StaticPopupDialogs = saved.print, saved.popup, saved.dialogs
     if not ok then error(err, 0) end
 end)
+step("Route line: its head makes no garbage for the gaps at the minimap pins - drawn again 10 times a second while you ride; the gaps as before, a moved pin's spot follows it (0.2.3 lauf-last B1)", function()
+    -- Order 0.2.3-lauf-last, part B1 (22.11.2026): riding, the head of the
+    -- route line (you -> the next node) is drawn again ten times a second.
+    -- Each time it listed every minimap pin of the zone anew, a table for
+    -- each, then the ones near you again, a table for each, and made a
+    -- function for the test: in The Barrens about 640 KB of garbage a second
+    -- (mock, part A, Sven's data: 1,775 minimap pins). Now the pins near you
+    -- go into one list kept for it and the test is one function; a pin's
+    -- world spot is kept with the place it was worked out from.
+    local P = libs["HereBeDragons-Pins-2.0"]
+    local HBD = LibStub("HereBeDragons-2.0")
+    local saved = { map = player.map, x = player.x, y = player.y, zoom = Minimap.GetZoom, width = Minimap.GetWidth, hidden = ns.db.routeLineHidden,
+        mini = ns.db.routeLineMiniHidden, addM = P.AddMinimapIconWorld, remM = P.RemoveMinimapIcon, addW = P.AddWorldMapIconWorld,
+        each = ns.EachMinimapPinSpot, spots = ns.MinimapPinSpots, color = methods.SetVertexColor, shown = WorldMapFrame:IsShown() }
+    local ok, err = pcall(function()
+        player.map, player.x, player.y = 1412, 0.45, 0.72
+        ns.db.routeLineHidden, ns.db.routeLineMiniHidden = nil, nil
+        Minimap.GetZoom, Minimap.GetWidth = function() return 0 end, function() return 140 end
+        if WorldMapFrame:IsShown() then WorldMapFrame:Hide() end
+        ns.StartRun("herb") advance(2)
+        local tp = ns.run and ns.run.targetPoint
+        assert(tp, "test setup: no target")
+        -- 1. the head: 300 pins along the way and around you (a dense zone), drawn again 40 times
+        local px0, py0 = HBD:GetPlayerWorldPosition()
+        local xs, ys = {}, {}
+        for k = 1, 300 do
+            local t = k / 300
+            xs[k] = px0 + (tp.wx - px0) * t * 0.9 + ((k % 3) - 1) * 4
+            ys[k] = py0 + (tp.wy - py0) * t * 0.9 + ((k % 5) - 2) * 4
+        end
+        ns.EachMinimapPinSpot = function(fill) for k = 1, 300 do fill(xs[k], ys[k], 12) end end
+        -- the list as Pins.lua makes it: a new one each time
+        ns.MinimapPinSpots = function()
+            local list = {}
+            for k = 1, 300 do list[k] = { wx = xs[k], wy = ys[k], px = 12 } end
+            return list
+        end
+        -- the head's ticker (Route.lua, every 0.1 s), looked for under the /gcr perf wrapper
+        local head
+        for _, t in ipairs(timers) do
+            local fn = t.fn
+            for k = 1, 8 do
+                local name, v = debug.getupvalue(fn, k)
+                if not name then break end
+                if name == "fn" and type(v) == "function" then fn = v break end
+            end
+            local info = debug.getinfo(fn, "S")
+            if t.every == 0.1 and not t.cancelled and info.short_src:find("Route.lua", 1, true) then head = t.fn end
+        end
+        assert(head, "test setup: no ticker of the head")
+        -- the library and the textures only count here (the mock's colour makes a table; the game's does not)
+        local adds, gapped = 0, 0
+        P.AddMinimapIconWorld = function() adds = adds + 1 end
+        P.RemoveMinimapIcon = function() gapped = gapped + 1 end
+        P.AddWorldMapIconWorld = function() end
+        methods.SetVertexColor = function() end
+        -- towards a target 300 yd away (in the target's direction), 2 yd a tick (the head is drawn again
+        -- from 1.5 yd on; the mock's zone is 5000 x 3333 yd)
+        local dist = math.sqrt((tp.wx - px0) ^ 2 + (tp.wy - py0) ^ 2)
+        local ux, uy = (tp.wx - px0) / dist, (tp.wy - py0) / dist
+        ns.run.targetPoint = { node = tp.node, mapID = tp.mapID, wx = px0 + ux * 300, wy = py0 + uy * 300 }
+        local function Ride(n)
+            for _ = 1, n do
+                player.x, player.y = player.x + ux * 2 / 5000, player.y + uy * 2 / 3333
+                head()
+            end
+        end
+        -- (counted without LuaJIT's compiler, as in the game's Lua: its traces are garbage of their own)
+        if jit then jit.off() end
+        Ride(5)
+        collectgarbage("collect") collectgarbage("stop")
+        local kb0 = collectgarbage("count")
+        Ride(40)
+        local kb = collectgarbage("count") - kb0
+        collectgarbage("restart")
+        if jit then jit.on() end
+        assert(adds > 0 and gapped > 0, ("test setup: %d dots drawn, %d left out at a pin"):format(adds, gapped))
+        assert(kb / 40 < 0.02, ("the head made %.3f KB of garbage a time (300 minimap pins near you)"):format(kb / 40))
+        -- 2. the gaps as before: no dot of the head where a pin is. The first pin right on the way,
+        -- 40 yd ahead; the others to the side of it or further on (each pin counts, the first too)
+        local px1, py1 = HBD:GetPlayerWorldPosition()
+        xs[1], ys[1] = px1 + ux * 40, py1 + uy * 40
+        for k = 2, 300 do
+            xs[k] = px1 + ux * (90 + k) - uy * ((k % 2) * 2 - 1) * 60
+            ys[k] = py1 + uy * (90 + k) + ux * ((k % 2) * 2 - 1) * 60
+        end
+        local ypp = ns.MinimapYardsPerPixel()
+        local close, drawn = 0, 0
+        P.AddMinimapIconWorld = function(_, ref, icon, inst, x, y)
+            drawn = drawn + 1
+            for k = 1, 300 do
+                local dx, dy = x - xs[k], y - ys[k]
+                if dx * dx + dy * dy < ((12 / 2 + 3) * ypp) ^ 2 then close = close + 1 end
+            end
+        end
+        gapped = 0
+        Ride(2)
+        assert(drawn > 0 and gapped > 0 and close == 0, ("%d head dots drawn, %d left out, %d of them on a pin"):format(drawn, gapped, close))
+        ns.run.targetPoint = tp
+        -- 3. Pins.lua: the spots of the minimap pins, one by one, without a table (the real ones again)
+        P.AddMinimapIconWorld, P.RemoveMinimapIcon, P.AddWorldMapIconWorld = saved.addM, saved.remM, saved.addW
+        ns.EachMinimapPinSpot, ns.MinimapPinSpots, methods.SetVertexColor = saved.each, saved.spots, saved.color
+        assert(type(ns.EachMinimapPinSpot) == "function", "no ns.EachMinimapPinSpot: the spots come only as a new list")
+        local list = ns.MinimapPinSpots()
+        assert(#list >= 3, "test setup: " .. #list .. " minimap pins")
+        local i = 0
+        ns.EachMinimapPinSpot(function(wx, wy, px)
+            i = i + 1
+            local s = list[i]
+            assert(s and s.wx == wx and s.wy == wy and s.px == px, "spot " .. i .. " is not the one of the list")
+        end)
+        assert(i == #list, ("%d spots one by one, %d in the list"):format(i, #list))
+        local function Noop() end
+        local function Go(n) for _ = 1, n do ns.EachMinimapPinSpot(Noop) end end
+        if jit then jit.off() end
+        Go(5)
+        collectgarbage("collect") collectgarbage("stop")
+        kb0 = collectgarbage("count")
+        Go(50)
+        kb = collectgarbage("count") - kb0
+        collectgarbage("restart")
+        if jit then jit.on() end
+        assert(kb < 0.01, ("going over the minimap pins 50 times made %.3f KB of garbage"):format(kb))
+        -- a pin whose node is moved: its spot follows (the kept world spot is worked out again)
+        local pinNode = tp.node
+        local mapID = tp.mapID
+        local oldX = pinNode.x
+        pinNode.x = oldX + 0.01
+        local want = HBD:GetWorldCoordinatesFromZone(pinNode.x, pinNode.y, mapID)
+        local found = false
+        ns.EachMinimapPinSpot(function(wx) if math.abs(wx - want) < 1e-9 then found = true end end)
+        pinNode.x = oldX
+        assert(found, "a moved node's minimap pin keeps its old spot")
+    end)
+    P.AddMinimapIconWorld, P.RemoveMinimapIcon, P.AddWorldMapIconWorld = saved.addM, saved.remM, saved.addW
+    ns.EachMinimapPinSpot, ns.MinimapPinSpots, methods.SetVertexColor = saved.each, saved.spots, saved.color
+    collectgarbage("restart")
+    if jit then jit.on() end
+    ns.StopRun(true) advance(1)
+    player.map, player.x, player.y = saved.map, saved.x, saved.y
+    Minimap.GetZoom, Minimap.GetWidth = saved.zoom, saved.width
+    ns.db.routeLineHidden, ns.db.routeLineMiniHidden = saved.hidden, saved.mini
+    if saved.shown and not WorldMapFrame:IsShown() then WorldMapFrame:Show() end
+    if not ok then error(err, 0) end
+end)
 step("Settings: no game setting is changed in combat - the gathering help and the bobber settings follow at the end of the fight (v0.1.22 R1, combat)", function()
     -- Sven, 13.11.2026 (live, 0.1.22 a62cefe): the questing mode switched on
     -- in a fight - "[ADDON_ACTION_BLOCKED] AddOn 'Gathercraft' tried to call

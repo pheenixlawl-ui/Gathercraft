@@ -1331,18 +1331,43 @@ ns.WorldPinTipChanged = ApplyWorldTip
 
 -- Where the minimap pins are (world yards) and how big (pixels): the route
 -- line leaves a little gap around each one (Route.lua)
-ns.MinimapPinSpots = function()
-    local spots = {}
-    if not (HBD and HBD.GetWorldCoordinatesFromZone) then return spots end
-    local function Add(pin, mapID, x, y)
-        local wx, wy = HBD:GetWorldCoordinatesFromZone(x, y, mapID)
-        if wx then spots[#spots + 1] = { wx = wx, wy = wy, px = pin:GetWidth() or 12 } end
+--   (0.2.3 lauf-last B1) The head of the line asks 10 times a second while
+--   you ride: fill(wx, wy, px) is called for each spot, no table is made.
+--   A pin's world position is kept with the place it was worked out from
+--   (map, x, y) and worked out again when that is not the same any more.
+local spotWorld = setmetatable({}, { __mode = "k" }) -- pin -> { mapID, x, y, wx, wy }
+local function SpotWorld(pin, mapID, x, y)
+    local c = spotWorld[pin]
+    if c and c.mapID == mapID and c.x == x and c.y == y then return c.wx, c.wy end
+    local wx, wy = HBD:GetWorldCoordinatesFromZone(x, y, mapID)
+    if wx then
+        if not c then
+            c = {}
+            spotWorld[pin] = c
+        end
+        c.mapID, c.x, c.y, c.wx, c.wy = mapID, x, y, wx, wy
     end
+    return wx, wy
+end
+ns.EachMinimapPinSpot = function(fill)
+    if not (HBD and HBD.GetWorldCoordinatesFromZone) then return end
     for pin in pairs(miniOn) do
         local n = pin.node
-        if n and pin.mapID then Add(pin, pin.mapID, n.x, n.y) end
+        if n and pin.mapID then
+            local wx, wy = SpotWorld(pin, pin.mapID, n.x, n.y)
+            if wx then fill(wx, wy, pin:GetWidth() or 12) end
+        end
     end
-    if target.mini and target.node and target.mapID then Add(target.mini, target.mapID, target.node.x, target.node.y) end
+    local pin = target.mini
+    if pin and target.node and target.mapID then
+        local wx, wy = SpotWorld(pin, target.mapID, target.node.x, target.node.y)
+        if wx then fill(wx, wy, pin:GetWidth() or 12) end
+    end
+end
+-- the same as a list: { { wx, wy, px }, ... }
+ns.MinimapPinSpots = function()
+    local spots = {}
+    ns.EachMinimapPinSpot(function(wx, wy, px) spots[#spots + 1] = { wx = wx, wy = wy, px = px } end)
     return spots
 end
 
