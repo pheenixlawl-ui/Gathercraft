@@ -28764,6 +28764,66 @@ step("Crafting 0.2.2: a place in use whose skill line the game does not give lea
     ns.db.recipes, GetProfessions, PROFS[2], issecretvalue = keep.recipes, keep.profs, keep.p2, keep.secret
     if not ok then error(err, 0) end
 end)
+-- 0.2.2 P2-M2 (Codex, P2 round 1): a name the game gives - in its list of
+-- professions, or as a profession's spell - is asked whether it is hidden
+-- before anything looks at it: its type, whether it is empty, lower(), the
+-- names known. The hidden name here is a Lua stand-in that notes every look
+-- at it (its type says "string", like the game's hidden strings); the
+-- game's own hidden strings can only be seen in the client.
+step("Crafting 0.2.2: a hidden profession name is asked about first - nothing looks at it, not its type, not whether it is empty (0.2.2 P2-M2)", function()
+    local keep = { secret = issecretvalue, type = type, p1 = PROFS[1], p2 = PROFS[2], profs = GetProfessions, spell = C_Spell.GetSpellName }
+    local realType = type
+    local SECRET = newproxy(true)
+    local asked, looks = false, {}
+    local function Look(how) looks[#looks + 1] = how .. (asked and " (after it was found hidden)" or " (before the secret check)") end
+    local mt = getmetatable(SECRET)
+    mt.__index = function(_, k) Look("index " .. realType(k) .. " " .. (realType(k) == "string" and k or "?")) return function() return "x" end end
+    mt.__eq = function() Look("==") return false end
+    mt.__lt = function() Look("<") return false end
+    mt.__le = function() Look("<=") return false end
+    mt.__concat = function() Look("..") return "x" end
+    mt.__len = function() Look("#") return 1 end
+    mt.__tostring = function() Look("tostring") return "x" end
+    local function Looked(what)
+        assert(#looks == 0, what .. ": looked at the hidden name - " .. table.concat(looks, ", "))
+    end
+    local ok, err = pcall(function()
+        issecretvalue = function(v) if rawequal(v, SECRET) then asked = true return true end return false end
+        type = function(v) if rawequal(v, SECRET) then Look("type") return "string" end return realType(v) end
+        -- 1. the game's list: Herbalism's place gives a hidden name with its line
+        GetProfessions = function() return 1, 2 end
+        PROFS[1] = { SECRET, 52, 75, 182, 0 }
+        ns.CraftNormalizeAgain()
+        Looked("the names of the game's list (LearnSlotNames)")
+        assert(asked, "test setup: the hidden name was not asked about")
+        assert(ns.ProfKey("Herbalism") == "Herbalism", "a hidden name changed Herbalism")
+        -- 2. a place we can't name by its line, with a hidden name: the list can't tell
+        asked = false
+        PROFS[1] = keep.p1
+        PROFS[2] = { SECRET, 30, 75, 9999, 0 }
+        assert(ns.CraftCurrentProfessions() == nil, "a hidden name of a place we can't name: the list tells what you have")
+        Looked("the game's list, a place we can't name (CurrentProfessions)")
+        PROFS[2] = keep.p2
+        -- 3. a hidden profession name handed to ProfKey (a trainer's, RememberRecipe): back as it came
+        asked = false
+        assert(rawequal(ns.ProfKey(SECRET), SECRET), "a hidden name is not handed back as it came")
+        Looked("ProfKey")
+        -- 4. a profession's spell with a hidden name (Herbalism's, 2366): the names are built without it
+        assert(ns.CraftNamesAnew, "test setup: no ns.CraftNamesAnew")
+        asked = false
+        C_Spell.GetSpellName = function(id) if id == 2366 then return SECRET end return keep.spell(id) end
+        ns.CraftNamesAnew()
+        ns.CraftNormalizeAgain()
+        Looked("the names of the professions' spells (ProfKey)")
+        assert(asked, "test setup: the hidden spell name was not asked about")
+        assert(ns.ProfKey("Herbalism") == "Herbalism" and ns.ProfKey("Mining") == "Mining", "a hidden spell name changed the English names")
+    end)
+    type, issecretvalue = realType, keep.secret
+    PROFS[1], PROFS[2], GetProfessions, C_Spell.GetSpellName = keep.p1, keep.p2, keep.profs, keep.spell
+    -- the names as they were (built again from the game's real ones)
+    if ns.CraftNamesAnew then ns.CraftNamesAnew() ns.CraftNormalizeAgain() end
+    if not ok then error(err, 0) end
+end)
 -- 0.2.2 P2e (Nachtrag zum Fahrplan, 21.11.2026; P2d counted 19,472 world
 -- map pins in 45 zones with Sven's saved data, every one looked at every
 -- 3 s): the pass every 3 s looks only at the pins that can be seen - the

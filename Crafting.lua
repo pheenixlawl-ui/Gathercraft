@@ -95,6 +95,14 @@ local PROF_LINE = {
     [197] = "Tailoring", [186] = "Mining", [182] = "Herbalism", [393] = "Skinning", [356] = "Fishing", [185] = "Cooking",
     [129] = "First Aid",
 }
+-- (0.2.2 P2-M2, Codex) a name the game gives (its list of professions, a
+-- profession's spell): asked whether it is hidden before anything looks at
+-- it - then its type, then whether it is empty. Only then lower() and the
+-- names known.
+local function UsableName(name)
+    if ns.AnySecret("crafting", name) then return false end
+    return type(name) == "string" and name ~= ""
+end
 local profAlias
 local sessionStart -- (0.2.2 P2b) time() of the first login of this session, see StillMine
 -- The names in the game's list of your professions, by their skill line
@@ -108,7 +116,7 @@ local function LearnSlotNames()
     for _, slot in ipairs(ns.ProfessionSlots()) do
         local en = PROF_LINE[slot.line]
         local name = slot.name
-        if en and type(name) == "string" and name ~= "" and not ns.AnySecret("crafting", name) and profAlias[name:lower()] ~= en then
+        if en and UsableName(name) and profAlias[name:lower()] ~= en then
             profAlias[name:lower()] = en
             new = true
         end
@@ -116,6 +124,8 @@ local function LearnSlotNames()
     return new
 end
 local function ProfKey(name)
+    -- (0.2.2 P2-M2) a hidden name goes back as it came, not looked at
+    if ns.AnySecret("crafting", name) then return name end
     if not name or name == "" then return name end
     if not profAlias then
         -- (v0.1.22 R2; Belgeron, CurseForge, 14.11.2026: the German client
@@ -125,15 +135,16 @@ local function ProfKey(name)
         for en, id in pairs(PROF_SPELLS) do
             profAlias[en:lower()] = en
             local loc = SpellNameOf(id)
-            if loc and loc ~= "" then profAlias[loc:lower()] = en end
+            if UsableName(loc) then profAlias[loc:lower()] = en end
         end
         local smelting = SpellNameOf(2656)
-        if smelting and smelting ~= "" then profAlias[smelting:lower()] = "Mining" end
+        if UsableName(smelting) then profAlias[smelting:lower()] = "Mining" end
         LearnSlotNames()
     end
     return profAlias[name:lower()] or name
 end
 ns.ProfKey = ProfKey
+ns.CraftNamesAnew = function() profAlias = nil end -- (the tests: the names are built again with the next ProfKey)
 
 -- a profession's name to show: the game's own, with known slips fixed
 local function ProfLabel(prof)
@@ -1260,7 +1271,7 @@ local function CurrentProfessions()
     local set = {}
     for _, s in ipairs(slots) do
         local en = PROF_LINE[s.line]
-        if not en and type(s.name) == "string" and not ns.AnySecret("crafting", s.name) then
+        if not en and UsableName(s.name) then
             local key = ProfKey(s.name)
             for _, p in ipairs(PROFESSIONS) do if p.name == key then en = key end end
             for _, e in pairs(PROF_LINE) do if e == key then en = key end end
