@@ -748,6 +748,7 @@ ns.Locales.zhTW = {
     ["  Received but not counted (all sessions): %d repeats (the same player again), %d for spots already confirmed by %d players"] = "  收到但未計入（所有工作階段）：%d 次重複（同一玩家再次傳送），%d 次針對已被 %d 名玩家確認的點位",
     ["First counted run here."] = "這裡第一次計入的採集路線。",
     ["Your best of the last %d runs here (%s), each on its own: %d nodes per hour, %s per hour"] = "這裡最近 %d 次路線中你的最佳值（%s，各自獨立）：每小時 %d 個採集點，每小時 %s",
+    ["Your best of the last %d runs here (%s), each on its own: %d nodes per hour, at least %s per hour (some prices unknown)"] = "這裡最近 %d 次路線中你的最佳值（%s，各自獨立）：每小時 %d 個採集點，每小時至少 %s（部分價格未知）",
     ["New personal best here!"] = "這裡的個人新紀錄！",
     ["Not counted for your best runs: under %d minutes of riding."] = "不計入你的最佳路線：移動不到 %d 分鐘。",
     ["Gold per hour from known prices only (%d nodes without one)."] = "每小時金幣只按已知價格計算（%d 個採集點沒有價格）。",

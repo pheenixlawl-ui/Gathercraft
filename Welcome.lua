@@ -410,7 +410,8 @@ end
 -- notes (a new best, a run too short to count, this run's gold per hour from
 -- known prices only). Nothing for a fishing session. (P3 R1, Codex: the best
 -- values are the ones the history keeps - nodes and gold per hour each its own
--- best, not one run.)
+-- best, not one run; a best gold per hour from a run with a price unknown is
+-- "at least", apart from this run's own note.)
 local GOAL_LABELS = { skill = "Skill-ups", gold = "Gold", nodes = "Nodes", plan = "Plan" }
 local function BestLines(s)
     local b = s.best
@@ -420,7 +421,9 @@ local function BestLines(s)
     if b.first then
         best = L["First counted run here."]
     elseif b.nodes then
-        local text = L["Your best of the last %d runs here (%s), each on its own: %d nodes per hour, %s per hour"]
+        local text = (b.goldUnknown or 0) > 0
+            and L["Your best of the last %d runs here (%s), each on its own: %d nodes per hour, at least %s per hour (some prices unknown)"]
+            or L["Your best of the last %d runs here (%s), each on its own: %d nodes per hour, %s per hour"]
         best = text:format(b.keep or ns.RUN_HISTORY_KEEP or 20, L[GOAL_LABELS[b.goal] or "Nodes"], math.floor(b.nodes + 0.5), Gold(b.gold or 0))
     end
     if b.newBest then notes[#notes + 1] = L["New personal best here!"] end

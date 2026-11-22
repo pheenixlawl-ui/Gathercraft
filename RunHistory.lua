@@ -123,17 +123,23 @@ local function Rates(e)
 end
 
 -- the best of the runs that count: nodes per hour and gold per hour (each its
--- own highest), for one character, filter and route goal
+-- own highest), for one character, filter and route goal. The best gold per
+-- hour brings how many nodes of its run had no price (goldUnknown, 0 = every
+-- price known: more than 0 makes it a lower bound); of runs with the same gold
+-- per hour the one with every price known counts, then the newer one (0.2.3
+-- P3-M2, Codex)
 local function Best(list, char, filter, goal)
-    local nodes, gold
+    local nodes, gold, goldUnknown
     for _, e in ipairs(list or {}) do
         if e.c == char and e.f == filter and e.g == goal and (e.a or 0) >= MIN_ACTIVE then
             local n, g = Rates(e)
+            local u = e.u or 0
             if not nodes or n > nodes then nodes = n end
-            if not gold or g > gold then gold = g end
+            -- (the list goes from the oldest to the newest)
+            if not gold or g > gold or (g == gold and (u == 0 or goldUnknown > 0)) then gold, goldUnknown = g, u end
         end
     end
-    if nodes then return { nodes = nodes, gold = gold } end
+    if nodes then return { nodes = nodes, gold = gold, goldUnknown = goldUnknown } end
 end
 ns.RunHistoryBest = function(mapID, char, filter, goal)
     local all = ns.db and ns.db.runHistory
@@ -141,8 +147,8 @@ ns.RunHistoryBest = function(mapID, char, filter, goal)
 end
 
 -- Keeps the run that just ended (Route.lua, StopRun) and says how it stands:
--- { counted, first, newBest, nodes, gold (the best now, of the runs kept),
--- unknown (this run's nodes without a price), goal, minutes, keep }
+-- { counted, first, newBest, nodes, gold, goldUnknown (the best now, of the
+-- runs kept), unknown (this run's nodes without a price), goal, minutes, keep }
 -- or nil (no zone of its own, no time).
 ns.RunHistoryAdd = function(s)
     if not (s and s.zone and (s.elapsed or 0) > 0 and ns.db) then return end
@@ -179,6 +185,6 @@ ns.RunHistoryAdd = function(s)
         result.newNodes, result.newGold = n > before.nodes, g > before.gold
         result.newBest = result.newNodes or result.newGold
     end
-    if now then result.nodes, result.gold = now.nodes, now.gold end
+    if now then result.nodes, result.gold, result.goldUnknown = now.nodes, now.gold, now.goldUnknown end
     return result
 end

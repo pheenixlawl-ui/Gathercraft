@@ -748,6 +748,7 @@ ns.Locales.koKR = {
     ["  Received but not counted (all sessions): %d repeats (the same player again), %d for spots already confirmed by %d players"] = "  받았지만 세지 않음 (모든 세션): 반복 %d (같은 플레이어가 다시), 확인이 끝난 곳 %d (이미 플레이어 %d명이 확인)",
     ["First counted run here."] = "이곳에서 처음 집계된 채집 경로입니다.",
     ["Your best of the last %d runs here (%s), each on its own: %d nodes per hour, %s per hour"] = "이곳 최근 %d회 중 최고값 (%s, 각각 따로): 시간당 채집물 %d개, 시간당 %s",
+    ["Your best of the last %d runs here (%s), each on its own: %d nodes per hour, at least %s per hour (some prices unknown)"] = "이곳 최근 %d회 중 최고값 (%s, 각각 따로): 시간당 채집물 %d개, 시간당 최소 %s (일부 가격 모름)",
     ["New personal best here!"] = "이곳에서 개인 최고 기록 경신!",
     ["Not counted for your best runs: under %d minutes of riding."] = "최고 기록에 집계되지 않음: 이동 시간이 %d분 미만입니다.",
     ["Gold per hour from known prices only (%d nodes without one)."] = "시간당 골드는 알려진 가격으로만 계산 (가격 없는 채집물 %d개).",

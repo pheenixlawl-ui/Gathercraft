@@ -29530,6 +29530,76 @@ step("Run history 0.2.3: the best shown is the best kept, not one that just went
     ns.db.runHistory, ns.PlayerKey = keep.hist, keep.key
     if not ok then error(err, 0) end
 end)
+-- 0.2.3 P3-M2 (Codex, P3 round 1): the best gold per hour carries the state of
+-- its prices. From a run with nodes without a price it is a lower bound ("at
+-- least ... (some prices unknown)"), apart from this run's own note; of runs
+-- with the same gold per hour the one with every price known counts, then
+-- the newer one.
+step("Run history 0.2.3: the best gold per hour says when its prices were not all known - a lower bound, apart from this run's note; with the same gold per hour the run with every price known (0.2.3 P3-M2)", function()
+    local keep = { hist = ns.db.runHistory, key = ns.PlayerKey }
+    local ok, err = pcall(function()
+        local char = "Player-1-0000AAAA"
+        ns.PlayerKey = function() return char end
+        local KEEP = ns.RUN_HISTORY_KEEP
+        local function Run(nodes, extra)
+            local s = { zone = 1412, elapsed = 600, active = 600, nodes = nodes, value = nodes * 1000, unknownPrice = 0,
+                filter = "herb", goal = "gold", way = "smart", skill = 0, herbSkill = 150, oreSkill = 60 }
+            for k, v in pairs(extra or {}) do s[k] = v end
+            return ns.RunHistoryAdd(s)
+        end
+        local function Best() return ns.RunHistoryBest(1412, char, "herb", "gold") end
+        local function Same(a, b) return a and b and math.abs(a - b) < 1e-6 end
+        local FULL = "Your best of the last %d runs here (%s), each on its own: %d nodes per hour, %s per hour"
+        local LOWER = "Your best of the last %d runs here (%s), each on its own: %d nodes per hour, at least %s per hour (some prices unknown)"
+        local function Shown(text, nodes, gold) return (ns.L[text]):format(KEEP, ns.L["Gold"], nodes, ns.Money(gold, true)) end
+        local function Has(notes, text) return notes and notes:find(text, 1, true) ~= nil end
+        local function This(n) return (ns.L["Gold per hour from known prices only (%d nodes without one)."]):format(n) end
+        -- 1. the best gold per hour from a run with a node without a price; this run with every price known
+        ns.db.runHistory = nil
+        Run(10, { value = 10000, unknownPrice = 1 })
+        local r = Run(10, { value = 100 })
+        assert(Same(r.gold, 60000) and (r.goldUnknown or 0) > 0 and (r.unknown or 0) == 0, ("an old best with a price unknown: %s copper per hour, its state %s, this run's %s"):format(
+            tostring(r.gold), tostring(r.goldUnknown), tostring(r.unknown)))
+        assert((Best().goldUnknown or 0) > 0, "RunHistoryBest does not say the best gold per hour had a price unknown")
+        local line, notes = ns.RunSummaryBestLines({ best = r })
+        assert(line == Shown(LOWER, 60, 60000), "a best gold per hour with a price unknown is not shown as a lower bound: " .. tostring(line))
+        assert(not Has(notes, This(0)) and not Has(notes, This(1)), "this run (every price known) gets the note about unknown prices: " .. tostring(notes))
+        -- 2. the other way: the best with every price known, this run with two nodes without a price
+        ns.db.runHistory = nil
+        Run(10, { value = 10000 })
+        r = Run(10, { value = 100, unknownPrice = 2 })
+        assert(Same(r.gold, 60000) and (r.goldUnknown or 0) == 0 and r.unknown == 2, "an old best with every price known: its state or this run's is wrong")
+        line, notes = ns.RunSummaryBestLines({ best = r })
+        assert(line == Shown(FULL, 60, 60000), "a best gold per hour with every price known is shown as a lower bound: " .. tostring(line))
+        assert(Has(notes, This(2)), "this run's unknown prices are not told: " .. tostring(notes))
+        -- 3. the same gold per hour twice: the run with every price known counts, whichever came first;
+        -- of two with prices unknown the newer one
+        for _, order in ipairs({ { 1, 0 }, { 0, 1 } }) do
+            ns.db.runHistory = nil
+            Run(10, { value = 10000, unknownPrice = order[1] })
+            r = Run(10, { value = 10000, unknownPrice = order[2] })
+            assert((r.goldUnknown or 0) == 0 and (Best().goldUnknown or 0) == 0, ("the same gold per hour, prices unknown %d then %d: the run with every price known does not count"):format(order[1], order[2]))
+            assert(ns.RunSummaryBestLines({ best = r }) == Shown(FULL, 60, 60000), "the same gold per hour: shown as a lower bound")
+        end
+        ns.db.runHistory = nil
+        Run(10, { value = 10000, unknownPrice = 1 })
+        r = Run(10, { value = 10000, unknownPrice = 3 })
+        assert(r.goldUnknown == 3 and Best().goldUnknown == 3, "the same gold per hour, both with prices unknown: not the newer run's state")
+        -- 4. the text in the nine translations, with the same placeholders in the same order
+        local function Codes(s)
+            local list = {}
+            for code in s:gmatch("%%[%d%$]*[sd]") do list[#list + 1] = code end
+            return table.concat(list, " ")
+        end
+        for _, lang in ipairs({ "deDE", "esES", "frFR", "itIT", "koKR", "ptBR", "ruRU", "zhCN", "zhTW" }) do
+            local tr = ns.Locales[lang] and ns.Locales[lang][LOWER]
+            assert(type(tr) == "string" and tr ~= "" and tr ~= LOWER, ("no %s translation of %q"):format(lang, LOWER))
+            assert(Codes(tr) == Codes(LOWER), ("%s: other placeholders (or another order) in %q: %s"):format(lang, LOWER, tr))
+        end
+    end)
+    ns.db.runHistory, ns.PlayerKey = keep.hist, keep.key
+    if not ok then error(err, 0) end
+end)
 step("Run history 0.2.3: a run ends in its zone's history - riding time from moving and gathering, not standing, death, a taxi or a hidden position; nodes without a price; the summary's lines (0.2.3 P3)", function()
     local keep = { hist = ns.db.runHistory, map = player.map, x = player.x, y = player.y, dead = UnitIsDeadOrGhost, taxi = UnitOnTaxi,
         secret = issecretvalue, off = ns.db.summaryOff, send = SendChatMessage }

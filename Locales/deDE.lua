@@ -777,6 +777,7 @@ ns.Locales.deDE = {
     ["  Received but not counted (all sessions): %d repeats (the same player again), %d for spots already confirmed by %d players"] = "  Erhalten, aber nicht gezählt (alle Sitzungen): %d Wiederholungen (derselbe Spieler noch einmal), %d für Fundorte, die schon %d Spieler bestätigt haben",
     ["First counted run here."] = "Erste gezählte Farmroute hier.",
     ["Your best of the last %d runs here (%s), each on its own: %d nodes per hour, %s per hour"] = "Deine Bestwerte der letzten %d Läufe hier (%s), jeder für sich: %d Vorkommen pro Stunde, %s pro Stunde",
+    ["Your best of the last %d runs here (%s), each on its own: %d nodes per hour, at least %s per hour (some prices unknown)"] = "Deine Bestwerte der letzten %d Läufe hier (%s), jeder für sich: %d Vorkommen pro Stunde, mindestens %s pro Stunde (manche Preise unbekannt)",
     ["New personal best here!"] = "Neue persönliche Bestleistung hier!",
     ["Not counted for your best runs: under %d minutes of riding."] = "Zählt nicht für deine Bestleistungen: weniger als %d Minuten unterwegs.",
     ["Gold per hour from known prices only (%d nodes without one)."] = "Gold pro Stunde nur aus bekannten Preisen (%d Vorkommen ohne Preis).",

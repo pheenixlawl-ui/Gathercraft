@@ -748,6 +748,7 @@ ns.Locales.ptBR = {
     ["  Received but not counted (all sessions): %d repeats (the same player again), %d for spots already confirmed by %d players"] = "  Recebidos mas não contados (todas as sessões): %d repetições (o mesmo jogador de novo), %d de pontos já confirmados por %d jogadores",
     ["First counted run here."] = "Primeira rota contada aqui.",
     ["Your best of the last %d runs here (%s), each on its own: %d nodes per hour, %s per hour"] = "Seus melhores valores das últimas %d rotas aqui (%s), cada um por si: %d nós por hora, %s por hora",
+    ["Your best of the last %d runs here (%s), each on its own: %d nodes per hour, at least %s per hour (some prices unknown)"] = "Seus melhores valores das últimas %d rotas aqui (%s), cada um por si: %d nós por hora, pelo menos %s por hora (alguns preços desconhecidos)",
     ["New personal best here!"] = "Novo recorde pessoal aqui!",
     ["Not counted for your best runs: under %d minutes of riding."] = "Não conta para as suas melhores rotas: menos de %d minutos em movimento.",
     ["Gold per hour from known prices only (%d nodes without one)."] = "Ouro por hora só com preços conhecidos (%d nós sem preço).",

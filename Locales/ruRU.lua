@@ -748,6 +748,7 @@ ns.Locales.ruRU = {
     ["  Received but not counted (all sessions): %d repeats (the same player again), %d for spots already confirmed by %d players"] = "  Получено, но не учтено (за все сеансы): %d повторов (тот же игрок снова), %d для точек, уже подтверждённых %d игроками",
     ["First counted run here."] = "Первый засчитанный маршрут здесь.",
     ["Your best of the last %d runs here (%s), each on its own: %d nodes per hour, %s per hour"] = "Ваши лучшие значения за последние %d маршрутов здесь (%s), каждое отдельно: %d точек в час, %s в час",
+    ["Your best of the last %d runs here (%s), each on its own: %d nodes per hour, at least %s per hour (some prices unknown)"] = "Ваши лучшие значения за последние %d маршрутов здесь (%s), каждое отдельно: %d точек в час, не меньше %s в час (некоторые цены неизвестны)",
     ["New personal best here!"] = "Новый личный рекорд здесь!",
     ["Not counted for your best runs: under %d minutes of riding."] = "Не учитывается в лучших маршрутах: меньше %d минут в пути.",
     ["Gold per hour from known prices only (%d nodes without one)."] = "Золото в час только по известным ценам (%d точек без цены).",
