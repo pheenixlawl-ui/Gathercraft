@@ -141,7 +141,8 @@ ns.RunHistoryBest = function(mapID, char, filter, goal)
 end
 
 -- Keeps the run that just ended (Route.lua, StopRun) and says how it stands:
--- { counted, first, newBest, nodes, gold (the best now), unknown, goal, minutes }
+-- { counted, first, newBest, nodes, gold (the best now, of the runs kept),
+-- unknown (this run's nodes without a price), goal, minutes, keep }
 -- or nil (no zone of its own, no time).
 ns.RunHistoryAdd = function(s)
     if not (s and s.zone and (s.elapsed or 0) > 0 and ns.db) then return end
@@ -164,16 +165,20 @@ ns.RunHistoryAdd = function(s)
     local before = Best(list, char, e.f, e.g)
     list[#list + 1] = e
     while #list > KEEP do table.remove(list, 1) end
+    -- (0.2.3 P3-M1, Codex) the best shown is the best kept now, once the
+    -- oldest went out - what RunHistoryBest says; a new best is one better
+    -- than the best before this run, not one that is first only because the
+    -- best run just went out
+    local now = Best(list, char, e.f, e.g)
     local counted = e.a >= MIN_ACTIVE
     local n, g = Rates(e)
-    local result = { counted = counted, unknown = e.u, goal = e.g, minutes = math.floor(MIN_ACTIVE / 60) }
+    local result = { counted = counted, unknown = e.u, goal = e.g, minutes = math.floor(MIN_ACTIVE / 60), keep = KEEP }
     if counted and not before then
-        result.first, result.nodes, result.gold = true, n, g
-    elseif before then
-        result.newNodes, result.newGold = counted and n > before.nodes, counted and g > before.gold
+        result.first = true
+    elseif counted then
+        result.newNodes, result.newGold = n > before.nodes, g > before.gold
         result.newBest = result.newNodes or result.newGold
-        result.nodes = counted and math.max(n, before.nodes) or before.nodes
-        result.gold = counted and math.max(g, before.gold) or before.gold
     end
+    if now then result.nodes, result.gold = now.nodes, now.gold end
     return result
 end

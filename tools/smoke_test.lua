@@ -29468,6 +29468,68 @@ step("Run history 0.2.3: the runs and their best - first, new best, slower, too 
     ns.db.runHistory, ns.PlayerKey = keep.hist, keep.key
     if not ok then error(err, 0) end
 end)
+-- 0.2.3 P3-M1 (Codex, P3 round 1): the best the summary shows is the best the
+-- history keeps once the run went in and the oldest went out - what
+-- RunHistoryBest says; "New personal best" only against the best before the
+-- run, not for one that is first only because the best run just went out.
+-- The line says it is about the last runs here, and that nodes and gold per
+-- hour are each a best of their own (not one run).
+step("Run history 0.2.3: the best shown is the best kept, not one that just went out; a new best only against the best before the run (0.2.3 P3-M1)", function()
+    local keep = { hist = ns.db.runHistory, key = ns.PlayerKey }
+    local ok, err = pcall(function()
+        local char = "Player-1-0000AAAA"
+        ns.PlayerKey = function() return char end
+        local KEEP = ns.RUN_HISTORY_KEEP
+        -- a run of 10 minutes, all of them riding: n nodes = 6n per hour
+        local function Run(nodes, extra)
+            local s = { zone = 1412, elapsed = 600, active = 600, nodes = nodes, value = nodes * 1000, unknownPrice = 0,
+                filter = "herb", goal = "gold", way = "smart", skill = 0, herbSkill = 150, oreSkill = 60 }
+            for k, v in pairs(extra or {}) do s[k] = v end
+            return ns.RunHistoryAdd(s)
+        end
+        local function Best() return ns.RunHistoryBest(1412, char, "herb", "gold") end
+        local function Same(a, b) return a and b and math.abs(a - b) < 1e-6 end
+        local FULL = "Your best of the last %d runs here (%s), each on its own: %d nodes per hour, %s per hour"
+        -- 1. Codex's case: 100 nodes (600 per hour), then 19 runs of 10 (60 per hour): 20 kept.
+        -- The next run, 20 nodes (120 per hour), pushes the first one out
+        ns.db.runHistory = nil
+        Run(100)
+        for _ = 1, KEEP - 1 do Run(10) end
+        local r = Run(20)
+        local b = Best()
+        assert(#ns.db.runHistory[1412] == KEEP and b and Same(b.nodes, 120), "test setup: the best of the runs kept is not 120 nodes per hour")
+        assert(Same(r.nodes, b.nodes) and Same(r.gold, b.gold), ("the summary shows %s nodes and %s copper per hour, the history keeps %s and %s"):format(
+            tostring(r.nodes), tostring(r.gold), tostring(b.nodes), tostring(b.gold)))
+        assert(not r.newBest and not r.newNodes and not r.newGold, "first only because the best run went out: called a new best")
+        local line, notes = ns.RunSummaryBestLines({ best = r })
+        assert(line == (ns.L[FULL]):format(KEEP, ns.L["Gold"], 120, ns.Money(120000, true)), "the best line after the best run went out: " .. tostring(line))
+        assert(not (notes and notes:find(ns.L["New personal best here!"], 1, true)), "the notes call it a new best: " .. tostring(notes))
+        -- 2. better than the best before it (120): a new best, shown as kept
+        r = Run(30)
+        assert(r.newBest and r.newNodes and Same(r.nodes, 180) and Same(Best().nodes, 180), "a run better than the best before it is not a new best")
+        -- 3. a run too short to count once the only counted runs went out: no best line left
+        ns.db.runHistory = nil
+        Run(100)
+        for _ = 1, KEEP - 1 do Run(10, { active = 60 }) end
+        r = Run(10, { active = 60 })
+        assert(not r.counted and r.nodes == nil and Best() == nil, "the counted run went out, yet a best is shown: " .. tostring(r.nodes))
+        assert(ns.RunSummaryBestLines({ best = r }) == nil, "a best line without a counted run kept")
+        -- 4. the text in the nine translations, with the same placeholders in the same order; the old one gone
+        local function Codes(s)
+            local list = {}
+            for code in s:gmatch("%%[%d%$]*[sd]") do list[#list + 1] = code end
+            return table.concat(list, " ")
+        end
+        for _, lang in ipairs({ "deDE", "esES", "frFR", "itIT", "koKR", "ptBR", "ruRU", "zhCN", "zhTW" }) do
+            local tr = ns.Locales[lang] and ns.Locales[lang][FULL]
+            assert(type(tr) == "string" and tr ~= "" and tr ~= FULL, ("no %s translation of %q"):format(lang, FULL))
+            assert(Codes(tr) == Codes(FULL), ("%s: other placeholders (or another order) in %q: %s"):format(lang, FULL, tr))
+            assert(ns.Locales[lang]["Best run here (%s): %d nodes per hour, %s per hour"] == nil, lang .. ": the old best line is still there")
+        end
+    end)
+    ns.db.runHistory, ns.PlayerKey = keep.hist, keep.key
+    if not ok then error(err, 0) end
+end)
 step("Run history 0.2.3: a run ends in its zone's history - riding time from moving and gathering, not standing, death, a taxi or a hidden position; nodes without a price; the summary's lines (0.2.3 P3)", function()
     local keep = { hist = ns.db.runHistory, map = player.map, x = player.x, y = player.y, dead = UnitIsDeadOrGhost, taxi = UnitOnTaxi,
         secret = issecretvalue, off = ns.db.summaryOff, send = SendChatMessage }
@@ -29577,7 +29639,7 @@ step("Run history 0.2.3: a run ends in its zone's history - riding time from mov
         assert(shown and shown.best and shown.best.counted and shown.best.newBest and shown.best.newNodes, "a faster run: the summary was not told it is a new best")
         assert(e and shown.best.nodes > 6 / (Last().e / 3600) - 1e-6, "the summary's best is not the new run's")
         best, notes = ns.RunSummaryBestLines({ best = { counted = true, newBest = true, nodes = 33, gold = 1234, goal = "gold", unknown = 0 } })
-        assert(best == (ns.L["Best run here (%s): %d nodes per hour, %s per hour"]):format(ns.L["Gold"], 33, ns.Money(1234, true)) and notes == ns.L["New personal best here!"],
+        assert(best == (ns.L["Your best of the last %d runs here (%s), each on its own: %d nodes per hour, %s per hour"]):format(ns.RUN_HISTORY_KEEP, ns.L["Gold"], 33, ns.Money(1234, true)) and notes == ns.L["New personal best here!"],
             "new best: " .. tostring(best) .. " / " .. tostring(notes))
         local now = ns.RunHistoryBest(1412, ns.PlayerKey(), "herb", Last().g)
         assert(now and now.nodes > 6 / (Last().e / 3600) - 1e-6, "the faster run is not the best")

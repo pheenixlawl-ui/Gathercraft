@@ -404,10 +404,13 @@ local function BuildSummary()
     end
 end
 
--- (0.2.3 P3) the lines about your best run here, from s.best (RunHistory.lua):
--- the best line ("Best run here (Gold): 120 nodes per hour, 15g per hour", or
--- "First counted run here.") and the notes (a new best, a run too short to
--- count, gold per hour from known prices only). Nothing for a fishing session.
+-- (0.2.3 P3) the lines about your best runs here, from s.best (RunHistory.lua):
+-- the best line ("Your best of the last 20 runs here (Gold), each on its own:
+-- 120 nodes per hour, 15g per hour", or "First counted run here.") and the
+-- notes (a new best, a run too short to count, this run's gold per hour from
+-- known prices only). Nothing for a fishing session. (P3 R1, Codex: the best
+-- values are the ones the history keeps - nodes and gold per hour each its own
+-- best, not one run.)
 local GOAL_LABELS = { skill = "Skill-ups", gold = "Gold", nodes = "Nodes", plan = "Plan" }
 local function BestLines(s)
     local b = s.best
@@ -417,8 +420,8 @@ local function BestLines(s)
     if b.first then
         best = L["First counted run here."]
     elseif b.nodes then
-        best = (L["Best run here (%s): %d nodes per hour, %s per hour"]):format(L[GOAL_LABELS[b.goal] or "Nodes"],
-            math.floor(b.nodes + 0.5), Gold(b.gold or 0))
+        local text = L["Your best of the last %d runs here (%s), each on its own: %d nodes per hour, %s per hour"]
+        best = text:format(b.keep or ns.RUN_HISTORY_KEEP or 20, L[GOAL_LABELS[b.goal] or "Nodes"], math.floor(b.nodes + 0.5), Gold(b.gold or 0))
     end
     if b.newBest then notes[#notes + 1] = L["New personal best here!"] end
     if not b.counted then notes[#notes + 1] = (L["Not counted for your best runs: under %d minutes of riding."]):format(b.minutes or 10) end
