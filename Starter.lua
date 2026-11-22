@@ -83,7 +83,7 @@ end
 ns.LocalizeNodeNames = LocalizeNodeNames
 table.insert(ns.languageListeners, LocalizeNodeNames)
 
-local function ImportQuestieZone(mapID, quiet)
+local function ImportQuestieZone(mapID, quiet, hold)
     local data = GathercraftQuestieData
     if not (data and mapID and ns.db) or loaded[mapID] then return 0 end
     loaded[mapID] = true
@@ -132,7 +132,9 @@ local function ImportQuestieZone(mapID, quiet)
         end
     end
     if added > 0 then
-        ns.NotifyNodesChanged()
+        -- (0.2.2 W3) only this zone's pins: no rebuild of every pin; at login
+        -- (hold) one word at the end for all zones (W2)
+        if not hold then ns.NotifyNodesChanged("zone", mapID) end
         if not quiet and firstTime then
             ns.Print((L["Loaded %d known spawn points for %s."]):format(added, ns.GetZoneName(mapID)))
         end
@@ -173,6 +175,7 @@ local function SaveSpawnState()
 end
 
 -- Login: load the zones you had loaded before, a few per frame
+local reloading = false
 local function ReloadSpawnZones()
     local zones = {}
     -- older versions remembered loaded zones as questieZones
@@ -181,18 +184,26 @@ local function ReloadSpawnZones()
     ns.db.questieZones = nil
     ns.db.spawnZones = ns.db.spawnZones or {}
     for _, mapID in ipairs(zones) do ns.db.spawnZones[mapID] = true end
-    local i = 0
+    -- (0.2.2 W2) quietly: one word at the end, so the pins are built once
+    local i, added = 0, 0
+    reloading = true
     local function step()
         for _ = 1, 2 do
             i = i + 1
             local mapID = zones[i]
-            if not mapID then return end
-            ImportQuestieZone(mapID, true)
+            if not mapID then
+                reloading = false
+                if added > 0 then ns.NotifyNodesChanged() end
+                return
+            end
+            added = added + ImportQuestieZone(mapID, true, true)
         end
         C_Timer.After(0.05, step)
     end
     step()
 end
+-- (0.2.2 W2) the zones of before are still loading (Pins.lua waits with its rebuild)
+ns.SpawnZonesLoading = function() return reloading end
 
 -- Is this node one of the known spawn points? Everyone has those already,
 -- so sync never needs to send them. Parsed per zone on first use.

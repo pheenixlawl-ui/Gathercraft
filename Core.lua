@@ -256,6 +256,7 @@ local nameCache        -- kind id -> name we know in our own language
 
 -- Tells everyone about database changes.
 --   kind = "add" / "update" with mapID and node for a single node,
+--   "zone" with mapID: the known spawn points of that zone came in (0.2.2 W3),
 --   nil for bigger changes (delete, wipe, imports, selection)
 local function NodesChanged(kind, mapID, node)
     if kind == "add" and mapID and nodeIndex[mapID] and node and node.id then

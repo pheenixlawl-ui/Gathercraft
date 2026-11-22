@@ -1689,8 +1689,9 @@ local function RequestPlan(kind, mapID, node)
     -- target: a guess from the minimap can move a good bit with a new look
     if run and ((kind ~= "update" and kind ~= "harvest") or (node and node == run.target)) then
         run.pointsDirty = true
-        -- the whole list changed (zones picked in the Zones tab): choose the group again
-        if not kind then run.groupDone = nil end
+        -- the whole list changed (zones picked in the Zones tab), or a zone's known
+        -- spawn points came in ("zone", 0.2.2 W3 - before it said nothing): choose the group again
+        if not kind or kind == "zone" then run.groupDone = nil end
     end
     if run and not run.planPending then
         run.planPending = true

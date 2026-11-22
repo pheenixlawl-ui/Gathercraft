@@ -14,6 +14,7 @@ local WORLD_SIZE = 14
 local DIM_ALPHA = 0.35   -- nodes on cooldown (just harvested)
 local REF = ADDON_NAME   -- owner key for HereBeDragons
 local REBUILD_DELAY = 0.3
+local LOGIN_WAIT = 10 -- (0.2.2 W2) seconds the login's rebuild waits at most for the zones of before
 
 local TYPE_ICONS = {
     herb = "Interface\\Icons\\INV_Misc_Flower_02",
@@ -735,7 +736,8 @@ local function RemoveNodePins(n, quiet)
     if primary and primary.others and #primary.others > 0 and RequestRebuild and not rebuilding and not quiet then
         RequestRebuild() -- another kind takes over this spot
     end
-    if pins.world then HBDPins:RemoveWorldMapIcon(REF, pins.world) end
+    -- (0.2.2 W1: a rebuild has taken every world map pin off in one call already)
+    if pins.world and not rebuilding then HBDPins:RemoveWorldMapIcon(REF, pins.world) end
     if pins.mini then MiniForget(pins.mini, rebuilding) end
     for key, pin in pairs(pins) do
         pin:Hide()
@@ -1072,6 +1074,10 @@ end
 local function Rebuild()
     if not ns.db or not HBDPins then return end
     rebuilding = true
+    -- (0.2.2 W1) our world map pins off in one call. One by one, HereBeDragons goes
+    -- over every pin the map holds for each of them: 0.6-0.9 s with 19,472 pins
+    -- (Sven's data, diagnosis of 22.11.2026). The reports' grey pins are ours too.
+    HBDPins:RemoveAllWorldMapIcons(REF)
     for n in pairs(pinsByNode) do
         RemoveNodePins(n)
     end
@@ -1099,11 +1105,17 @@ local function Rebuild()
 end
 
 local rebuildPending = false
+-- (0.2.2 W2) the login's one rebuild is still to come: from the load of this file
+-- on (what asks before the login is in it too) and again with each login. A rebuild
+-- asked for meanwhile is dropped when its turn comes - whichever part of the addon
+-- saw PLAYER_LOGIN first: the login's rebuild comes after, with everything in.
+local loginHold = true
 RequestRebuild = function()
-    if rebuildPending then return end
+    if loginHold or rebuildPending then return end
     rebuildPending = true
     C_Timer.After(REBUILD_DELAY, function()
         rebuildPending = false
+        if loginHold then return end
         Rebuild()
     end)
 end
@@ -1134,6 +1146,13 @@ local function OnNodesChanged(kind, mapID, node)
             RequestRebuild()
         end
         RemovePendingNear(mapID, node)
+    elseif kind == "zone" and mapID then
+        -- (0.2.2 W3) the known spawn points of a zone came in (Starter.lua): its nodes
+        -- without a pin get one - in their order, the same a rebuild gives them; the
+        -- pins of every other zone stay as they are
+        for _, n in ipairs(ns.db.nodes[mapID] or {}) do
+            if not pinsByNode[n] then AddNodePins(mapID, n) end
+        end
     else
         RequestRebuild()
     end
@@ -1292,7 +1311,21 @@ loader:SetScript("OnEvent", function(_, event)
         if ns.MigrateLineSwitch then ns.MigrateLineSwitch() end
         playerMap = ns.GetPlayerPos()
         ApplyWorldTip() -- (the tooltip choice: the Shift event only when chosen)
-        C_Timer.After(1, Rebuild)
+        -- (0.2.2 W2) one rebuild after the login, once the zones of before are
+        -- loaded (Starter.lua; at most LOGIN_WAIT s later): what asks for one
+        -- until then is in it. A second, the minimap first, as before.
+        loginHold = true
+        local waited = 0
+        local function LoginBuild()
+            if ns.SpawnZonesLoading and ns.SpawnZonesLoading() and waited < LOGIN_WAIT then
+                waited = waited + 0.25
+                C_Timer.After(0.25, LoginBuild)
+                return
+            end
+            loginHold = false
+            Rebuild()
+        end
+        C_Timer.After(1, LoginBuild)
         C_Timer.NewTicker(3, UpdateAlpha) -- cooldowns run out
         C_Timer.NewTicker(MINI_TICK, MiniTick) -- minimap pins: only the ones near you
         return

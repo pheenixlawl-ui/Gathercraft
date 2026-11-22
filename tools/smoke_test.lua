@@ -29185,6 +29185,125 @@ step("World map pins 0.2.2 W-B1: the route line on the world map only while the 
     advance(2)
     if not ok then error(err, 0) end
 end)
+step("World map pins 0.2.2 W-A: a rebuild takes our world map pins off in one call, a login builds once, a zone seen first on the world map gets only its own pins, none added twice (0.2.2 W1-W3)", function()
+    -- Sven, 22.11.2026 (the performance diagnosis, part A): with his data a
+    -- full rebuild cost HereBeDragons 0.6-0.9 s - every one of 19,472 world
+    -- map pins was taken off on its own, and each taking off goes over all the
+    -- pins the map holds. It came four times after a login and with every
+    -- zone looked at on the world map for the first time (its known spawn
+    -- points come in). W1: one call takes them all off. W2: the zones of
+    -- before load quietly, then one rebuild. W3: a zone new on the world map
+    -- adds the pins of its own new points and nothing else is redone - the
+    -- same pins a rebuild gives. What is seen stays the same.
+    local W, REF = HBD_WORLD, "Gathercraft"
+    local data = GathercraftQuestieData
+    local function InUse(mapID)
+        local n, shared, kinds = 0, 0, 0
+        for _, f in ipairs(allFrames) do
+            if f.isWorld and f.node and not f.isTarget and (not mapID or f.mapID == mapID) then
+                n = n + 1
+                if f.others and #f.others > 0 then shared, kinds = shared + 1, kinds + #f.others end
+            end
+        end
+        return n, shared, kinds
+    end
+    -- what is registered now: every world map pin in use
+    local function Resync()
+        local r = {}
+        for _, f in ipairs(allFrames) do if f.isWorld and f.node and not f.isTarget then r[f] = true end end
+        W.reg[REF] = r
+    end
+    local function Mark() return { adds = W.adds[REF] or 0, one = W.rmOne[REF] or 0, all = W.rmAll[REF] or 0, dup = W.dup[REF] or 0 } end
+    local function Since(m)
+        local now = Mark()
+        return { adds = now.adds - m.adds, one = now.one - m.one, all = now.all - m.all, dup = now.dup - m.dup }
+    end
+    -- zones with known spawn points that nothing has loaded yet
+    local fresh = {}
+    for mapID in pairs(data and data.zones or {}) do
+        if not ns.db.nodes[mapID] and not (ns.db.spawnZones or {})[mapID] then fresh[#fresh + 1] = mapID end
+    end
+    table.sort(fresh)
+    assert(#fresh >= 5, "fewer than 5 zones with known spawn points not loaded yet: " .. #fresh)
+    local saved = { world = ns.db.worldPinsHidden, mini = ns.db.miniPinsHidden, getMap = WorldMapFrame.GetMapID }
+    ns.db.worldPinsHidden, ns.db.miniPinsHidden = nil, nil
+    local ok, err = pcall(function()
+        ns.NotifyNodesChanged() advance(2)
+        Resync()
+        -- W1: a rebuild - all pins off, then on again
+        local n0 = InUse()
+        assert(n0 > 0, "no world map pins to start with")
+        local m = Mark()
+        ns.TogglePins() -- (off)
+        local s = Since(m)
+        assert(s.one == 0, ("a rebuild took %d world map pins off one by one"):format(s.one))
+        assert(s.all == 1, ("a rebuild took the world map pins off with %d calls, want 1"):format(s.all))
+        m = Mark()
+        ns.TogglePins() -- (on)
+        s = Since(m)
+        assert(InUse() == n0 and s.adds == n0, ("on again: %d added, %d in use, %d before"):format(s.adds, InUse(), n0))
+        assert(s.dup == 0, s.dup .. " world map pins added while still registered (rebuild)")
+        -- W2: a login with three zones of before still to load - one rebuild
+        ns.db.spawnZones = ns.db.spawnZones or {}
+        for i = 1, 3 do ns.db.spawnZones[fresh[i]] = true end
+        m = Mark()
+        -- (something asks for a rebuild right before - in deDE the names of the
+        -- nodes do, in whichever order the parts see PLAYER_LOGIN)
+        ns.NotifyNodesChanged()
+        fire("PLAYER_LOGIN") advance(15)
+        s = Since(m)
+        local n1 = InUse()
+        for i = 1, 3 do assert(ns.db.nodes[fresh[i]] and #ns.db.nodes[fresh[i]] > 0, "zone " .. fresh[i] .. " of before not loaded at login") end
+        assert(n1 > n0, "the zones loaded at login got no world map pins")
+        assert(s.all == 1 and s.one == 0, ("after a login the world map pins were taken off %d times in one call and %d one by one, want once in one call"):format(s.all, s.one))
+        assert(s.adds <= n1, ("a login added %d world map pins for %d in use: it built more than once"):format(s.adds, n1))
+        assert(s.dup == 0, s.dup .. " world map pins added while still registered (login)")
+        -- W3: a zone seen first on the world map
+        local Z = fresh[4]
+        WorldMapFrame.GetMapID = function() return Z end
+        m = Mark()
+        WorldMapFrame:OnMapChanged() advance(2)
+        s = Since(m)
+        local nz, sharedZ, kindsZ = InUse(Z)
+        assert(ns.db.nodes[Z] and #ns.db.nodes[Z] > 0 and nz > 0, "the zone seen on the world map got no points or no pins")
+        assert(s.all == 0 and s.one == 0, ("a zone new on the world map rebuilt the pins (%d calls in one, %d one by one)"):format(s.all, s.one))
+        assert(s.adds == nz, ("a zone new on the world map added %d world map pins, its own are %d"):format(s.adds, nz))
+        assert(s.dup == 0, s.dup .. " world map pins added while still registered (zone)")
+        -- the same pins a rebuild gives them
+        local total = InUse()
+        ns.TogglePins() ns.TogglePins()
+        local rz, rShared, rKinds = InUse(Z)
+        assert(rz == nz and rShared == sharedZ and rKinds == kindsZ and InUse() == total,
+            ("the zone's pins are not what a rebuild gives: %d pins, %d shared spots with %d more kinds against %d/%d/%d"):format(nz, sharedZ, kindsZ, rz, rShared, rKinds))
+        -- a zone's points coming in during a run: the run chooses its group of zones again, as before
+        -- (a run of its own on veins of a zone of its own: the steps before may leave no herb run possible)
+        local RZ, keep = 1474, { map = player.map, x = player.x, y = player.y, nodes = ns.db.nodes[1474] }
+        local function own(x, y) return { id = "o1731", name = "Copper Vein", type = "ore", x = x, y = y, count = 3, last = 1 } end
+        ns.db.nodes[RZ] = { own(0.30, 0.50), own(0.40, 0.55), own(0.50, 0.45) }
+        player.map, player.x, player.y = RZ, 0.25, 0.50
+        ns.StartRun("ore", RZ) advance(1)
+        local hadRun = ns.run ~= nil
+        if hadRun then
+            ns.run.groupDone = true
+            ns.ImportQuestieZone(fresh[5], true)
+        end
+        local kept = hadRun and ns.run.groupDone
+        ns.StopRun() advance(1)
+        ns.db.nodes[RZ] = keep.nodes
+        player.map, player.x, player.y = keep.map, keep.x, keep.y
+        assert(hadRun, "no run")
+        assert(kept == nil, "a zone's points came in during a run, and it kept its group of zones")
+    end)
+    -- the five zones go again (the session keeps them as loaded)
+    for i = 1, 5 do
+        ns.db.nodes[fresh[i]] = nil
+        if ns.db.spawnZones then ns.db.spawnZones[fresh[i]] = nil end
+    end
+    ns.db.worldPinsHidden, ns.db.miniPinsHidden = saved.world, saved.mini
+    WorldMapFrame.GetMapID = saved.getMap
+    ns.NotifyNodesChanged() advance(2)
+    if not ok then error(err, 0) end
+end)
 step("Long run (10 min) for leaks", function() slash("run herb") advance(600) slash("stop") end)
 step("Test mock: OnUpdate runs for the same frames in the same order as going over every frame (tools only)", function()
     -- The mock's advance() goes over the frames that have an OnUpdate only
