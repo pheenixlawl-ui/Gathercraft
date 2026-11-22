@@ -185,6 +185,22 @@ local function Snapshot(prof, from, to, source, seenAt)
         rawset(t, id, entry)
         return entry
     end })
+    -- (0.2.3, Sven 22.11.) what an item out of your stock is worth in the
+    -- recipe choice (PlanCore ValueOf): its auction price by the 0.1.16 rule;
+    -- without one what a vendor pays for it - a lower bound, estimated; else
+    -- unknown. Only the choice uses it: what you have and what is missing
+    -- stay counts, the gold that is missing stays what buying it costs.
+    input.values = setmetatable({}, { __index = function(t, id)
+        local price, source = ns.GetPrice(id)
+        local entry
+        if type(price) == "number" then
+            entry = { status = source == "vendor" and "estimated" or "known", copper = price, source = source }
+        else
+            entry = { status = "unknown" }
+        end
+        rawset(t, id, entry)
+        return entry
+    end })
     input.recipeItemPrices = setmetatable({}, { __index = function(t, id)
         local price = ns.db.vendorPrices and ns.db.vendorPrices[id]
         rawset(t, id, price or false)
@@ -270,6 +286,10 @@ local function SameReads(old, new)
     end
     for id, e in pairs(old.recipeItemPrices) do
         if new.recipeItemPrices[id] ~= e then return false end
+    end
+    for id, e in pairs(old.values or {}) do -- (0.2.3: what your stock is worth)
+        local n = new.values and new.values[id]
+        if not n or e.status ~= n.status or e.copper ~= n.copper then return false end
     end
     return true
 end
@@ -1245,9 +1265,14 @@ local function Draw(keep)
                 tt:AddLine(L["Made for materials the plan needs - each craft can give a skill point too."], 0.9, 0.9, 0.9, true)
             elseif s.why then
                 tt:AddLine(" ")
-                tt:AddLine((L["Why this recipe: about %s per skill point on top of what you have."]):format(ns.Money(math.max(0, s.why.score - 1))), 0.9, 0.9, 0.9, true)
+                -- (0.2.3) what it uses up a point - your stock at its worth - and
+                -- how much of that is your stock; without the switch's 8 %
+                tt:AddLine((L["Why this recipe: about %s per skill point in materials and learning costs."]):format(ns.Money(math.max(0, s.why.value or (s.why.score - 1)))), 0.9, 0.9, 0.9, true)
+                if (s.why.stock or 0) >= 0.5 then
+                    tt:AddLine((L["It uses your stock worth about %s per skill point."]):format(ns.Money(s.why.stock)), 0.9, 0.9, 0.9, true)
+                end
                 if s.why.other then
-                    tt:AddLine((L["Next best: %s, about %s per skill point."]):format(s.why.other.name, ns.Money(math.max(0, s.why.other.score - 1))), 0.7, 0.7, 0.7, true)
+                    tt:AddLine((L["Next best: %s, about %s per skill point."]):format(s.why.other.name, ns.Money(math.max(0, s.why.other.value or (s.why.other.score - 1)))), 0.7, 0.7, 0.7, true)
                 end
                 if s.comparable == false or (s.why.other and s.why.other.comparable == false) then
                     tt:AddLine(L["Not fully comparable: a part of the cost is unknown."], 1, 0.5, 0.4, true)

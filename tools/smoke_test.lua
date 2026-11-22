@@ -4435,13 +4435,19 @@ step("Skill plan 2.0: chance, number of crafts with its range, and the recipe ch
     plan = Ranks(120, 100, 150)
     assert(plan.status == "done" and #plan.steps == 0, "past the target: not done")
 
-    -- (5) the choice: the gold on top of what you have
-    -- what is in stock costs nothing, but only as far as it goes: 3 of 9601
-    -- (100c each) for A, then B at 10c - the stock is not free ten times
-    plan = Plan(1, 11, { R("A", 9600, 1, 11, 11, { { 9601, 1 } }), R("B", 9610, 1, 11, 11, { { 9611, 1 } }) }, { [9601] = 100, [9611] = 10 }, { stock = { [9601] = 3 } })
+    -- (5) the choice: what a point uses up (0.2.3: your stock at its worth, never free)
+    -- 3 of 9601 in the bags, worth 5c each (a vendor sells it for 100c): A
+    -- for those 3, then B at 10c - the stock counts only as far as it goes
+    local function Worth(copper) return { status = "known", copper = copper } end
+    plan = Plan(1, 11, { R("A", 9600, 1, 11, 11, { { 9601, 1 } }), R("B", 9610, 1, 11, 11, { { 9611, 1 } }) }, { [9601] = 100, [9611] = 10 },
+        { stock = { [9601] = 3 }, values = { [9601] = Worth(5) } })
     assert(#plan.steps == 2 and plan.steps[1].recipe.key == "A" and plan.steps[1].crafts == 3 and plan.steps[2].recipe.key == "B" and plan.steps[2].crafts == 7,
         ("stock in the choice: %s x%s, then %s"):format(plan.steps[1].recipe.key, tostring(plan.steps[1].crafts), tostring(plan.steps[2] and plan.steps[2].recipe.key)))
     assert(plan.total == 70, "what the plan costs on top: " .. plan.total)
+    -- the same 3 worth 100c each (what buying one costs): B all the way, the stock stays
+    plan = Plan(1, 11, { R("A", 9600, 1, 11, 11, { { 9601, 1 } }), R("B", 9610, 1, 11, 11, { { 9611, 1 } }) }, { [9601] = 100, [9611] = 10 },
+        { stock = { [9601] = 3 }, values = { [9601] = Worth(100) } })
+    assert(#plan.steps == 1 and plan.steps[1].recipe.key == "B" and plan.total == 100, "stock worth 100c against 10c is used")
     -- without the stock: B all the way
     plan = Plan(1, 11, { R("A", 9600, 1, 11, 11, { { 9601, 1 } }), R("B", 9610, 1, 11, 11, { { 9611, 1 } }) }, { [9601] = 100, [9611] = 10 })
     assert(#plan.steps == 1 and plan.steps[1].recipe.key == "B", "no stock: the dear recipe is used")
@@ -4493,6 +4499,247 @@ step("Skill plan 2.0: chance, number of crafts with its range, and the recipe ch
         local src = f:read("*a"):lower() f:close()
         assert(not src:find("cheapest", 1, true) and not src:find("guaranteed", 1, true), file .. " promises too much")
     end
+end)
+step("Skill plan 0.2.3: your stock counts at what it is worth, a tie goes by the stock - the blacksmith of 22.11. (0.2.3 a5)", function()
+    -- Sven's decision of 22.11.2026 (proposal A of the blacksmith diagnosis):
+    -- what a point costs is what it uses up - a piece bought at its price, a
+    -- piece out of your stock at its market worth (the auction price by the
+    -- 0.1.16 rule; else what a vendor pays for it, estimated; else unknown,
+    -- like a price nobody knows). Stock is never free. A tie - with the
+    -- switch's 8 % on it - goes to the stock worth less, then to fewer pieces
+    -- a point, then by name. What is shown as missing stays the gold you lack.
+    local core = ns.PlanCore
+    local L, d = ns.L, ns.CraftData
+    local function Known(copper) return { status = "known", copper = copper } end
+
+    -- (1) the golden: Blacksmithing 1-75 from the shipped recipes, a smith new
+    -- to it, the prices of the diagnosis - through the window's own snapshot
+    local STONE, BAR, FLUX = 2835, 2840, 2880
+    local saved = { rank = ns.ProfessionRank, have = d.Have, known = d.Known, price = ns.GetPrice, vendor = ns.db.vendorPrices }
+    local ah, stock = {}, {}
+    local function Smith(st)
+        for k in pairs(stock) do stock[k] = nil end
+        for k, v in pairs(st) do stock[k] = v end
+        local input = ns.SkillPlanSnapshot("Blacksmithing", 1, 75)
+        local plan = core.Compute(input)
+        local okB, whyB = core.CheckBalance(plan)
+        assert(okB, "the books do not balance: " .. tostring(whyB))
+        local m = {}
+        for _, row in ipairs(plan.materials) do m[row.id] = row end
+        local says = {}
+        for _, s in ipairs(plan.steps) do says[#says + 1] = ("%d-%d %s"):format(s.from, s.to, s.recipe.key) end
+        return plan, m, table.concat(says, ", "), input
+    end
+    local ok, err = pcall(function()
+        for id, copper in pairs({ [STONE] = 8, [BAR] = 250, [2836] = 40, [2841] = 230, [3470] = 5, [2589] = 30 }) do ah[id] = copper end
+        ns.ProfessionRank = function(p) if p == "Blacksmithing" then return 1, 75 end end
+        d.Known = function() return {} end
+        d.Have = function(id) return stock[id] or 0 end
+        ns.db.vendorPrices = { [FLUX] = 100 } -- (Weak Flux: a vendor sells it)
+        ns.GetPrice = function(id)
+            if ah[id] then return ah[id], "AH scan" end
+            if id == FLUX then return 25, "vendor" end -- (what a vendor pays for it)
+        end
+        -- Sven's bags of 22.11.: 27 Rough Stone, 37 Copper Bar
+        local plan, m, says, input = Smith({ [STONE] = 27, [BAR] = 37 })
+        assert(says == "1-44 Rough Sharpening Stone, 44-75 Rough Grinding Stone", "Sven's bags (27 stone, 37 bars): " .. says)
+        assert(not m[BAR] and m[STONE] and m[STONE].need == 175 and m[STONE].have == 27 and m[STONE].missing == 148,
+            ("the stone: need %s, have %s, missing %s; bars %s"):format(tostring(m[STONE] and m[STONE].need), tostring(m[STONE] and m[STONE].have),
+                tostring(m[STONE] and m[STONE].missing), tostring(m[BAR] and m[BAR].need)))
+        -- what is missing is the gold buying it takes, the stock is not in it
+        assert(m[STONE].cost == 148 * 8 and plan.total == 148 * 8, ("missing materials cost %s (the stone %s), want %d"):format(tostring(plan.total), tostring(m[STONE].cost), 148 * 8))
+        -- why the first step: 8c a point, and all of it is your stock
+        local why = plan.steps[1].why
+        assert(why and math.abs(why.value - 8) < 1e-9 and math.abs(why.stock - 8) < 1e-9 and why.comparable,
+            ("why Rough Sharpening Stone: %s a point, %s of it stock"):format(tostring(why and why.value), tostring(why and why.stock)))
+        assert(why.other and why.other.key == "Rough Weightstone" and math.abs(why.other.value - 8) < 1e-9,
+            "the next best: " .. tostring(why.other and why.other.key) .. " " .. tostring(why.other and why.other.value))
+        -- the worth of the stock as the snapshot reads it: the auction price,
+        -- else what a vendor pays (estimated), else unknown
+        assert(input.values[STONE].status == "known" and input.values[STONE].copper == 8, "the worth of Rough Stone")
+        assert(input.values[FLUX].status == "estimated" and input.values[FLUX].copper == 25, "what a vendor pays is no lower bound, or not estimated")
+        assert(input.values[987654].status == "unknown" and input.values[987654].copper == nil, "a worth nobody knows is made up")
+        assert(input.prices[FLUX].copper == 100 and input.prices[FLUX].status == "known", "the buying price of Weak Flux changed")
+        -- the same without your bags: the same plan (stone and bars are worth what buying them costs)
+        local _, m2, says2 = Smith({})
+        assert(says2 == says and m2[STONE].need == 175 and m2[STONE].missing == 175, "without the bags: " .. says2)
+        -- 40 stone, no bars: the same plan, 135 to buy
+        local _, m3, says3 = Smith({ [STONE] = 40 })
+        assert(says3 == says and m3[STONE].missing == 135, "40 stone: " .. says3)
+
+        -- (2) the other way round: bars worth less than the stones - a bar
+        -- recipe first (Copper Rod: one bar a point), the stone not before
+        ah[STONE], ah[BAR] = 300, 100
+        plan, m, says = Smith({ [STONE] = 27, [BAR] = 37 })
+        assert(plan.steps[1].recipe.key == "Copper Rod" and plan.steps[1].from == 1, "bars cheaper than the stones: " .. says)
+        for _, s in ipairs(plan.steps) do
+            if s.from < 20 then
+                for _, reagent in ipairs(s.recipe.reagents) do assert(reagent.id == BAR, "bars cheaper than the stones, below 20: " .. says) end
+            end
+        end
+        assert(m[BAR] and m[BAR].have > 0 and m[BAR].need >= 37, "the bars in the bags are not used: " .. says)
+
+        -- (2b) a new worth of what is in your bags is a new state - also where
+        -- buying it costs the same: the stone from a vendor for 6c, at the AH 8c, then 9c
+        ah[STONE], ah[BAR] = 8, 250
+        ns.db.vendorPrices[STONE] = 6
+        for k in pairs(stock) do stock[k] = nil end
+        stock[STONE], stock[BAR] = 27, 37
+        local p1 = ns.SkillPlanCalculate("Blacksmithing", 1, 75)
+        local p2, again = ns.SkillPlanCalculate("Blacksmithing", 1, 75)
+        assert(not again and p2.revision == p1.revision, "the same state gives a new plan")
+        assert(p1.steps[1].why and math.abs(p1.steps[1].why.stock - 8) < 1e-9, "test setup: the stone in the bags is worth 8c")
+        ah[STONE] = 9
+        local p3, new = ns.SkillPlanCalculate("Blacksmithing", 1, 75)
+        assert(new and p3.revision == p1.revision + 1, "a new worth of your stock: the old plan is kept (revision " .. tostring(p3.revision) .. ")")
+        assert(p3.steps[1].why and math.abs(p3.steps[1].why.stock - 9) < 1e-9, "the new plan has the old worth of the stone")
+    end)
+    ns.ProfessionRank, d.Have, d.Known, ns.GetPrice, ns.db.vendorPrices = saved.rank, saved.have, saved.known, saved.price, saved.vendor
+    if not ok then error(err, 0) end
+
+    -- (3) on plain tables: a recipe gives one point per craft from req up to upto
+    local function R(key, product, req, upto, mats)
+        local r = { prof = "Testing", key = key, name = key, product = product, made = 1, req = req, yellow = upto, grey = upto, reagents = {}, learn = "known" }
+        for _, x in ipairs(mats) do r.reagents[#r.reagents + 1] = { id = x[1], n = x[2] } end
+        return r
+    end
+    local function Plan(recipes, stock, prices, values, from, to)
+        local p = {}
+        for id, copper in pairs(prices) do p[id] = Known(copper) end
+        local plan = core.Compute({ prof = "Testing", skill = from or 1, target = to or 2, recipes = { Testing = recipes }, stock = stock, prices = p,
+            values = values, professions = {}, recipeItemPrices = {}, caps = {} })
+        local okB, whyB = core.CheckBalance(plan)
+        assert(okB, "the books do not balance: " .. tostring(whyB))
+        return plan
+    end
+    local function Says(plan) -- "A,B 15": the recipes of the steps in order, and the gold that is missing
+        local keys = {}
+        for _, s in ipairs(plan.steps) do keys[#keys + 1] = s.recipe.key end
+        return table.concat(keys, ",") .. " " .. tostring(plan.total)
+    end
+    -- a worth nobody knows: like a price nobody knows - never free
+    local plan = Plan({ R("A", 10, 1, 2, { { 11, 1 } }), R("B", 20, 1, 2, { { 21, 1 } }) }, { [11] = 2 }, { [11] = 10, [21] = 12 }, { [11] = { status = "unknown" } })
+    assert(Says(plan) == "B 12" and plan.steps[1].comparable, "stock of unknown worth against 12c: " .. Says(plan))
+    plan = Plan({ R("A", 10, 1, 2, { { 11, 1 } }) }, { [11] = 2 }, { [11] = 10 }, {})
+    assert(Says(plan) == "A 0" and plan.steps[1].comparable == false and plan.notComparable == true and plan.openPrices == true,
+        "stock of unknown worth alone: " .. Says(plan) .. " " .. tostring(plan.steps[1].comparable) .. " " .. tostring(plan.openPrices))
+    -- ... and deeper down: X costs 20c, or is made from an R in the bags whose
+    -- worth nobody knows - X is bought, the R stays, and the choice is open (a price)
+    plan = Plan({ R("A", 10, 1, 2, { { 11, 1 } }), R("Make X", 11, 1, 1, { { 12, 1 } }) }, { [12] = 2 }, { [11] = 20, [12] = 40 }, {})
+    local mx = {}
+    for _, row in ipairs(plan.materials) do mx[row.id] = row end
+    assert(Says(plan) == "A 20" and mx[11] and mx[11].missing == 1 and not mx[12] and plan.steps[1].comparable == false and plan.openPrices == true,
+        "an intermediate from stock of unknown worth: " .. Says(plan) .. " " .. tostring(plan.steps[1].comparable) .. " " .. tostring(plan.openPrices))
+    -- a batch from stock of unknown worth is like one with a price nobody knows
+    -- in it: not made batch by batch. Three X (20c each), one R of unknown
+    -- worth in the bags (50c to buy): making all three takes 100c that are
+    -- known - more than 60c. Bought, and nothing open
+    plan = Plan({ R("A", 10, 1, 2, { { 11, 3 } }), R("Make X", 11, 1, 1, { { 12, 1 } }) }, { [12] = 1 }, { [11] = 20, [12] = 50 }, {})
+    assert(Says(plan) == "A 60" and plan.steps[1].comparable and not plan.openPrices, "a batch from stock of unknown worth: " .. Says(plan)
+        .. " " .. tostring(plan.steps[1].comparable) .. " " .. tostring(plan.openPrices))
+    -- a worth that is a lower bound (what a vendor pays) counts, and is said to be an estimate
+    plan = Plan({ R("A", 10, 1, 2, { { 11, 1 } }), R("B", 20, 1, 2, { { 21, 1 } }) }, { [11] = 2 }, { [11] = 10, [21] = 12 }, { [11] = { status = "estimated", copper = 3 } })
+    assert(Says(plan) == "A 0" and plan.steps[1].comparable and plan.steps[1].estimated and plan.steps[1].why.estimated, "stock worth 3c (estimated) against 12c: " .. Says(plan))
+    -- a step made for materials (Make X gives points too) from stock of
+    -- unknown worth is not fully comparable either: X has no price, so A's X
+    -- is made from the R in the bags
+    plan = Plan({ R("A", 10, 1, 9, { { 11, 1 } }), R("Make X", 11, 1, 9, { { 12, 1 } }) }, { [12] = 5 }, {}, {}, 1, 3)
+    local forMats
+    for _, s in ipairs(plan.steps) do if s.forMaterials then forMats = s end end
+    assert(forMats and forMats.recipe.key == "Make X" and forMats.comparable == false, "a step for materials from stock of unknown worth: " .. Says(plan)
+        .. " " .. tostring(forMats and forMats.comparable))
+    -- stock worth more than another recipe takes: not used up for nothing
+    plan = Plan({ R("A", 10, 1, 2, { { 11, 1 } }), R("B", 20, 1, 2, { { 21, 1 } }) }, { [11] = 2 }, { [11] = 10, [21] = 12 }, { [11] = Known(30) })
+    assert(Says(plan) == "B 12", "stock worth 30c against 12c: " .. Says(plan))
+    -- between two numbers of crafts the stock is weighed like the rest: at 2
+    -- a yellow A (from 1, grey at 4) takes 1.5 crafts a point - one craft
+    -- uses 3c of stock, two use 6c: 4.5c
+    local yellowA = R("A", 10, 1, 4, { { 11, 1 } })
+    yellowA.yellow = 1
+    plan = Plan({ yellowA }, { [11] = 5 }, { [11] = 20 }, { [11] = Known(3) }, 2, 3)
+    assert(plan.steps[1].why and math.abs(plan.steps[1].why.stock - 4.5) < 1e-9 and math.abs(plan.steps[1].why.value - 4.5) < 1e-9,
+        ("1.5 crafts from the stock: %s of %s"):format(tostring(plan.steps[1].why and plan.steps[1].why.stock), tostring(plan.steps[1].why and plan.steps[1].why.value)))
+
+    -- (4) the tie: the same before the switch's 8 %
+    local E = { [11] = 8, [21] = 8 }
+    -- the stock worth less first: A's X from the bags (worth 8c), B's Y bought for 8c - B, though A comes first
+    plan = Plan({ R("A", 10, 1, 2, { { 11, 1 } }), R("B", 20, 1, 2, { { 21, 1 } }) }, { [11] = 5 }, E, { [11] = Known(8) })
+    assert(Says(plan) == "B 8", "a tie, A from the stock: " .. Says(plan))
+    -- then fewer pieces a point: A two X at 4c, B one Y at 8c - B
+    plan = Plan({ R("A", 10, 1, 2, { { 11, 2 } }), R("B", 20, 1, 2, { { 21, 1 } }) }, {}, { [11] = 4, [21] = 8 }, {})
+    assert(Says(plan) == "B 8", "a tie, A with two pieces: " .. Says(plan))
+    -- then the name: the earlier one
+    plan = Plan({ R("B", 20, 1, 2, { { 21, 1 } }), R("A", 10, 1, 2, { { 11, 1 } }) }, {}, E, {})
+    assert(Says(plan) == "A 8", "a full tie: " .. Says(plan))
+    -- the 8 % does not hold the recipe in use in a tie: B (from 1, its Y
+    -- from the bags, worth 8c) is in use when A (from 2, X bought for 8c)
+    -- comes in - A takes over; with the 8 % alone B would have kept it
+    plan = Plan({ R("A", 10, 2, 6, { { 11, 1 } }), R("B", 20, 1, 6, { { 21, 1 } }) }, { [21] = 5 }, E, { [21] = Known(8) }, 1, 6)
+    assert(Says(plan) == "B,A 32" and plan.steps[1].to == 2, "a tie with the recipe in use: " .. Says(plan))
+    -- ... and fewer pieces a point the same: A (from 1, two X at 4c) in use, B from 2 (one Y at 8c)
+    plan = Plan({ R("A", 10, 1, 6, { { 11, 2 } }), R("B", 20, 2, 6, { { 21, 1 } }) }, {}, { [11] = 4, [21] = 8 }, {}, 1, 6)
+    assert(Says(plan) == "A,B 40" and plan.steps[1].to == 2, "a tie by pieces with the recipe in use: " .. Says(plan))
+    -- a full tie (the same stock, the same pieces): the recipe in use keeps it
+    plan = Plan({ R("A", 10, 2, 6, { { 11, 1 } }), R("B", 20, 1, 6, { { 21, 1 } }) }, { [11] = 5, [21] = 5 }, E, { [11] = Known(8), [21] = Known(8) }, 1, 6)
+    assert(Says(plan) == "B 0", "a full tie with the recipe in use: " .. Says(plan))
+    -- no tie: the 8 % still keeps a recipe in use that costs less than 8 % more (8.5c against 8c)
+    plan = Plan({ R("A", 10, 2, 6, { { 11, 1 } }), R("B", 20, 1, 6, { { 21, 1 } }) }, { [21] = 5 }, E, { [21] = Known(8.5) }, 1, 6)
+    assert(Says(plan) == "B 0", "8.5c in use against 8c: " .. Says(plan))
+    -- ... and not one that costs more (9c against 8c)
+    plan = Plan({ R("A", 10, 2, 6, { { 11, 1 } }), R("B", 20, 1, 6, { { 21, 1 } }) }, { [21] = 5 }, E, { [21] = Known(9) }, 1, 6)
+    assert(Says(plan) == "B,A 32", "9c in use against 8c: " .. Says(plan))
+
+    -- (5) the window: "why this recipe" names what a point uses up, and what of it is your stock
+    local saved2 = { rank = ns.ProfessionRank, have = d.Have, known = d.Known, price = ns.GetPrice, compute = core.Compute, targets = ns.db.planTargets }
+    local win
+    ok, err = pcall(function()
+        local rank = 1
+        ns.ProfessionRank = function(p) if p == "Alchemy" then return rank, 75 end end
+        d.Have = function() return 0 end
+        d.Known = function() return {} end
+        ns.GetPrice = function() return 10, "AH scan" end
+        ns.db.planTargets = nil
+        local function Show(recipes, stock, prices, values)
+            core.Compute = function(input)
+                local p = {}
+                for id, copper in pairs(prices) do p[id] = { status = "known", copper = copper, source = "AH scan" } end
+                for _, r in ipairs(recipes) do r.prof = input.prof end
+                return saved2.compute({ prof = input.prof, skill = 1, target = 4, professions = {}, caps = {}, nodes = {}, stock = stock, recipeItemPrices = {},
+                    recipes = { [input.prof] = recipes }, prices = p, values = values })
+            end
+            rank = rank + 1 -- (a new state, so the plan is made again)
+            ns.ShowSkillPlan("Alchemy") advance(1)
+            win = _G.GathercraftSkillPlan
+        end
+        local function Tip(name)
+            for _, o in ipairs(allFrames) do
+                if o.left and o.mid and o.right and o:IsShown() and type(o.left:GetText()) == "string" and o.left:GetText():find(name, 1, true) and o.tip then
+                    local tip = {}
+                    o.tip({ AddLine = function(_, t) tip[#tip + 1] = t end })
+                    return table.concat(tip, "\n")
+                end
+            end
+        end
+        local why = L["Why this recipe: about %s per skill point in materials and learning costs."]
+        local own = L["It uses your stock worth about %s per skill point."]
+        Show({ R("Stone Polish", 9810, 1, 4, { { 9811, 1 } }), R("Bar Polish", 9820, 1, 4, { { 9821, 1 } }) }, { [9811] = { n = 9 } }, { [9811] = 50, [9821] = 30 }, { [9811] = Known(20) })
+        local tip = Tip("Stone Polish")
+        assert(tip and tip:find(why:format(ns.Money(20)), 1, true) and tip:find(own:format(ns.Money(20)), 1, true),
+            "why this recipe does not name what it uses up and the stock in it: " .. tostring(tip))
+        assert(tip:find((L["Next best: %s, about %s per skill point."]):format("Bar Polish", ns.Money(30)), 1, true), "the next best without the 8 %: " .. tostring(tip))
+        -- bought, not from your bags: no line about the stock
+        Show({ R("Stone Polish", 9810, 1, 4, { { 9811, 1 } }), R("Bar Polish", 9820, 1, 4, { { 9821, 1 } }) }, {}, { [9811] = 50, [9821] = 30 }, {})
+        tip = Tip("Bar Polish")
+        local ownHead = assert(own:match("^(.-)%%s"))
+        assert(tip and tip:find(why:format(ns.Money(30)), 1, true) and not tip:find(ownHead, 1, true), "a recipe without stock: " .. tostring(tip))
+    end)
+    ns.ProfessionRank, d.Have, d.Known, ns.GetPrice, core.Compute, ns.db.planTargets = saved2.rank, saved2.have, saved2.known, saved2.price, saved2.compute, saved2.targets
+    if win then win:Hide() end
+    if not ok then error(err, 0) end
+    -- the comments say it too: no stock is free any more
+    local f = assert(io.open(ROOT .. "/PlanCore.lua"))
+    local src = f:read("*a") f:close()
+    assert(not src:find("what is in stock is free", 1, true) and not src:find("what you have costs nothing", 1, true), "PlanCore.lua still says the stock is free")
 end)
 step("Skill plan 2.0: what you really have, progress, one plan per state (v0.2 A5)", function()
     -- concept 4.4 and 4.6
@@ -5607,11 +5854,21 @@ step("Skill plan 2.0: buying against making by the gold it really takes on top (
         for _, e in ipairs(plan.extras) do if e.recipe.key == key then return e.times end end
         return 0
     end
+    -- (0.2.3) what the stock is worth: { [item] = copper }
+    local function Worth(t)
+        local v = {}
+        for id, copper in pairs(t) do v[id] = { status = "known", copper = copper } end
+        return { values = v }
+    end
 
-    -- Codex RAW_STOCK: one X needed, the raw material for it is in the bags.
-    -- X costs 20c, the raw material 50c at the AH: made from stock, 0c on top
-    local plan, m = Plan({ R("A", 10, 1, 2, { { 11, 1 } }), R("Make X", 11, 1, 1, { { 12, 1 } }) }, { [12] = 1 }, { [11] = 20, [12] = 50 })
-    assert(plan.total == 0 and m[11].missing == 0 and m[11].madeFrom and Extra(plan, "Make X") == 1, ("raw stock is there, X is bought all the same (%s copper)"):format(tostring(plan.total)))
+    -- Codex RAW_STOCK, with the stock at its worth (0.2.3): one X needed, the
+    -- raw material for it is in the bags. X costs 20c; the raw material is
+    -- worth 50c at the AH: X is bought, the raw material is not used up for it
+    local plan, m = Plan({ R("A", 10, 1, 2, { { 11, 1 } }), R("Make X", 11, 1, 1, { { 12, 1 } }) }, { [12] = 1 }, { [11] = 20, [12] = 50 }, nil, nil, Worth({ [12] = 50 }))
+    assert(plan.total == 20 and m[11].missing == 1 and not m[11].madeFrom and not m[12] and Extra(plan, "Make X") == 0, ("raw stock worth 50c for a 20c X: %s copper"):format(tostring(plan.total)))
+    -- worth 5c (a vendor sells it for 50c): made from the stock, 0c on top
+    plan, m = Plan({ R("A", 10, 1, 2, { { 11, 1 } }), R("Make X", 11, 1, 1, { { 12, 1 } }) }, { [12] = 1 }, { [11] = 20, [12] = 50 }, nil, nil, Worth({ [12] = 5 }))
+    assert(plan.total == 0 and m[11].missing == 0 and m[11].madeFrom and Extra(plan, "Make X") == 1, ("raw stock worth 5c is there, X is bought all the same (%s copper)"):format(tostring(plan.total)))
     assert(m[12] and m[12].need == 1 and m[12].have == 1 and m[12].missing == 0 and m[12].covered, "the raw stock is not what X is made from")
     assert(plan.steps[1].comparable and not plan.notComparable and plan.status == "ok", "a wholly known choice called not comparable")
 
@@ -5655,17 +5912,20 @@ step("Skill plan 2.0: buying against making by the gold it really takes on top (
     -- material and a fee of 100c
     plan, m = Plan({ R("A", 10, 1, 31, { { 11, 1 } }), R("Make X", 11, 1, 1, { { 12, 1 } }, { learn = "trainer", fee = 100 }) }, {}, { [11] = 20, [12] = 1 }, 1, 31)
     assert(plan.total == 30 and plan.learn.fees == 100 and plan.learn.trainer == 1 and Extra(plan, "Make X") == 30, "a fee that pays off is not paid")
-    -- raw stock for a part of the need: that part is made (0c), the rest
-    -- bought (20c each) - not all bought (60c), not all made (100c)
-    plan, m = Plan({ R("A", 10, 1, 4, { { 11, 1 } }), R("Make X", 11, 1, 1, { { 12, 1 } }) }, { [12] = 1 }, { [11] = 20, [12] = 50 }, 1, 4)
+    -- raw stock (worth 5c) for a part of the need: that part is made (0c on
+    -- top), the rest bought (20c each) - not all bought (60c), not all made (100c)
+    plan, m = Plan({ R("A", 10, 1, 4, { { 11, 1 } }), R("Make X", 11, 1, 1, { { 12, 1 } }) }, { [12] = 1 }, { [11] = 20, [12] = 50 }, 1, 4, Worth({ [12] = 5 }))
     assert(plan.total == 40 and Extra(plan, "Make X") == 1 and m[11].missing == 2 and m[12].missing == 0, ("raw stock for one of three: %s copper"):format(tostring(plan.total)))
-    -- the same raw stock is not free twice: two intermediates share it
+    -- ... worth 50c, what buying it costs: all three X bought, the raw stock stays
+    plan, m = Plan({ R("A", 10, 1, 4, { { 11, 1 } }), R("Make X", 11, 1, 1, { { 12, 1 } }) }, { [12] = 1 }, { [11] = 20, [12] = 50 }, 1, 4)
+    assert(plan.total == 60 and Extra(plan, "Make X") == 0 and m[11].missing == 3 and not m[12], ("raw stock worth 50c for 20c pieces: %s copper"):format(tostring(plan.total)))
+    -- the same raw stock (worth 5c) is not counted twice: two intermediates share it
     plan, m = Plan({ R("A", 10, 1, 2, { { 11, 1 }, { 13, 1 } }), R("Make X", 11, 1, 1, { { 12, 1 } }), R("Make Y", 13, 1, 1, { { 12, 1 } }) },
-        { [12] = 1 }, { [11] = 20, [13] = 20, [12] = 50 })
+        { [12] = 1 }, { [11] = 20, [13] = 20, [12] = 50 }, nil, nil, Worth({ [12] = 5 }))
     assert(plan.total == 20 and Extra(plan, "Make X") + Extra(plan, "Make Y") == 1 and m[12].need == 1, ("one raw piece used for two things: %s copper"):format(tostring(plan.total)))
-    -- raw stock two levels down counts as well: X from W, W from raw
+    -- raw stock (worth 5c) two levels down counts as well: X from W, W from raw
     plan, m = Plan({ R("A", 10, 1, 2, { { 11, 1 } }), R("Make X", 11, 1, 1, { { 14, 1 } }), R("Make W", 14, 1, 1, { { 12, 2 } }) },
-        { [12] = 2 }, { [11] = 20, [14] = 500, [12] = 50 })
+        { [12] = 2 }, { [11] = 20, [14] = 500, [12] = 50 }, nil, nil, Worth({ [12] = 5 }))
     assert(plan.total == 0 and Extra(plan, "Make X") == 1 and Extra(plan, "Make W") == 1 and m[12].covered, "raw stock two levels down is not used")
     -- no price for X at all: made, whatever it costs (as before)
     plan, m = Plan({ R("A", 10, 1, 2, { { 11, 1 } }), R("Make X", 11, 1, 1, { { 12, 1 } }) }, {}, { [12] = 50 })
@@ -5708,13 +5968,17 @@ step("Skill plan 2.0: buying against making by the gold it really takes on top (
     assert(plan.total == 20 and not m[11].madeFrom and plan.steps[1].comparable and not plan.notComparable and not plan.openPrices,
         "a piece without a price that cannot matter makes the choice open")
 
-    -- the choice between recipes sees it too: A needs X (20c at the AH, 0c
-    -- from raw stock), B needs a 5c material. With the raw stock A is free
-    local function Two(stock)
-        return Plan({ R("A", 10, 1, 2, { { 11, 1 } }), R("B", 15, 1, 2, { { 16, 1 } }), R("Make X", 11, 1, 1, { { 12, 1 } }) }, stock, { [11] = 20, [12] = 50, [16] = 5 })
+    -- the choice between recipes sees it too: A needs X (20c at the AH, or
+    -- made from the raw stock), B needs a 5c material. With raw stock worth
+    -- 3c A uses up 3c: A; worth 50c (what buying it costs): B
+    local function Two(stock, worth)
+        return Plan({ R("A", 10, 1, 2, { { 11, 1 } }), R("B", 15, 1, 2, { { 16, 1 } }), R("Make X", 11, 1, 1, { { 12, 1 } }) }, stock, { [11] = 20, [12] = 50, [16] = 5 },
+            nil, nil, worth and Worth({ [12] = worth }))
     end
-    plan = Two({ [12] = 1 })
+    plan = Two({ [12] = 1 }, 3)
     assert(plan.steps[1].recipe.key == "A" and plan.total == 0, "the recipe choice does not see the raw stock of an intermediate")
+    plan = Two({ [12] = 1 })
+    assert(plan.steps[1].recipe.key == "B" and plan.total == 5, "raw stock worth 50c is used up for a 5c point")
     plan = Two({})
     assert(plan.steps[1].recipe.key == "B" and plan.total == 5, "without the raw stock: the less costly recipe")
     -- ... and the fee of an intermediate recipe: A's X is made for 1c after a
@@ -5779,13 +6043,13 @@ step("Skill plan 2.0: buying against making by the gold it really takes on top (
         d.Known = function() return {} end
         ns.GetPrice = function() return 10, "AH scan" end
         ns.db.planTargets = nil
-        local function Show(recipes, stock, prices)
+        local function Show(recipes, stock, prices, values)
             core.Compute = function(input)
                 local p = {}
                 for id, copper in pairs(prices) do p[id] = { status = "known", copper = copper, source = "AH scan" } end
                 for _, r in ipairs(recipes) do r.prof = input.prof end
                 return saved.compute({ prof = input.prof, skill = 1, target = 4, professions = {}, caps = {}, nodes = {}, stock = stock, recipeItemPrices = {},
-                    recipes = { [input.prof] = recipes }, prices = p })
+                    recipes = { [input.prof] = recipes }, prices = p, values = values })
             end
             rank = rank + 1 -- (a new state, so the plan is made again)
             ns.ShowSkillPlan("Alchemy") advance(1)
@@ -5811,7 +6075,9 @@ step("Skill plan 2.0: buying against making by the gold it really takes on top (
                 end
             end
         end
-        Show({ R("A", 9810, 1, 4, { { 9811, 1 } }), R("Make X", 9811, 1, 1, { { 9812, 1 } }) }, { [9812] = { n = 1 } }, { [9811] = 20, [9812] = 50 })
+        -- (the raw piece worth 5c: made from it - 0.2.3)
+        Show({ R("A", 9810, 1, 4, { { 9811, 1 } }), R("Make X", 9811, 1, 1, { { 9812, 1 } }) }, { [9812] = { n = 1 } }, { [9811] = 20, [9812] = 50 },
+            { [9812] = { status = "known", copper = 5 } })
         local row = Row(9811)
         assert(row and row.right:GetText():find("|cffff70702|r", 1, true) and row.right:GetText():find(L["AH"], 1, true),
             "a row partly made, partly bought hides what is to buy: " .. tostring(row and row.right:GetText()))
@@ -6446,11 +6712,16 @@ step("Skill plan 2.0: the recipe choice counts whole batches, like the material 
         for k, v in pairs(extra or {}) do r[k] = v end
         return r
     end
-    local function Plan(recipes, stock, prices, from, to)
-        local p = {}
+    local function Plan(recipes, stock, prices, from, to, worth)
+        local p, v = {}, nil
         for id, copper in pairs(prices) do p[id] = { status = "known", copper = copper } end
+        -- (0.2.3) what the stock is worth: { [item] = copper }; without, what buying it costs
+        if worth then
+            v = {}
+            for id, copper in pairs(worth) do v[id] = { status = "known", copper = copper } end
+        end
         local plan = core.Compute({ prof = "Testing", skill = from or 1, target = to or 2, recipes = { Testing = recipes }, stock = stock, prices = p,
-            professions = {}, recipeItemPrices = {}, caps = {} })
+            values = v, professions = {}, recipeItemPrices = {}, caps = {} })
         local ok, why = core.CheckBalance(plan)
         assert(ok, "the books do not balance: " .. tostring(why))
         local m = {}
@@ -6493,9 +6764,13 @@ step("Skill plan 2.0: the recipe choice counts whole batches, like the material 
     -- the four cases of round 1 (Codex B1), each with a second recipe for the
     -- point - its cost lies between what A really costs and what a wrong
     -- count would make of it
-    -- RAW_STOCK: the raw material for A's X is in the bags: A costs nothing
-    plan, m = Plan({ a, (B(5)), R("Make X", 11, 1, 1, { { 12, 1 } }) }, { [12] = 1 }, { [11] = 20, [12] = 50, [21] = 5 })
+    -- RAW_STOCK: the raw material for A's X is in the bags, worth 3c (0.2.3):
+    -- A uses up 3c, nothing bought - below B's 5c
+    plan, m = Plan({ a, (B(5)), R("Make X", 11, 1, 1, { { 12, 1 } }) }, { [12] = 1 }, { [11] = 20, [12] = 50, [21] = 5 }, nil, nil, { [12] = 3 })
     assert(Says(plan) == "A 0" and m[11].madeFrom and m[12].covered, "raw stock for A's X, B at 5c: " .. Says(plan))
+    -- ... worth 50c (what buying it costs): A would use up 20c (X bought) - B
+    plan = Plan({ a, (B(5)), R("Make X", 11, 1, 1, { { 12, 1 } }) }, { [12] = 1 }, { [11] = 20, [12] = 50, [21] = 5 })
+    assert(Says(plan) == "B 5", "raw stock worth 50c for A's X, B at 5c: " .. Says(plan))
     -- INTERMEDIATE_FEE: making X takes 1c and a fee of 10000c: A is 20c (X
     -- bought) - B at 15c wins, B at 25c does not
     local function Fee(fee, bCost)
@@ -6530,16 +6805,16 @@ step("Skill plan 2.0: the recipe choice counts whole batches, like the material 
     plan, m = Plan({ yellowA, B2(), makeX }, {}, { [11] = 20, [12] = 30, [21] = 28 }, 2, 3)
     assert(Says(plan) == "A 30" and plan.steps[1].crafts == 2 and m[11].need == 2 and m[11].madeFrom, ("1.5 crafts of A against 28c: %s"):format(Says(plan)))
 
-    -- the choice's own books count whole pieces too: two X in the bags make
-    -- two points of A free, the third costs 20c - there B (5c) takes over
-    plan, m = Plan({ R("A", 10, 1, 4, { { 11, 1 } }), R("B", 20, 1, 4, { { 21, 1 } }) }, { [11] = 2 }, { [11] = 20, [21] = 5 }, 1, 4)
+    -- the choice's own books count whole pieces too: two X in the bags (worth
+    -- 3c each, 0.2.3) make two points of A 3c, the third costs 20c - there B (5c) takes over
+    plan, m = Plan({ R("A", 10, 1, 4, { { 11, 1 } }), R("B", 20, 1, 4, { { 21, 1 } }) }, { [11] = 2 }, { [11] = 20, [21] = 5 }, 1, 4, { [11] = 3 })
     assert(Says(plan) == "A,B 5" and plan.steps[1].to == 3 and m[11].covered and m[21].missing == 1, "two X in stock, three points: " .. Says(plan))
     -- ... and whole crafts, as the plan's step will carry them out: the
     -- point at skill 2 takes 1.5 crafts of the yellow A - two crafts, two X,
     -- both from the bags. So none is left for the point at 3 (three crafts,
     -- 60c): B (55c) takes over. (Half an X left on the books would make A
     -- look like 50c there.)
-    plan, m = Plan({ yellowA, R("B", 20, 1, 9, { { 21, 1 } }) }, { [11] = 2 }, { [11] = 20, [21] = 55 }, 2, 4)
+    plan, m = Plan({ yellowA, R("B", 20, 1, 9, { { 21, 1 } }) }, { [11] = 2 }, { [11] = 20, [21] = 55 }, 2, 4, { [11] = 3 })
     assert(Says(plan) == "A,B 55" and plan.steps[1].crafts == 2 and m[11].need == 2 and m[11].covered, "1.5 crafts carried out on the choice's books: " .. Says(plan))
     -- ... counted on over the points of one recipe, like the step: three
     -- points of an A that is yellow from 1 and grey at 31 take 1.03, 1.07
@@ -6548,7 +6823,7 @@ step("Skill plan 2.0: the recipe choice counts whole batches, like the material 
     -- craft, should it come to that, would cost 20c): A stays below B (10c).
     -- (Rounded up point by point, the first two points would have used all
     -- four, and B would take the third.)
-    plan, m = Plan({ R("A", 10, 1, 31, { { 11, 1 } }, { yellow = 1 }), R("B", 20, 1, 9, { { 21, 1 } }) }, { [11] = 4 }, { [11] = 20, [21] = 10 }, 2, 5)
+    plan, m = Plan({ R("A", 10, 1, 31, { { 11, 1 } }, { yellow = 1 }), R("B", 20, 1, 9, { { 21, 1 } }) }, { [11] = 4 }, { [11] = 20, [21] = 10 }, 2, 5, { [11] = 3 })
     assert(Says(plan) == "A 0" and plan.steps[1].crafts == 4 and m[11].covered, "the crafts of three points in a row on the choice's books: " .. Says(plan))
 end)
 -- The calculation without its shortcuts, for the two steps below: the same
@@ -6615,11 +6890,16 @@ step("Skill plan 2.0: a shortcut never changes the plan - compared with the calc
         for k, v in pairs(extra or {}) do r[k] = v end
         return r
     end
-    local function Input(recipes, stock, prices, from, to)
-        local p = {}
+    local function Input(recipes, stock, prices, from, to, worth)
+        local p, v = {}, nil
         for id, copper in pairs(prices) do p[id] = { status = "known", copper = copper } end
+        -- (0.2.3) what the stock is worth: { [item] = copper or a whole entry }; without, what buying it costs
+        if worth then
+            v = {}
+            for id, w in pairs(worth) do v[id] = type(w) == "table" and w or { status = "known", copper = w } end
+        end
         return { prof = "Testing", skill = from or 1, target = to or 2, recipes = { Testing = recipes }, stock = stock, prices = p,
-            professions = {}, recipeItemPrices = {}, caps = {} }
+            values = v, professions = {}, recipeItemPrices = {}, caps = {} }
     end
     local function Says(plan) -- "A,B 15": the recipes of the steps in order, and the sum
         local keys = {}
@@ -6644,22 +6924,26 @@ step("Skill plan 2.0: a shortcut never changes the plan - compared with the calc
         ("four Y, the X in batches of two, three S in stock: %s copper"):format(tostring(plan.total)))
     assert(core.CheckBalance(plan))
     -- Codex' smallest case: A takes twelve X; an X costs 460c or is made from
-    -- three raw pieces (220c each), 26 of them are there. Nine X made (27
-    -- pieces, one bought: 220c), three X bought (1380c): 1600c - below B's
-    -- 1605c. The tenth X would take 660c of raw material: bought.
+    -- three raw pieces (220c each to buy), 26 of them are there, worth 10c
+    -- each (0.2.3). Nine X made (27 pieces, one bought: 220c), three X bought
+    -- (1380c): 1600c bought and 260c of stock used up - 1860c, below B's
+    -- 1865c. The tenth X would take 660c of raw material: bought.
     local function Smallest(rawStock, bCost)
         local list = { R("A", 10, 1, 2, { { 11, 12 } }), R("Make X", 11, 1, 1, { { 12, 3 } }) }
         if bCost then list[#list + 1] = R("B", 20, 1, 2, { { 21, 1 } }) end
-        return Input(list, { [12] = rawStock }, { [11] = 460, [12] = 220, [21] = bCost or 1 })
+        return Input(list, { [12] = rawStock }, { [11] = 460, [12] = 220, [21] = bCost or 1 }, nil, nil, { [12] = 10 })
     end
-    plan = core.Compute(Smallest(26, 1605))
-    assert(Says(plan) == "A 1600" and Extra(plan, "Make X") == 9 and plan.ledger[11].bought == 3 and plan.ledger[12].bought == 1, "A at 1600c against B at 1605c: " .. Says(plan))
-    plan = core.Compute(Smallest(26, 1595))
-    assert(Says(plan) == "B 1595", "A at 1600c against B at 1595c: " .. Says(plan))
+    plan = core.Compute(Smallest(26, 1865))
+    assert(Says(plan) == "A 1600" and Extra(plan, "Make X") == 9 and plan.ledger[11].bought == 3 and plan.ledger[12].bought == 1, "A at 1860c against B at 1865c: " .. Says(plan))
+    plan = core.Compute(Smallest(26, 1855))
+    assert(Says(plan) == "B 1855", "A at 1860c against B at 1855c: " .. Says(plan))
+    -- a tie (1860c each): the one that uses up less of your stock
+    plan = core.Compute(Smallest(26, 1860))
+    assert(Says(plan) == "B 1860", "A at 1860c against B at 1860c: " .. Says(plan))
     -- the same need with other counts of raw material - also ones that are
-    -- no whole number of batches: every three pieces make an X for nothing,
-    -- one or two left over make the next X cost 440c or 220c (below 460c),
-    -- the rest is bought
+    -- no whole number of batches: every three pieces make an X for 30c of
+    -- stock, one or two left over make the next X cost 450c or 240c (below
+    -- 460c) - 440c or 220c of it bought, the rest is bought
     for _, rawStock in ipairs({ 0, 1, 2, 3, 4, 5, 6, 7, 24, 25, 26, 27, 28, 29, 33, 34, 35, 36, 37, 40 }) do
         local free = math.min(12, math.floor(rawStock / 3))
         local left, want = rawStock - free * 3, 0
@@ -6687,16 +6971,18 @@ step("Skill plan 2.0: a shortcut never changes the plan - compared with the calc
     -- the cases above
     Both(Smallest(26, 1605), "Codex' smallest case")
     for rawStock = 0, 40 do Both(Smallest(rawStock, 1605), rawStock .. " raw pieces") end
-    for _, bCost in ipairs({ 200, 900, 1595, 1600, 1601, 5000 }) do Both(Smallest(26, bCost), "B at " .. bCost) end
+    for _, bCost in ipairs({ 200, 900, 1595, 1600, 1601, 1855, 1860, 1861, 1865, 5000 }) do Both(Smallest(26, bCost), "B at " .. bCost) end
 
     -- One case for each thing a shortcut rests on; each of them gives another
     -- plan when that one thing is left out (the counter-probes do so).
     -- a batch that learns a recipe is not the batch after it: four Y, each
     -- from an X (its recipe costs 6c to learn, once) and an S (three are
-    -- there, a fourth costs 100c): three Y made for 1c each and the fee, the
-    -- fourth bought for 30c - 33c and 6c, below Q's 45c
+    -- there, worth 1c each - 0.2.3; a fourth costs 100c): three Y made for 1c
+    -- bought each and the fee, the fourth bought for 30c - 33c, 3c of stock
+    -- and 6c, below Q's 45c
     plan = Both(Input({ R("P", 10, 1, 2, { { 13, 4 } }), R("Q", 20, 1, 2, { { 21, 1 } }), R("Make Y", 13, 1, 1, { { 11, 1 }, { 14, 1 } }),
-        R("Make X", 11, 1, 1, { { 12, 1 } }, { learn = "trainer", fee = 6 }) }, { [14] = 3 }, { [13] = 30, [11] = 50, [12] = 1, [14] = 100, [21] = 45 }), "a fee inside the first batch")
+        R("Make X", 11, 1, 1, { { 12, 1 } }, { learn = "trainer", fee = 6 }) }, { [14] = 3 }, { [13] = 30, [11] = 50, [12] = 1, [14] = 100, [21] = 45 }, nil, nil,
+        { [14] = 1 }), "a fee inside the first batch")
     assert(Says(plan) == "P 33" and plan.learn.fees == 6 and Extra(plan, "Make Y") == 3, "a fee inside the first batch: " .. Says(plan))
     -- what a recipe's share of a one-time cost is belongs to what was worked
     -- out: A1 gives one point (the 100c fee of X counts whole: X is bought),
@@ -6722,10 +7008,31 @@ step("Skill plan 2.0: a shortcut never changes the plan - compared with the calc
     plan = Both(Input({ R("P", 10, 1, 2, { { 13, 1 } }), R("Q", 20, 2, 3, { { 13, 5 } }), R("Make Y", 13, 1, 1, { { 11, 1 } }), R("Make X", 11, 1, 1, { { 12, 1 } }) },
         { [12] = 3 }, { [13] = 200, [11] = 50, [12] = 40 }, 1, 3), "remembered inside a batch")
     assert(Says(plan) == "P,Q 120" and plan.ledger[12].bought == 3 and plan.ledger[12].rest == 0, "three raw pieces for six Y: " .. Says(plan))
-    -- a count that did not cover the need is exact: two R are one too few for
-    -- P2; once P1 has made the third, P2 costs nothing
-    plan = Both(Input({ R("P1", 12, 1, 3, { { 21, 1 } }), R("P2", 30, 1, 3, { { 12, 3 } }) }, { [12] = 2 }, { [12] = 40, [21] = 10 }, 1, 3), "a count that did not cover")
+    -- a count that did not cover the need is exact: two R (worth 1c each -
+    -- 0.2.3) are one too few for P2; once P1 has made the third, P2 uses up
+    -- only the two
+    plan = Both(Input({ R("P1", 12, 1, 3, { { 21, 1 } }), R("P2", 30, 1, 3, { { 12, 3 } }) }, { [12] = 2 }, { [12] = 40, [21] = 10 }, 1, 3, { [12] = 1 }), "a count that did not cover")
     assert(Says(plan) == "P1,P2 10", "two R, a third from the first step: " .. Says(plan))
+    -- (0.2.3) batches are repeated only while the stock you HAD lasts: two R
+    -- in the bags (worth 1c each), four more from P1's craft. P2's eight X are
+    -- made from one R each - the first two from your stock (2c), the four
+    -- after them from what P1 made (paid for there) - and two bought (30c
+    -- each, below an R at 40c): 62c, P2's stock 2c
+    plan = Both(Input({ R("P1", 12, 1, 3, { { 21, 1 } }, { made = 4 }), R("P2", 30, 2, 3, { { 13, 8 } }), R("Make X", 13, 1, 1, { { 12, 1 } }) },
+        { [12] = 2 }, { [12] = 40, [13] = 30, [21] = 100 }, 1, 3, { [12] = 1 }), "batches from the stock you had, then from what the plan made")
+    assert(Says(plan) == "P1,P2 160" and plan.steps[2].why and math.abs(plan.steps[2].why.stock - 2) < 1e-9 and Extra(plan, "Make X") == 6,
+        ("batches from the stock you had, then from what the plan made: %s, stock %s"):format(Says(plan), tostring(plan.steps[2].why and plan.steps[2].why.stock)))
+    -- (0.2.3) what was worked out three levels down rests on the stock you HAD
+    -- there: one R in the bags (worth 50c). At 1, P's Y (from an X, from an R)
+    -- would use it up - 50c and Z (1c); Q uses it for 50c and makes three R.
+    -- At 2 your R is gone, P's R come from Q: P costs 1c, below W's 20c. (What
+    -- was worked out for P at 1 does not hold at 2.) P2 takes a Y too - at 1
+    -- the one worked out for P - and Z2 (2c): the next best at 2, 2c
+    plan = Both(Input({ R("P", 10, 1, 3, { { 13, 1 }, { 17, 1 } }), R("P2", 11, 1, 3, { { 13, 1 }, { 18, 1 } }), R("Q", 12, 1, 2, { { 12, 1 } }, { made = 3 }),
+        R("W", 15, 2, 3, { { 16, 1 } }), R("Make Y", 13, 1, 1, { { 14, 1 } }), R("Make X", 14, 1, 1, { { 12, 1 } }) },
+        { [12] = 1 }, { [12] = 60, [13] = 100, [14] = 90, [16] = 20, [17] = 1, [18] = 2 }, 1, 3, { [12] = 50 }), "the stock you had, three levels down")
+    assert(Says(plan) == "Q,P 1" and plan.steps[2].why and plan.steps[2].why.other and plan.steps[2].why.other.key == "P2"
+        and math.abs(plan.steps[2].why.other.value - 2) < 1e-9, "the stock you had, three levels down: " .. Says(plan))
     -- the last batch replaces fewer pieces than a whole one: seven X in
     -- batches of three (45c) against 20c a piece - two batches, one X bought
     plan = Both(Input({ R("P", 10, 1, 2, { { 11, 7 } }), R("Make X", 11, 1, 1, { { 12, 1 } }, { made = 3 }) }, {}, { [11] = 20, [12] = 45 }), "a last batch for one piece")
@@ -6740,6 +7047,12 @@ step("Skill plan 2.0: a shortcut never changes the plan - compared with the calc
         Both(Input({ R("P", 10, 1, 8, { { 13, 2 }, { 16, 1 } }, { yellow = 2 }), R("Q", 20, 1, 8, { { 21, 3 } }), R("Make Y", 13, 1, 1, { { 11, 3 } }),
             R("Make X", 11, 1, 1, { { 12, 2 }, { 15, 1 } }), R("Make Z", 16, 1, 1, { { 12, 1 } }, { made = 2 }) },
             { [12] = rawStock, [15] = 7, [11] = 2 }, { [13] = 900, [11] = 250, [12] = 30, [15] = 12, [16] = 25, [21] = 150 }, 1, 8), rawStock .. " raw pieces, three levels")
+        -- (0.2.3) the same with the stock worth less than buying it (and the X of unknown worth)
+        Both(Input({ R("P", 10, 1, 8, { { 13, 2 }, { 16, 1 } }, { yellow = 2 }), R("Q", 20, 1, 8, { { 21, 3 } }), R("Make Y", 13, 1, 1, { { 11, 3 } }),
+            R("Make X", 11, 1, 1, { { 12, 2 }, { 15, 1 } }), R("Make Z", 16, 1, 1, { { 12, 1 } }, { made = 2 }) },
+            { [12] = rawStock, [15] = 7, [11] = 2 }, { [13] = 900, [11] = 250, [12] = 30, [15] = 12, [16] = 25, [21] = 150 }, 1, 8,
+            { [12] = 4, [15] = 3, [11] = { status = rawStock % 2 == 0 and "unknown" or "estimated", copper = rawStock % 2 == 1 and 90 or nil } }),
+            rawStock .. " raw pieces, three levels, the stock at a worth")
     end
 
     -- ---- many small made-up professions (the same on every machine): chains
@@ -6752,6 +7065,14 @@ step("Skill plan 2.0: a shortcut never changes the plan - compared with the calc
         return math.floor(state / 65536) % n + 1
     end
     local function chance(percent) return rnd(100) <= percent end
+    -- (0.2.3) what the stock is worth, from a generator of its own: the cases
+    -- stay the ones they were. Mostly a worth below the price, some estimated,
+    -- some unknown; in one case of five no worth (the price counts)
+    local wstate = 20261122
+    local function wrnd(n)
+        wstate = (wstate * 1103515245 + 12345) % 2147483648
+        return math.floor(wstate / 65536) % n + 1
+    end
     local function Case()
         local nRaw, nMid = 2 + rnd(4), rnd(5)
         local raw, mid = {}, {}
@@ -6824,6 +7145,20 @@ step("Skill plan 2.0: a shortcut never changes the plan - compared with the calc
         local skill = rnd(6)
         local input = { prof = "Testing", skill = skill, target = skill + rnd(18), recipes = { Testing = recipes }, stock = stock, prices = prices,
             professions = { Testing = { rank = skill } }, recipeItemPrices = recipeItemPrices, caps = { 10, 20 }, maxRank = chance(50) and 10 or nil }
+        if wrnd(5) > 1 then
+            local ids = {}
+            for id in pairs(stock) do ids[#ids + 1] = id end
+            table.sort(ids)
+            input.values = {}
+            for _, id in ipairs(ids) do
+                local kind = wrnd(10)
+                if kind <= 6 then
+                    input.values[id] = { status = "known", copper = wrnd(40) * (wrnd(2) == 1 and 1 or 10) }
+                elseif kind <= 8 then
+                    input.values[id] = { status = "estimated", copper = wrnd(20) }
+                end
+            end
+        end
         if #other > 0 and chance(85) then
             input.recipes.Other = other
             input.professions.Other = { rank = rnd(14) }

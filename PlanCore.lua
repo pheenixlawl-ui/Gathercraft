@@ -182,6 +182,20 @@ local function PriceOf(input, id)
 end
 Core.PriceOf = PriceOf
 
+-- What an item out of your stock is worth in the recipe choice (0.2.3; Sven,
+-- 22.11.2026, proposal A of the blacksmith diagnosis): input.values[item] =
+-- { status, copper } - its auction price by the 0.1.16 rule, else what a
+-- vendor pays for it (a lower bound: estimated), else unknown. An input
+-- without values (the tests' own tables) gives an item the worth of buying it.
+local function ValueOf(input, id)
+    local values = input.values
+    if not values then return PriceOf(input, id) end
+    local v = values[id]
+    if type(v) ~= "table" or type(v.copper) ~= "number" or v.status == "unknown" then return UNKNOWN end
+    if v.status ~= "estimated" and v.status ~= "known" then return { status = "known", copper = v.copper } end
+    return v
+end
+
 -- how many of an item you have: the number for the books, and whether it
 -- is known at all
 local function StockNumber(input, id)
@@ -417,9 +431,12 @@ end
 ---------------------------------------------------------------------------
 -- Getting what the stock lacks: buy it or make it (concept 4.2 / 4.5; Codex
 -- round 1, B1). Decided for THIS need - the amount that is lacking now -
--- by what each way costs on top of what you have, tried out on the books:
---   * what is in stock is free, also the raw materials further down (and it
---     is used up as it is used: the same piece is not free twice)
+-- by what each way uses up, tried out on the books:
+--   * a piece bought costs its price; a piece out of the stock you had - also
+--     the raw materials further down - costs what it is worth (ValueOf, 0.2.3:
+--     never nothing; a worth nobody knows is like a price nobody knows). It is
+--     used up as it is used: the same piece is not counted twice, and what the
+--     plan made itself was paid for where it was made
 --   * making it costs whole batches; what a batch makes too much is no saving
 --   * a recipe the plan has not learned yet costs its fee or its recipe item,
 --     once
@@ -447,10 +464,16 @@ end
 -- Each need is decided when it comes up; what a later step may still need
 -- of the same thing is not counted in (a heuristic, like the recipe choice).
 ---------------------------------------------------------------------------
-local function NewAcc() return { copper = 0, once = 0, gap = 0 } end
+-- (0.2.3) stock  the worth of what it took out of your stock (ValueOf)
+--        sgap   pieces of your stock whose worth nobody knows: like a price nobody knows
+--        Neither is in the plan's sums of what you lack - only in the choice.
+local function NewAcc() return { copper = 0, once = 0, gap = 0, stock = 0, sgap = 0 } end
 
 local function Add(into, a)
     into.copper, into.once, into.gap = into.copper + a.copper, into.once + a.once, into.gap + a.gap
+    into.stock, into.sgap = (into.stock or 0) + (a.stock or 0), (into.sgap or 0) + (a.sgap or 0)
+    if a.stockEstimated then into.stockEstimated = true end
+    if a.stockGap then into.stockGap = true end
     if a.estimated then into.estimated = true end
     if a.priceGap then into.priceGap = true end
     if a.feeGap then into.feeGap = true end
@@ -461,7 +484,9 @@ end
 
 -- what a way costs when it is compared: its one-time costs count whole in
 -- the plan's books, with the recipe's share in the recipe choice (L.share)
-local function Value(L, a) return a.copper + a.once * L.share end
+local function Value(L, a) return a.copper + (a.stock or 0) + a.once * L.share end
+-- what in a way has no known worth: pieces without a price, fees, stock (0.2.3)
+local function Gap(a) return a.gap + (a.sgap or 0) end
 
 -- what `batches` crafts make: whole pieces (a mean output like 1.5 is
 -- rounded down over all the crafts)
@@ -491,8 +516,16 @@ end
 -- Nothing else on the books is looked at to decide anything: what is used,
 -- bought and made so far is only added to.
 ---------------------------------------------------------------------------
+-- (0.2.3) how much of the stock you had is left: it is used first (what the plan
+-- makes goes on top of it), so it is what you had minus all that was used
+local function OrigLeft(ctx, L, id)
+    local start = L.start[id]
+    if start == nil then start = StockNumber(ctx.input, id) end
+    return math.max(0, start - (L.used[id] or 0))
+end
+
 local function Watch(ctx)
-    local w = { n = 0, ids = {}, first = {}, min = {}, exact = {}, ln = 0, lids = {}, lwas = {}, low = 0, till = math.huge,
+    local w = { n = 0, ids = {}, first = {}, min = {}, exact = {}, orig = {}, ln = 0, lids = {}, lwas = {}, low = 0, till = math.huge,
         share = false, cyc = nil, parent = ctx.watch }
     ctx.watch = w
     return w
@@ -508,6 +541,7 @@ local function HandUp(w)
         if first[id] == nil then
             p.n = p.n + 1
             p.ids[p.n], first[id], min[id] = id, w.first[id], w.min[id]
+            p.orig[id] = w.orig[id]
         elseif w.min[id] < min[id] then
             min[id] = w.min[id]
         end
@@ -545,10 +579,11 @@ end
 -- Getting `rest` of an item was worked out with the watch `w`: remembered
 -- with what it rests on, what it wrote (as changes) and what it cost.
 local function Remember(ctx, L, id, rest, w, changes, acc)
-    local e = { n = w.n, ids = w.ids, exact = {}, value = {}, ln = w.ln, lids = w.lids, lwas = {}, low = w.low, till = w.till,
+    local e = { n = w.n, ids = w.ids, exact = {}, value = {}, orig = {}, ln = w.ln, lids = w.lids, lwas = {}, low = w.low, till = w.till,
         share = w.share and L.share or false, changes = changes, acc = acc }
     for i = 1, w.n do
         local item = w.ids[i]
+        e.orig[i] = w.orig[item]
         if w.exact[item] then
             e.exact[i], e.value[i] = true, w.first[item]
         else
@@ -589,6 +624,8 @@ local function Recall(ctx, L, id, rest, skillNow, stack)
         -- an item it looked at is being made further up now: the chain could
         -- come back to it
         if deep and stack[item] then return nil end
+        -- (0.2.3) the worth of what it took from your stock rests on how much of it is left
+        if e.orig[i] ~= nil and OrigLeft(ctx, L, item) ~= e.orig[i] then return nil end
     end
     local learned = L.learned
     for i = 1, e.ln do
@@ -607,6 +644,7 @@ local function Inherit(ctx, L, w, e)
         if first[item] == nil then
             w.n = w.n + 1
             w.ids[w.n], first[item], min[item] = item, have, have
+            w.orig[item] = e.orig[i]
         end
         if e.exact[i] then
             exact[item] = true
@@ -651,6 +689,22 @@ local function Repeats(ctx, L, w, limit)
             if fits < more then
                 more = fits
                 if more <= 0 then return 0 end
+            end
+        end
+    end
+    -- (0.2.3) what the batch took from the stock you had (it is used first): the
+    -- same again only while it lasts - after it, a batch takes what the plan made
+    for i = 1, w.n do
+        local id = w.ids[i]
+        if w.orig[id] ~= nil then
+            local left = OrigLeft(ctx, L, id)
+            local fromOrig = w.orig[id] - left
+            if fromOrig > 0 then
+                local fits = math.floor(left / fromOrig + 1e-9)
+                if fits < more then
+                    more = fits
+                    if more <= 0 then return 0 end
+                end
             end
         end
     end
@@ -750,7 +804,7 @@ local function MakeSome(ctx, L, id, r, rest, skillNow, stack, acc)
         local mark = Mark(L)
         Batches(ctx, L, id, r, 1, skillNow, stack, a)
         if w then ctx.watch = w.parent end
-        if a.cyclic or a.gap > 0 or Value(L, a) >= price.copper * covers then
+        if a.cyclic or Gap(a) > 0 or Value(L, a) >= price.copper * covers then
             Rollback(L, mark)
             if w then HandUp(w) end
             break
@@ -774,9 +828,10 @@ local function MakeSome(ctx, L, id, r, rest, skillNow, stack, acc)
         if w then HandUp(w) end
         Add(acc, a)
         if more > 0 then
-            if a.copper % 1 == 0 and a.once % 1 == 0 and a.gap % 1 == 0 then
+            if a.copper % 1 == 0 and a.once % 1 == 0 and a.gap % 1 == 0 and a.stock % 1 == 0 and a.sgap % 1 == 0 then
                 -- (whole numbers: the same sum whether added batch by batch or at once)
                 acc.copper, acc.once, acc.gap = acc.copper + a.copper * more, acc.once + a.once * more, acc.gap + a.gap * more
+                acc.stock, acc.sgap = (acc.stock or 0) + a.stock * more, (acc.sgap or 0) + a.sgap * more
             else
                 for _ = 1, more do Add(acc, a) end
             end
@@ -791,12 +846,12 @@ end
 -- is way `w` to be taken instead of `than`? (the earlier one keeps a tie)
 local function Better(L, w, than)
     local a, b = w.acc, than.acc
-    local wholeA, wholeB = a.gap == 0, b.gap == 0
+    local wholeA, wholeB = Gap(a) == 0, Gap(b) == 0
     if wholeA ~= wholeB then return wholeA end
     if wholeA then return Value(L, a) < Value(L, b) end
     -- no way has a whole cost: making before buying at a price nobody knows
     if (w.kind == "buy") ~= (than.kind == "buy") then return than.kind == "buy" end
-    if a.gap ~= b.gap then return a.gap < b.gap end
+    if Gap(a) ~= Gap(b) then return Gap(a) < Gap(b) end
     return Value(L, a) < Value(L, b)
 end
 
@@ -858,13 +913,13 @@ local function Decide(ctx, L, id, rest, skillNow, stack, acc)
             Rollback(L, mark)
         end
     end
-    if best.acc.gap == 0 then
+    if Gap(best.acc) == 0 then
         for _, way in ipairs(ways) do
-            if way.kind ~= "buy" and way.acc.gap > 0 and Value(L, way.acc) < Value(L, best.acc) then
+            if way.kind ~= "buy" and Gap(way.acc) > 0 and Value(L, way.acc) < Value(L, best.acc) then
                 -- a way to make it, with a part nobody knows, could have cost less
                 acc.open = true
                 if way.acc.feeGap then acc.openLearn = true end
-                if way.acc.priceGap then acc.openPrice = true end
+                if way.acc.priceGap or way.acc.stockGap then acc.openPrice = true end
             end
         end
     end
@@ -930,6 +985,7 @@ Take = function(ctx, L, id, qty, skillNow, stack, acc)
         if w.first[id] == nil then
             w.n = w.n + 1
             w.ids[w.n], w.first[id], w.min[id] = id, have, have
+            w.orig[id] = OrigLeft(ctx, L, id)
         end
         if have < qty then
             w.exact[id] = true -- what is lacking comes from the exact count
@@ -938,6 +994,20 @@ Take = function(ctx, L, id, qty, skillNow, stack, acc)
         end
     end
     local take = math.min(have, qty)
+    -- (0.2.3) what comes out of the stock you had is used up: it costs what it is
+    -- worth (ValueOf), never nothing; worth nobody knows is like a price nobody
+    -- knows. What the plan made itself is on top of it and was paid for there.
+    local own = math.min(take, OrigLeft(ctx, L, id))
+    if own > EPS then
+        local v = ValueOf(ctx.input, id)
+        if v.copper then
+            acc.stock = (acc.stock or 0) + v.copper * own
+            if v.status == "estimated" then acc.stockEstimated = true end
+        else
+            acc.sgap = (acc.sgap or 0) + own
+            acc.stockGap = true
+        end
+    end
     W(L, "have", id, have - take)
     W(L, "used", id, (L.used[id] or 0) + qty)
     local rest = qty - take
@@ -961,15 +1031,18 @@ local function Apply(ctx, L, recipe, crafts, skillNow, acc)
 end
 
 ---------------------------------------------------------------------------
--- The recipe choice (concept 4.2)
---   What is compared, skill point by skill point: the gold you would have
---   to spend ON TOP of what you have for the crafts that point is expected
---   to take.
+-- The recipe choice (concept 4.2; 0.2.3, Sven 22.11.2026)
+--   What is compared, skill point by skill point: what the crafts that point
+--   is expected to take use up - the pieces bought at their price, the pieces
+--   out of your stock at their market worth (ValueOf) - and its share of the
+--   one-time costs. (What is shown as missing stays the gold you lack.)
 --   * asked on books of its own (the choice's), with the same rules as the
---     plan's books: what you have costs nothing but is used up as the choice
---     uses it - the same stock does not make every later recipe free - and a
---     material is bought or made, whichever costs less at that point (raw
---     stock further down included)
+--     plan's books: what you have is used up as the choice uses it - the
+--     same stock is not counted for every later recipe - and a material is
+--     bought or made, whichever uses up less at that point (raw stock
+--     further down included)
+--   * a tie (the same before the switch's 8 %) goes to the recipe that uses
+--     up stock worth less, then to fewer pieces a point (Prefer)
 --   * what a point costs is what the material balance would count for its
 --     crafts (Codex round 2, R2-M1): WHOLE crafts with whole batches of what
 --     they need, or the piece bought - never a part of a batch. The number
@@ -1076,16 +1149,41 @@ local function Evaluate(ctx, c, skill, p)
         mixed.copper = acc.copper * (1 - part) + more.copper * part
         mixed.once = acc.once * (1 - part) + more.once * part
         mixed.gap = acc.gap * (1 - part) + more.gap * part
+        mixed.stock = acc.stock * (1 - part) + more.stock * part
+        mixed.sgap = acc.sgap * (1 - part) + more.sgap * part
         acc = mixed
     end
-    local gap = acc.gap + (feeUnknown and 1 or 0)
-    return { score = acc.copper + (acc.once + fee) * share + 1, gap = gap, comparable = gap == 0, estimated = acc.estimated or false,
-        fee = fee, feeUnknown = feeUnknown, share = share, learnGap = feeUnknown or acc.feeGap or false, priceGap = acc.priceGap or false }
+    local gap = acc.gap + acc.sgap + (feeUnknown and 1 or 0)
+    -- (0.2.3) pieces a point: what one craft takes, as often as a point takes crafts
+    local pieces = 0
+    for _, reagent in ipairs(Reagents(ctx, c)) do pieces = pieces + reagent.n end
+    return { score = acc.copper + acc.stock + (acc.once + fee) * share + 1, gap = gap, comparable = gap == 0,
+        estimated = acc.estimated or acc.stockEstimated or false,
+        fee = fee, feeUnknown = feeUnknown, share = share, learnGap = feeUnknown or acc.feeGap or false,
+        priceGap = acc.priceGap or acc.stockGap or false, stock = acc.stock, pieces = pieces / p }
 end
 
 -- Per skill point the recipe to use: points[skill] = candidate, info[skill]
 -- = how it was judged (for "why this recipe"), where the plan got stuck
 -- (if), and whether a choice was not fully comparable.
+-- is e to be taken before f? The less worth used up a point first, with the
+-- switch's 8 % on every recipe but the one in use. (0.2.3, Sven 22.11.) Where
+-- two cost the same before the 8 % (a tie), the 8 % does not hold the one in
+-- use: the stock worth less goes first, then fewer pieces a point; only then
+-- the one in use keeps it, else the recipes' own order (by name, the earlier).
+local TIE = 1e-6
+local function Same(a, b) return math.abs(a - b) <= TIE * math.max(1, math.abs(a), math.abs(b)) end
+local function Prefer(e, f)
+    if not (Same(e.rawGap, f.rawGap) and Same(e.rawScore, f.rawScore)) then
+        if e.gap ~= f.gap then return e.gap < f.gap end
+        if e.score ~= f.score then return e.score < f.score end
+    end
+    if not Same(e.stock, f.stock) then return e.stock < f.stock end
+    if not Same(e.pieces, f.pieces) then return e.pieces < f.pieces end
+    if e.inUse ~= f.inUse then return e.inUse end
+    return false
+end
+
 local function ChoosePoints(ctx, cands, unknownChance, trainAt)
     local input = ctx.input
     local CL = ctx.choice
@@ -1098,6 +1196,7 @@ local function ChoosePoints(ctx, cands, unknownChance, trainAt)
             local p = Chance(skill, c.req, c.yellow, c.grey)
             if p > 0 then
                 local e = Evaluate(ctx, c, skill, p)
+                e.rawScore, e.rawGap, e.inUse = e.score, e.gap, c == current
                 if c ~= current then e.score, e.gap = e.score * SWITCH_PENALTY, e.gap * SWITCH_PENALTY end
                 Rest(ctx)
                 live[#live + 1] = { c = c, p = p, e = e }
@@ -1110,10 +1209,10 @@ local function ChoosePoints(ctx, cands, unknownChance, trainAt)
                     local e = x.e
                     if x.p > minChance and e.comparable == comparable then
                         local c = x.c
-                        if not best or e.gap < bestE.gap or (e.gap == bestE.gap and e.score < bestE.score) then
+                        if not best or Prefer(e, bestE) then
                             runner, runnerE = best, bestE
                             best, bestE = c, e
-                        elseif not runner or e.gap < runnerE.gap or (e.gap == runnerE.gap and e.score < runnerE.score) then
+                        elseif not runner or Prefer(e, runnerE) then
                             runner, runnerE = c, e
                         end
                     end
@@ -1134,7 +1233,10 @@ local function ChoosePoints(ctx, cands, unknownChance, trainAt)
         points[skill] = best
         info[skill] = { score = bestE.score, comparable = bestE.comparable, estimated = bestE.estimated, fee = bestE.fee,
             learnGap = bestE.learnGap, priceGap = bestE.priceGap,
-            other = runner and { name = runner.name, key = runner.key, score = runnerE.score, comparable = runnerE.comparable } or nil }
+            -- (0.2.3) what it is worth a point without the 8 %, and how much of it is your stock
+            value = bestE.rawScore - 1, stock = bestE.stock,
+            other = runner and { name = runner.name, key = runner.key, score = runnerE.score, comparable = runnerE.comparable,
+                value = runnerE.rawScore - 1 } or nil }
         -- this point is planned: on the choice's books its materials are used
         -- up, its output is there, its recipe (and what it learned for an
         -- intermediate) is learned.
@@ -1176,10 +1278,10 @@ end
 
 -- what getting a step's ingredients said about the choice (acc), on the step
 local function Flag(step, acc)
-    if acc.open or acc.gap > 0 then step.comparable = false end
-    if acc.estimated then step.estimated = true end
+    if acc.open or Gap(acc) > 0 then step.comparable = false end
+    if acc.estimated or acc.stockEstimated then step.estimated = true end
     if acc.openLearn or acc.feeGap then step.learnOpen = true end
-    if acc.openPrice or acc.priceGap then step.priceOpen = true end
+    if acc.openPrice or acc.priceGap or acc.stockGap then step.priceOpen = true end
 end
 
 -- The skills at which a recipe further down the ingredients of c becomes
