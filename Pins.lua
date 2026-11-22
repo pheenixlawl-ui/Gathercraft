@@ -556,6 +556,8 @@ end
 local function MiniOn(m)
     if miniOn[m] then return end
     local n = m.node
+    -- (0.2.2 W4) its colour and alpha now: the 3-s look only goes over the pins near you
+    if RefreshPin then RefreshPin(m) end
     HBDPins:AddMinimapIconMap(REF, m, m.mapID, n.x, n.y, false, false)
     miniOn[m] = true
     miniCount.near = miniCount.near + 1
@@ -784,7 +786,10 @@ local function UpdateAlpha()
             if pin.node and not pin.isTarget then SetAlpha(pin) end
         end
     end
-    for m in pairs(miniAll) do
+    -- (0.2.2 W4) the minimap pins near you (registered with HereBeDragons, the only
+    -- ones the minimap shows); one that comes near gets its look then (MiniOn). A
+    -- colour change still goes to every pin of the zone at once, as before.
+    for m in pairs(changed and miniAll or miniOn) do
         if changed then Tint(m) end
         SetAlpha(m)
     end

@@ -388,6 +388,16 @@ do
         return remAll(self, ref, ...)
     end
 end
+-- (0.2.2 W-B) the same for the minimap: which pins are registered (the ones near you)
+HBD_MINI = { reg = {} }
+do
+    local P, M = libs["HereBeDragons-Pins-2.0"], HBD_MINI
+    local function Reg(ref) M.reg[ref] = M.reg[ref] or {} return M.reg[ref] end
+    local addMap, rem, remAll = P.AddMinimapIconMap, P.RemoveMinimapIcon, P.RemoveAllMinimapIcons
+    P.AddMinimapIconMap = function(self, ref, icon, ...) Reg(ref)[icon] = true return addMap(self, ref, icon, ...) end
+    P.RemoveMinimapIcon = function(self, ref, icon, ...) Reg(ref)[icon] = nil return rem(self, ref, icon, ...) end
+    P.RemoveAllMinimapIcons = function(self, ref, ...) M.reg[ref] = {} return remAll(self, ref, ...) end
+end
 local ldbObj
 libs["LibDataBroker-1.1"] = { NewDataObject = function(_, name, o) ldbObj = o return o end }
 libs["LibDBIcon-1.0"] = { Register = function() end, Show = function() end, Hide = function() end, SetButtonIcon = function() end }
@@ -29030,14 +29040,16 @@ step("World map pins 0.2.2: the pass every 3 s looks only at the shown ones - no
             return f
         end
         local wa, wb, wc = Spy(Pin(A)), Spy(Pin(B)), Spy(Pin(C))
-        local mc = Spy(Pin(C, true))
-        assert(wa and wb and wc and mc, "test setup: the pins of the three nodes")
+        -- (0.2.2 W4: the minimap pins near you are looked at - B lies where you stand; C, 500 yd
+        -- off, is not registered, not on the minimap: its look comes when it is near, W4's own step)
+        local mb = Spy(Pin(B, true))
+        assert(wa and wb and wc and mb, "test setup: the pins of the three nodes")
         local function Reset() for f in pairs(calls) do calls[f] = 0 end end
         -- 1. the map closed: no world map pin is looked at; the minimap pins are
         Reset()
         ns.PinsUpdateAlpha()
         assert(calls[wa] == 0 and calls[wb] == 0 and calls[wc] == 0, ("the map closed: world map pins looked at (%d, %d, %d)"):format(calls[wa], calls[wb], calls[wc]))
-        assert(calls[mc] > 0, "the minimap pin of your zone is not looked at")
+        assert(calls[mb] > 0, "the minimap pin near you is not looked at")
         -- 2. the map shows A: A is looked at, B and C not
         Reset()
         wa:Show()
@@ -29302,6 +29314,58 @@ step("World map pins 0.2.2 W-A: a rebuild takes our world map pins off in one ca
     ns.db.worldPinsHidden, ns.db.miniPinsHidden = saved.world, saved.mini
     WorldMapFrame.GetMapID = saved.getMap
     ns.NotifyNodesChanged() advance(2)
+    if not ok then error(err, 0) end
+end)
+step("Minimap pins 0.2.2 W4: the 3-s look sets colour and alpha of the pins near you only, one that comes near gets its look then (0.2.2 W4)", function()
+    -- Sven, 22.11.2026 (the performance diagnosis, section 4): every 3 s the
+    -- colour and alpha of all minimap pins of the zone were set, also the far
+    -- ones the minimap does not show (1.4-1.8 ms in The Barrens with his
+    -- data). W4: the look goes over the pins registered near you (the only
+    -- ones the minimap shows); one that comes near gets its colour and alpha
+    -- when it is registered, so it looks as before. A colour change still
+    -- goes to every pin of the zone at once.
+    local M, REF = HBD_MINI, "Gathercraft"
+    local saved = { x = player.x, y = player.y, setAlpha = methods.SetAlpha, mini = ns.db.miniPinsHidden, world = ns.db.worldPinsHidden }
+    local changedNode, keepUntil
+    ns.db.miniPinsHidden, ns.db.worldPinsHidden = nil, nil
+    local ok, err = pcall(function()
+        -- after a rebuild the book of registered minimap pins is right
+        M.reg[REF] = {}
+        ns.NotifyNodesChanged() advance(2)
+        local zone = ns.GetPlayerPos()
+        local zonePins, near = {}, M.reg[REF]
+        for _, f in ipairs(allFrames) do
+            if f.isMini and f.node and not f.isTarget and f.mapID == zone then zonePins[#zonePins + 1] = f end
+        end
+        local far = {}
+        for _, f in ipairs(zonePins) do if not near[f] then far[#far + 1] = f end end
+        assert(#far > 0 and #zonePins > #far, ("the zone has %d minimap pins, %d far away: nothing to look at"):format(#zonePins, #far))
+        local touched = {}
+        methods.SetAlpha = function(self, a) touched[self] = true return saved.setAlpha(self, a) end
+        ns.PinsUpdateAlpha()
+        methods.SetAlpha = saved.setAlpha
+        local farTouched, nearTouched = 0, 0
+        for _, f in ipairs(far) do if touched[f] then farTouched = farTouched + 1 end end
+        for f in pairs(near) do if touched[f] then nearTouched = nearTouched + 1 end end
+        assert(farTouched == 0, ("the 3-s look set the alpha of %d minimap pins far away (of %d)"):format(farTouched, #far))
+        assert(nearTouched > 0, "the 3-s look set no minimap pin near you")
+        -- a far pin whose node went empty meanwhile: near, it shows it at once
+        local m = far[1]
+        changedNode, keepUntil = m.node, m.node.emptyUntil
+        m.node.emptyUntil = time() + 600
+        player.x, player.y = m.node.x, m.node.y
+        ns.MiniPinLook()
+        assert(M.reg[REF][m], "walked to a far pin: it did not come on")
+        local atOn = m:GetAlpha()
+        ns.PinsUpdateAlpha()
+        assert(atOn == m:GetAlpha() and atOn < 1, ("a pin that came near showed alpha %.2f, the next look made it %.2f"):format(atOn, m:GetAlpha()))
+    end)
+    methods.SetAlpha = saved.setAlpha
+    if changedNode then changedNode.emptyUntil = keepUntil end
+    player.x, player.y = saved.x, saved.y
+    ns.db.miniPinsHidden, ns.db.worldPinsHidden = saved.mini, saved.world
+    ns.MiniPinLook()
+    advance(2)
     if not ok then error(err, 0) end
 end)
 step("Long run (10 min) for leaks", function() slash("run herb") advance(600) slash("stop") end)
