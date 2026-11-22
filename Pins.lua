@@ -907,9 +907,38 @@ local function RefreshNodeAlpha(n)
     if pins.mini then SetAlpha(pins.mini) end
 end
 
+-- (0.2.3 P4) the run target in the search range of Find Herbs / Find
+-- Minerals (SearchRange.lua): a light-blue ring around its gold one - the
+-- game's yellow dot should show now. Only that one pin; a new target starts
+-- without it.
+local SEARCH_TINT = { 0.35, 0.85, 1 }
+local searchMarked = false
+local function SearchMark(pin, on)
+    if not pin then return end
+    if on and not pin.searchMark then
+        pin.searchMark = pin:CreateTexture(nil, "OVERLAY", nil, 3)
+        pin.searchMark:SetTexture(RING_WHITE)
+        pin.searchMark:SetPoint("CENTER")
+    end
+    if pin.searchMark then
+        local w = pin:GetWidth() or 16
+        pin.searchMark:SetSize(w * 1.45, w * 1.45)
+        pin.searchMark:SetVertexColor(SEARCH_TINT[1], SEARCH_TINT[2], SEARCH_TINT[3], 1)
+        if on then pin.searchMark:Show() else pin.searchMark:Hide() end
+    end
+end
+local function SetTargetInRange(on)
+    searchMarked = on and true or false
+    SearchMark(target.world, searchMarked)
+    SearchMark(target.mini, searchMarked)
+end
+ns.SetRouteTargetInRange = SetTargetInRange
+ns.RouteTargetInRange = function() return searchMarked end
+
 local function RemoveTargetPins()
     HBDPins:RemoveAllWorldMapIcons(TARGET_REF)
     HBDPins:RemoveAllMinimapIcons(TARGET_REF)
+    SetTargetInRange(false)
     for _, pin in ipairs({ target.world, target.mini }) do
         if pin then
             pin:Hide()

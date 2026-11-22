@@ -751,4 +751,8 @@ ns.Locales.frFR = {
     ["New personal best here!"] = "Nouveau record personnel ici !",
     ["Not counted for your best runs: under %d minutes of riding."] = "Ne compte pas pour tes meilleures tournées : moins de %d minutes de trajet.",
     ["Gold per hour from known prices only (%d nodes without one)."] = "Or par heure d'après les prix connus seulement (%d gisements sans prix).",
+    ["Search range"] = "Portée de découverte",
+    ["How far Find Herbs shows nodes (ore: assumed the same)"] = "Portée de la découverte d'herbes (minerais : supposée identique)",
+    ["Show the search range on the minimap during farm runs"] = "Afficher la portée de découverte sur la minicarte pendant les tournées",
+    ["In search range - no yellow dot? Press Skip."] = "À portée de découverte – pas de point jaune ? Appuie sur Passer.",
 }

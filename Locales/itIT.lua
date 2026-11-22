@@ -751,4 +751,8 @@ ns.Locales.itIT = {
     ["New personal best here!"] = "Nuovo record personale qui!",
     ["Not counted for your best runs: under %d minutes of riding."] = "Non conta per i tuoi giri migliori: meno di %d minuti in movimento.",
     ["Gold per hour from known prices only (%d nodes without one)."] = "Oro all'ora solo dai prezzi noti (%d nodi senza prezzo).",
+    ["Search range"] = "Raggio di ricerca",
+    ["How far Find Herbs shows nodes (ore: assumed the same)"] = "Fin dove il tracciamento erbe mostra i nodi (minerali: presunto uguale)",
+    ["Show the search range on the minimap during farm runs"] = "Mostra il raggio di ricerca sulla minimappa durante i giri",
+    ["In search range - no yellow dot? Press Skip."] = "Nel raggio di ricerca – nessun punto giallo? Premi Salta.",
 }

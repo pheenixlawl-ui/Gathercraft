@@ -751,4 +751,8 @@ ns.Locales.koKR = {
     ["New personal best here!"] = "이곳에서 개인 최고 기록 경신!",
     ["Not counted for your best runs: under %d minutes of riding."] = "최고 기록에 집계되지 않음: 이동 시간이 %d분 미만입니다.",
     ["Gold per hour from known prices only (%d nodes without one)."] = "시간당 골드는 알려진 가격으로만 계산 (가격 없는 채집물 %d개).",
+    ["Search range"] = "찾기 범위",
+    ["How far Find Herbs shows nodes (ore: assumed the same)"] = "약초 찾기가 채집물을 보여주는 거리 (광물: 같다고 가정)",
+    ["Show the search range on the minimap during farm runs"] = "채집 경로 중 미니맵에 찾기 범위 표시",
+    ["In search range - no yellow dot? Press Skip."] = "찾기 범위 안 – 노란 점이 없나요? 건너뛰기를 누르세요.",
 }

@@ -751,4 +751,8 @@ ns.Locales.zhCN = {
     ["New personal best here!"] = "这里的个人新纪录！",
     ["Not counted for your best runs: under %d minutes of riding."] = "不计入你的最佳路线：移动不到 %d 分钟。",
     ["Gold per hour from known prices only (%d nodes without one)."] = "每小时金币只按已知价格计算（%d 个采集点没有价格）。",
+    ["Search range"] = "搜索范围",
+    ["How far Find Herbs shows nodes (ore: assumed the same)"] = "寻找草药显示采集点的距离（矿物：假定相同）",
+    ["Show the search range on the minimap during farm runs"] = "采集路线中在小地图上显示搜索范围",
+    ["In search range - no yellow dot? Press Skip."] = "在搜索范围内——没有黄点？请按跳过。",
 }

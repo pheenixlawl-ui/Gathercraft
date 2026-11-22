@@ -54,6 +54,7 @@ DisenchantTest.lua
 VisitLog.lua
 Paths.lua
 RunHistory.lua
+SearchRange.lua
 Data\StarterData.lua
 Data\QuestieNodes.lua
 Data\NodeNames.lua

@@ -751,4 +751,8 @@ ns.Locales.ruRU = {
     ["New personal best here!"] = "Новый личный рекорд здесь!",
     ["Not counted for your best runs: under %d minutes of riding."] = "Не учитывается в лучших маршрутах: меньше %d минут в пути.",
     ["Gold per hour from known prices only (%d nodes without one)."] = "Золото в час только по известным ценам (%d точек без цены).",
+    ["Search range"] = "Дальность поиска",
+    ["How far Find Herbs shows nodes (ore: assumed the same)"] = "Дальность поиска трав (руда: принята такой же)",
+    ["Show the search range on the minimap during farm runs"] = "Показывать дальность поиска на миникарте во время маршрутов",
+    ["In search range - no yellow dot? Press Skip."] = "В зоне поиска – нет жёлтой точки? Нажмите «Пропуск».",
 }

@@ -320,6 +320,46 @@ local function AddArrive()
     nextY = nextY - 44
 end
 
+-- (0.2.3 P4) Farm runs: how far Find Herbs / Find Minerals shows nodes on the
+-- minimap (SearchRange.lua). On Rares & prices for now - the farm runs' page is
+-- full, and General keeps its three free rows (v0.1.23 P4); it moves with the
+-- options' new pages (P7b).
+local searchText
+local function AddSearchRange()
+    local label = page:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    label:SetPoint("TOPLEFT", colX + 6, nextY - 4)
+    ns.LText(label, "Search range")
+    fitLabels[#fitLabels + 1] = label
+
+    local minus = CreateFrame("Button", nil, page, "UIPanelButtonTemplate")
+    minus:SetSize(24, 20)
+    minus:SetPoint("TOPLEFT", colX + CONTROL_X, nextY)
+    minus:SetText("-")
+
+    searchText = page:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    searchText:SetPoint("LEFT", minus, "RIGHT", 6, 0)
+    searchText:SetWidth(VALUE_W)
+
+    local plus = CreateFrame("Button", nil, page, "UIPanelButtonTemplate")
+    plus:SetSize(24, 20)
+    plus:SetPoint("LEFT", searchText, "RIGHT", 6, 0)
+    plus:SetText("+")
+
+    local hint = page:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    hint:SetPoint("TOPLEFT", colX + 6, nextY - 24)
+    ns.LText(hint, "How far Find Herbs shows nodes (ore: assumed the same)")
+
+    local function Change(delta)
+        local lo, hi = ns.SEARCH_LIMITS[1], ns.SEARCH_LIMITS[2]
+        local v = math.max(lo, math.min(hi, ns.SearchRange() + delta))
+        ns.db.searchRange = v ~= ns.SEARCH_LIMITS[3] and v or nil
+        options:Refresh()
+    end
+    minus:SetScript("OnClick", function() Change(-10) end)
+    plus:SetScript("OnClick", function() Change(10) end)
+    nextY = nextY - 44
+end
+
 local pinSizeText
 local function AddPinSize()
     local label = page:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
@@ -941,6 +981,9 @@ function options:Refresh()
     if arriveText and ns.ArriveDistance then
         arriveText:SetText(ns.ArriveDistance() .. L[" yd"])
     end
+    if searchText and ns.SearchRange then
+        searchText:SetText(ns.SearchRange() .. L[" yd"])
+    end
     if lineSwatch and ns.RouteLineColor then
         local rgb = ns.RouteLineColor().rgb
         lineSwatch.tex:SetColorTexture(rgb[1], rgb[2], rgb[3])
@@ -1202,6 +1245,17 @@ local function Build()
     AddCheck("Scan the auction house automatically when I open it",
         function() return not ns.db.autoScanOff end,
         function(on) ns.db.autoScanOff = not on or nil end)
+    -- (0.2.3 P4) the search range of the farm runs, and its ring on the minimap
+    -- (off by default): here for now, see AddSearchRange
+    nextY = nextY - 6
+    AddHeader("Farm runs")
+    AddSearchRange()
+    AddCheck("Show the search range on the minimap during farm runs",
+        function() return ns.db.searchRing end,
+        function(on)
+            ns.db.searchRing = on or nil
+            if ns.SearchRangeCheck then ns.SearchRangeCheck() end
+        end)
 
     Section("fishing", true) -- (a line under each switch: rows flow)
     AddCheck("Fish key applies a lure when the pole has none",

@@ -29624,6 +29624,193 @@ step("Run history 0.2.3: never shared - Sync and the shared summary line know no
     local share = welcome:match("local function ShareText%(s%)(.-)\nend\n")
     assert(share and not share:find("best", 1, true), "the shared summary line uses the best run")
 end)
+-- 0.2.3 P4 (Fahrplan; Sven's measurement 11.11.2026: Goldthorn 143 yd,
+-- Kingsblood about 150-160 yd, the minimap zoomed out fully): the search
+-- range of Find Herbs / Find Minerals. The known target pin within it gets a
+-- mark, the run window a hint - only the distance from you to that pin
+-- counts; the game's tracking dots are never read, nothing skips by itself.
+local function ShownText(text)
+    for _, o in ipairs(allFrames) do
+        local t = o.GetText and o:GetText()
+        if t and tostring(t):find(text, 1, true) and (not o.IsVisible or o:IsVisible()) then return o end
+    end
+end
+step("Search range 0.2.3: the run target within it gets a light-blue ring and the run window says so - 150 yd, adjustable; a chest, a hidden position or out of range: nothing; nothing skips by itself (0.2.3 P4)", function()
+    local W = IdentityWorld()
+    local keep = { range = ns.db.searchRange, ring = ns.db.searchRing, secret = issecretvalue }
+    local HINT = ns.L["In search range - no yellow dot? Press Skip."]
+    local ok, err = pcall(function()
+        ns.db.searchRange, ns.db.searchRing = nil, nil
+        local a = W.Node("o1617", "Silverleaf", 0, { item = 765 })
+        W.Set({ a })
+        W.At(-200) ns.StartRun("herb", 1412) W.Wait(1)
+        assert(ns.run and ns.run.target == a, "test setup: the run does not head for the Silverleaf")
+        local function Marked()
+            local world, mini = ns.RouteTargetPins()
+            local shown = world and world.searchMark and world.searchMark:IsShown() and mini and mini.searchMark and mini.searchMark:IsShown()
+            return ns.RouteTargetInRange() and ns.run.inSearchRange and shown and true or false
+        end
+        -- 1. the default is 150 yd: at 200 and 160 yd nothing, at 140 the mark and the hint
+        assert(ns.SearchRange() == 150, "the search range is " .. ns.SearchRange() .. " yd, want 150")
+        assert(not Marked() and not ShownText(HINT), "200 yd: marked")
+        W.At(-160) W.Wait(1)
+        assert(not Marked(), "160 yd: marked")
+        W.At(-140) W.Wait(1)
+        assert(Marked(), "140 yd: the target pin is not marked")
+        assert(ShownText(HINT), "140 yd: the run window does not say it")
+        -- 2. nothing skips by itself: a minute in range, the target stays
+        W.Wait(60)
+        assert(ns.run.target == a and Marked(), "in range for a minute: the target changed or lost its mark")
+        -- 3. adjustable: 100 yd - 140 is out, 90 in; and kept within 60..250
+        ns.db.searchRange = 100 W.Wait(1)
+        assert(not Marked() and not ShownText(HINT), "range 100, at 140 yd: still marked")
+        W.At(-90) W.Wait(1)
+        assert(Marked(), "range 100, at 90 yd: not marked")
+        ns.db.searchRange = 500
+        assert(ns.SearchRange() == 250, "a range of 500 is not kept to 250")
+        ns.db.searchRange = 10
+        assert(ns.SearchRange() == 60, "a range of 10 is not kept to 60")
+        ns.db.searchRange = nil
+        -- 4. a target the tracking does not show (a chest): no mark, even close by
+        a.type = "chest" ns.SearchRangeCheck()
+        assert(not Marked(), "a chest within the range is marked")
+        a.type = "ore" ns.SearchRangeCheck()
+        assert(Marked(), "an ore spot within the range is not marked")
+        a.type = "herb"
+        -- 5. a hidden position (its type says "number", as the game's do): never compared, the mark goes
+        local SECRET = newproxy(true)
+        issecretvalue = function(v) return rawequal(v, SECRET) end
+        local HBD = LibStub("HereBeDragons-2.0")
+        local where, realType = HBD.GetPlayerWorldPosition, type
+        HBD.GetPlayerWorldPosition = function() return SECRET, SECRET, 1 end
+        type = function(v) if rawequal(v, SECRET) then return "number" end return realType(v) end
+        local okCheck, errCheck = pcall(ns.SearchRangeCheck)
+        type = realType
+        HBD.GetPlayerWorldPosition = where
+        issecretvalue = keep.secret
+        assert(okCheck, "a hidden position: " .. tostring(errCheck))
+        assert(not Marked(), "a hidden position: still marked")
+        W.Wait(1)
+        assert(Marked(), "readable again: not marked")
+        -- 6. Skip pressed with the next spot in range too: the new target gets the mark (its pin starts without)
+        local b = W.Node("o1617", "Silverleaf", 40, { item = 765 })
+        W.Set({ a, b })
+        W.At(-100) W.Wait(1)
+        assert(ns.run.target == a and Marked(), "test setup: Silverleaf A in range as the target")
+        ns.SkipNode() advance(0.1)
+        assert(ns.run.target == b, "test setup: Skip did not go to Silverleaf B")
+        W.Wait(1)
+        assert(Marked(), "the next target in range after Skip: not marked")
+        -- 7. the run ends: no mark
+        ns.StopRun(true) W.Wait(1)
+        assert(not ns.RouteTargetInRange(), "the mark stays after the run")
+    end)
+    ns.db.searchRange, ns.db.searchRing, issecretvalue = keep.range, keep.ring, keep.secret
+    W.Restore()
+    if not ok then error(err, 0) end
+end)
+step("Search range 0.2.3: the ring on the minimap - off by default; on: 40 dots around you at the range, again when you move, gone with the run (0.2.3 P4)", function()
+    local W = IdentityWorld()
+    local keep = { range = ns.db.searchRange, ring = ns.db.searchRing }
+    local ok, err = pcall(function()
+        ns.db.searchRange, ns.db.searchRing = nil, nil
+        W.Set({ W.Node("o1617", "Silverleaf", 0, { item = 765 }) })
+        W.At(-300) ns.StartRun("herb", 1412) W.Wait(1)
+        assert(ns.SearchRingDots() == 0, "a ring although it is off")
+        ns.db.searchRing = true W.Wait(1)
+        local n, at = ns.SearchRingDots()
+        local HBD = LibStub("HereBeDragons-2.0")
+        local px, py = HBD:GetPlayerWorldPosition()
+        assert(n == 40 and at and math.abs(at.x - px) < 0.01 and math.abs(at.y - py) < 0.01 and at.range == 150,
+            ("the ring: %d dots, centre %s, range %s"):format(n, at and ("%.0f/%.0f"):format(at.x, at.y) or "-", at and tostring(at.range) or "-"))
+        W.At(-290) W.Wait(1)
+        local _, at2 = ns.SearchRingDots()
+        assert(at2 and math.abs(at2.x - (px + 10)) < 0.01, "the ring does not follow you")
+        ns.db.searchRange = 120 W.Wait(1)
+        assert(select(2, ns.SearchRingDots()).range == 120, "the ring does not take the new range")
+        ns.db.searchRing = nil W.Wait(1)
+        assert(ns.SearchRingDots() == 0, "the ring stays when it is turned off")
+        ns.db.searchRing = true W.Wait(1)
+        ns.StopRun(true) W.Wait(1)
+        assert(ns.SearchRingDots() == 0, "the ring stays after the run")
+    end)
+    ns.db.searchRange, ns.db.searchRing = keep.range, keep.ring
+    W.Restore()
+    if not ok then error(err, 0) end
+end)
+step("Search range 0.2.3: on Rares & prices for now - the range (150 yd, steps of 10) and the ring switch; General keeps its rows; the game's tracking is never read (0.2.3 P4)", function()
+    local keep = ns.db.searchRange
+    local f = assert(io.open(ROOT .. "/SearchRange.lua"))
+    local src = f:read("*a") f:close()
+    for _, call in ipairs({ "GetTrackingInfo", "GetNumTrackingTypes", "SetTracking", "C_Minimap", "GetChildren", "GetRegions", "SkipNode", "CastSpell", "GetPingPosition" }) do
+        assert(not src:find(call, 1, true), "SearchRange.lua uses " .. call)
+    end
+    -- open, also when an earlier step left the options open (then they stay open)
+    local win = _G.GathercraftOptions
+    local wasOpen, wasSection = win:IsShown(), ns.db.optionsSection
+    if not wasOpen then ns.ToggleOptions() end
+    advance(1)
+    local function PageOf(text)
+        for _, o in ipairs(allFrames) do
+            if o.GetText and o:GetText() == text then
+                local p = o.__parent
+                while p and not p.key do p = p.__parent end
+                if p then return p.key end
+            end
+        end
+    end
+    -- the farm runs' page is full and General keeps its three free rows
+    -- (v0.1.23 P4): Rares & prices, under a head of its own, until P7b
+    assert(PageOf(ns.L["Search range"]) == "alerts", "the search range is not under Rares & prices: " .. tostring(PageOf(ns.L["Search range"])))
+    assert(PageOf(ns.L["Show the search range on the minimap during farm runs"]) == "alerts", "the ring switch is not under Rares & prices")
+    assert(PageOf(ns.L["How far Find Herbs shows nodes (ore: assumed the same)"]) == "alerts", "the search range's line is not under Rares & prices")
+    local head -- (the text is the farm runs' page's name too)
+    for _, o in ipairs(allFrames) do
+        if o.GetText and o:GetText() == ns.L["Farm runs"] and o.__parent and o.__parent.key == "alerts" then head = o end
+    end
+    assert(head, "Rares & prices has no head 'Farm runs' over the search range")
+    local ROOM = 640 - 112 - 18 - 4 - 66
+    local used = ns.OptionsUsedHeight()
+    assert(used.general <= ROOM - 3 * 26, ("General goes down to %d px: its three free rows are gone"):format(used.general))
+    assert(used.alerts <= ROOM, ("Rares & prices goes down to %d px of %d"):format(used.alerts, ROOM))
+    -- its value: 150 yd; the buttons go in steps of 10, within 60..250
+    -- (the value is found by its page, not by being visible: an earlier step
+    -- may have put the options into a tab of the main window, and the mock's
+    -- logins may have built them more than once - the newest counts)
+    ns.ShowOptionsSection("alerts") win:Refresh() advance(1)
+    local value
+    for _, o in ipairs(allFrames) do
+        if o.__kind == "FontString" and o:GetText() == "150" .. ns.L[" yd"] then
+            local p = o.__parent
+            while p and not p.key do p = p.__parent end
+            if p and p.key == "alerts" then value = o end
+        end
+    end
+    assert(value, "Rares & prices does not show 150 yd")
+    local minus, plus
+    -- (the buttons are found next to the value: the one left of it and the one right of it)
+    for _, o in ipairs(allFrames) do
+        local p = o.__pts and o.__pts.LEFT
+        if p and p[1] == value and o.GetText and o:GetText() == "+" then plus = o end
+    end
+    for _, o in ipairs(allFrames) do
+        local p = value.__pts and value.__pts.LEFT
+        if p and p[1] == o then minus = o end
+    end
+    assert(plus and minus and minus:GetText() == "-", "test setup: the search range's buttons")
+    plus.__scripts.OnClick(plus)
+    assert(ns.SearchRange() == 160 and ns.db.searchRange == 160, "+ does not add 10 yd")
+    for _ = 1, 20 do plus.__scripts.OnClick(plus) end
+    assert(ns.SearchRange() == 250, "+ goes past 250 yd")
+    for _ = 1, 30 do minus.__scripts.OnClick(minus) end
+    assert(ns.SearchRange() == 60, "- goes below 60 yd")
+    for _ = 1, 9 do plus.__scripts.OnClick(plus) end
+    assert(ns.SearchRange() == 150 and ns.db.searchRange == nil, "back at 150 yd the default is not saved as nothing")
+    ns.ShowOptionsSection(wasSection or "map")
+    if not wasOpen then ns.ToggleOptions() end
+    advance(1)
+    ns.db.searchRange = keep
+end)
 step("Long run (10 min) for leaks", function() slash("run herb") advance(600) slash("stop") end)
 step("Test mock: OnUpdate runs for the same frames in the same order as going over every frame (tools only)", function()
     -- The mock's advance() goes over the frames that have an OnUpdate only

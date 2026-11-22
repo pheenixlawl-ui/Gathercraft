@@ -351,6 +351,9 @@ local function UpdatePanel()
         local dist = ns.DistanceToTarget()
         nextText:SetText((L["|cffaaaaaaNext:|r %s  |cffaaaaaa%s · %d left|r"]):format(
             t.name, dist and (L["%d yd"]):format(math.floor(dist)) or "?", left))
+        -- (0.2.3 P4) the target in the search range (SearchRange.lua): the arrow
+        -- still shows its name and distance
+        if run.inSearchRange then nextText:SetText("|cff59d9ff" .. L["In search range - no yellow dot? Press Skip."] .. "|r") end
         skipButton:Enable()
     else
         local wait = run.nextRespawn and run.nextRespawn - time()
