@@ -15560,8 +15560,11 @@ step("Route: a run's collect builds a node's kind key only in zones with an unti
     local function KindOf(n) return (n.type or "?") .. ":" .. saved.lower(ns.CanonicalName(n.id, n.name) or n.id or "?") end
     local ok, err = pcall(function()
         player.map, player.x, player.y = 1412, 0.45, 0.72
-        -- one kind unticked in another zone only
-        ns.db.disabledKinds = { ["1411:herb:peacebloom"] = true }
+        -- one kind unticked in another zone only: one without any node (in the whole test run the
+        -- run's zones around Mulgore have nodes of earlier steps)
+        local empty = 2000
+        while ns.db.nodes[empty] do empty = empty + 1 end
+        ns.db.disabledKinds = { [empty .. ":herb:peacebloom"] = true }
         ns.StartRun("herb") advance(2)
         local run = ns.run
         assert(run and run.points and #run.points >= 3, "test setup: a run with points")
