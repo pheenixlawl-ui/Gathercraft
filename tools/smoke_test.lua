@@ -15257,6 +15257,89 @@ step("/gcr perf on: the route line's world map hooks of 0.2.2 W5 are measured to
     if WorldMapFrame and not saved.shown and WorldMapFrame:IsShown() then WorldMapFrame:Hide() end
     if not ok then error(err, 0) end
 end)
+step("/gcr perf on: the garbage of each part too, in KB/s - its own calls without the measured calls inside them, at least (a cleanup in between hides some), and off not one more look at the memory (0.2.3 lauf-last C)", function()
+    -- Order 0.2.3-lauf-last (22.11.2026), part C: riding, Sven measured
+    -- about 12 MB of garbage a minute; /gcr perf on said only the memory of
+    -- the whole addon at the start and at the end. Now each part's line
+    -- says the garbage its own calls made: the Lua memory read before and
+    -- after each measured call, the measured calls inside it booked to their
+    -- own part (as the time). The game cleans up meanwhile: a call in which
+    -- the memory went down books nothing, and the line says how many calls
+    -- saw a cleanup - so the numbers are "at least". Off, the wrappers do
+    -- not look at the memory at all.
+    local saved = { print = ns.Print, popup = StaticPopup_Show, dialogs = StaticPopupDialogs, cg = collectgarbage }
+    local lines, fake, fromPerf, watch = {}, 1000, 0, false
+    local function FromPerf()
+        for level = 2, 4 do
+            local info = debug.getinfo(level, "S")
+            if info and info.short_src and info.short_src:find("Perf.lua", 1, true) then return true end
+        end
+    end
+    local ok, err = pcall(function()
+        assert(not ns.PerfMeasuring(), "test setup: no measurement going on")
+        ns.Print = function(line) lines[#lines + 1] = line end
+        StaticPopupDialogs = {}
+        StaticPopup_Show = function() end
+        -- the memory as the test sets it ("count"); every other use as before
+        collectgarbage = function(opt, ...)
+            if opt == "count" and watch then
+                if FromPerf() then fromPerf = fromPerf + 1 end
+                return fake
+            end
+            return saved.cg(opt, ...)
+        end
+        -- parts that make garbage: Route 100 KB a call; Pins 10 KB, then a
+        -- Route call inside (50 KB), then 5 KB more; Rares: a cleanup (-300)
+        local inner = ns.PerfWrap("Route", function() fake = fake + 50 end)
+        local route = ns.PerfWrap("Route", function() fake = fake + 100 end)
+        local pins = ns.PerfWrap("Pins", function() fake = fake + 10 inner() fake = fake + 5 end)
+        local rares = ns.PerfWrap("Rares", function() fake = fake - 300 end)
+        local function Kb(line, mod)
+            return tonumber(line:match(mod .. " [%d%.]+ ms %([%d%.]+ ms/s, longest [%d%.]+ ms, %d+ calls%) garbage ([%d%.]+) KB/s"))
+        end
+        -- 1. off: they run, nothing looks at the memory for the measurement
+        watch = true
+        for _ = 1, 5 do route() pins() rares() end
+        assert(fromPerf == 0, ("off, the perf wrappers read the memory %d times"):format(fromPerf))
+        -- 2. on for 10 s: Route 4 x 100 + 4 x 50 (inside Pins) = 600 KB, Pins 4 x 15 = 60 KB,
+        -- Rares 0 (a cleanup: 2 calls saw one)
+        ns.PerfCommand("on")
+        for _ = 1, 4 do route() pins() end
+        rares() rares()
+        advance(10)
+        ns.PerfCommand("off")
+        local line = lines[#lines] or ""
+        assert(line:find("perf, 10 s:", 1, true), "no result after 10 s: " .. line)
+        assert(Kb(line, "Route") and math.abs(Kb(line, "Route") - 60) < 0.05, ("Route: %s KB/s, want 60.0 (600 KB in 10 s, the calls inside Pins too): %s"):format(tostring(Kb(line, "Route")), line))
+        assert(Kb(line, "Pins") and math.abs(Kb(line, "Pins") - 6) < 0.05, ("Pins: %s KB/s, want 6.0 (its own 15 KB a call, not Route's inside): %s"):format(tostring(Kb(line, "Pins")), line))
+        assert(Kb(line, "Rares") == 0, ("Rares: %s KB/s, want 0 (a cleanup books nothing): %s"):format(tostring(Kb(line, "Rares")), line))
+        -- every part has its garbage, also the ones that did nothing
+        for _, mod in ipairs({ "Route", "Pins", "Minimap", "Sync", "Tooltip", "Prices", "Rares", "SearchRange", "RunHistory", "VisitLog", "UI", "Paths", "Questie" }) do
+            assert(Kb(line, mod), mod .. " has no garbage in the line: " .. line)
+        end
+        local seen, calls = line:match("garbage of the parts: at least %- (%d+) of (%d+) measured calls saw a cleanup")
+        assert(tonumber(seen) == 2 and tonumber(calls) and tonumber(calls) >= 14, "the line does not say that 2 of the calls saw a cleanup: " .. line)
+        -- a new measurement starts from nothing: no cleanup in it, only its own garbage
+        ns.PerfCommand("on")
+        route() route()
+        ns.PerfCommand("off")
+        line = lines[#lines] or ""
+        assert(line:find("perf, 1 s:", 1, true), "the second measurement: " .. line)
+        assert(Kb(line, "Route") == 200 and Kb(line, "Pins") == 0, "the second measurement has the garbage of the first: " .. line)
+        seen, calls = line:match("garbage of the parts: at least %- (%d+) of (%d+) measured calls saw a cleanup")
+        assert(tonumber(seen) == 0 and tonumber(calls) == 2, "the second measurement counts the calls of the first: " .. line)
+        -- 3. over: the wrappers do not look at the memory any more
+        fromPerf = 0
+        for _ = 1, 5 do route() pins() rares() end
+        advance(5)
+        assert(fromPerf == 0, ("after the measurement the wrappers still read the memory (%d times)"):format(fromPerf))
+    end)
+    watch = false
+    collectgarbage = saved.cg
+    if ns.PerfMeasuring() then ns.PerfCommand("off") end
+    ns.Print, StaticPopup_Show, StaticPopupDialogs = saved.print, saved.popup, saved.dialogs
+    if not ok then error(err, 0) end
+end)
 step("Settings: no game setting is changed in combat - the gathering help and the bobber settings follow at the end of the fight (v0.1.22 R1, combat)", function()
     -- Sven, 13.11.2026 (live, 0.1.22 a62cefe): the questing mode switched on
     -- in a fight - "[ADDON_ACTION_BLOCKED] AddOn 'Gathercraft' tried to call

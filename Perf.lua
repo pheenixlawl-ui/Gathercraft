@@ -11,6 +11,12 @@ local L = ns.L or setmetatable({}, { __index = function(_, k) return k end })
 --   wrapped calls inside it (those book their own). What no wrapper covers
 --   (the core's events, the windows, crafting, fishing, questing) is not in
 --   the numbers.
+--   (0.2.3 lauf-last C) The garbage too: the Lua memory is read before and
+--   after each measured call, booked to its part without the measured calls
+--   inside it (they book their own). The game cleans up meanwhile: a call in
+--   which the memory went down books nothing, so each part's garbage is at
+--   least that much; the line says how many calls saw a cleanup. Off, no
+--   wrapper looks at the memory.
 --   At the start and at the end: the addon's memory (the game adds it up for
 --   all addons, so only then), the Lua memory of all addons (rough: the game
 --   collects garbage meanwhile) and how many world map pins HereBeDragons has
@@ -26,33 +32,47 @@ local SECONDS = 60
 local on = false
 local books = {}
 local depth, stackMod, stackT, stackSelf = 0, {}, {}, {}
+local stackKB, stackSelfKB = {}, {} -- the memory at the start of each measured call, its own garbage so far
+local cleanups, measured = 0, 0     -- calls in which the memory went down (the game cleaned up), all calls
 local run -- the measurement going on: start, memory, pins, its ticker
 
-local function Book(mod, ms)
+local function Book(mod, ms, kb)
     local b = books[mod]
     if not b then
-        b = { n = 0, ms = 0, max = 0 }
+        b = { n = 0, ms = 0, max = 0, kb = 0 }
         books[mod] = b
     end
     b.n = b.n + 1
     b.ms = b.ms + ms
+    b.kb = b.kb + kb
     if ms > b.max then b.max = ms end
 end
+
+-- the Lua memory in KB, read only while measuring
+local function Count() return collectgarbage("count") end
+-- what a call made from a to b: nothing when the game cleaned up in between
+local function Made(a, b) return b > a and b - a or 0 end
 
 -- fn wrapped for its part: called as it is while nothing is measured
 function ns.PerfWrap(mod, fn)
     return function(...)
         if not on then return fn(...) end
-        local now = debugprofilestop()
-        if depth > 0 then stackSelf[depth] = stackSelf[depth] + (now - stackT[depth]) end
+        local now, kb = debugprofilestop(), Count()
+        if depth > 0 then
+            stackSelf[depth] = stackSelf[depth] + (now - stackT[depth])
+            stackSelfKB[depth] = stackSelfKB[depth] + Made(stackKB[depth], kb)
+        end
         depth = depth + 1
-        stackMod[depth], stackT[depth], stackSelf[depth] = mod, now, 0
+        stackMod[depth], stackT[depth], stackSelf[depth], stackKB[depth], stackSelfKB[depth] = mod, now, 0, kb, 0
+        local start = kb
         local a, b, c, d, e = fn(...)
         if depth > 0 then
-            now = debugprofilestop()
-            Book(stackMod[depth], stackSelf[depth] + (now - stackT[depth]))
+            now, kb = debugprofilestop(), Count()
+            measured = measured + 1
+            if kb < start then cleanups = cleanups + 1 end
+            Book(stackMod[depth], stackSelf[depth] + (now - stackT[depth]), stackSelfKB[depth] + Made(stackKB[depth], kb))
             depth = depth - 1
-            if depth > 0 then stackT[depth] = now end
+            if depth > 0 then stackT[depth], stackKB[depth] = now, kb end
         end
         return a, b, c, d, e
     end
@@ -100,9 +120,11 @@ end
 local function Result(seconds, kb1, lua1, pins1)
     local parts = {}
     for _, mod in ipairs(MODULES) do
-        local b = books[mod] or { n = 0, ms = 0, max = 0 }
-        parts[#parts + 1] = ("%s %.1f ms (%.2f ms/s, longest %.1f ms, %d calls)"):format(mod, b.ms, b.ms / seconds, b.max, b.n)
+        local b = books[mod] or { n = 0, ms = 0, max = 0, kb = 0 }
+        parts[#parts + 1] = ("%s %.1f ms (%.2f ms/s, longest %.1f ms, %d calls) garbage %.1f KB/s"):format(mod, b.ms, b.ms / seconds, b.max, b.n,
+            b.kb / seconds)
     end
+    local garbage = ("garbage of the parts: at least - %d of %d measured calls saw a cleanup"):format(cleanups, measured)
     local mem
     if run.kb0 and kb1 then
         mem = ("memory: addon %s -> %s MB (%+.1f KB/s)"):format(MB(run.kb0), MB(kb1), (kb1 - run.kb0) / seconds)
@@ -119,8 +141,8 @@ local function Result(seconds, kb1, lua1, pins1)
     end
     local near, inZone = 0, 0
     if ns.MiniPinCounts then near, inZone = ns.MiniPinCounts() end
-    return ("Gathercraft %s perf, %d s: %s | not measured: the rest of the addon; %s; %s; %s; minimap pins %d near / %d in zone"):format(
-        Version(), seconds, table.concat(parts, " | "), mem, lua, pins, near, inZone)
+    return ("Gathercraft %s perf, %d s: %s | %s | not measured: the rest of the addon; %s; %s; %s; minimap pins %d near / %d in zone"):format(
+        Version(), seconds, table.concat(parts, " | "), garbage, mem, lua, pins, near, inZone)
 end
 
 local function ShowCopy(line)
@@ -177,7 +199,7 @@ end
 
 local function Start()
     wipe(books)
-    depth = 0
+    depth, cleanups, measured = 0, 0, 0
     run = { start = GetTime(), kb0 = AddonKB(), lua0 = LuaKB() }
     run.peak = WorldPinsInUse()
     on = true
