@@ -29540,6 +29540,8 @@ step("Run history 0.2.3: a run ends in its zone's history - riding time from mov
         UnitOnTaxi = function() return true end
         Ride(200)
         UnitOnTaxi = keep.taxi
+        -- jumps of 1000 yd and more every second (a teleport, a portal): not riding
+        for _ = 1, 100 do player.x = (player.x + 0.2) % 0.8 + 0.1 advance(1) end
         -- a hidden position: the history's own look once a second, 200 times, with the
         -- clock held (the route's code is not part of this: only the history is asked)
         -- (the stand-in's type says "number", as the game's hidden numbers do: only the
@@ -29563,7 +29565,7 @@ step("Run history 0.2.3: a run ends in its zone's history - riding time from mov
         Gather(2770)
         ns.StopRun()
         e = Last()
-        assert(e.a >= 25 and e.a <= 45, ("riding time %d s - dead, on a taxi or hidden for 600 s, then 30 s riding"):format(e.a))
+        assert(e.a >= 25 and e.a <= 45, ("riding time %d s - dead, on a taxi, jumping or hidden for 700 s, then 30 s riding"):format(e.a))
         best, notes = ns.RunSummaryBestLines({ best = { counted = false, unknown = 0, minutes = 10 } })
         assert(best == nil and notes == (ns.L["Not counted for your best runs: under %d minutes of riding."]):format(10), "too short: " .. tostring(notes))
         -- 3. a second run of 11 minutes riding, faster: a new best in the summary
