@@ -318,6 +318,15 @@ local function KindZones()
     end
     return zones
 end
+-- (0.2.3 lauf-last B5) HereBeDragons gives a zone's instance (its continent)
+-- from the zone alone, not from the place in it: a zone on another continent,
+-- or one it has no map data for, has no node a collect can take - its nodes
+-- are not looked at one by one (a run in The Barrens went over every node of
+-- the Eastern Kingdoms too, at every harvest).
+local function ZoneOn(mapID, instance)
+    local wx, _, inst = HBD:GetWorldCoordinatesFromZone(0.5, 0.5, mapID)
+    return wx ~= nil and inst == instance
+end
 
 -- quick = a run started where you are: your Zones tab selection doesn't count
 --   (0.2.3 lauf-last B3) keep = the run's own store of its points: a node's
@@ -337,7 +346,7 @@ local function CollectPoints(filter, instance, zone, quick, keep)
     end
     local kindZones = not quick and KindZones() or nil
     for mapID, nodes in pairs(ns.db.nodes) do
-        if ZoneTaken(mapID, zone) then
+        if ZoneTaken(mapID, zone) and ZoneOn(mapID, instance) then
             local noKinds = kindZones and not kindZones[tostring(mapID)] or nil
             for _, n in ipairs(nodes) do
                 if NodeTaken(n, mapID, filter, quick, noKinds) then

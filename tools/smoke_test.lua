@@ -15606,6 +15606,67 @@ step("Route: a run's collect builds a node's kind key only in zones with an unti
     advance(1)
     if not ok then error(err, 0) end
 end)
+step("Route: a run's collect does not look at the nodes of zones on another continent one by one - the same points are taken (0.2.3 lauf-last B5)", function()
+    -- Order 0.2.3-lauf-last, part B5 (22.11.2026): every collect of a run's
+    -- points (each harvest of the target) went over every node of every
+    -- zone - its kind, its Zones tab ticks, its world spot - and only then
+    -- left out the ones on another continent. HereBeDragons gives a zone's
+    -- continent from the zone alone, so such a zone is left out at once.
+    -- (The mock has one continent: here the Eastern Kingdoms are another.)
+    local H = libs["HereBeDragons-2.0"]
+    local EK = {}
+    for m = 1416, 1437 do EK[m] = true end
+    EK[1453], EK[1455], EK[1458] = true, true, true
+    local saved = { map = player.map, x = player.x, y = player.y, zone = H.GetWorldCoordinatesFromZone, me = H.GetPlayerWorldPosition,
+        enabled = ns.IsNodeEnabled }
+    local looked, other, otherNodes = 0, 0, 0
+    local added
+    local ok, err = pcall(function()
+        H.GetWorldCoordinatesFromZone = function(self, x, y, map)
+            local wx, wy = saved.zone(self, x, y, map)
+            return wx, wy, EK[map] and 0 or 1
+        end
+        H.GetPlayerWorldPosition = function(self)
+            local wx, wy = saved.me(self)
+            return wx, wy, EK[player.map] and 0 or 1
+        end
+        -- test setup: a node of the run's kind in a zone of the Eastern Kingdoms
+        for mapID, list in pairs(ns.db.nodes) do
+            if EK[mapID] then for _, n in ipairs(list) do if n.type == "herb" then otherNodes = otherNodes + 1 end end end
+        end
+        if otherNodes == 0 then
+            ns.db.nodes[1429] = ns.db.nodes[1429] or {}
+            added = { name = "Peacebloom", type = "herb", x = 0.5, y = 0.5, id = 1618 }
+            table.insert(ns.db.nodes[1429], added)
+            otherNodes = 1
+        end
+        player.map, player.x, player.y = 1412, 0.45, 0.72
+        ns.StartRun("herb") advance(2)
+        local run = ns.run
+        assert(run and run.points and #run.points >= 3, "test setup: a run with points")
+        ns.IsNodeEnabled = function(n, mapID, ...)
+            looked = looked + 1
+            if EK[mapID] then other = other + 1 end
+            return saved.enabled(n, mapID, ...)
+        end
+        ns.RouteNodeListChanged() ns.RouteReplan()
+        ns.IsNodeEnabled = saved.enabled
+        assert(looked > 0, "test setup: no node looked at")
+        assert(other == 0, ("%d nodes of the Eastern Kingdoms looked at one by one for a run in Mulgore"):format(other))
+        for _, p in ipairs(run.points) do assert(not EK[p.mapID], "a point of the Eastern Kingdoms in a run in Mulgore") end
+    end)
+    ns.IsNodeEnabled = saved.enabled
+    if added then
+        local list = ns.db.nodes[1429]
+        for i = #list, 1, -1 do if list[i] == added then table.remove(list, i) end end
+        if #list == 0 then ns.db.nodes[1429] = nil end
+    end
+    if ns.run then ns.StopRun(true) end
+    H.GetWorldCoordinatesFromZone, H.GetPlayerWorldPosition = saved.zone, saved.me
+    player.map, player.x, player.y = saved.map, saved.x, saved.y
+    advance(1)
+    if not ok then error(err, 0) end
+end)
 step("Settings: no game setting is changed in combat - the gathering help and the bobber settings follow at the end of the fight (v0.1.22 R1, combat)", function()
     -- Sven, 13.11.2026 (live, 0.1.22 a62cefe): the questing mode switched on
     -- in a fight - "[ADDON_ACTION_BLOCKED] AddOn 'Gathercraft' tried to call
