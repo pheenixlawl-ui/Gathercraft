@@ -15218,6 +15218,45 @@ step("/gcr perf on: one minute of time per part of the addon, the memory and the
     advance(2)
     if not ok then error(err, 0) end
 end)
+step("/gcr perf on: the route line's world map hooks of 0.2.2 W5 are measured too - opened and closed, each call booked for Route (0.2.3 on 0.2.2)", function()
+    -- Sven, 22.11.2026 (after 0.2.3 was set onto 0.2.2): /gcr perf on was
+    -- written before the hooks W5 put on the world map (the route line drawn
+    -- when it opens, taken off when it closes) - they were not measured. The
+    -- timers 0.2.2 added in Pins.lua (the build after a login) go through the
+    -- file's measured C_Timer already. Here: a measurement in which nothing
+    -- else runs (no time passes), the map opened and closed three times.
+    local saved = { print = ns.Print, popup = StaticPopup_Show, dialogs = StaticPopupDialogs, shown = WorldMapFrame and WorldMapFrame:IsShown() }
+    local lines = {}
+    local ok, err = pcall(function()
+        assert(WorldMapFrame and not ns.PerfMeasuring(), "test setup: a world map and no measurement going on")
+        if WorldMapFrame:IsShown() then WorldMapFrame:Hide() end
+        ns.Print = function(line) lines[#lines + 1] = line end
+        StaticPopupDialogs = {}
+        StaticPopup_Show = function() end
+        local function Calls(mod)
+            local line = lines[#lines] or ""
+            return tonumber(line:match(mod .. " [%d%.]+ ms %([%d%.]+ ms/s, longest [%d%.]+ ms, (%d+) calls%)"))
+        end
+        ns.PerfCommand("on")
+        for _ = 1, 3 do
+            WorldMapFrame:Show()
+            WorldMapFrame:Hide()
+        end
+        ns.PerfCommand("off")
+        assert(Calls("Route") == 6, ("the map opened and closed three times: %s Route calls measured, want 6"):format(tostring(Calls("Route"))))
+        -- the same measurement without the map: none
+        ns.PerfCommand("on")
+        ns.PerfCommand("off")
+        assert(Calls("Route") == 0, ("nothing ran: %s Route calls measured"):format(tostring(Calls("Route"))))
+        -- off, the hooks do what they did: the line is drawn again (W5's own step checks what it draws)
+        assert(not ns.PerfMeasuring(), "still measuring")
+    end)
+    ns.Print, StaticPopup_Show, StaticPopupDialogs = saved.print, saved.popup, saved.dialogs
+    -- (the map as it was: the steps after this one draw on it)
+    if WorldMapFrame and saved.shown and not WorldMapFrame:IsShown() then WorldMapFrame:Show() end
+    if WorldMapFrame and not saved.shown and WorldMapFrame:IsShown() then WorldMapFrame:Hide() end
+    if not ok then error(err, 0) end
+end)
 step("Settings: no game setting is changed in combat - the gathering help and the bobber settings follow at the end of the fight (v0.1.22 R1, combat)", function()
     -- Sven, 13.11.2026 (live, 0.1.22 a62cefe): the questing mode switched on
     -- in a fight - "[ADDON_ACTION_BLOCKED] AddOn 'Gathercraft' tried to call

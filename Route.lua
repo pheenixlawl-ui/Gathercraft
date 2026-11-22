@@ -2482,8 +2482,9 @@ zoomWatch:RegisterEvent("MINIMAP_UPDATE_ZOOM")
 zoomWatch:SetScript("OnEvent", Wrap("Route", function() RedrawLine() end))
 -- (0.2.2 W5) the world map opened: the line on it; closed: off it again
 if WorldMapFrame and WorldMapFrame.HookScript then
-    WorldMapFrame:HookScript("OnShow", function() RedrawLine() end)
-    WorldMapFrame:HookScript("OnHide", function() RedrawLine() end)
+    -- (/gcr perf on: measured as Route's, like its other handlers - 0.2.3 on 0.2.2)
+    WorldMapFrame:HookScript("OnShow", Wrap("Route", function() RedrawLine() end))
+    WorldMapFrame:HookScript("OnHide", Wrap("Route", function() RedrawLine() end))
 end
 ns.OnHarvested = OnHarvested
 ns.OnGatherUncertain = OnGatherUncertain
