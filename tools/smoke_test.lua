@@ -5490,8 +5490,8 @@ step("Skill plan 2.0: texts in every language, the release 0.2.0 - its what's ne
     -- 0.2.1: the TOC says 0.2.1; what follows checks the What's new of 0.2.0,
     -- which stays for players who skip a version. The changelog holds the
     -- current version only: the 0.2.0 section is in the history (tag v0.2.0).
-    -- 0.2.2: the TOC says 0.2.2 and the changelog is 0.2.2's (0.2.1's is in the history, tag v0.2.1)
-    assert(version == "0.2.2", "TOC version: " .. tostring(version))
+    -- the changelog is 0.2.2's (0.2.1's is in the history, tag v0.2.1); the TOC says the build's version
+    assert(version == "0.2.3-a1", "TOC version: " .. tostring(version))
     version = "0.2.0"
     -- the two files of building block 2 load last: they read the data files only after login
     assert(toc:gsub("\r", ""):match("\nStarter%.lua\nSpawnCounts%.lua\nItemTooltip%.lua\n?$"), "the TOC does not end with Starter.lua, SpawnCounts.lua, ItemTooltip.lua")
@@ -16645,8 +16645,9 @@ step("Welcome, what's new and the run summary (v0.1.13)", function()
 end)
 step("What's new: 0.2.2 after an update, in this language and all translations", function()
     local version = toc:match("## Version: ([%w%.%-]+)")
-    -- the release 0.2.2 (Sven, 22.11.2026): the TOC says 0.2.2
-    assert(version == "0.2.2", "TOC version: " .. tostring(version))
+    -- the release 0.2.2 (Sven, 22.11.2026); a 0.2.3 test build: the TOC says its mark, the window checked is 0.2.2's
+    assert(version == "0.2.3-a1", "TOC version: " .. tostring(version))
+    version = "0.2.2"
     assert(toc:match("## Interface: (%d+)") == "16001", "TOC interface changed")
     local f = assert(io.open(ROOT .. "/Welcome.lua"))
     local src = f:read("*a") f:close()
@@ -24166,7 +24167,7 @@ step("Farm for plan: every text in nine languages with the same placeholders, th
     -- The order's part 6; concept test 10 (long names in all 11 language
     -- codes). Since the release 0.2.0 the changelog and "What's new" name it.
     local toc = assert(io.open(ROOT .. "/Gathercraft.toc")):read("*a")
-    assert(toc:match("## Version: ([%w%.%-]+)") == "0.2.2", "TOC version: " .. tostring(toc:match("## Version: ([%w%.%-]+)"))) -- (0.2.2)
+    assert(toc:match("## Version: ([%w%.%-]+)") == "0.2.3-a1", "TOC version: " .. tostring(toc:match("## Version: ([%w%.%-]+)"))) -- (0.2.2)
     local function Read(name) return assert(io.open(ROOT .. "/" .. name)):read("*a") end
     local farm = Read("PlanFarm.lua")
     -- ---- the texts: every L["..."] of PlanFarm.lua, the reasons it looks up, and the three in Route.lua and UI.lua
@@ -26907,8 +26908,8 @@ end)
 -- 0.2.1-a1 or after an older version shows the window of 0.2.1, once.
 step("Version 0.2.1: the TOC says it, /gcr shows it, the What's new window of 0.2.1 once after 0.2.0, 0.2.1-a1 or 0.1.23 (0.2.1)", function()
     local version = toc:match("## Version: ([%w%.%-]+)")
-    -- 0.2.2: the TOC says 0.2.2 (own step); the window checked is 0.2.1's
-    assert(version == "0.2.2", "TOC version: " .. tostring(version))
+    -- the TOC says the build's version (own step); the window checked is 0.2.1's
+    assert(version == "0.2.3-a1", "TOC version: " .. tostring(version))
     version = "0.2.1"
     local function Read(name) local f = assert(io.open(ROOT .. "/" .. name)) local s = f:read("*a") f:close() return s end
     -- "What's new" has the entry of 0.2.1, none for the test build
@@ -28268,7 +28269,9 @@ end)
 -- with the date.
 step("Version 0.2.2: the TOC says it, /gcr shows it, the What's new window of 0.2.2 once after 0.2.2-a8, 0.2.2-a7, 0.2.2-a6, 0.2.2-a5, 0.2.2-a4, 0.2.2-a3, 0.2.2-a2, 0.2.2-a1, 0.2.1, 0.2.1-a1, 0.2.0 or 0.1.23 (0.2.2)", function()
     local version = toc:match("## Version: ([%w%.%-]+)")
-    assert(version == "0.2.2", "TOC version: " .. tostring(version))
+    -- a 0.2.3 test build: the TOC says its mark (own step); the window checked is 0.2.2's
+    assert(version == "0.2.3-a1", "TOC version: " .. tostring(version))
+    version = "0.2.2"
     local function Read(name) local f = assert(io.open(ROOT .. "/" .. name)) local s = f:read("*a") f:close() return s end
     -- "What's new" has the entry of 0.2.2, none for a test build
     local welcome = Read("Welcome.lua")
@@ -28296,6 +28299,42 @@ step("Version 0.2.2: the TOC says it, /gcr shows it, the What's new window of 0.
             win:Hide()
             ns.WelcomeOnLogin()
             assert(not win:IsShown(), "the What's new window again at the next login after " .. before)
+        end
+    end)
+    local win = _G.GathercraftWhatsNew
+    if win then win:Hide() end
+    C_AddOns.GetAddOnMetadata, ns.db.lastVersion, ns.freshInstall = keep.meta, keep.last, keep.fresh
+    if not ok then error(err, 0) end
+end)
+-- 0.2.3: test builds under their own marks after the release 0.2.2 - 0.2.3-a1 for 0.2.3 P3.
+-- No What's new window for them: 0.2.3, its changelog and its What's new come with its release commit.
+step("Version 0.2.3-a1: the TOC says it, /gcr shows it, no What's new window after 0.2.2, 0.2.2-a8, 0.2.2-a7, 0.2.2-a6, 0.2.2-a5, 0.2.2-a4, 0.2.2-a3, 0.2.2-a2, 0.2.2-a1, 0.2.1, 0.2.1-a1, 0.2.0 or 0.1.23 (0.2.3 P3)", function()
+    local version = toc:match("## Version: ([%w%.%-]+)")
+    assert(version == "0.2.3-a1", "TOC version: " .. tostring(version))
+    local function Read(name) local f = assert(io.open(ROOT .. "/" .. name)) local s = f:read("*a") f:close() return s end
+    -- "What's new" has no entry for it nor for 0.2.3 yet: the build is not a release; 0.2.2's stays
+    local welcome = Read("Welcome.lua")
+    for _, mark in ipairs({ "0.2.3-a1", "0.2.3" }) do
+        assert(not welcome:find('["' .. mark .. '"]', 1, true), "Welcome.lua has a What's new entry for " .. mark)
+    end
+    assert(welcome:find('["0.2.2"]', 1, true), "the What's new of 0.2.2 is gone")
+    -- the changelog is still 0.2.2's
+    local changelog = Read("CHANGELOG.md")
+    assert(changelog:match("^(## v[^\r\n]*)") == "## v0.2.2 – 2026-11-23" and not changelog:find("0.2.3", 1, true), "the changelog has a 0.2.3 section")
+    -- /gcr: the main window shows the TOC version ("v" and it)
+    assert(Read("Main.lua"):find('version:SetText(v and ("v" .. v) or "")', 1, true), "the main window does not show the TOC version")
+    local keep = { meta = C_AddOns.GetAddOnMetadata, last = ns.db.lastVersion, fresh = ns.freshInstall }
+    local ok, err = pcall(function()
+        C_AddOns.GetAddOnMetadata = function(_, field) if field == "Version" then return version end end
+        ns.freshInstall = false
+        for _, before in ipairs({ "0.2.2", "0.2.2-a8", "0.2.2-a7", "0.2.2-a6", "0.2.2-a5", "0.2.2-a4", "0.2.2-a3", "0.2.2-a2", "0.2.2-a1", "0.2.1", "0.2.1-a1", "0.2.0", "0.1.23" }) do
+            local win = _G.GathercraftWhatsNew
+            if win then win:Hide() end
+            ns.db.lastVersion = before
+            ns.WelcomeOnLogin()
+            win = _G.GathercraftWhatsNew
+            assert(not (win and win:IsShown()), "a What's new window after " .. before)
+            assert(ns.db.lastVersion == "0.2.3-a1", "after " .. before .. " not remembered: " .. tostring(ns.db.lastVersion))
         end
     end)
     local win = _G.GathercraftWhatsNew
