@@ -655,6 +655,7 @@ ns.Locales.deDE = {
     ["What is in the bank has to be fetched before you can craft with it."] = "Was in der Bank liegt, musst du erst holen, bevor du damit herstellen kannst.",
     ["Why this recipe: about %s per skill point in materials and learning costs."] = "Warum dieses Rezept: etwa %s je Skillpunkt für Material und Lernkosten.",
     ["It uses your stock worth about %s per skill point."] = "Darin steckt dein Vorrat im Wert von etwa %s je Skillpunkt.",
+    ["Order: %s"] = "Reihenfolge: %s",
     ["You have %d of the %d the plan needs."] = "Du hast %d von %d, die der Plan braucht.",
     ["Your skill could not be read, so there is no plan yet."] = "Dein Skill ließ sich nicht lesen, deshalb gibt es noch keinen Plan.",
     ["Your skill is already %d: choose a higher target."] = "Dein Skill ist schon %d: Wähle ein höheres Ziel.",

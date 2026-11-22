@@ -1,0 +1,26 @@
+-- Fixed orders of recipes for the skill plan (0.2.3, Sven 22.11.2026), one per
+-- profession. Where a profession has one, the plan takes the step of the order
+-- that covers your skill - when its recipe is known or can be learned and gives
+-- a point there; else it chooses as always. Materials, what you have and what
+-- it costs are counted the same way. The plan says when it follows an order:
+-- "Order: <source>".
+--
+-- This file is shipped EMPTY. No order is taken from Wowhead,
+-- wow-professions.com or any other site without their express permission; an
+-- order is used only with its source, version and licence filled in.
+--
+-- The format:
+--   GathercraftGuides = {
+--       ["Blacksmithing"] = {                -- the profession's English name
+--           source = "who wrote the order",  -- shown in the plan
+--           version = "its version or date",
+--           licence = "the licence it is shipped under",
+--           steps = {
+--               -- from skill (included) to skill (not included), and the
+--               -- recipe: its spell ID or its English name
+--               { from = 1, to = 30, spell = 12345 },
+--               { from = 30, to = 75, recipe = "The recipe's English name" },
+--           },
+--       },
+--   }
+GathercraftGuides = GathercraftGuides or {}

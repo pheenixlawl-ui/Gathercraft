@@ -124,12 +124,36 @@ end
 
 local SkillState -- (your skill in a profession, as the window reads it: further down)
 
+-- (0.2.3, Sven 22.11.2026) A fixed order of recipes for the profession from
+-- Data/Guides.lua - shipped empty. Used only with its source, version and
+-- licence named; steps that are not whole are left out. { source, version,
+-- licence, steps = { { from, to, spell or recipe } } } or nil.
+local function GuideFor(prof)
+    local all = GathercraftGuides
+    local g = type(all) == "table" and all[prof]
+    if type(g) ~= "table" or type(g.steps) ~= "table" then return nil end
+    for _, field in ipairs({ "source", "version", "licence" }) do
+        if type(g[field]) ~= "string" or g[field] == "" then return nil end
+    end
+    local steps = {}
+    for _, s in ipairs(g.steps) do
+        if type(s) == "table" and type(s.from) == "number" and type(s.to) == "number" and s.from < s.to
+            and (type(s.spell) == "number" or type(s.recipe) == "string") then
+            steps[#steps + 1] = { from = s.from, to = s.to, spell = type(s.spell) == "number" and s.spell or nil,
+                recipe = type(s.spell) ~= "number" and s.recipe or nil }
+        end
+    end
+    if #steps == 0 then return nil end
+    return { source = g.source, version = g.version, licence = g.licence, steps = steps }
+end
+
 -- source, seenAt: "lastSeen" (and when) for a skill that is not read now
 local function Snapshot(prof, from, to, source, seenAt)
     local d = Data()
     local input = { prof = prof, skill = from, target = to, recipes = {}, professions = {} }
     if source == "lastSeen" then input.skillSource, input.skillSeenAt = "lastSeen", seenAt end
     input.recipes[prof] = RecipeList(prof)
+    input.guide = GuideFor(prof)
     -- The professions you have, each read like the planned one (Codex round
     -- 3, R3-M1) - a remembered skill and remembered recipes are no proof:
     --   * read now: its known recipes can be used
@@ -260,6 +284,12 @@ end
 local function Signature(input)
     -- (a skill seen last is another state than the same skill read now)
     local parts = { input.prof, tostring(input.skill), tostring(input.target), tostring(input.maxRank), tostring(input.skillSource) }
+    -- (0.2.3) the order, step by step: another order is another state
+    if input.guide then
+        local g = { input.guide.source, input.guide.version, input.guide.licence }
+        for _, s in ipairs(input.guide.steps) do g[#g + 1] = ("%d-%d:%s:%s"):format(s.from, s.to, tostring(s.spell), tostring(s.recipe)) end
+        parts[#parts + 1] = "guide:" .. table.concat(g, "\030")
+    end
     local profs = {}
     for prof in pairs(input.recipes) do profs[#profs + 1] = prof end
     table.sort(profs)
@@ -1208,6 +1238,8 @@ local function Draw(keep)
         Line((L["Your %s skill cannot be read right now. The plan makes materials with it, going by the skill seen last: until it can be read, this is a preview."]):format(d.ProfLabel(other)), nil, GOLD)
     end
     Line(L["Steps"], nil, GOLD)
+    -- (0.2.3) the plan follows a fixed order: whose
+    if plan.guide then Line((L["Order: %s"]):format(plan.guide.source), nil, GREY) end
     if prof == "Mining" then
         Line(L["Mining also rises when you mine veins: a farm run for ore often does both."], nil, GREY)
     end
@@ -1265,6 +1297,7 @@ local function Draw(keep)
                 tt:AddLine(L["Made for materials the plan needs - each craft can give a skill point too."], 0.9, 0.9, 0.9, true)
             elseif s.why then
                 tt:AddLine(" ")
+                if s.guide and plan.guide then tt:AddLine((L["Order: %s"]):format(plan.guide.source), 0.6, 0.8, 1, true) end
                 -- (0.2.3) what it uses up a point - your stock at its worth - and
                 -- how much of that is your stock; without the switch's 8 %
                 tt:AddLine((L["Why this recipe: about %s per skill point in materials and learning costs."]):format(ns.Money(math.max(0, s.why.value or (s.why.score - 1)))), 0.9, 0.9, 0.9, true)

@@ -626,6 +626,7 @@ ns.Locales.koKR = {
     ["What is in the bank has to be fetched before you can craft with it."] = "은행에 있는 것은 꺼내 와야 제작에 쓸 수 있습니다.",
     ["Why this recipe: about %s per skill point in materials and learning costs."] = "이 제조법인 이유: 재료와 습득 비용으로 숙련도 1당 약 %s.",
     ["It uses your stock worth about %s per skill point."] = "보유한 재고를 숙련도 1당 약 %s어치 사용합니다.",
+    ["Order: %s"] = "순서: %s",
     ["You have %d of the %d the plan needs."] = "보유 %d개 / 계획에 필요한 %d개.",
     ["Your skill could not be read, so there is no plan yet."] = "숙련도를 읽을 수 없어 아직 계획이 없습니다.",
     ["Your skill is already %d: choose a higher target."] = "숙련도가 이미 %d입니다: 더 높은 목표를 고르세요.",

@@ -626,6 +626,7 @@ ns.Locales.ptBR = {
     ["What is in the bank has to be fetched before you can craft with it."] = "O que está no banco precisa ser retirado antes de você poder criar com ele.",
     ["Why this recipe: about %s per skill point in materials and learning costs."] = "Por que esta receita: cerca de %s por ponto de habilidade em materiais e custos de aprendizado.",
     ["It uses your stock worth about %s per skill point."] = "Usa seu estoque no valor de cerca de %s por ponto de habilidade.",
+    ["Order: %s"] = "Ordem: %s",
     ["You have %d of the %d the plan needs."] = "Você tem %d dos %d de que o plano precisa.",
     ["Your skill could not be read, so there is no plan yet."] = "Não foi possível ler sua habilidade, então ainda não há plano.",
     ["Your skill is already %d: choose a higher target."] = "Sua habilidade já é %d: escolha um objetivo maior.",

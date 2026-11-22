@@ -626,6 +626,7 @@ ns.Locales.zhTW = {
     ["What is in the bank has to be fetched before you can craft with it."] = "銀行裡的物品需要先取出才能用於製作。",
     ["Why this recipe: about %s per skill point in materials and learning costs."] = "為何選此配方：材料和學習費用每點技能約 %s。",
     ["It uses your stock worth about %s per skill point."] = "其中使用你的庫存，每點技能約值 %s。",
+    ["Order: %s"] = "順序：%s",
     ["You have %d of the %d the plan needs."] = "你有 %d 個，計畫需要 %d 個。",
     ["Your skill could not be read, so there is no plan yet."] = "無法讀取你的技能，因此暫無計畫。",
     ["Your skill is already %d: choose a higher target."] = "你的技能已是 %d：請選擇更高的目標。",

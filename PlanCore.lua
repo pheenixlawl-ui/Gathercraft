@@ -1184,6 +1184,21 @@ local function Prefer(e, f)
     return false
 end
 
+-- A fixed order for the profession (0.2.3, Sven 22.11.2026; Data/Guides.lua
+-- through the snapshot): input.guide = { source, version, licence, steps =
+-- { { from, to, spell = id } or { from, to, recipe = key }, ... } }. The step
+-- that covers the skill (from <= skill < to), if any.
+local function GuideStep(guide, skill)
+    if type(guide) ~= "table" or type(guide.steps) ~= "table" then return nil end
+    for _, g in ipairs(guide.steps) do
+        if type(g) == "table" and type(g.from) == "number" and type(g.to) == "number" and g.from <= skill and skill < g.to then return g end
+    end
+end
+local function IsGuided(c, g)
+    if g.spell ~= nil then return c.source ~= nil and c.source.spell == g.spell end
+    return g.recipe ~= nil and c.key == g.recipe
+end
+
 local function ChoosePoints(ctx, cands, unknownChance, trainAt)
     local input = ctx.input
     local CL = ctx.choice
@@ -1203,7 +1218,24 @@ local function ChoosePoints(ctx, cands, unknownChance, trainAt)
             end
         end
         local best, bestE, runner, runnerE
-        for _, minChance in ipairs({ MIN_CHANCE, 0 }) do
+        -- (0.2.3) a step of the order: its recipe, where it can be used (known
+        -- or learnable: a candidate) and gives a point here; the next best is
+        -- named as always. Else the choice as always.
+        local g, guided = GuideStep(input.guide, skill), false
+        if g then
+            for _, x in ipairs(live) do
+                if IsGuided(x.c, g) then
+                    best, bestE, guided = x.c, x.e, true
+                    break
+                end
+            end
+            if best then
+                for _, x in ipairs(live) do
+                    if x.c ~= best and (not runner or Prefer(x.e, runnerE)) then runner, runnerE = x.c, x.e end
+                end
+            end
+        end
+        for _, minChance in ipairs(best and {} or { MIN_CHANCE, 0 }) do
             for _, comparable in ipairs({ true, false }) do
                 for _, x in ipairs(live) do
                     local e = x.e
@@ -1234,7 +1266,7 @@ local function ChoosePoints(ctx, cands, unknownChance, trainAt)
         info[skill] = { score = bestE.score, comparable = bestE.comparable, estimated = bestE.estimated, fee = bestE.fee,
             learnGap = bestE.learnGap, priceGap = bestE.priceGap,
             -- (0.2.3) what it is worth a point without the 8 %, and how much of it is your stock
-            value = bestE.rawScore - 1, stock = bestE.stock,
+            value = bestE.rawScore - 1, stock = bestE.stock, guide = guided or nil,
             other = runner and { name = runner.name, key = runner.key, score = runnerE.score, comparable = runnerE.comparable,
                 value = runnerE.rawScore - 1 } or nil }
         -- this point is planned: on the choice's books its materials are used
@@ -1401,6 +1433,7 @@ local function Walk(ctx, points, info, stuck, trainAt)
                         if i.priceGap then step.priceOpen = true end
                     end
                     if i.estimated then step.estimated = true end
+                    if i.guide then step.guide = true end
                 end
             end
             Flag(step, acc)
@@ -1674,13 +1707,21 @@ function Core.Compute(input, pause)
     end
     local done = input.skill >= input.target
     local complete = not stuck and #ctx.diagnostics == 0
+    -- (0.2.3) the order the plan followed, where it did: said in the plan
+    local guide
+    for _, s in ipairs(steps) do
+        if s.guide then
+            guide = { source = input.guide.source, version = input.guide.version, licence = input.guide.licence }
+            break
+        end
+    end
     return { prof = input.prof, from = input.skill, target = input.target,
         status = preview and "preview" or done and "done" or complete and "ok" or "incomplete", valid = true, complete = complete,
         skillSource = lastSeen and "lastSeen" or "current", skillSeenAt = lastSeen and input.skillSeenAt or nil, reliable = not preview,
         lastSeenProfessions = lastSeenProfessions,
         steps = steps, training = training, materials = materials, ledger = ledger, extras = extras, stuck = stuck,
         cost = cost, total = cost.known + cost.estimated, crafts = crafts, notComparable = notComparable,
-        openLearn = openLearn, openPrices = openPrices, estimate = estimate,
+        openLearn = openLearn, openPrices = openPrices, estimate = estimate, guide = guide,
         learn = learn, diagnostics = ctx.diagnostics }
 end
 

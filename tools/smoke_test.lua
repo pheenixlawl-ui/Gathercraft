@@ -7254,6 +7254,170 @@ step("Skill plan 2.0: the plans of Codex' matrix, with the shortcuts and without
     assert(not firstDiff, "with the shortcuts a plan of the matrix is another one - " .. tostring(firstDiff))
     assert(compared == (full and 216 or 7) and steps > compared, ("plans of the matrix compared: %d, with %d steps"):format(compared, steps))
 end)
+step("Skill plan 0.2.3: a fixed order from Data/Guides.lua is followed where it can be - the file is shipped empty (0.2.3 a5)", function()
+    -- Sven 22.11.2026, part 2: per profession a fixed order of recipes (from
+    -- skill, to skill, recipe or spell ID) with its source, version and
+    -- licence. Where a step covers the skill and its recipe is known or can be
+    -- learned and gives a point there, the plan takes it; else it chooses as
+    -- always. Materials, stock and costs the same. The plan says so: "Order:
+    -- <source>". Shipped empty - the orders here are test orders only.
+    local core = ns.PlanCore
+    local L, d = ns.L, ns.CraftData
+    -- (1) the file as shipped: the empty table and its format, in the TOC
+    assert(type(GathercraftGuides) == "table" and next(GathercraftGuides) == nil, "Data/Guides.lua is not shipped empty")
+    local f = assert(io.open(ROOT .. "/Data/Guides.lua"))
+    local src = f:read("*a")
+    f:close()
+    local code = src:gsub("%-%-[^\n]*", ""):gsub("%s+", " ")
+    assert(code == " GathercraftGuides = GathercraftGuides or {} " or code == "GathercraftGuides = GathercraftGuides or {} ", "Data/Guides.lua holds more than the empty table: " .. code)
+    for _, word in ipairs({ "source", "version", "licence", "from", "to", "spell", "recipe", "EMPTY" }) do
+        assert(src:find(word, 1, true), "the format of Data/Guides.lua does not name " .. word)
+    end
+    local toc = assert(io.open(ROOT .. "/Gathercraft.toc")):read("*a")
+    assert(toc:find("\nData\\Guides.lua\n", 1, true), "Data/Guides.lua is not in the TOC")
+
+    -- (2) on plain tables: a recipe gives one point per craft from req up to upto
+    local function R(key, product, req, upto, mats, extra)
+        local r = { prof = "Testing", key = key, name = key, product = product, made = 1, req = req, yellow = upto, grey = upto, reagents = {}, learn = "known" }
+        for _, x in ipairs(mats) do r.reagents[#r.reagents + 1] = { id = x[1], n = x[2] } end
+        for k, v in pairs(extra or {}) do r[k] = v end
+        return r
+    end
+    local function Input(recipes, stock, prices, from, to, guide, values)
+        local p = {}
+        for id, copper in pairs(prices) do p[id] = { status = "known", copper = copper } end
+        return { prof = "Testing", skill = from or 1, target = to or 2, recipes = { Testing = recipes }, stock = stock, prices = p, values = values,
+            professions = {}, recipeItemPrices = {}, caps = {}, guide = guide }
+    end
+    local reference = PlanCoreWithoutShortcuts()
+    local function Plan(...)
+        local input = Input(...)
+        local plan = core.Compute(input)
+        local okB, whyB = core.CheckBalance(plan)
+        assert(okB, "the books do not balance: " .. tostring(whyB))
+        local same, why = SamePlan(plan, reference.Compute(input), "plan")
+        assert(same, "with the shortcuts the plan is another one: " .. tostring(why))
+        local m = {}
+        for _, row in ipairs(plan.materials) do m[row.id] = row end
+        return plan, m
+    end
+    local function Says(plan) -- "A 1-4,B 4-6 40": the steps and the gold that is missing
+        local keys = {}
+        for _, s in ipairs(plan.steps) do keys[#keys + 1] = ("%s %d-%d"):format(s.recipe.key, s.from, s.to) end
+        return table.concat(keys, ",") .. " " .. tostring(plan.total)
+    end
+    local function Guide(steps) return { source = "Test order", version = "1", licence = "test only", steps = steps } end
+    local A = R("A", 10, 1, 9, { { 11, 1 } })
+    local B = R("B", 20, 1, 9, { { 21, 1 } })
+    local P = { [11] = 10, [21] = 5 }
+    -- without an order: B (5c) all the way
+    local plan = Plan({ A, B }, {}, P, 1, 6)
+    assert(Says(plan) == "B 1-6 25" and plan.guide == nil and not plan.steps[1].guide, "without an order: " .. Says(plan))
+    -- the order says A from 1 to 4: A there, though it costs more; then B as always
+    plan = Plan({ A, B }, {}, P, 1, 6, Guide({ { from = 1, to = 4, recipe = "A" } }))
+    assert(Says(plan) == "A 1-4,B 4-6 40" and plan.steps[1].guide and not plan.steps[2].guide, "an order for A from 1 to 4: " .. Says(plan))
+    assert(plan.guide and plan.guide.source == "Test order" and plan.guide.version == "1" and plan.guide.licence == "test only", "the plan does not say whose order it follows")
+    -- the next best is named as always
+    assert(plan.steps[1].why and plan.steps[1].why.other and plan.steps[1].why.other.key == "B", "a step of the order names no next best")
+    -- by spell ID the same
+    A.spell, B.spell = 9001, 9002
+    plan = Plan({ A, B }, {}, P, 1, 6, Guide({ { from = 1, to = 4, spell = 9001 } }))
+    assert(Says(plan) == "A 1-4,B 4-6 40", "an order by spell ID: " .. Says(plan))
+    -- materials, stock and costs as always: A's X from the bags at its worth (2 there, worth 3c), the rest bought
+    local m
+    plan, m = Plan({ A, B }, { [11] = 2 }, P, 1, 6, Guide({ { from = 1, to = 4, recipe = "A" } }), { [11] = { status = "known", copper = 3 } })
+    assert(Says(plan) == "A 1-4,B 4-6 20" and m[11].need == 3 and m[11].have == 2 and m[11].missing == 1, "an order with stock: " .. Says(plan))
+    -- a recipe that cannot be learned (a quest recipe you don't have) is not taken
+    local Q = R("Q", 30, 1, 9, { { 31, 1 } }, { learn = false })
+    plan = Plan({ A, B, Q }, {}, { [11] = 10, [21] = 5, [31] = 1 }, 1, 6, Guide({ { from = 1, to = 4, recipe = "Q" } }))
+    assert(Says(plan) == "B 1-6 25" and plan.guide == nil, "an order for a recipe you cannot learn: " .. Says(plan))
+    -- ... once you know it, it is
+    Q.learn = "known"
+    plan = Plan({ A, B, Q }, {}, { [11] = 10, [21] = 5, [31] = 100 }, 1, 6, Guide({ { from = 1, to = 4, recipe = "Q" } }))
+    assert(Says(plan) == "Q 1-4,B 4-6 310", "an order for a recipe you know: " .. Says(plan))
+    -- a recipe that gives no point there (grey from 3): the order from 3 on is not followed
+    local G3 = R("G", 40, 1, 3, { { 41, 1 } })
+    plan = Plan({ A, B, G3 }, {}, { [11] = 10, [21] = 5, [41] = 50 }, 1, 6, Guide({ { from = 1, to = 6, recipe = "G" } }))
+    assert(Says(plan) == "G 1-3,B 3-6 115", "an order for a recipe that has gone grey: " .. Says(plan))
+    -- a recipe that is learnable only from a higher skill: from there
+    local H = R("H", 50, 3, 9, { { 51, 1 } }, { learn = "trainer", fee = 0 })
+    plan = Plan({ A, B, H }, {}, { [11] = 10, [21] = 5, [51] = 50 }, 1, 6, Guide({ { from = 1, to = 6, recipe = "H" } }))
+    assert(Says(plan) == "B 1-3,H 3-6 160", "an order for a recipe from 3 on: " .. Says(plan))
+    -- steps outside your skill, and a recipe the profession has not got: as always
+    plan = Plan({ A, B }, {}, P, 1, 6, Guide({ { from = 20, to = 40, recipe = "A" }, { from = 1, to = 6, recipe = "Nothing" } }))
+    assert(Says(plan) == "B 1-6 25" and plan.guide == nil, "an order that does not fit: " .. Says(plan))
+    -- the first step that covers the skill counts
+    plan = Plan({ A, B }, {}, P, 1, 6, Guide({ { from = 1, to = 3, recipe = "A" }, { from = 1, to = 6, recipe = "B" } }))
+    assert(Says(plan) == "A 1-3,B 3-6 35" and plan.steps[2].guide, "two steps that cover the skill: " .. Says(plan))
+
+    -- (3) the snapshot reads the order of the profession, whole ones only;
+    -- the window says "Order: <source>", the steps it took say it too
+    local saved = { rank = ns.ProfessionRank, have = d.Have, known = d.Known, price = ns.GetPrice, compute = core.Compute, targets = ns.db.planTargets,
+        guides = GathercraftGuides }
+    local win
+    local ok, err = pcall(function()
+        ns.ProfessionRank = function(p) if p == "Blacksmithing" then return 1, 75 end end
+        d.Known = function() return {} end
+        d.Have = function(id) return id == 2840 and 37 or id == 2835 and 27 or 0 end
+        local ah = { [2835] = 8, [2840] = 250, [2836] = 40, [2841] = 230, [3470] = 5, [2589] = 30 }
+        ns.GetPrice = function(id) if ah[id] then return ah[id], "AH scan" end end
+        local whole = { source = "Test order", version = "2026-11-22", licence = "test only",
+            steps = { { from = 1, to = 20, recipe = "Copper Bracers" }, { from = 20, to = 10, recipe = "Copper Rod" }, { from = 30, to = 40, spell = "x" },
+                { from = 40, to = 50 } } }
+        GathercraftGuides = { Blacksmithing = whole }
+        local input = ns.SkillPlanSnapshot("Blacksmithing", 1, 75)
+        assert(input.guide and input.guide.source == "Test order" and #input.guide.steps == 1 and input.guide.steps[1].recipe == "Copper Bracers",
+            "the snapshot does not read the order, or keeps steps that are not whole")
+        local plan = core.Compute(input)
+        assert(plan.steps[1].recipe.key == "Copper Bracers" and plan.steps[1].from == 1 and plan.steps[1].to == 20 and plan.steps[1].guide
+            and plan.steps[2].recipe.key ~= "Copper Bracers" and plan.guide.source == "Test order", "the order of the test guide is not followed")
+        -- an order without its source, version or licence is not used
+        for _, field in ipairs({ "source", "version", "licence" }) do
+            local keep = whole[field]
+            whole[field] = nil
+            assert(ns.SkillPlanSnapshot("Blacksmithing", 1, 75).guide == nil, "an order without " .. field .. " is used")
+            whole[field] = ""
+            assert(ns.SkillPlanSnapshot("Blacksmithing", 1, 75).guide == nil, "an order with an empty " .. field .. " is used")
+            whole[field] = keep
+        end
+        -- another profession's order is not this one's; no table at all is no order
+        GathercraftGuides = { Tailoring = whole }
+        assert(ns.SkillPlanSnapshot("Blacksmithing", 1, 75).guide == nil, "another profession's order is used")
+        GathercraftGuides = nil
+        assert(ns.SkillPlanSnapshot("Blacksmithing", 1, 75).guide == nil, "no table of orders breaks the snapshot")
+        -- another order is another state: a new plan
+        GathercraftGuides = { Blacksmithing = whole }
+        local p1 = ns.SkillPlanCalculate("Blacksmithing", 1, 75)
+        local p2, again = ns.SkillPlanCalculate("Blacksmithing", 1, 75)
+        assert(not again and p2.revision == p1.revision, "the same order gives a new plan")
+        whole.steps[1].to = 15
+        local p3, new = ns.SkillPlanCalculate("Blacksmithing", 1, 75)
+        assert(new and p3.revision == p1.revision + 1 and p3.steps[1].to == 15, "another order: the old plan is kept")
+        -- the window: the line under Steps, and the tooltip of the step
+        ns.db.planTargets = nil
+        ns.ShowSkillPlan("Blacksmithing") advance(1)
+        win = _G.GathercraftSkillPlan
+        local said = (L["Order: %s"]):format("Test order")
+        local line, tip = false, nil
+        for _, o in ipairs(allFrames) do
+            if o.left and o.mid and o.right and o:IsShown() then
+                if o.left:GetText() == said then line = true end
+                if o.tip and not tip then -- (the rows of the steps and materials: the step of the order says it)
+                    local lines = {}
+                    o.tip({ AddLine = function(_, x) lines[#lines + 1] = x end })
+                    local text = table.concat(lines, "\n")
+                    if text:find(said, 1, true) then tip = text end
+                end
+            end
+        end
+        assert(line, "the window does not say whose order the plan follows")
+        assert(tip and tip:find(said, 1, true), "the step of the order does not say so: " .. tostring(tip))
+    end)
+    ns.ProfessionRank, d.Have, d.Known, ns.GetPrice, core.Compute, ns.db.planTargets = saved.rank, saved.have, saved.known, saved.price, saved.compute, saved.targets
+    GathercraftGuides = saved.guides
+    if win then win:Hide() end
+    if not ok then error(err, 0) end
+end)
 step("Skill plan 2.0: skill points of extra crafts that are not counted make the plan an estimate too (v0.2 r2 G5)", function()
     -- Codex round 2, R2-N1 (the case SUPPLEMENT): two certain crafts of A
     -- need two X; an X is made by a recipe that still gives a point now and

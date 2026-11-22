@@ -64,6 +64,7 @@ Data\RecipeData.lua
 Data\RecipeSources.lua
 Data\AreaMaps.lua
 Data\Trainers.lua
+Data\Guides.lua
 Starter.lua
 SpawnCounts.lua
 ItemTooltip.lua
