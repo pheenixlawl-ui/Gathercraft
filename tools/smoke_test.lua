@@ -28809,15 +28809,18 @@ step("Crafting 0.2.2: a hidden profession name is asked about first - nothing lo
         asked = false
         assert(rawequal(ns.ProfKey(SECRET), SECRET), "a hidden name is not handed back as it came")
         Looked("ProfKey")
-        -- 4. a profession's spell with a hidden name (Herbalism's, 2366): the names are built without it
+        -- 4. a profession's spell with a hidden name (Herbalism's, 2366; and
+        -- Smelting's, 2656, read on its own): the names are built without them
         assert(ns.CraftNamesAnew, "test setup: no ns.CraftNamesAnew")
-        asked = false
-        C_Spell.GetSpellName = function(id) if id == 2366 then return SECRET end return keep.spell(id) end
-        ns.CraftNamesAnew()
-        ns.CraftNormalizeAgain()
-        Looked("the names of the professions' spells (ProfKey)")
-        assert(asked, "test setup: the hidden spell name was not asked about")
-        assert(ns.ProfKey("Herbalism") == "Herbalism" and ns.ProfKey("Mining") == "Mining", "a hidden spell name changed the English names")
+        for _, hidden in ipairs({ 2366, 2656 }) do
+            asked = false
+            C_Spell.GetSpellName = function(id) if id == hidden then return SECRET end return keep.spell(id) end
+            ns.CraftNamesAnew()
+            ns.CraftNormalizeAgain()
+            Looked("the names of the professions' spells (ProfKey), spell " .. hidden)
+            assert(asked, "test setup: the hidden spell name was not asked about, spell " .. hidden)
+            assert(ns.ProfKey("Herbalism") == "Herbalism" and ns.ProfKey("Mining") == "Mining", "a hidden spell name changed the English names, spell " .. hidden)
+        end
     end)
     type, issecretvalue = realType, keep.secret
     PROFS[1], PROFS[2], GetProfessions, C_Spell.GetSpellName = keep.p1, keep.p2, keep.profs, keep.spell
