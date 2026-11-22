@@ -1328,6 +1328,8 @@ local function StopRun(silent, summary)
             ns.Print(L["Run stopped."])
         end
     end
+    -- (0.2.3 P3) the run goes into the history of its zone, whether a summary shows or not
+    if snapshot and ns.RunHistoryAdd then snapshot.best = ns.RunHistoryAdd(snapshot) end
     if snapshot and ns.ShowRunSummary then ns.ShowRunSummary(snapshot) end
 end
 

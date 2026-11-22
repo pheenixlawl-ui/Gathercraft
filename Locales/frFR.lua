@@ -746,4 +746,9 @@ ns.Locales.frFR = {
     ["no version heard: %d"] = "aucune version reçue : %d",
     ["  Refused by the game when sending (since login): %d throttled, %d channel throttled, %d channel not valid"] = "  Refusés par le jeu à l'envoi (depuis la connexion) : %d limités, %d canal limité, %d canal non valide",
     ["  Received but not counted (all sessions): %d repeats (the same player again), %d for spots already confirmed by %d players"] = "  Reçus mais non comptés (toutes les sessions) : %d répétitions (le même joueur à nouveau), %d pour des points déjà confirmés par %d joueurs",
+    ["First counted run here."] = "Première tournée comptée ici.",
+    ["Best run here (%s): %d nodes per hour, %s per hour"] = "Meilleure tournée ici (%s) : %d gisements par heure, %s par heure",
+    ["New personal best here!"] = "Nouveau record personnel ici !",
+    ["Not counted for your best runs: under %d minutes of riding."] = "Ne compte pas pour tes meilleures tournées : moins de %d minutes de trajet.",
+    ["Gold per hour from known prices only (%d nodes without one)."] = "Or par heure d'après les prix connus seulement (%d gisements sans prix).",
 }

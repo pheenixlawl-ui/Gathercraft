@@ -28101,11 +28101,16 @@ local function VisitFirstDiff(a, b, path)
     for k, x in pairs(b) do if a[k] == nil then return ("%s.%s: new (%s)"):format(path, tostring(k), tostring(x)) end end
 end
 -- one run of VisitRun with the debug lines on, and what it left behind
+local visitHistory -- (0.2.3 P3) the run history every run of a step begins with
 local function VisitPicture(logOn)
     local keepDebug = ns.db.debug
     ns.db.debug = true
     ns.db.visitLogOn = logOn or nil
     advance(120) -- (what sync had queued from before goes out first)
+    -- (0.2.3 P3: every run begins with the same run history - a run adds one to
+    -- its zone, and a full zone list shifts by one: what that changes depends on
+    -- what the run before left, not on the visit log)
+    if visitHistory then ns.db.runHistory = DetestCopy(visitHistory.v) end
     local before = VisitDbCopy()
     local mark, sent = #log, #sentMessages
     local ok, r = pcall(VisitRun)
@@ -28126,6 +28131,7 @@ local function VisitPicture(logOn)
 end
 step("Visit log: on only writes - the same run off, on, and on with an error in every entry leaves the same nodes, choices, lines, sync messages and saved data behind (0.2.2 P1 point 3, from dev-0.2-diag 3)", function()
     local realConcat = table.concat
+    visitHistory = { v = DetestCopy(ns.db.runHistory) }
     local ok, err = pcall(function()
         assert(not ns.VisitLogOn() and ns.db.visitLog == nil, "the visit log is on or has entries at the start")
         -- (once before, not compared: a first gather of a kind makes its
@@ -28163,6 +28169,7 @@ step("Visit log: on only writes - the same run off, on, and on with an error in 
     end)
     table.concat = realConcat
     ns.db.visitLogOn, ns.db.visitLog, ns.db.visitLogDropped = nil, nil, nil
+    ns.db.runHistory, visitHistory = DetestCopy(visitHistory.v), nil
     if not ok then error(err, 0) end
 end)
 step("Visit log report: tools/visitlog_report.lua reads what the addon writes, from a SavedVariables copy too, and tells a same-point world from a random-point world (0.2.2 P1 point 3, from dev-0.2-diag 4)", function()
@@ -29359,6 +29366,215 @@ step("Minimap pins 0.2.2 W4: the 3-s look sets colour and alpha of the pins near
     ns.MiniPinLook()
     advance(2)
     if not ok then error(err, 0) end
+end)
+-- 0.2.3 P3 (R8; night order 22.11.2026): your best runs per zone, from a short
+-- history of your own runs - this computer only. A run counts for a best run
+-- from 10 minutes of riding; per hour is per hour from start to end (a pause
+-- only makes it slower). Best runs are per character, zone, filter and goal.
+step("Run history 0.2.3: the runs and their best - first, new best, slower, too short, a pause, another character, filter or goal; 20 kept per zone (0.2.3 P3)", function()
+    local keep = { hist = ns.db.runHistory, key = ns.PlayerKey }
+    local ok, err = pcall(function()
+        ns.db.runHistory = nil
+        local char = "Player-1-0000AAAA"
+        ns.PlayerKey = function() return char end
+        local function Run(nodes, minutes, active, extra)
+            local s = { zone = 1412, elapsed = minutes * 60, active = active * 60, nodes = nodes, value = nodes * 1000, unknownPrice = 0,
+                filter = "herb", goal = "gold", way = "smart", skill = 2, herbSkill = 150, oreSkill = 60 }
+            for k, v in pairs(extra or {}) do s[k] = v end
+            return ns.RunHistoryAdd(s)
+        end
+        -- 1. the first run that counts (30 min, 25 of them riding): 60 nodes = 120 per hour
+        local r = Run(60, 30, 25)
+        assert(r and r.counted and r.first and not r.newBest, "the first run that counts is not called the first")
+        assert(math.abs(r.nodes - 120) < 1e-6 and math.abs(r.gold - 120000) < 1e-6, ("first run: %s nodes/h, %s copper/h"):format(tostring(r.nodes), tostring(r.gold)))
+        local e = ns.db.runHistory[1412][1]
+        assert(e.f == "herb" and e.g == "gold" and e.k == "smart" and e.a == 1500 and e.e == 1800 and e.n == 60 and e.v == 60000
+            and e.u == 0 and e.s == 2 and e.c == char and e.h == 150 and e.o == 60 and type(e.t) == "number", "the run kept is not the run")
+        -- 2. faster: a new best, the best is the new one
+        r = Run(80, 30, 28)
+        assert(r.counted and r.newBest and r.newNodes and r.newGold and math.abs(r.nodes - 160) < 1e-6, "a faster run is not a new best")
+        -- 3. slower: no new best, the best stays the faster one
+        r = Run(50, 30, 28)
+        assert(r.counted and not r.newBest and math.abs(r.nodes - 160) < 1e-6, "a slower run changed the best")
+        -- 4. too short (9 minutes of riding), however fast: not counted, the best stays
+        r = Run(40, 9, 9)
+        assert(not r.counted and not r.newBest and math.abs(r.nodes - 160) < 1e-6, "a run under 10 minutes of riding counted")
+        -- 5. a pause: the same 80 nodes and 28 minutes riding, but 60 minutes from start to end - slower, not better
+        r = Run(80, 60, 28)
+        assert(r.counted and not r.newBest and math.abs(r.nodes - 160) < 1e-6, "a pause made a run better")
+        -- 6. only the gold is better: a new best (gold per hour), nodes per hour stays
+        r = Run(70, 30, 28, { value = 70 * 5000 })
+        assert(r.newBest and r.newGold and not r.newNodes and math.abs(r.nodes - 160) < 1e-6 and math.abs(r.gold - 700000) < 1e-6, "a better gold per hour is not a new best")
+        -- 7. another character, filter or goal: its own first run
+        char = "Player-1-0000BBBB"
+        assert(Run(30, 30, 25).first, "another character's run compared with this one's")
+        char = "Player-1-0000AAAA"
+        assert(Run(30, 30, 25, { filter = "both" }).first and Run(30, 30, 25, { goal = "skill" }).first, "another filter or goal compared")
+        assert(Run(30, 30, 25, { zone = 1411 }).first, "another zone compared")
+        -- 8. no zone of its own (a run over several zones), or no time: not kept
+        local count = #ns.db.runHistory[1412]
+        assert(Run(30, 30, 25, { zone = false }) == nil and Run(30, 0, 0) == nil and #ns.db.runHistory[1412] == count, "a run without a zone or time was kept")
+        -- 9. 20 runs kept per zone: the oldest goes
+        for i = 1, 30 do Run(i, 30, 25, { skill = 100 + i }) end
+        local list = ns.db.runHistory[1412]
+        assert(#list == ns.RUN_HISTORY_KEEP and ns.RUN_HISTORY_KEEP == 20, ("%d runs kept in a zone"):format(#list))
+        assert(list[1].s == 111 and list[20].s == 130, ("kept: from skill %s to %s, want the last 20"):format(tostring(list[1].s), tostring(list[20].s)))
+        assert(#ns.db.runHistory[1411] == 1, "another zone's runs were dropped")
+        -- 10. a saved history that is not a table (an older or broken file): a fresh one, no error
+        ns.db.runHistory = "x"
+        assert(Run(60, 30, 25).first and type(ns.db.runHistory) == "table", "a broken history: no fresh one")
+        ns.db.runHistory[1412] = 5
+        assert(Run(60, 30, 25).first and #ns.db.runHistory[1412] == 1, "a broken zone list: no fresh one")
+    end)
+    ns.db.runHistory, ns.PlayerKey = keep.hist, keep.key
+    if not ok then error(err, 0) end
+end)
+step("Run history 0.2.3: a run ends in its zone's history - riding time from moving and gathering, not standing, death, a taxi or a hidden position; nodes without a price; the summary's lines (0.2.3 P3)", function()
+    local keep = { hist = ns.db.runHistory, map = player.map, x = player.x, y = player.y, dead = UnitIsDeadOrGhost, taxi = UnitOnTaxi,
+        secret = issecretvalue, off = ns.db.summaryOff, send = SendChatMessage }
+    local ok, err = pcall(function()
+        ns.db.runHistory, ns.db.summaryOff = nil, nil
+        local card
+        local function Start(x)
+            player.map, player.x, player.y = 1412, x or 0.40, 0.50
+            ns.StartRun("herb", 1412) advance(1)
+            assert(ns.run and ns.run.zone == 1412, "test setup: no run in Mulgore")
+        end
+        -- 2 yd a second (the mock's map is 5000 yd wide)
+        local function Ride(seconds) for _ = 1, seconds do player.x = player.x + 0.0004 advance(1) end end
+        -- (item 999991: no price at all - no vendor price either; every other item of the mock has one)
+        local NOPRICE = 999991
+        local function Gather(item)
+            local p = { items = { { id = item, qty = 2 } } }
+            local info, cinfo = GetItemInfo, C_Item and C_Item.GetItemInfo
+            local function Without(f)
+                return function(id, ...)
+                    if id == NOPRICE then return "Item" .. id, nil, 1, 1, 1, "Trade Goods", "Herb", 20, "", 134400, 0 end
+                    return f(id, ...)
+                end
+            end
+            GetItemInfo = Without(info)
+            if cinfo then C_Item.GetItemInfo = Without(cinfo) end
+            for _, f in ipairs(ns.gatherListeners) do f({ type = "herb", name = "Peacebloom" }, p) end
+            GetItemInfo = info
+            if cinfo then C_Item.GetItemInfo = cinfo end
+            return p
+        end
+        local function Last() local l = ns.db.runHistory[1412] return l[#l] end
+        -- what the run's end hands the summary
+        local shown
+        keep.show = ns.ShowRunSummary
+        ns.ShowRunSummary = function(s) shown = s return keep.show(s) end
+        -- 1. 11 minutes: ride, gather (a priced item and one without a price), stand a while at a node
+        Start()
+        Ride(300)
+        local priced = Gather(2770)
+        local unpriced = Gather(999991)
+        assert(priced.value > 0 and priced.valueMissing == 0 and unpriced.valueMissing == 1, ("test setup: prices %s/%s, missing %s/%s"):format(
+            tostring(priced.value), tostring(unpriced.value), tostring(priced.valueMissing), tostring(unpriced.valueMissing)))
+        advance(8) -- at the node: gathering, counts as riding
+        Ride(300)
+        advance(120) -- standing: does not count
+        ns.StopRun()
+        local e = Last()
+        assert(e and e.n == 2 and e.u == 1 and e.v > 0 and e.f == "herb" and e.k == "smart" and e.c == ns.PlayerKey(), "the run was not kept as it was")
+        assert(e.a >= 605 and e.a <= 615, ("riding time %d s, want about 609 (600 riding, 8 at the node, the 120 standing not)"):format(e.a))
+        assert(e.e >= 728 and e.e <= 732, ("time from start to end %d s, want about 730"):format(e.e))
+        card = _G.GathercraftRunSummary
+        assert(card and card:IsShown(), "test setup: no summary")
+        assert(shown and shown.best and shown.best.counted and shown.best.first and shown.best.unknown == 1,
+            "the summary was not told: the first counted run here, one node without a price")
+        local best, notes = ns.RunSummaryBestLines({ best = { counted = true, first = true, unknown = 1, minutes = 10 } })
+        assert(best == ns.L["First counted run here."] and notes:find((ns.L["Gold per hour from known prices only (%d nodes without one)."]):format(1), 1, true),
+            "first run: the summary's lines " .. tostring(best) .. " / " .. tostring(notes))
+        -- the line shared in chat does not carry the best run
+        local sent = {}
+        SendChatMessage = function(msg) sent[#sent + 1] = msg end
+        ns.ShareRunSummary("GUILD")
+        assert(sent[1] and not sent[1]:find(ns.L["First counted run here."], 1, true) and not sent[1]:find("best", 1, true), "the shared line carries the best run: " .. tostring(sent[1]))
+        SendChatMessage = keep.send
+        -- 2. standing at the start, then 11 minutes in which the character is dead, on a taxi or its position hidden: under 10 minutes of riding
+        Start()
+        UnitIsDeadOrGhost = function() return true end
+        Ride(200)
+        UnitIsDeadOrGhost = keep.dead
+        UnitOnTaxi = function() return true end
+        Ride(200)
+        UnitOnTaxi = keep.taxi
+        -- a hidden position: the history's own look once a second, 200 times, with the
+        -- clock held (the route's code is not part of this: only the history is asked)
+        local SECRET = newproxy(true)
+        issecretvalue = function(v) return rawequal(v, SECRET) end
+        local HBD = LibStub("HereBeDragons-2.0")
+        local where, clock = HBD.GetPlayerWorldPosition, GetTime
+        local t = GetTime()
+        GetTime = function() return t end
+        HBD.GetPlayerWorldPosition = function() return SECRET, SECRET, 1 end
+        for _ = 1, 200 do t = t + 1 player.x = player.x + 0.0004 ns.RunHistoryTick() end
+        HBD.GetPlayerWorldPosition, GetTime = where, clock
+        issecretvalue = keep.secret
+        Ride(30)
+        Gather(2770)
+        ns.StopRun()
+        e = Last()
+        assert(e.a >= 25 and e.a <= 45, ("riding time %d s - dead, on a taxi or hidden for 600 s, then 30 s riding"):format(e.a))
+        best, notes = ns.RunSummaryBestLines({ best = { counted = false, unknown = 0, minutes = 10 } })
+        assert(best == nil and notes == (ns.L["Not counted for your best runs: under %d minutes of riding."]):format(10), "too short: " .. tostring(notes))
+        -- 3. a second run of 11 minutes riding, faster: a new best in the summary
+        Start()
+        for i = 1, 6 do Ride(100) Gather(2770) end
+        Ride(60)
+        shown = nil
+        ns.StopRun()
+        assert(shown and shown.best and shown.best.counted and shown.best.newBest and shown.best.newNodes, "a faster run: the summary was not told it is a new best")
+        assert(e and shown.best.nodes > 6 / (Last().e / 3600) - 1e-6, "the summary's best is not the new run's")
+        best, notes = ns.RunSummaryBestLines({ best = { counted = true, newBest = true, nodes = 33, gold = 1234, goal = "gold", unknown = 0 } })
+        assert(best == (ns.L["Best run here (%s): %d nodes per hour, %s per hour"]):format(ns.L["Gold"], 33, ns.Money(1234, true)) and notes == ns.L["New personal best here!"],
+            "new best: " .. tostring(best) .. " / " .. tostring(notes))
+        local now = ns.RunHistoryBest(1412, ns.PlayerKey(), "herb", Last().g)
+        assert(now and now.nodes > 6 / (Last().e / 3600) - 1e-6, "the faster run is not the best")
+        -- 4. the summary turned off: the run is kept all the same
+        ns.db.summaryOff = true
+        local n = #ns.db.runHistory[1412]
+        Start()
+        Ride(60)
+        Gather(2770)
+        advance(100)
+        ns.StopRun()
+        assert(#ns.db.runHistory[1412] == n + 1, "with the summary off the run was not kept")
+        ns.db.summaryOff = nil
+        -- 5. a new run replacing the old one: the old one is not kept (no summary, no history)
+        Start()
+        Ride(30)
+        Start(0.6)
+        ns.StopRun(true)
+        assert(#ns.db.runHistory[1412] == n + 1, "a run replaced by another (or stopped quietly) was kept")
+    end)
+    if ns.run then ns.StopRun(true) end
+    if keep.show then ns.ShowRunSummary = keep.show end
+    local card = _G.GathercraftRunSummary
+    if card then card:Hide() end
+    ns.db.runHistory, ns.db.summaryOff = keep.hist, keep.off
+    UnitIsDeadOrGhost, UnitOnTaxi, issecretvalue, SendChatMessage = keep.dead, keep.taxi, keep.secret, keep.send
+    player.map, player.x, player.y = keep.map, keep.x, keep.y
+    if not ok then error(err, 0) end
+end)
+step("Run history 0.2.3: never shared - Sync and the shared summary line know nothing of it (0.2.3 P3)", function()
+    local function Src(file)
+        local f = assert(io.open(ROOT .. "/" .. file))
+        local t = f:read("*a") f:close()
+        return t
+    end
+    for _, file in ipairs({ "Sync.lua", "Main.lua", "Options.lua" }) do
+        assert(not Src(file):find("runHistory", 1, true) and not Src(file):find("RunHistory", 1, true), file .. " reads the run history")
+    end
+    local mine = Src("RunHistory.lua")
+    for _, call in ipairs({ "SendAddonMessage", "SendChatMessage", "C_ChatInfo", "ns.Sync" }) do
+        assert(not mine:find(call, 1, true), "RunHistory.lua calls " .. call)
+    end
+    local welcome = Src("Welcome.lua")
+    local share = welcome:match("local function ShareText%(s%)(.-)\nend\n")
+    assert(share and not share:find("best", 1, true), "the shared summary line uses the best run")
 end)
 step("Long run (10 min) for leaks", function() slash("run herb") advance(600) slash("stop") end)
 step("Test mock: OnUpdate runs for the same frames in the same order as going over every frame (tools only)", function()

@@ -88,11 +88,14 @@ ns.RunSnapshot = function()
     if not (run and s and s.run == run) then return end
     local label = FILTER_LABELS[run.filter or ""] and L[FILTER_LABELS[run.filter]] or ns.RunFilterLabel(run.filter)
     local mapID = run.zone or (C_Map and C_Map.GetBestMapForUnit and ns.PlayerMap())
-    return {
+    local snap = {
         label = label, zoneName = mapID and ns.GetZoneName(mapID), elapsed = GetTime() - s.start,
         nodes = s.nodes, value = s.value, valueSource = s.source,
         skill = math.max(0, TotalSkill() - s.skillStart),
     }
+    -- (0.2.3 P3: riding time, the run's zone, filter, goal and way - RunHistory.lua)
+    if ns.RunHistoryFill then ns.RunHistoryFill(snap, run) end
+    return snap
 end
 
 table.insert(ns.gatherListeners, function(node, p)

@@ -775,4 +775,9 @@ ns.Locales.deDE = {
     ["no version heard: %d"] = "keine Version gehört: %d",
     ["  Refused by the game when sending (since login): %d throttled, %d channel throttled, %d channel not valid"] = "  Vom Spiel beim Senden abgelehnt (seit Login): %d gedrosselt, %d Kanal gedrosselt, %d Kanal ungültig",
     ["  Received but not counted (all sessions): %d repeats (the same player again), %d for spots already confirmed by %d players"] = "  Erhalten, aber nicht gezählt (alle Sitzungen): %d Wiederholungen (derselbe Spieler noch einmal), %d für Fundorte, die schon %d Spieler bestätigt haben",
+    ["First counted run here."] = "Erste gezählte Farmroute hier.",
+    ["Best run here (%s): %d nodes per hour, %s per hour"] = "Beste Farmroute hier (%s): %d Vorkommen pro Stunde, %s pro Stunde",
+    ["New personal best here!"] = "Neue persönliche Bestleistung hier!",
+    ["Not counted for your best runs: under %d minutes of riding."] = "Zählt nicht für deine Bestleistungen: weniger als %d Minuten unterwegs.",
+    ["Gold per hour from known prices only (%d nodes without one)."] = "Gold pro Stunde nur aus bekannten Preisen (%d Vorkommen ohne Preis).",
 }

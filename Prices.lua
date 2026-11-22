@@ -179,16 +179,18 @@ end
 local session = { value = 0, start = GetTime(), sources = {} }
 
 table.insert(ns.gatherListeners, function(node, p)
-    local value, source = 0, nil
+    local value, source, missing = 0, nil, 0
     for _, it in ipairs(p and p.items or {}) do
         local price, from = GetPrice(it.id)
         if price then
             value = value + price * (it.qty or 1)
             source = BetterSource(source, from)
+        else
+            missing = missing + 1 -- (0.2.3 P3: the run history says how much it could not price)
         end
     end
     if p then
-        p.value, p.valueSource = value, source
+        p.value, p.valueSource, p.valueMissing = value, source, missing
     end
     session.value = session.value + value
     if source then session.sources[source] = true end

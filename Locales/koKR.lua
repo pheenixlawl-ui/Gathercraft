@@ -746,4 +746,9 @@ ns.Locales.koKR = {
     ["no version heard: %d"] = "버전 정보 없음: %d",
     ["  Refused by the game when sending (since login): %d throttled, %d channel throttled, %d channel not valid"] = "  보낼 때 게임이 거부함 (접속 후): 제한 %d, 채널 제한 %d, 잘못된 채널 %d",
     ["  Received but not counted (all sessions): %d repeats (the same player again), %d for spots already confirmed by %d players"] = "  받았지만 세지 않음 (모든 세션): 반복 %d (같은 플레이어가 다시), 확인이 끝난 곳 %d (이미 플레이어 %d명이 확인)",
+    ["First counted run here."] = "이곳에서 처음 집계된 채집 경로입니다.",
+    ["Best run here (%s): %d nodes per hour, %s per hour"] = "이곳 최고 기록 (%s): 시간당 채집물 %d개, 시간당 %s",
+    ["New personal best here!"] = "이곳에서 개인 최고 기록 경신!",
+    ["Not counted for your best runs: under %d minutes of riding."] = "최고 기록에 집계되지 않음: 이동 시간이 %d분 미만입니다.",
+    ["Gold per hour from known prices only (%d nodes without one)."] = "시간당 골드는 알려진 가격으로만 계산 (가격 없는 채집물 %d개).",
 }

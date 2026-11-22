@@ -746,4 +746,9 @@ ns.Locales.ruRU = {
     ["no version heard: %d"] = "версия не получена: %d",
     ["  Refused by the game when sending (since login): %d throttled, %d channel throttled, %d channel not valid"] = "  Отклонено игрой при отправке (с входа): %d ограничено, %d канал ограничен, %d канал недействителен",
     ["  Received but not counted (all sessions): %d repeats (the same player again), %d for spots already confirmed by %d players"] = "  Получено, но не учтено (за все сеансы): %d повторов (тот же игрок снова), %d для точек, уже подтверждённых %d игроками",
+    ["First counted run here."] = "Первый засчитанный маршрут здесь.",
+    ["Best run here (%s): %d nodes per hour, %s per hour"] = "Лучший маршрут здесь (%s): %d точек в час, %s в час",
+    ["New personal best here!"] = "Новый личный рекорд здесь!",
+    ["Not counted for your best runs: under %d minutes of riding."] = "Не учитывается в лучших маршрутах: меньше %d минут в пути.",
+    ["Gold per hour from known prices only (%d nodes without one)."] = "Золото в час только по известным ценам (%d точек без цены).",
 }

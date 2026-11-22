@@ -303,7 +303,7 @@ ns.WhatsNew = WhatsNew
 ---------------------------------------------------------------------------
 -- Run summary
 ---------------------------------------------------------------------------
-local summary, cells, cellLabels, subLine, perHourLine, shareGuild, shareParty
+local summary, cells, cellLabels, subLine, perHourLine, bestLine, noteLine, shareGuild, shareParty
 local lastSummary
 
 -- Money as plain text: chat messages can't carry the coin icons
@@ -355,7 +355,7 @@ local function Share(chatType)
 end
 
 local function BuildSummary()
-    summary = Card("GathercraftRunSummary", 430, 230)
+    summary = Card("GathercraftRunSummary", 430, 264)
     ns.LText(summary.title, "Farm run done")
     subLine = summary:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     subLine:SetPoint("TOPLEFT", summary.title, "BOTTOMLEFT", 2, -4)
@@ -374,6 +374,15 @@ local function BuildSummary()
     end
     perHourLine = summary:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     perHourLine:SetPoint("TOP", summary, "TOP", 0, -140)
+    -- (0.2.3 P3) your best run here, and how this one stands - this computer only, never shared
+    bestLine = summary:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    bestLine:SetPoint("TOP", perHourLine, "BOTTOM", 0, -8)
+    bestLine:SetWidth(390)
+    bestLine:SetWordWrap(true)
+    noteLine = summary:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    noteLine:SetPoint("TOP", bestLine, "BOTTOM", 0, -3)
+    noteLine:SetWidth(390)
+    noteLine:SetWordWrap(true)
 
     shareGuild = Button(summary, "Share in guild", 124)
     shareGuild:SetPoint("BOTTOMLEFT", 22, 20)
@@ -395,7 +404,30 @@ local function BuildSummary()
     end
 end
 
--- s = { label, zoneName, elapsed, nodes, value, valueSource, skill, kind }
+-- (0.2.3 P3) the lines about your best run here, from s.best (RunHistory.lua):
+-- the best line ("Best run here (Gold): 120 nodes per hour, 15g per hour", or
+-- "First counted run here.") and the notes (a new best, a run too short to
+-- count, gold per hour from known prices only). Nothing for a fishing session.
+local GOAL_LABELS = { skill = "Skill-ups", gold = "Gold", nodes = "Nodes", plan = "Plan" }
+local function BestLines(s)
+    local b = s.best
+    if not b or s.kind == "fish" then return end
+    local function Gold(copper) return ns.Money and ns.Money(copper, true) or PlainMoney(copper) end
+    local best, notes = nil, {}
+    if b.first then
+        best = L["First counted run here."]
+    elseif b.nodes then
+        best = (L["Best run here (%s): %d nodes per hour, %s per hour"]):format(L[GOAL_LABELS[b.goal] or "Nodes"],
+            math.floor(b.nodes + 0.5), Gold(b.gold or 0))
+    end
+    if b.newBest then notes[#notes + 1] = L["New personal best here!"] end
+    if not b.counted then notes[#notes + 1] = (L["Not counted for your best runs: under %d minutes of riding."]):format(b.minutes or 10) end
+    if (b.unknown or 0) > 0 then notes[#notes + 1] = (L["Gold per hour from known prices only (%d nodes without one)."]):format(b.unknown) end
+    return best, #notes > 0 and table.concat(notes, " ") or nil
+end
+ns.RunSummaryBestLines = BestLines -- (the tests)
+
+-- s = { label, zoneName, elapsed, nodes, value, valueSource, skill, kind, best }
 -- kind "fish": a fishing session (nodes = catches)
 local function ShowRunSummary(s)
     if not s or ns.db.summaryOff then return end
@@ -417,6 +449,9 @@ local function ShowRunSummary(s)
     cells[4]:SetText((L["|cff55ff55+%d|r"]):format(s.skill))
     perHourLine:SetText((s.valueSource == "vendor" and L["%s per hour (vendor price)"] or L["%s per hour"]):format(
         ns.Money and ns.Money(s.value / hours, true) or PlainMoney(s.value / hours)))
+    local best, notes = BestLines(s)
+    bestLine:SetText(best or "")
+    noteLine:SetText(notes or "")
     if IsInGuild and IsInGuild() then shareGuild:Enable() else shareGuild:Disable() end
     if InGroup() then shareParty:Enable() else shareParty:Disable() end
     summary:Show()

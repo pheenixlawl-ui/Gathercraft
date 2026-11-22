@@ -746,4 +746,9 @@ ns.Locales.zhCN = {
     ["no version heard: %d"] = "未收到版本：%d",
     ["  Refused by the game when sending (since login): %d throttled, %d channel throttled, %d channel not valid"] = "  发送时被游戏拒绝（登录以来）：%d 次限流，%d 次频道限流，%d 次频道无效",
     ["  Received but not counted (all sessions): %d repeats (the same player again), %d for spots already confirmed by %d players"] = "  收到但未计入（所有会话）：%d 次重复（同一玩家再次发送），%d 次针对已被 %d 名玩家确认的点位",
+    ["First counted run here."] = "这里第一次计入的采集路线。",
+    ["Best run here (%s): %d nodes per hour, %s per hour"] = "这里的最佳路线（%s）：每小时 %d 个采集点，每小时 %s",
+    ["New personal best here!"] = "这里的个人新纪录！",
+    ["Not counted for your best runs: under %d minutes of riding."] = "不计入你的最佳路线：移动不到 %d 分钟。",
+    ["Gold per hour from known prices only (%d nodes without one)."] = "每小时金币只按已知价格计算（%d 个采集点没有价格）。",
 }
