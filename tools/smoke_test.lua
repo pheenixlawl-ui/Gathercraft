@@ -29542,16 +29542,23 @@ step("Run history 0.2.3: a run ends in its zone's history - riding time from mov
         UnitOnTaxi = keep.taxi
         -- a hidden position: the history's own look once a second, 200 times, with the
         -- clock held (the route's code is not part of this: only the history is asked)
+        -- (the stand-in's type says "number", as the game's hidden numbers do: only the
+        -- secret check can tell it)
         local SECRET = newproxy(true)
         issecretvalue = function(v) return rawequal(v, SECRET) end
         local HBD = LibStub("HereBeDragons-2.0")
-        local where, clock = HBD.GetPlayerWorldPosition, GetTime
+        local where, clock, realType = HBD.GetPlayerWorldPosition, GetTime, type
         local t = GetTime()
         GetTime = function() return t end
         HBD.GetPlayerWorldPosition = function() return SECRET, SECRET, 1 end
-        for _ = 1, 200 do t = t + 1 player.x = player.x + 0.0004 ns.RunHistoryTick() end
+        type = function(v) if rawequal(v, SECRET) then return "number" end return realType(v) end
+        local okTick, errTick = pcall(function()
+            for _ = 1, 200 do t = t + 1 player.x = player.x + 0.0004 ns.RunHistoryTick() end
+        end)
+        type = realType
         HBD.GetPlayerWorldPosition, GetTime = where, clock
         issecretvalue = keep.secret
+        assert(okTick, "the history's look at a hidden position: " .. tostring(errTick))
         Ride(30)
         Gather(2770)
         ns.StopRun()
