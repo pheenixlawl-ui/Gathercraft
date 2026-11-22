@@ -306,15 +306,34 @@ local function NodeTaken(n, mapID, filter, quick)
 end
 
 -- quick = a run started where you are: your Zones tab selection doesn't count
-local function CollectPoints(filter, instance, zone, quick)
+--   (0.2.3 lauf-last B3) keep = the run's own store of its points: a node's
+--   point of the last collect is taken again when it is in the same zone at
+--   the same place - every harvest of the target collects all points again
+--   (a guess can move), thousands of new tables each time otherwise. A point
+--   is only ever read for these and for what is written to it before it is
+--   read (kind, d). A node twice in one collect gets a point of its own each
+--   time, as before. Without keep (the preview, "Best place to farm") all
+--   points are new, as before.
+local function CollectPoints(filter, instance, zone, quick, keep)
     local points = {}
+    local gen
+    if keep then
+        gen = (keep.gen or 0) + 1
+        keep.gen = gen
+    end
     for mapID, nodes in pairs(ns.db.nodes) do
         if ZoneTaken(mapID, zone) then
             for _, n in ipairs(nodes) do
                 if NodeTaken(n, mapID, filter, quick) then
                     local wx, wy, inst = WorldPos(n, mapID)
                     if wx and inst == instance then
-                        points[#points + 1] = { node = n, mapID = mapID, wx = wx, wy = wy }
+                        local p = keep and keep.of[n]
+                        if not (p and p.mapID == mapID and p.wx == wx and p.wy == wy and keep.at[n] ~= gen) then
+                            p = { node = n, mapID = mapID, wx = wx, wy = wy }
+                            if keep then keep.of[n] = p end
+                        end
+                        if keep then keep.at[n] = gen end
+                        points[#points + 1] = p
                         if n.learnStay then learnStays[n] = true end
                     end
                 end
@@ -1371,7 +1390,9 @@ Plan = function(quick)
     -- a plan run: what the plan needs now (a change collects the nodes anew)
     if run.plan and ns.PlanRunRefresh then ns.PlanRunRefresh(run) end
     if not run.points or run.pointsDirty or run.pointsInstance ~= instance then
-        run.points = CollectPoints(run.filter, instance, run.zone, run.quick)
+        -- (B3: the run's points kept by node, weak: a node deleted meanwhile drops out)
+        run.keepPoints = run.keepPoints or { of = setmetatable({}, { __mode = "k" }), at = setmetatable({}, { __mode = "k" }) }
+        run.points = CollectPoints(run.filter, instance, run.zone, run.quick, run.keepPoints)
         -- picked zones far apart: the group of neighbouring zones near you.
         -- Chosen once; again on another continent, when you are in a picked
         -- zone outside it (a flight), or when nothing of it is left.

@@ -15485,6 +15485,68 @@ step("Route line: its head makes no garbage for the gaps at the minimap pins - d
     if saved.shown and not WorldMapFrame:IsShown() then WorldMapFrame:Show() end
     if not ok then error(err, 0) end
 end)
+step("Route: a run keeps its points - collected again (a harvest of the target), a node in the same zone at the same place has the same point, a moved one a new one, a node twice in its list two (0.2.3 lauf-last B3)", function()
+    -- Order 0.2.3-lauf-last, part B3 (22.11.2026): every harvest of the
+    -- run's target collects all of the run's points again (a guess from the
+    -- minimap can move). Each point was a new table: in The Barrens with
+    -- Sven's data 5,175 of them a harvest, about 600 KB of garbage a second
+    -- while you farm (mock, part A). Now the run keeps its points by node and
+    -- takes a node's point again while it is in the same zone at the same
+    -- place. A point is only read for those and for what is written to it
+    -- before it is read (its kind, its distance), so the plan is the same
+    -- (the rides of the order's mock and the route simulator show it; here
+    -- a quick plan has a time budget on the real clock).
+    local saved = { map = player.map, x = player.x, y = player.y }
+    local HBD = LibStub("HereBeDragons-2.0")
+    local moved, oldX, list, added
+    local ok, err = pcall(function()
+        player.map, player.x, player.y = 1412, 0.45, 0.72
+        ns.StartRun("herb") advance(2)
+        local run = ns.run
+        assert(run and run.points and #run.points >= 3 and run.path and run.target, "test setup: a run with points and a path")
+        local before, n = {}, 0
+        for _, p in ipairs(run.points) do before[p.node] = p n = n + 1 end
+        -- 1. collected again, nothing moved: every point is the one of before
+        ns.RouteNodeListChanged() ns.RouteReplan()
+        assert(#run.points == n, ("%d points after collecting them again, %d before"):format(#run.points, n))
+        local same = 0
+        for _, p in ipairs(run.points) do if before[p.node] == p then same = same + 1 end end
+        assert(same == n, ("%d of %d points are new tables after collecting them again"):format(n - same, n))
+        assert(run.target and run.path and #run.path > 0, "no target or path after collecting the points again")
+        -- 2. a node moved a little (a guess seen again): its point is new, at the new place
+        for _, p in ipairs(run.points) do if p.node ~= run.target then moved = p.node break end end
+        oldX = moved.x
+        moved.x = oldX + 0.002
+        ns.RouteNodeListChanged() ns.RouteReplan()
+        local found
+        for _, p in ipairs(run.points) do if p.node == moved then found = p end end
+        assert(found, "the moved node has no point")
+        local wx, wy = HBD:GetWorldCoordinatesFromZone(moved.x, moved.y, found.mapID)
+        assert(found ~= before[moved] and found.wx == wx and found.wy == wy, "the moved node keeps its old point")
+        moved.x = oldX
+        -- 3. a node twice in its zone's list: a point of its own each time (as before)
+        local dup = run.points[1].node
+        list = ns.db.nodes[run.points[1].mapID]
+        list[#list + 1] = dup
+        added = true
+        ns.RouteNodeListChanged() ns.RouteReplan()
+        local seen, twice = {}, 0
+        for _, p in ipairs(run.points) do
+            if p.node == dup then
+                twice = twice + 1
+                assert(not seen[p], "a node twice in its zone's list has one point for both")
+                seen[p] = true
+            end
+        end
+        assert(twice == 2, ("test setup: the node is %d times in the points"):format(twice))
+    end)
+    if added and list then table.remove(list) end
+    if moved and oldX then moved.x = oldX end
+    if ns.run then ns.StopRun(true) end
+    player.map, player.x, player.y = saved.map, saved.x, saved.y
+    advance(1)
+    if not ok then error(err, 0) end
+end)
 step("Settings: no game setting is changed in combat - the gathering help and the bobber settings follow at the end of the fight (v0.1.22 R1, combat)", function()
     -- Sven, 13.11.2026 (live, 0.1.22 a62cefe): the questing mode switched on
     -- in a fight - "[ADDON_ACTION_BLOCKED] AddOn 'Gathercraft' tried to call
