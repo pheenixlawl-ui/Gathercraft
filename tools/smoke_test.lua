@@ -33795,6 +33795,392 @@ step("Ways 0.2.4: /gcr perf on has a part 'Ways' and, at the end of its line, th
     if not ok then error(err, 0) end
 end)
 
+step("Ways 0.2.4: with the option off the line, the arrow, the run window and the run itself are what they were before S1 - step for step against the same ride without Ways.lua's functions; with the option on only the line and the arrow's angle differ, the run decides the same (S1, final)", function()
+    local e = {}
+    -- a ridden U: the nodes lie along it, so the line of a run follows the net
+    WAYS.Ride(e, { { 10, 10 }, { 11, 10 }, { 12, 10 }, { 13, 10 }, { 14, 10 }, { 15, 10 }, { 16, 10 }, { 17, 10 }, { 18, 10 }, { 19, 10 }, { 20, 10 },
+        { 20, 11 }, { 20, 12 }, { 20, 13 }, { 20, 14 }, { 20, 15 }, { 20, 16 }, { 20, 17 }, { 20, 18 }, { 20, 19 }, { 20, 20 },
+        { 19, 20 }, { 18, 20 }, { 17, 20 }, { 16, 20 }, { 15, 20 }, { 14, 20 }, { 13, 20 }, { 12, 20 }, { 11, 20 }, { 10, 20 } })
+    local W = WAYS.World(e)
+    local P = libs["HereBeDragons-Pins-2.0"]
+    local HBD = LibStub("HereBeDragons-2.0")
+    local names = { "AddMinimapIconWorld", "AddWorldMapIconWorld", "RemoveMinimapIcon", "RemoveWorldMapIcon", "RemoveAllWorldMapIcons", "RemoveAllMinimapIcons" }
+    local keep, keepRot, keepFns = {}, methods.SetRotation, {}
+    for _, name in ipairs(names) do keep[name] = P[name] end
+    local FNS = { "WaysTick", "WaysRead", "WaysArrow", "WaysSource", "WaysRunChanged", "WaysOptionChanged", "WaysNow", "WaysSpend", "WaysWork" }
+    for _, name in ipairs(FNS) do keepFns[name] = ns[name] end
+    local ok, err = pcall(function()
+        HBD.GetWorldVector = function(_, _, ox, oy, dx, dy)
+            local ddx, ddy = dx - ox, dy - oy
+            return math.atan2(-ddx, ddy), math.sqrt(ddx * ddx + ddy * ddy)
+        end
+        -- Every ride has a zone of its own with the same pieces and the same nodes at the same places:
+        -- the addon learns from a ride (which spawn points had a node), and a second ride in the same
+        -- zone would plan with what the first one taught it. What is compared is told without the zone.
+        local zone, zoneOff = W.Z, 0
+        HBD.GetZoneSize = function(_, mapID) if mapID >= W.Z and mapID <= W.Z + 3 then return W.w, W.h end return 0, 0 end
+        for z = W.Z + 1, W.Z + 3 do
+            local copy = {}
+            for k, v in pairs(e) do copy[k] = v end
+            W.Pieces(copy, z)
+        end
+        local function At(tx, ty) player.map, player.x, player.y = zone, (tx + 0.5) * 25 / W.w, (ty + 0.5) * 25 / W.h end
+        -- What a step of the ride (a tenth of a second) does: the calls to HereBeDragons for the route's
+        -- dots, in a fixed order (two timers at the same moment run in whatever order the mock's sort
+        -- leaves them in - that order is not the addon's); then the arrow's angle and the texts on screen.
+        local rec, decisions, calls, angle
+        for _, name in ipairs(names) do
+            P[name] = function(self, ref, icon, inst, x, y, ...)
+                if type(ref) == "string" and ref:find("Route", 1, true) then
+                    calls[#calls + 1] = ("%s %s %s %s"):format(name, ref, type(x) == "number" and ("%.3f"):format(x - zoneOff) or "-", type(y) == "number" and ("%.3f"):format(y) or "-")
+                end
+                return keep[name](self, ref, icon, inst, x, y, ...)
+            end
+        end
+        methods.SetRotation = function(self, r)
+            if self.__parent == GathercraftArrow then angle = r end
+            return keepRot(self, r)
+        end
+        local function Window()
+            local t = {}
+            for _, f in ipairs(allFrames) do
+                -- (a hidden window keeps the texts of the run before: only what is on the screen counts)
+                if (f.__parent == GathercraftPanel or f.__parent == GathercraftArrow) and f.__kind == "FontString" and f.__parent:IsShown() and f:IsShown()
+                    and f.__text and f.__text ~= "" then
+                    t[#t + 1] = tostring(f.__text)
+                end
+            end
+            return (table.concat(t, " | "):gsub("Zone" .. zone, "ZoneN"))
+        end
+        -- the same ride, each time from the same start: three nodes along the U, ridden to along the ridden
+        -- squares, each harvested; the world map opened and closed on the way
+        local rides = 0
+        local function Ride(way, inZone)
+            rides = rides + 1
+            zone, zoneOff = inZone, (inZone - W.Z) * 6000
+            if ns.run then ns.StopRun(true) end
+            for _, name in ipairs(FNS) do ns[name] = keepFns[name] end
+            ns.db.routeWaysOff = nil
+            -- fresh nodes each time (a harvested one waits for its respawn), known to the pins before the ride
+            local nodes = { W.Node(20, 12), W.Node(18, 20), W.Node(10, 20) }
+            At(10, 10)
+            ns.db.nodes[zone] = nodes
+            ns.NotifyNodesChanged()
+            advance(3)
+            if WorldMapFrame:IsShown() then WorldMapFrame:Hide() end
+            -- Every ticker that runs since the login (the window's every quarter second, the search range's,
+            -- the paths', ...) stands the same to the start of every ride: a ride starts at a full minute
+            -- of the mock's clock. And 0.11 s after it, so that none of them falls onto the same moment as
+            -- one of the run's own tickers (the mock runs two timers of one moment in whatever order its
+            -- sort leaves them in).
+            advance((math.floor(GetTime() / 60) + 1) * 60 - GetTime())
+            advance(0.11)
+            if way == "before" then
+                for _, name in ipairs(FNS) do ns[name] = nil end
+            elseif way == "off" then
+                ns.db.routeWaysOff = true
+            end
+            rec, decisions, calls = {}, {}, {}
+            ns.StartRun("ore", zone)
+            advance(0.05) -- (the head's ticks fall into the middle of the steps below, not onto their edges)
+            local squares = {}
+            for x = 10, 20 do squares[#squares + 1] = { x, 10 } end
+            for y = 11, 20 do squares[#squares + 1] = { 20, y } end
+            for x = 19, 10, -1 do squares[#squares + 1] = { x, 20 } end
+            local harvested = {}
+            -- the window's own ticker (UI.lua, every quarter second), looked for under the /gcr perf wrapper
+            local windowTick
+            for _, tm in ipairs(timers) do
+                local fn = tm.fn
+                for k = 1, 8 do
+                    local name, v = debug.getupvalue(fn, k)
+                    if not name then break end
+                    if name == "fn" and type(v) == "function" then fn = v break end
+                end
+                if tm.every == 0.25 and not tm.cancelled and debug.getinfo(fn, "S").short_src:find("UI.lua", 1, true) then windowTick = tm.fn end
+            end
+            assert(windowTick, "test setup: no ticker of the run window")
+            local function Step(seconds)
+                advance(seconds)
+                -- (what is on screen is looked at fresh: the search range's check and the window's own
+                -- ticker run here once more, in this order - in the mock two tickers of one moment run in
+                -- whatever order its sort leaves them in)
+                ns.SearchRangeCheck()
+                windowTick()
+                angle = nil
+                GathercraftArrow:GetScript("OnUpdate")(GathercraftArrow, 0.25)
+                table.sort(calls)
+                rec[#rec + 1] = table.concat(calls, "; ")
+                rec[#rec + 1] = "arrow " .. (angle and ("%.4f"):format(angle) or "-")
+                rec[#rec + 1] = "window " .. Window()
+                calls = {}
+                local run = ns.run
+                decisions[#decisions + 1] = ("%s %s %d %d"):format(tostring(run and run.target and run.target.x), tostring(run and run.target and run.target.y),
+                    run and run.done or -1, run and run.path and #run.path or -1)
+            end
+            for i, sq in ipairs(squares) do
+                for part = 0, 4 do
+                    local nx, ny = squares[math.min(#squares, i + 1)][1], squares[math.min(#squares, i + 1)][2]
+                    At(sq[1] + (nx - sq[1]) * part / 5, sq[2] + (ny - sq[2]) * part / 5)
+                    Step(0.1)
+                end
+                if i == 8 then WorldMapFrame:Show() end
+                if i == 16 then WorldMapFrame:Hide() end
+                -- at a node's square: it is harvested
+                for _, n in ipairs(nodes) do
+                    if not harvested[n] and math.abs(n.x * W.w - (sq[1] + 0.5) * 25) < 1 and math.abs(n.y * W.h - (sq[2] + 0.5) * 25) < 1 then
+                        harvested[n] = true
+                        At(sq[1], sq[2])
+                        Step(0.6)
+                        ns.OnHarvested(n, "S1F" .. rides .. "x" .. i)
+                        Step(0.6)
+                    end
+                end
+            end
+            ns.StopRun(true)
+            Step(1)
+            for _, name in ipairs(FNS) do ns[name] = keepFns[name] end
+            ns.db.routeWaysOff = nil
+            return table.concat(rec, "\n"), table.concat(decisions, "\n"), #rec
+        end
+        Ride("on", W.Z + 3) -- (not looked at: every ride that is starts from the state a ride leaves behind)
+        local before, beforeRun, lines = Ride("before", W.Z)
+        local off, offRun = Ride("off", W.Z + 1)
+        local on, onRun = Ride("on", W.Z + 2)
+        assert(lines > 400 and before:find("AddMinimapIconWorld GathercraftRouteHead", 1, true) and before:find("AddWorldMapIconWorld GathercraftRouteHead", 1, true)
+            and before:find("arrow %-?%d") and before:find("window Farm run", 1, true), "test setup: the ride draws the head on both maps, turns the arrow and shows the window (" .. lines .. " lines)")
+        local reached = 0
+        for done in (beforeRun .. string.char(10)):gmatch(" (%-?%d+) %-?%d+" .. string.char(10)) do reached = math.max(reached, tonumber(done)) end
+        assert(reached == 3, "test setup: the run reached its three nodes (" .. reached .. ")")
+        if off ~= before then
+            local a, b = {}, {}
+            for l in (before .. "\n"):gmatch("(.-)\n") do a[#a + 1] = l end
+            for l in (off .. "\n"):gmatch("(.-)\n") do b[#b + 1] = l end
+            for i = 1, math.max(#a, #b) do
+                if a[i] ~= b[i] then
+                    error(("option off differs from before S1 at line %d of %d / %d: '%s' against '%s'"):format(i, #a, #b, tostring(a[i]):sub(1, 300), tostring(b[i]):sub(1, 300)), 0)
+                end
+            end
+        end
+        assert(offRun == beforeRun, "option off: the run decides as before S1")
+        -- with the option on the picture differs (or the test would see nothing) - but not what the run decides
+        assert(on ~= before and on:find("GathercraftRouteWays", 1, true), "option on: the line follows the way")
+        assert(not off:find("GathercraftRouteWays", 1, true) and not before:find("GathercraftRouteWays", 1, true), "option off: not one dot of a way")
+        assert(not off:find("Path: ", 1, true) and on:find(ns.L["Path: your ridden ways"], 1, true), "option off: no line about the way in the window; on: there is one")
+        assert(onRun == beforeRun, "option on: the run picks the same nodes at the same moments, counts the same, plans the same number of points")
+        -- the window with the option on is the window of before plus the one line
+        local function WithoutPath(text)
+            local t = {}
+            local p1 = " | " .. ns.L["Path: your ridden ways"]:gsub("%p", "%%%0") .. "[^|]*"
+            local p2 = " | " .. ns.L["Path: straight line"]:gsub("%p", "%%%0")
+            for l in (text .. "\n"):gmatch("(.-)\n") do
+                if l:sub(1, 7) == "window " then t[#t + 1] = ((l .. " "):gsub(p1, " "):gsub(p2 .. " ", " "):gsub(" +", " ")) end
+            end
+            return table.concat(t, "\n")
+        end
+        local wOn, wBefore = WithoutPath(on), WithoutPath(before)
+        if wOn ~= wBefore then
+            local a, b = {}, {}
+            for l in (wBefore .. "\n"):gmatch("(.-)\n") do a[#a + 1] = l end
+            for l in (wOn .. "\n"):gmatch("(.-)\n") do b[#b + 1] = l end
+            for i = 1, math.max(#a, #b) do
+                if a[i] ~= b[i] then error(("option on: the window differs beyond its line about the way, at step %d: '%s' against '%s'"):format(i, tostring(a[i]), tostring(b[i])), 0) end
+            end
+        end
+    end)
+    for _, name in ipairs(names) do P[name] = keep[name] end
+    for _, name in ipairs(FNS) do ns[name] = keepFns[name] end
+    methods.SetRotation = keepRot
+    ns.db.routeWaysOff = nil
+    if ns.run then ns.StopRun(true) end
+    for z = W.Z + 1, W.Z + 3 do ns.db.nodes[z] = nil end
+    player.map = W.Z
+    W.Done()
+    if not ok then error(err, 0) end
+end)
+
+step("Ways 0.2.4: riding along a way that is shown makes no new garbage - 600 frames of the head's ticks, the arrow, the run window and the work frame, the map opened and closed; less than the same ride with the option off; a new request and a new build with warm lists make next to none (S1, final)", function()
+    -- a long way with many bends
+    local e, squares = {}, {}
+    do
+        local x, y = 10, 10
+        for i = 1, 420 do
+            squares[#squares + 1] = { x, y }
+            if i % 6 < 3 then x = x + 1 else y = y + 1 end
+        end
+        WAYS.Ride(e, squares)
+    end
+    local W = WAYS.World(e)
+    local P = libs["HereBeDragons-Pins-2.0"]
+    local HBD = LibStub("HereBeDragons-2.0")
+    local names = { "AddMinimapIconWorld", "AddWorldMapIconWorld", "RemoveMinimapIcon", "RemoveWorldMapIcon", "RemoveAllWorldMapIcons", "RemoveAllMinimapIcons" }
+    local keep, keepColor, keepTime = {}, methods.SetVertexColor, GetTime
+    local keepZoom, keepWidth = Minimap.GetZoom, Minimap.GetWidth
+    for _, name in ipairs(names) do keep[name] = P[name] end
+    -- The frames below are made by hand, without the mock's timers: the game's clock is the test's
+    -- own meanwhile, a twentieth of a second on with every frame.
+    local fake = 0
+    local function OwnTime(on)
+        if on then
+            fake = math.max(fake, keepTime()) + 1
+            GetTime = function() return fake end
+        else
+            GetTime = keepTime
+        end
+    end
+    local ok, err = pcall(function()
+        -- (the mock's own pin functions keep every call in a list and its colour makes a table: here they
+        -- do nothing - the game's make nothing either)
+        for _, name in ipairs(names) do P[name] = function() end end
+        methods.SetVertexColor = function() end
+        -- (a method the mock does not know is a new function at every call: the minimap's zoom and width are real ones here)
+        Minimap.GetZoom, Minimap.GetWidth = function() return 0 end, function() return 140 end
+        -- (counted without LuaJIT's compiler, as in the game's Lua: its traces are garbage of their own)
+        if jit then jit.off() end
+        local last = squares[#squares]
+        local node = W.Node(last[1], last[2])
+        local d = ns.WaysDiag()
+        local work = select(7, ns.WaysState())
+        local workFn = work:GetScript("OnUpdate")
+        local arrowFn = GathercraftArrow:GetScript("OnUpdate")
+        -- the head's ticker (Route.lua, every 0.1 s), looked for under the /gcr perf wrapper
+        local function Head()
+            local head
+            for _, t in ipairs(timers) do
+                local fn = t.fn
+                for k = 1, 8 do
+                    local name, v = debug.getupvalue(fn, k)
+                    if not name then break end
+                    if name == "fn" and type(v) == "function" then fn = v break end
+                end
+                local info = debug.getinfo(fn, "S")
+                if t.every == 0.1 and not t.cancelled and info.short_src:find("Route.lua", 1, true) then head = t.fn end
+            end
+            return assert(head, "test setup: no ticker of the head")
+        end
+        -- 600 frames along the way from square `from` on, with nothing of the mock in between: the
+        -- head's tick, the arrow, the run window's line, the work frame; the map opened and closed
+        -- (its hooks draw the line again). Returns the Lua memory made meanwhile (KB).
+        local run
+        local function Ride(from, maps, own)
+            local head = Head()
+            OwnTime(true)
+            collectgarbage("collect")
+            collectgarbage("stop")
+            local kb = collectgarbage("count")
+            for f = 1, 600 do
+                local i = from + math.floor(f / 6)
+                local a, b = squares[i], squares[i + 1]
+                local t = (f % 6) / 6
+                W.At(a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t)
+                fake = fake + 0.05
+                head()
+                if own then
+                    -- (S1's calls alone: the arrow's point and the window's line without the arrow's and the
+                    -- window's own texts - those are made anew at every look, as before S1)
+                    local px, py = HBD:GetPlayerWorldPosition()
+                    ns.WaysArrow(run, px, py)
+                    ns.WaysSource(run)
+                else
+                    arrowFn(GathercraftArrow, 0.05)
+                    ns.UpdateRunSource()
+                end
+                workFn(work, 0.05)
+                if maps and f % 150 == 0 then WorldMapFrame:Show() end
+                if maps and f % 150 == 40 then WorldMapFrame:Hide() end
+            end
+            local made = collectgarbage("count") - kb
+            collectgarbage("restart")
+            OwnTime(false)
+            return made
+        end
+        local function Start(off)
+            if ns.run then ns.StopRun(true) end
+            ns.db.routeWaysOff = off or nil
+            W.At(squares[1][1], squares[1][2])
+            run = W.Run({ node }, 3)
+            -- (warm: every list and every dot is there; the first ride is not measured)
+            Ride(1)
+        end
+        Start(true)
+        local offKB = Ride(101)
+        local offMapsKB = Ride(201, true)
+        Start(false)
+        assert(W.Read().state == "net", "test setup: the way is shown (" .. W.Read().state .. ")")
+        local requests, builds = d.requests, d.builds
+        local _, _, wh = ns.RouteWaysHead()
+        assert(wh.n > 50, "test setup: its dots are placed (" .. wh.n .. ")")
+        local onKB = Ride(101)
+        local onMapsKB = Ride(201, true)
+        local ownKB = Ride(301, false, true)
+        assert(W.Read().state == "net" and d.requests == requests and d.builds == builds, "(all three rides on one way: nothing asked, nothing built)")
+        note("MEASURE ways garbage in 600 frames: S1's own calls", ("%.3f KB"):format(ownKB), "- the whole ride: option off", ("%.2f KB"):format(offKB), "on", ("%.2f KB"):format(onKB),
+            "- with the map opened and closed four times: off", ("%.2f KB"):format(offMapsKB), "on", ("%.2f KB"):format(onMapsKB))
+        -- S1 itself: the head's tick with a way shown (asking, reading, the dots behind you, placing anew),
+        -- the arrow's point, the window's line, the work frame - no table, no string, no texture
+        assert(ownKB <= 0.2, ("with a way shown, 600 frames of S1's own calls made %.3f KB of garbage"):format(ownKB))
+        -- the whole ride (the arrow's and the window's texts are made anew at every look, as before S1): not more than with the option off
+        assert(onKB <= offKB + 0.01, ("with a way shown %.2f KB in 600 frames, with the option off %.2f KB"):format(onKB, offKB))
+        -- the map opened and closed: the whole line is drawn again as before S1 (that makes garbage, as before); S1 adds none to it
+        assert(onMapsKB <= offMapsKB + 0.5, ("with the map opened and closed: %.2f KB with a way shown, %.2f KB with the option off"):format(onMapsKB, offMapsKB))
+        -- A new request (you left the way) and a new build (a piece changed its class), with warm lists.
+        -- (Each is done once before it is measured: the straight head makes its dots the first time it is
+        -- drawn, and the lists grow to the way's length once.)
+        local function Frames(n)
+            local head = Head()
+            OwnTime(true)
+            for _ = 1, n do
+                fake = fake + 0.05
+                head()
+                arrowFn(GathercraftArrow, 0.05)
+                ns.UpdateRunSource()
+                workFn(work, 0.05)
+            end
+            OwnTime(false)
+        end
+        local askKB, buildKB
+        for round = 1, 2 do
+            local a = squares[250 + 20 * round]
+            W.At(a[1], a[2], 30, -30)
+            Frames(40)
+            W.At(a[1], a[2])
+            Frames(40)
+            assert(W.Read().state == "net", "(on the way: " .. W.Read().state .. ")")
+            requests, builds = d.requests, d.builds
+            collectgarbage("collect")
+            collectgarbage("stop")
+            -- (what 40 frames make by themselves while you stand on the way: the arrow's text at every look, as before S1)
+            local kb = collectgarbage("count")
+            Frames(40)
+            local idleKB = collectgarbage("count") - kb
+            kb = collectgarbage("count")
+            W.At(a[1], a[2], 30, -30)
+            Frames(40)
+            askKB = collectgarbage("count") - kb - idleKB
+            assert(d.requests > requests and W.Read().state == "net", "(a new request, a way from off the old one)")
+            kb = collectgarbage("count")
+            OwnTime(true) -- (told at the test's own time, or the build that follows would look five seconds late)
+            ns.PathsChanged(W.Z, "class")
+            Frames(60)
+            buildKB = collectgarbage("count") - kb - idleKB * 1.5
+            collectgarbage("restart")
+            assert(d.builds == builds + 1 and W.Read().state == "net", "(a new build, a way again)")
+        end
+        note("MEASURE ways garbage: a new request", ("%.2f KB"):format(askKB), "a new build with its request", ("%.2f KB"):format(buildKB))
+        assert(askKB <= 2, ("a new request with warm lists: %.2f KB"):format(askKB))
+        assert(buildKB <= 2, ("a new build with warm lists: %.2f KB"):format(buildKB))
+    end)
+    collectgarbage("restart")
+    GetTime = keepTime
+    if jit then jit.on() end
+    for _, name in ipairs(names) do P[name] = keep[name] end
+    methods.SetVertexColor = keepColor
+    Minimap.GetZoom, Minimap.GetWidth = keepZoom, keepWidth
+    ns.db.routeWaysOff = nil
+    W.Done()
+    if not ok then error(err, 0) end
+end)
+
 io.write("\n--- errors: " .. #errors .. "\n")
 for _, e in ipairs(errors) do io.write("  " .. e .. "\n") end
 io.write("\n--- notable log lines:\n")
