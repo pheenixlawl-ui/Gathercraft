@@ -271,6 +271,34 @@ local function WorldMouse()
     if not WorldTipShift() then return true end
     return IsShiftKeyDown and IsShiftKeyDown() and true or false
 end
+
+-- /gcr mapdiag (0.2.3 mapdiag, the command at the end of this file): switches
+-- for a measurement, this session only - nothing is saved. They are asked
+-- where a world map pin of a node gets its look (Decorate), its mouse
+-- (WorldPinShown) and its place on the map (AddNodePins).
+local diag = {}      -- switch -> true: nomask, noring, nomouse, noquestie, nosync, noown
+local diagOn = false -- any of them
+local diagMouse = {} -- world map pins whose mouse nomouse took (pin -> true)
+-- the source of a node for the switches: own, sync (a grey report comes from
+-- other players too), questie, starter (no switch)
+local function DiagSource(n)
+    if n.pendingReport or n.source == "sync" then return "sync" end
+    return n.source or "own"
+end
+local function DiagHides(n)
+    local s = DiagSource(n)
+    return (s == "questie" and diag.noquestie) or (s == "sync" and diag.nosync) or (s == "own" and diag.noown) or false
+end
+-- nomouse: the shown world map pins of nodes take no mouse (the run target's as chosen)
+local function DiagMouse(pin)
+    if pin.isTarget then return end
+    pin:EnableMouse(false)
+    diagMouse[pin] = true
+end
+local function DiagMouseShown()
+    for pin in pairs(worldShown) do DiagMouse(pin) end
+end
+
 -- (0.2.2 P2e) the pass every 3 s (UpdateAlpha) looks at the shown world map
 -- pins only: one that comes into sight gets its colour and alpha now
 local RefreshPin -- (below, once Tint and SetAlpha are there)
@@ -278,6 +306,7 @@ local function WorldPinShown(pin)
     if not pin.isWorld then return end
     worldShown[pin] = true
     pin:EnableMouse(WorldMouse())
+    if diag.nomouse then DiagMouse(pin) end
     if RefreshPin and pin.node and not pin.isTarget then RefreshPin(pin) end
 end
 local function WorldPinHidden(pin) worldShown[pin] = nil end
@@ -298,6 +327,20 @@ local function CreatePin()
     pin:SetScript("OnLeave", function() GameTooltip:Hide() end)
     pin:Hide()
     return pin
+end
+
+-- /gcr mapdiag noring, nomask: a node's world map pin without its ring (it
+-- is there all the same: Tint colours it, off shows it) or its round mask
+local function DiagLook(pin)
+    if diag.noring and pin.ring and pin.ring:IsShown() then
+        pin.ring:Hide()
+        pin.diagRing = true
+    end
+    if diag.nomask and pin.masked then
+        pin.icon:RemoveMaskTexture(pin.mask)
+        pin.masked = nil
+        pin.diagMask = true
+    end
 end
 
 -- ring = texture of a ring around a round icon, or nil for the plain square
@@ -335,6 +378,10 @@ local function Decorate(pin, ring)
             pin.masked = nil
         end
     end
+    -- (/gcr mapdiag: every part set anew above; a node's world map pin as the switches say. Only a
+    -- field that is there is cleared: "= nil" would put the field into the pin, which takes memory)
+    if pin.diagRing or pin.diagMask then pin.diagRing, pin.diagMask = nil, nil end
+    if diagOn and pin.isWorld and not pin.isTarget then DiagLook(pin) end
 end
 
 -- The colour of a pin: its node's, or for a spot several kinds share the
@@ -390,7 +437,7 @@ end
 local function Tint(pin)
     if not pin or pin.isTarget then return end
     pin.level = nil
-    if not (pin.ring and pin.ring:IsShown()) then return end
+    if not (pin.ring and (pin.ring:IsShown() or pin.diagRing)) then return end -- (diagRing: hidden by /gcr mapdiag noring)
     local level = PinLevel(pin)
     pin.level = level
     if PlanGlow(pin) == 1 then
@@ -619,7 +666,7 @@ ns.MiniPinCounts = function() return miniCount.near, miniCount.zone end
 -- our world map pins registered with HereBeDragons (/gcr perf on)
 ns.WorldPinCount = function()
     local n = 0
-    for _, pins in pairs(pinsByNode) do if pins.world then n = n + 1 end end
+    for _, pins in pairs(pinsByNode) do if pins.world and not pins.world.diagOff then n = n + 1 end end -- (diagOff: /gcr mapdiag)
     return n
 end
 -- one look now, whatever the clock says (the tests measure it with this)
@@ -714,7 +761,12 @@ local function AddNodePins(mapID, n)
         Decorate(w, (RingedWorld() and not n.pendingReport) and RING_SILVER or nil)
         Tint(w)
         SetAlpha(w)
-        HBDPins:AddWorldMapIconMap(REF, w, mapID, n.x, n.y, HBD_PINS_WORLDMAP_SHOW_PARENT or 1)
+        if diagOn and DiagHides(n) then
+            w.diagOff = true -- (/gcr mapdiag: its source is off the map for this session)
+        else
+            if w.diagOff then w.diagOff = nil end
+            HBDPins:AddWorldMapIconMap(REF, w, mapID, n.x, n.y, HBD_PINS_WORLDMAP_SHOW_PARENT or 1)
+        end
     end
 
     if showMini then m = AddMiniPin(mapID, n, w) end
@@ -750,7 +802,8 @@ local function RemoveNodePins(n, quiet)
         RequestRebuild() -- another kind takes over this spot
     end
     -- (0.2.2 W1: a rebuild has taken every world map pin off in one call already)
-    if pins.world and not rebuilding then HBDPins:RemoveWorldMapIcon(REF, pins.world) end
+    -- (a pin /gcr mapdiag keeps off the map is not on it)
+    if pins.world and not rebuilding and not pins.world.diagOff then HBDPins:RemoveWorldMapIcon(REF, pins.world) end
     if pins.mini then MiniForget(pins.mini, rebuilding) end
     for key, pin in pairs(pins) do
         pin:Hide()
@@ -1310,6 +1363,7 @@ modWatch:SetScript("OnEvent", function(_, _, key)
     if key ~= "LSHIFT" and key ~= "RSHIFT" then return end
     local on = WorldMouse()
     for pin in pairs(worldShown) do pin:EnableMouse(on) end
+    if diag.nomouse then DiagMouseShown() end
     local owner = not on and GameTooltip:GetOwner()
     if owner and worldShown[owner] then GameTooltip:Hide() end
 end)
@@ -1326,6 +1380,7 @@ local function ApplyWorldTip()
         if pins.world then pins.world:EnableMouse(on) end
     end
     if target.world then target.world:EnableMouse(on) end
+    if diag.nomouse then DiagMouseShown() end
 end
 ns.WorldPinTipChanged = ApplyWorldTip
 
@@ -1441,6 +1496,157 @@ ns.PinTest = function()
     for _ in pairs(ns.db.disabledKinds or {}) do nKinds = nKinds + 1 end
     for _ in pairs(ns.db.disabledContinentKinds or {}) do nCont = nCont + 1 end
     print(("  unticked materials: %d in zones, %d on continents"):format(nKinds, nCont))
+end
+
+---------------------------------------------------------------------------
+-- /gcr mapdiag (0.2.3 mapdiag; Sven, 23.11.2026: dense zones cost many
+-- frames on the world map - The Barrens, about 1,800 pins shown, about 30
+-- FPS less - and which part of a pin costs is not measured). Switches for a
+-- measurement in the game, for the world map and our node pins only:
+--   nomask     the icons without their round mask (square inside the ring)
+--   noring     without the ring
+--   nomouse    no mouse on the pins (no tooltip)
+--   noquestie, nosync, noown   the pins of one source off the map (sync: the
+--              grey reports of other players too; starter spots: no switch)
+-- They go together; status says what the map shows now. For this session
+-- only: nothing is saved, off or a /reload gives back what was there; a
+-- zone, a zoom, a rebuild or the map opened again keep them. The minimap,
+-- the run target's pins, the settings, sync and the data are not touched.
+-- The calls are the ones the addon makes anyway (a rebuild, a Shift press
+-- with "With Shift"): in combat it works the same.
+---------------------------------------------------------------------------
+local DIAG_SWITCHES = { "nomask", "noring", "nomouse", "noquestie", "nosync", "noown" }
+local DIAG_KNOWN = {}
+for _, k in ipairs(DIAG_SWITCHES) do DIAG_KNOWN[k] = true end
+
+local function DiagState()
+    local on = {}
+    for _, k in ipairs(DIAG_SWITCHES) do if diag[k] then on[#on + 1] = k end end
+    return #on > 0 and table.concat(on, " ") or "none"
+end
+
+-- the world map pins of nodes: on HereBeDragons, or off it while their
+-- source is switched off (all off in one call and on again, as a rebuild)
+local function DiagPlace()
+    HBDPins:RemoveAllWorldMapIcons(REF)
+    for _, pins in pairs(pinsByNode) do
+        local w = pins.world
+        if w and w.node then
+            if diagOn and DiagHides(w.node) then
+                w.diagOff = true
+            else
+                if w.diagOff then w.diagOff = nil end
+                HBDPins:AddWorldMapIconMap(REF, w, w.mapID, w.node.x, w.node.y, HBD_PINS_WORLDMAP_SHOW_PARENT or 1)
+            end
+        end
+    end
+end
+
+local function DiagSet(word)
+    if diag[word] then return end
+    diag[word] = true
+    diagOn = true
+    if word == "nomask" or word == "noring" then
+        for _, pins in pairs(pinsByNode) do
+            if pins.world then DiagLook(pins.world) end
+        end
+    elseif word == "nomouse" then
+        DiagMouseShown()
+        local owner = GameTooltip:GetOwner()
+        if owner and diagMouse[owner] then GameTooltip:Hide() end
+    else
+        DiagPlace()
+    end
+end
+
+-- everything as set: the rings and masks back (the pins kept for reuse too),
+-- the mouse as the tooltip choice says, the pins of every source on the map
+local function DiagOff()
+    local sources = diag.noquestie or diag.nosync or diag.noown
+    wipe(diag)
+    diagOn = false
+    local function Back(w)
+        if w.diagRing then
+            w.ring:Show()
+            w.diagRing = nil
+        end
+        if w.diagMask then
+            w.icon:AddMaskTexture(w.mask)
+            w.masked = true
+            w.diagMask = nil
+        end
+    end
+    for _, pins in pairs(pinsByNode) do
+        if pins.world then Back(pins.world) end
+    end
+    for _, w in ipairs(freeWorld) do Back(w) end
+    for pin in pairs(diagMouse) do pin:EnableMouse(WorldMouse()) end
+    wipe(diagMouse)
+    if sources then DiagPlace() end
+end
+
+-- what the world map shows now: our node pins by source and their parts
+local function DiagStatus()
+    local map = WorldMapFrame and WorldMapFrame:IsShown() and WorldMapFrame:GetMapID()
+    if not map then
+        ns.Print("mapdiag: the world map is closed - open it on the zone, then /gcr mapdiag status again. Switches: " .. DiagState())
+        return
+    end
+    local by = { own = 0, sync = 0, questie = 0, starter = 0 }
+    local shown, textures, masks, mouse = 0, 0, 0, 0
+    for pin in pairs(worldShown) do
+        local n = pin.node
+        if n and not pin.isTarget then
+            shown = shown + 1
+            local s = DiagSource(n)
+            by[s] = (by[s] or 0) + 1
+            if pin.icon:IsShown() then textures = textures + 1 end
+            if pin.ring and pin.ring:IsShown() then textures = textures + 1 end
+            if pin.masked then masks = masks + 1 end
+            if pin:IsMouseEnabled() then mouse = mouse + 1 end
+        end
+    end
+    local hidden = 0
+    for _, pins in pairs(pinsByNode) do
+        local w = pins.world
+        if w and w.diagOff and w.mapID == map then hidden = hidden + 1 end
+    end
+    local pool = HBDPins.worldmapPinsPool
+    local okPool, inUse = false, nil
+    if pool and pool.GetNumActive then okPool, inUse = pcall(pool.GetNumActive, pool) end
+    ns.Print(("mapdiag, %s (%s): %d pins shown (own %d, sync %d, Questie %d, starter %d), run target %d | frames %d, textures %d, masks %d, with mouse %d | hidden by mapdiag here %d | HereBeDragons map pins in use (all addons) %s | switches: %s"):format(
+        tostring(ns.GetZoneName and ns.GetZoneName(map) or map), tostring(map), shown, by.own, by.sync, by.questie, by.starter,
+        (target.world and worldShown[target.world]) and 1 or 0, shown, textures, masks, mouse, hidden,
+        (okPool and type(inUse) == "number") and tostring(inUse) or "not readable", DiagState()))
+end
+
+local function DiagHelp()
+    ns.Print("mapdiag - switches for a measurement, world map and our node pins only, this session only (nothing is saved; off or /reload undoes them):")
+    print("  /gcr mapdiag status     - the pins of the zone the world map shows: by source, frames, textures, masks, mouse; the switches on")
+    print("  /gcr mapdiag nomask     - icons without their round mask (square)")
+    print("  /gcr mapdiag noring     - no ring around the icons")
+    print("  /gcr mapdiag nomouse    - the pins take no mouse (no tooltip)")
+    print("  /gcr mapdiag noquestie  - the known spawn points (Questie) off the map")
+    print("  /gcr mapdiag nosync     - the nodes of other players off the map (shared nodes, grey reports)")
+    print("  /gcr mapdiag noown      - your own nodes off the map")
+    print("  /gcr mapdiag off        - everything as set again")
+    print("  They go together, also in one command: /gcr mapdiag nomask noring. Minimap, run target, settings, sync and data stay as they are.")
+end
+
+ns.MapDiagCommand = function(rest)
+    local words = {}
+    for w in (rest or ""):lower():gmatch("%S+") do words[#words + 1] = w end
+    if #words == 1 and words[1] == "status" then return DiagStatus() end
+    if #words == 1 and words[1] == "off" then
+        DiagOff()
+        ns.Print("mapdiag off: the world map pins are as set.")
+        return
+    end
+    local known = #words > 0
+    for _, w in ipairs(words) do known = known and DIAG_KNOWN[w] or false end
+    if not known then return DiagHelp() end
+    for _, w in ipairs(words) do DiagSet(w) end
+    ns.Print("mapdiag on: " .. DiagState() .. " - /gcr mapdiag status counts, /gcr mapdiag off undoes it.")
 end
 -- (/gcr perf on: the event scripts above, measured while it is on)
 modWatch:SetScript("OnEvent", Wrap("Pins", modWatch:GetScript("OnEvent")))

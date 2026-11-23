@@ -1566,6 +1566,9 @@ SlashCmdList.GATHERCRAFT = function(msg)
         if ClearWaypoint() then Print(L["Waypoint cleared."]) end
     elseif cmd == "pintest" then
         if ns.PinTest then ns.PinTest() end
+    elseif cmd == "mapdiag" then
+        -- (0.2.3: switches for measuring the world map pins, this session only - Pins.lua)
+        if ns.MapDiagCommand then ns.MapDiagCommand(rest) end
     elseif cmd == "stats" then
         Stats()
     elseif cmd == "options" or cmd == "config" then
