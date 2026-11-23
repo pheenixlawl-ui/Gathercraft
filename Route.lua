@@ -105,6 +105,8 @@ local TUNE = {
     loopSlow = 1.0,    -- still filling after a whole round: longer round
     loopRemember = 3 * 3600, -- seconds a shorter round is remembered for the zone
     collectCheck = false, -- (0.2.4 a2, the tests) every collect of a farm run against a full collect
+    refine = true,     -- (0.2.4 a2 part B) a Smart plan's 2-opt and Untangle in bites after the target is chosen
+    fastPasses = 2,    -- ... whole 2-opt passes in its quick part before the target is chosen (a count)
 }
 ns.RouteTune = TUNE
 -- (0.2.4 a2, the tests) with TUNE.collectCheck every collect of a farm run is
@@ -1685,6 +1687,300 @@ local function BonusSignature()
 end
 
 ---------------------------------------------------------------------------
+-- (0.2.4 a2 part B) The plan's improvement in small bites
+--   A plan used to improve its path in one go: 2-opt (up to 10 ms of a
+--   quick plan), then Untangle (another 10 ms) - in the frame of the
+--   arrival or the harvest, the larger part of the hitch then. Now:
+--   - the quick part chooses the target at once, as before: the nearest
+--     points, the nearest neighbour, and the moves of 2-opt's first row
+--     (the only ones that can change the first point) while they improve -
+--     a count of moves, not a time, so the game and the route simulator
+--     (whose clock stands still) choose alike;
+--   - the rest goes in bites, at most FRAME_MS of planning work in a frame
+--     (a frame = one GetTime() value; the plan's own work in that frame
+--     counts): 2-opt with the target fixed, Prune, Untangle, then the line.
+--     Each procedure keeps its budget (10 ms for a quick plan, 150 for the
+--     first one), only spread over frames. The target never changes by it.
+--   - the line shows the quick plan until the bites are done, then the
+--     improved one: one change.
+--   - a new plan, a stop, another continent: the bites of the old plan are
+--     dropped (a mark per plan, as in S1's ways) and never shown.
+--   A Loop run's round is planned as before (its path is the round).
+--   TUNE.refine false: the plan in one go, as before.
+---------------------------------------------------------------------------
+-- (one local only: Route.lua's main chunk is near Lua's 200 locals)
+local Refine = {
+    FRAME_MS = 1.0,
+    job = nil,             -- the bites under way
+    frameAt = nil, frameMs = 0, depth = 0, -- the planning work of the frame now
+    stats = { started = 0, done = 0, same = 0, dropped = 0, slices = 0, maxSlice = 0, maxFrame = 0, firstRow = 0 }, -- (the tests)
+}
+-- the clock of the bites: the game's, or the tests' (ns.RouteClock)
+function Refine.Clock() return (ns.RouteClock or debugprofilestop)() end
+-- lists kept from plan to plan (the bites: one job at a time; the plan's open points), emptied when taken
+Refine.bufs = { {}, {}, {} }
+function Refine.Take(k)
+    local b = Refine.bufs[k]
+    for i = #b, 1, -1 do b[i] = nil end
+    return b
+end
+
+-- The moves of 2-opt's first row (t[1] the start, fixed), again while they
+-- improve: what of 2-opt can change the first point (the target), and no more
+function Refine.FirstRow(t)
+    local n = #t
+    if n < 4 then return end
+    while Refine.Row(t, 1, n) do Refine.stats.firstRow = Refine.stats.firstRow + 1 end
+end
+
+-- One row of 2-opt for the point t[i] - TwoOptOpen's inner loop: the same
+-- moves in the same order, the distances worked out here as PDist does it
+-- (the same numbers, without two calls for each of them)
+function Refine.Row(t, i, n)
+    local sqrt = math.sqrt
+    local a, b = t[i], t[i + 1]
+    local ax, ay = a.wx, a.wy
+    local bx, by = b.wx, b.wy
+    local dx, dy = bx - ax, by - ay
+    local dab = sqrt(dx * dx + dy * dy)
+    local improved = false
+    for j = i + 2, n do
+        local c, e = t[j], t[j + 1]
+        local cx, cy = c.wx, c.wy
+        dx, dy = cx - ax, cy - ay
+        local delta = sqrt(dx * dx + dy * dy) - dab
+        if e then
+            local ex, ey = e.wx, e.wy
+            dx, dy = ex - bx, ey - by
+            local dbe = sqrt(dx * dx + dy * dy)
+            dx, dy = ex - cx, ey - cy
+            delta = delta + dbe - sqrt(dx * dx + dy * dy)
+        end
+        if delta < -0.01 then
+            local l, r = i + 1, j
+            while l < r do
+                t[l], t[r] = t[r], t[l]
+                l, r = l + 1, r - 1
+            end
+            b = t[i + 1]
+            bx, by = b.wx, b.wy
+            dx, dy = bx - ax, by - ay
+            dab = sqrt(dx * dx + dy * dy)
+            improved = true
+        end
+    end
+    return improved
+end
+
+-- One pass of 2-opt over the rows from the second on (the first point stays):
+-- true when a move was made
+function Refine.Pass(t)
+    local n = #t
+    if n < 5 then return false end
+    local improved = false
+    for i = 2, n - 2 do
+        if Refine.Row(t, i, n) then improved = true end
+    end
+    return improved
+end
+
+-- The quick part of PlanPath: the nearest points, the nearest neighbour, the first row
+function Refine.FastPath(points, px, py, _, maxNodes)
+    points = NearestPoints(points, px, py, maxNodes or MAX_ROUTE_NODES)
+    local path = NearestNeighbor(points, px, py)
+    table.insert(path, 1, { wx = px, wy = py })
+    Refine.FirstRow(path)
+    -- two whole passes over the other rows, each followed by the first row
+    -- again (a count, not a time): the order behind can change what is best
+    -- first. Only for a quick plan (100 points): the first plan of a run (800)
+    -- would take too long for it - its first row alone chooses.
+    if #path <= QUICK_MAX_NODES + 1 then
+        for _ = 1, TUNE.fastPasses do
+            if not Refine.Pass(path) then break end
+            Refine.FirstRow(path)
+        end
+    end
+    table.remove(path, 1)
+    local length, cx, cy = 0, px, py
+    for _, p in ipairs(path) do
+        length = length + WDist(cx, cy, p.wx, p.wy)
+        cx, cy = p.wx, p.wy
+    end
+    return path, length
+end
+
+-- One bite of TwoOptOpen: the same moves in the same order, row by row,
+-- until the procedure's budget (time spent in its bites) is used, or before
+-- a row that would end after the deadline (as long as the row before)
+function Refine.Opt(o, deadline)
+    local t, n = o.t, #o.t
+    if n < 4 then return true end
+    local clock = Refine.Clock
+    local t0 = clock()
+    local row = 0
+    while true do
+        if o.i > n - 2 then
+            if not o.improved then return true end
+            o.improved, o.i = false, o.first
+        end
+        local i = o.i
+        if Refine.Row(t, i, n) then o.improved = true end
+        o.i = i + 1
+        local now = clock()
+        row = now - t0
+        o.used = o.used + row
+        t0 = now
+        Refine.lastNow, Refine.lastRow = now, row
+        if o.used > o.budget then return true end
+        if now + row >= deadline then return false end
+    end
+end
+
+function Refine.Drop(why)
+    if Refine.job then
+        Refine.stats.dropped = Refine.stats.dropped + 1
+        if ns.db and ns.db.debug then ns.Debug("plan: the improvement of the last plan dropped (" .. why .. ")") end
+    end
+    Refine.job = nil
+    if Refine.frame then Refine.frame:Hide() end
+end
+
+-- The plan's own work counts for its frame (Plan's wrapper)
+function Refine.Note(ms)
+    local now = GetTime()
+    if Refine.frameAt ~= now then Refine.frameAt, Refine.frameMs = now, 0 end
+    Refine.frameMs = Refine.frameMs + ms
+    if Refine.frameMs > Refine.stats.maxFrame then Refine.stats.maxFrame = Refine.frameMs end
+end
+
+-- After a plan: its path (the target first) is improved in bites. keep: the
+-- target was kept from before (2-opt then orders what follows it, from it)
+function Refine.Start(run, path, keep, px, py, instance, quick)
+    Refine.job = nil
+    if #path < 3 then return end
+    local job = { run = run, gen = run.planGen, instance = instance, px = px, py = py, keep = keep and true or false,
+        budget = quick and QUICK_BUDGET_MS or OPT_BUDGET_MS, phase = 1 }
+    -- the 2-opt of PlanPath: from the kept target over the rest, or from you
+    -- with the target fixed (in lists kept from plan to plan: no new garbage)
+    job.me = { wx = px, wy = py }
+    local t = Refine.Take(1)
+    if keep then
+        t[1] = { wx = path[1].wx, wy = path[1].wy }
+        for i = 2, #path do t[i] = path[i] end
+        job.opt = { t = t, first = 1, i = 1, improved = false, used = 0, budget = job.budget }
+    else
+        t[1] = job.me
+        for i = 1, #path do t[i + 1] = path[i] end
+        job.opt = { t = t, first = 2, i = 2, improved = false, used = 0, budget = job.budget }
+    end
+    -- the quick path: the improved one is written into it when it is shown
+    job.target, job.quick = path[1], path
+    Refine.job = job
+    Refine.stats.started = Refine.stats.started + 1
+    Refine.frame:Show()
+end
+
+-- A frame's bites (the work frame's OnUpdate)
+function Refine.Step()
+    local job = Refine.job
+    if not job then Refine.frame:Hide() return end
+    local run = job.run
+    if ns.run ~= run then return Refine.Drop("the run stopped") end
+    if run.planGen ~= job.gen then return Refine.Drop("a new plan") end
+    local _, _, inst = PlayerWorld()
+    if inst ~= job.instance then return Refine.Drop("another continent") end
+    local now = GetTime()
+    if Refine.frameAt ~= now then Refine.frameAt, Refine.frameMs = now, 0 end
+    -- the line is drawn in a frame of its own, with no other planning work in it
+    if job.phase == 4 then
+        if Refine.frameMs == 0 then Refine.Show(job) end
+        return
+    end
+    local avail = Refine.FRAME_MS - Refine.frameMs
+    if avail <= 0.05 then return end
+    local clock = Refine.Clock
+    local t0 = clock()
+    local deadline = t0 + avail
+    Refine.lastNow, Refine.lastRow = t0, 0
+    while true do
+        if job.phase == 1 then
+            if not Refine.Opt(job.opt, deadline) then break end
+            do
+                -- Prune, as after PlanPath's 2-opt: what follows the kept
+                -- target from it, or the whole path from you
+                local t = job.opt.t
+                local list = Refine.Take(2)
+                for i = 2, #t do list[#list + 1] = t[i] end
+                local u = Refine.Take(1)
+                u[1] = job.me
+                if job.keep then
+                    list = Prune(list, job.target.wx, job.target.wy)
+                    u[2] = job.target
+                    for i = 1, #list do u[i + 2] = list[i] end
+                else
+                    list = Prune(list, job.px, job.py)
+                    for i = 1, #list do u[i + 1] = list[i] end
+                end
+                -- Untangle: from you, the target fixed
+                job.opt = { t = u, first = 2, i = 2, improved = false, used = 0, budget = job.budget }
+                job.phase = 3
+            end
+            -- Untangle in this frame only when a row of it still fits
+            if Refine.lastNow + Refine.lastRow >= deadline then break end
+        elseif job.phase == 3 then
+            if Refine.Opt(job.opt, deadline) then job.phase = 4 end
+            break
+        else
+            break
+        end
+    end
+    local spent = clock() - t0
+    Refine.stats.slices = Refine.stats.slices + 1
+    if spent > Refine.stats.maxSlice then Refine.stats.maxSlice = spent end
+    Refine.frameMs = Refine.frameMs + spent
+    if Refine.frameMs > Refine.stats.maxFrame then Refine.stats.maxFrame = Refine.frameMs end
+end
+
+-- The improved path replaces the quick one: one change of the line
+function Refine.Show(job)
+    local run = job.run
+    local t = job.opt.t
+    local path = job.quick
+    Refine.job = nil
+    Refine.frame:Hide()
+    if t[2] ~= job.target or run.target ~= job.target.node or run.path ~= path then return Refine.Drop("the target or the path is another") end
+    -- written into the quick path's list (the run's path): no new list; the
+    -- same order as the quick path: nothing to show again
+    local n, old = #t - 1, #path
+    local same = n == old
+    for i = 1, n do
+        if path[i] ~= t[i + 1] then same = false end
+        path[i] = t[i + 1]
+    end
+    for i = old, n + 1, -1 do path[i] = nil end
+    if same then
+        Refine.stats.done, Refine.stats.same = Refine.stats.done + 1, Refine.stats.same + 1
+        return
+    end
+    local length, cx, cy = 0, job.px, job.py
+    for _, p in ipairs(path) do
+        length = length + WDist(cx, cy, p.wx, p.wy)
+        cx, cy = p.wx, p.wy
+    end
+    local t0 = Refine.Clock()
+    run.path, run.length = path, length
+    run.zones = CountZones(path)
+    run.targetPoint = path[1]
+    DrawLine(path, length, job.instance, job.px, job.py)
+    Refine.stats.done = Refine.stats.done + 1
+    Refine.Note(Refine.Clock() - t0)
+end
+Refine.frame = CreateFrame("Frame")
+Refine.frame:Hide()
+Refine.frame:SetScript("OnUpdate", Wrap("Route", function() Refine.Step() end))
+ns.RouteRefine = function() return Refine end -- (the tests)
+
+---------------------------------------------------------------------------
 -- Farm run
 ---------------------------------------------------------------------------
 local function StopRun(silent, summary)
@@ -1710,6 +2006,8 @@ local function StopRun(silent, summary)
         -- (0.2.3 lauf-last R1 M1) the store of its points goes now, after the
         -- snapshot above: the run itself may still be held (the run history)
         ns.run.keepPoints = nil
+        -- (0.2.4 a2 part B) and the bites of its last plan
+        Refine.Drop("the run stopped")
         ns.run = nil
         -- (0.2.4 S1) the run's way along your paths goes with it, in this frame
         if ns.WaysRunChanged then ns.WaysRunChanged() end
@@ -1729,6 +2027,8 @@ end
 Plan = function(quick)
     local run = ns.run
     if not run then return end
+    -- (0.2.4 a2 part B) this plan's mark: the bites of an older plan are dropped
+    run.planGen = (run.planGen or 0) + 1
     run.lastTry = time()
     run.planPending = nil
 
@@ -1864,7 +2164,9 @@ Plan = function(quick)
     wipe(run.checkingSet)
     for _, c in ipairs(run.checking) do run.checkingSet[c.node] = true end
 
-    local open, now = {}, time()
+    -- (0.2.4 a2 part B) the open points in a list kept from plan to plan:
+    -- nothing keeps it after the plan (a plan that plans again returns at once)
+    local open, now = Refine.Take(3), time()
     for _, p in ipairs(points) do
         if Available(p, run, now, true) then open[#open + 1] = p end
     end
@@ -1919,6 +2221,10 @@ Plan = function(quick)
     run.waiting, run.waitingSince, run.nextRespawn = nil, nil, nil
 
     local path, length
+    -- (0.2.4 a2 part B) a Smart plan: the quick part here, 2-opt and Untangle in bites after it
+    local refine = TUNE.refine and not run.loopMode
+    local PathOf = refine and Refine.FastPath or PlanPath
+    local kept
     if run.loopMode then
         -- Loop: the fixed round (see above), brought up to date when the
         -- node list or what you can gather changed
@@ -1990,14 +2296,15 @@ Plan = function(quick)
                 end
             end
         end
+        kept = keep
         local sx, sy = px, py
         if keep then sx, sy = keep.wx, keep.wy end
         if #open == 0 then
             path, length = {}, 0
         elseif quick then
-            path, length = PlanPath(open, sx, sy, QUICK_BUDGET_MS, QUICK_MAX_NODES)
+            path, length = PathOf(open, sx, sy, QUICK_BUDGET_MS, QUICK_MAX_NODES)
         else
-            path, length = PlanPath(open, sx, sy)
+            path, length = PathOf(open, sx, sy)
         end
         if keep then
             table.insert(path, 1, keep)
@@ -2014,7 +2321,7 @@ Plan = function(quick)
                 for i, p in ipairs(open) do
                     if p == nearest then table.remove(open, i) break end
                 end
-                path, length = PlanPath(open, nearest.wx, nearest.wy, quick and QUICK_BUDGET_MS or nil, quick and QUICK_MAX_NODES or nil)
+                path, length = PathOf(open, nearest.wx, nearest.wy, quick and QUICK_BUDGET_MS or nil, quick and QUICK_MAX_NODES or nil)
                 table.insert(path, 1, nearest)
                 length = length + nd
             end
@@ -2032,7 +2339,7 @@ Plan = function(quick)
             end
         end
     end
-    if not run.loopMode and #path >= 3 then
+    if not refine and not run.loopMode and #path >= 3 then
         Untangle(path, px, py, quick and QUICK_BUDGET_MS or nil)
         length = 0
         local cx, cy = px, py
@@ -2064,6 +2371,19 @@ Plan = function(quick)
     end
     run.mapID = first.mapID
     DrawLine(path, length, instance, px, py)
+    if refine then Refine.Start(run, path, kept, px, py, instance, quick) end
+end
+-- (0.2.4 a2 part B) a plan's own work counts for the planning work of its frame
+do
+    local body = Plan
+    Plan = function(quick)
+        Refine.depth = Refine.depth + 1
+        local t0 = Refine.depth == 1 and Refine.Clock()
+        local ok, err = pcall(body, quick)
+        if t0 then Refine.Note(Refine.Clock() - t0) end
+        Refine.depth = Refine.depth - 1
+        if not ok then error(err, 0) end
+    end
 end
 
 -- Re-plan a moment later (several changes in a row only cause one plan)

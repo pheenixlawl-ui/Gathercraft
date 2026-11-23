@@ -16029,6 +16029,182 @@ step("Route 0.2.4: after a change only the zones that changed are collected agai
     advance(1)
     if not ok then error(err .. " | " .. table.concat(results, "; "), 0) end
 end)
+-- Order 0.2.4 a2 part B (23.11.2026): a plan's 2-opt and Untangle took up to
+-- 10 ms each in the frame of the arrival or the harvest. Now the target is
+-- chosen at once (nearest neighbour and 2-opt's first row, which is all of
+-- 2-opt that can change the first point), the rest goes in bites of at most
+-- 1.0 ms of planning work a frame. Here the frames and the clock are the
+-- test's: GetTime() is the frame, ns.RouteClock the time (each look at it is
+-- 0.01 ms later: a frame may show two looks more than its work).
+step("Route 0.2.4: a plan's 2-opt and Untangle in bites - the target at once (as 2-opt in one go chooses it here, not the nearest neighbour's first node) and never changed by them; at most 1.0 ms of planning work a frame, the plan's own work counted; each procedure's budget kept; the line once more when they are done; dropped at a new plan, a stop, another continent (0.2.4 a2 part B)", function()
+    local Z = 1441
+    local R = ns.RouteRefine()
+    local H = libs["HereBeDragons-2.0"]
+    local P = libs["HereBeDragons-Pins-2.0"]
+    local saved = { map = player.map, x = player.x, y = player.y, list = ns.db.nodes[Z], clock = ns.RouteClock, getTime = GetTime, refine = ns.RouteTune.refine,
+        dp = debugprofilestop, removeAll = P.RemoveAllMinimapIcons, zone = H.GetWorldCoordinatesFromZone, me = H.GetPlayerWorldPosition }
+    local CLK, STEP, FRAME = 0, 0.01, 1000
+    local lines = 0
+    local function Node(x, y) return { name = "Peacebloom", type = "herb", id = "o1618", x = x, y = y, count = 1, last = time() - 86400 } end
+    local px, py = 0.3, 0.5
+    local A = Node(px - 60 / 5000, py)
+    local C = Node(px - 60 / 5000, py + 90 / 3333)
+    local E = Node(px - 60 / 5000, py - 100 / 3333)
+    local ok, err = pcall(function()
+        -- you, A 60 yd west, C 90 yd north of A, E 100 yd south of A, the other
+        -- nodes far to the east: the nearest neighbour goes A, C, E; 2-opt's
+        -- first row alone turns it into C, A, E (298 yd instead of 340); 2-opt
+        -- in one go starts with E here (its later rows change the order
+        -- behind, then the first row again). The quick part makes two whole
+        -- passes with the first row after each: E too
+        local list = { A, C, E }
+        local seed = 91
+        local function Rand() seed = (seed * 1103515245 + 12345) % 2147483648 return seed / 2147483648 end
+        for _ = 1, 150 do list[#list + 1] = Node(0.55 + 0.4 * Rand(), 0.1 + 0.8 * Rand()) end
+        ns.db.nodes[Z] = list
+        ns.NotifyNodesChanged()
+        player.map, player.x, player.y = Z, px, py
+        -- the old way (one go, the clock held: 2-opt to its end) does not start with A
+        debugprofilestop = function() return 0 end
+        ns.RouteTune.refine = false
+        ns.StartRun("herb", Z) advance(1)
+        assert(ns.run and #ns.run.points == 153, "test setup: a run with the 153 points")
+        ns.run.target, ns.run.targetPoint = nil, nil
+        ns.RouteReplan()
+        local oneGo = ns.run.target
+        assert(oneGo and oneGo ~= A and oneGo ~= C and not R.job, "test setup: the plan in one go chooses the nearest neighbour's first node, or C")
+        ns.StopRun(true)
+        -- now in bites, frames and time the test's
+        ns.RouteTune.refine = true
+        GetTime = function() return FRAME end
+        ns.RouteClock = function() CLK = CLK + STEP return CLK end
+        P.RemoveAllMinimapIcons = function(self, ref, ...)
+            if ref == "GathercraftRoute" then lines = lines + 1 end
+            return saved.removeAll(self, ref, ...)
+        end
+        ns.StartRun("herb", Z) advance(1)
+        local run = ns.run
+        run.target, run.targetPoint = nil, nil
+        -- the plan costs 0.7 ms of this frame: its bites here get 0.3 at most
+        FRAME, STEP = FRAME + 1, 0.7 -- (the plan's wrapper looks at the clock twice: 0.7 ms)
+        local before = { lines = lines, done = R.stats.done }
+        ns.RouteReplan()
+        STEP = 0.01
+        assert(run.target == oneGo, "the quick part chooses another target than 2-opt in one go")
+        assert(R.job and R.job.target.node == oneGo, "test setup: no bites")
+        assert(R.frameAt == FRAME and R.frameMs >= 0.69 and R.frameMs <= 0.72, ("the plan's own work in its frame: %.2f ms, want 0.7"):format(R.frameAt == FRAME and R.frameMs or -1))
+        local quick = run.path
+        local quickOrder = {}
+        for i, q in ipairs(quick) do quickOrder[i] = q end
+        R.Step()
+        assert(R.frameMs <= 1.0 + 2 * 0.01, ("the plan's frame: %.3f ms of planning work"):format(R.frameMs))
+        -- the next frames: 1.0 ms each at most, the target never another, the line not drawn again until done
+        local frames, worst = 0, 0
+        while R.job and frames < 200 do
+            FRAME = FRAME + 1
+            R.Step()
+            frames = frames + 1
+            worst = math.max(worst, R.frameMs)
+            assert(run.target == oneGo and run.path == quick and lines == before.lines + 1 or not R.job,
+                ("frame %d: the target changed, or the line was drawn again before the bites were done"):format(frames))
+            if R.job and R.job.opt then
+                assert(R.job.opt.used <= 10 + 0.011, ("frame %d: %.2f ms of one procedure, its budget is 10"):format(frames, R.job.opt.used))
+            end
+        end
+        assert(not R.job and frames >= 2, ("the bites took %d frames"):format(frames))
+        assert(worst <= 1.0 + 2 * 0.01, ("a frame of bites had %.3f ms of planning work"):format(worst))
+        assert(R.stats.done == before.done + 1 and run.path == quick and run.path[1].node == oneGo and run.target == oneGo,
+            "the improved path is not shown, or its target is another")
+        local changed = #quickOrder ~= #run.path
+        for i, q in ipairs(run.path) do if quickOrder[i] ~= q then changed = true end end
+        assert(changed, "test setup: the bites did not change the quick path here")
+        assert(lines == before.lines + 2, ("the line drawn %d times for one plan, want 2 (the quick plan, the improved one)"):format(lines - before.lines))
+        -- the same order after the bites: the line is not drawn again
+        local sameBefore, linesBefore = R.stats.same, lines
+        FRAME = FRAME + 1
+        ns.RouteReplan() -- (the target kept: the quick part is the improved order of before)
+        while R.job do FRAME = FRAME + 1 R.Step() end
+        if R.stats.same > sameBefore then
+            assert(lines == linesBefore + 1, ("an improved path in the quick path's order drawn again (%d times)"):format(lines - linesBefore))
+        end
+        -- each procedure's budget: rows of 0.5 ms - 2-opt and Untangle stop at 10 ms each
+        STEP = 0.5
+        FRAME = FRAME + 1
+        run.target, run.targetPoint = nil, nil
+        ns.RouteReplan()
+        local most, n = 0, 0
+        while R.job and n < 500 do
+            FRAME = FRAME + 1
+            R.Step()
+            n = n + 1
+            if R.job and R.job.opt then most = math.max(most, R.job.opt.used) end
+            assert(R.frameMs <= 1.0 + 2 * 0.5, ("rows of 0.5 ms: a frame had %.2f ms"):format(R.frameMs))
+        end
+        assert(not R.job and most <= 10.5, ("a procedure used %.1f ms, its budget is 10"):format(most))
+        STEP = 0.01
+        -- the bites never change the target, also where 2-opt would: A first,
+        -- in the nearest neighbour's order (2-opt's first row would put C first)
+        local byNode = {}
+        for _, q in ipairs(run.points) do byNode[q.node] = q end
+        local nnPath = { byNode[A], byNode[C], byNode[E] }
+        for _, q in ipairs(run.path) do if q.node ~= A and q.node ~= C and q.node ~= E and #nnPath < 12 then nnPath[#nnPath + 1] = q end end
+        FRAME = FRAME + 1
+        run.planGen = run.planGen + 1
+        run.target, run.targetPoint, run.path = A, nnPath[1], nnPath -- (as a plan leaves it)
+        local shown = R.stats.done
+        R.Start(run, nnPath, nil, px * 5000 + (Z - 1400) * 6000, py * 3333, run.instance, true)
+        while R.job do FRAME = FRAME + 1 R.Step() end
+        assert(R.stats.done == shown + 1 and run.path[1].node == A and run.target == A,
+            "the bites changed the target (or dropped the path) where 2-opt's first row would have")
+        -- dropped: a new plan (its own bites, the old ones never shown), a stop, another continent
+        FRAME = FRAME + 1
+        ns.RouteReplan()
+        local old = R.job
+        assert(old, "test setup: no bites")
+        FRAME = FRAME + 1
+        R.Step()
+        FRAME = FRAME + 1
+        local done = R.stats.done
+        ns.RouteReplan()
+        assert(R.job ~= old and R.job.gen == run.planGen, "a new plan does not start bites of its own")
+        while R.job do FRAME = FRAME + 1 R.Step() end
+        assert(R.stats.done == done + 1, "the old plan's bites were shown too")
+        FRAME = FRAME + 1
+        ns.RouteReplan()
+        local dropped = R.stats.dropped
+        ns.StopRun(true)
+        assert(not R.job and R.stats.dropped == dropped + 1, "a stop does not drop the bites")
+        ns.StartRun("herb", Z) advance(1)
+        FRAME = FRAME + 1
+        ns.RouteReplan()
+        assert(R.job, "test setup: no bites")
+        local path = ns.run.path
+        H.GetPlayerWorldPosition = function(self) local wx, wy = saved.me(self) return wx, wy, 0 end
+        FRAME = FRAME + 1
+        R.Step()
+        assert(not R.job and R.stats.dropped == dropped + 2 and ns.run.path == path, "another continent does not drop the bites")
+        H.GetPlayerWorldPosition = saved.me
+        -- a plan that ends early (nothing open) drops the bites of the one before
+        FRAME = FRAME + 1
+        ns.RouteReplan()
+        assert(R.job, "test setup: no bites")
+        for _, q in ipairs(ns.run.points) do q.node.emptyUntil = time() + 600 end
+        ns.RouteReplan()
+        FRAME = FRAME + 1
+        R.Step()
+        assert(not R.job and R.stats.dropped == dropped + 3, "a plan with nothing to ride to does not drop the bites of the one before")
+    end)
+    for _, n in ipairs(ns.db.nodes[Z] or {}) do n.emptyUntil = nil end
+    if ns.run then ns.StopRun(true) end
+    ns.RouteClock, GetTime, ns.RouteTune.refine, debugprofilestop = saved.clock, saved.getTime, saved.refine, saved.dp
+    P.RemoveAllMinimapIcons = saved.removeAll
+    H.GetWorldCoordinatesFromZone, H.GetPlayerWorldPosition = saved.zone, saved.me
+    ns.db.nodes[Z] = saved.list
+    ns.NotifyNodesChanged()
+    player.map, player.x, player.y = saved.map, saved.x, saved.y
+    advance(1)
+    if not ok then error(err, 0) end
+end)
 step("Settings: no game setting is changed in combat - the gathering help and the bobber settings follow at the end of the fight (v0.1.22 R1, combat)", function()
     -- Sven, 13.11.2026 (live, 0.1.22 a62cefe): the questing mode switched on
     -- in a fight - "[ADDON_ACTION_BLOCKED] AddOn 'Gathercraft' tried to call
