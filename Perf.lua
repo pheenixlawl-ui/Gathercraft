@@ -24,11 +24,18 @@ local L = ns.L or setmetatable({}, { __index = function(_, k) return k end })
 --   collects garbage meanwhile) and how many world map pins HereBeDragons has
 --   in use. Once a second the largest of those. No game setting is changed;
 --   nothing is saved - after /reload it is off.
+--   (0.2.4 S1) "Ways": the route line's head and the arrow along the paths
+--   you rode (Ways.lua). Its own handlers and what Route and UI ask of it are
+--   booked to it. At the end of the line, what it counted itself since the
+--   start: the largest sum of all its work in one frame (its limit is 1.0
+--   ms - this includes the drawing of its line, wherever that was booked),
+--   its longest step, and how often it asked for a way, gave one up, built
+--   a net, found a zone above its limits or took a way back at once.
 --   The result is one line in chat and in a box to copy (Ctrl+C): chat
 --   lines cannot be copied in the game.
 ---------------------------------------------------------------------------
 local MODULES = { "Route", "Pins", "Minimap", "Sync", "Tooltip", "Prices", "Rares", "SearchRange", "RunHistory", "VisitLog",
-    "UI", "Paths", "Questie" }
+    "UI", "Paths", "Questie", "Ways" }
 local SECONDS = 60
 
 local on = false
@@ -143,8 +150,9 @@ local function Result(seconds, kb1, lua1, pins1)
     end
     local near, inZone = 0, 0
     if ns.MiniPinCounts then near, inZone = ns.MiniPinCounts() end
-    return ("Gathercraft %s perf, %d s: %s | %s | not measured: the rest of the addon; %s; %s; %s; minimap pins %d near / %d in zone"):format(
-        Version(), seconds, table.concat(parts, " | "), garbage, mem, lua, pins, near, inZone)
+    local ways = ns.WaysPerf and ns.WaysPerf() or "ways: not loaded"
+    return ("Gathercraft %s perf, %d s: %s | %s | not measured: the rest of the addon; %s; %s; %s; minimap pins %d near / %d in zone; %s"):format(
+        Version(), seconds, table.concat(parts, " | "), garbage, mem, lua, pins, near, inZone, ways)
 end
 
 local function ShowCopy(line)
@@ -204,6 +212,7 @@ local function Start()
     depth, cleanups, measured = 0, 0, 0
     run = { start = GetTime(), kb0 = AddonKB(), lua0 = LuaKB() }
     run.peak = WorldPinsInUse()
+    if ns.WaysPerf then ns.WaysPerf(true) end -- (its counters start with the minute)
     on = true
     run.ticker = C_Timer.NewTicker(1, Sample)
     if ns.Print then ns.Print(L["Gathercraft perf: measuring for one minute. /gcr perf off stops it early."]) end

@@ -32461,6 +32461,7 @@ function WAYS.World(pieces)
         for _, z in pairs(zones) do total = total + z.n end
         ns.db.paths = { off = true, hinted = true, zones = zones, total = total }
         W.e = e
+        ns.PathsCount() -- (Paths takes the other table over now, not at its next look)
     end
     W.Pieces(pieces or {})
     -- you at this many yards from the zone's top left corner / in the middle of a square (+ yards)
@@ -33716,6 +33717,80 @@ step("Ways 0.2.4: the run window says what the line follows - your ridden ways, 
     T.Done()
     ns.db.routeWaysOff = nil
     GathercraftOptions:Refresh()
+    W.Done()
+    if not ok then error(err, 0) end
+end)
+
+step("Ways 0.2.4: /gcr perf on has a part 'Ways' and, at the end of its line, the largest sum of all S1 work in one frame, the longest step, and how often a way was asked for, given up, late or dropped, a net built or over its limits, a way taken back at once - counted from the start of the minute (S1 W7)", function()
+    local W = WAYS.World(WAYS.U())
+    local ok, err = pcall(function()
+        local function Result()
+            local mark = #log
+            slash("perf off")
+            for i = #log, mark + 1, -1 do
+                local line = log[i]:match("Gathercraft .- perf, %d+ s: .*")
+                if line then return line end
+            end
+        end
+        local function Ways(line)
+            local peak, limit, step, requests, given, late, dropped, builds, over, back = line:match(
+                "; ways: largest frame ([%d%.]+) ms %(limit ([%d%.]+)%), longest step ([%d%.]+) ms, (%d+) requests %((%d+) given up, (%d+) late, (%d+) dropped%), (%d+) builds %((%d+) over the limits%), (%d+) taken back at once$")
+            assert(peak, "the line does not end with the ways' numbers: " .. line:sub(-220))
+            return { peak = tonumber(peak), limit = tonumber(limit), step = tonumber(step), requests = tonumber(requests), given = tonumber(given),
+                late = tonumber(late), dropped = tonumber(dropped), builds = tonumber(builds), over = tonumber(over), back = tonumber(back) }
+        end
+        slash("perf off")
+        -- a run on the U, measured: one build, one request, the way shown
+        W.Clock("draw")
+        slash("perf on")
+        W.At(10, 10)
+        local A = W.Node(10, 20)
+        local run = W.Run({ A }, 2)
+        assert(W.Read().state == "net", "test setup: the way is shown")
+        for x = 11, 14 do
+            W.At(x, 10)
+            advance(0.3)
+        end
+        -- off the way: a second request; a piece changes its class: the way is taken back, a second build, a third request
+        W.At(14, 10, 0, -30)
+        advance(1)
+        ns.PathsChanged(W.Z, "class")
+        advance(1)
+        local line = Result()
+        assert(line, "no result line")
+        local part = line:match("| Ways ([%d%.]+) ms %(")
+        local calls = tonumber(line:match("| Ways [%d%.]+ ms %([%d%.]+ ms/s, longest [%d%.]+ ms, (%d+) calls%)"))
+        assert(part and calls and calls > 20, "the part 'Ways' with its calls: " .. tostring(calls))
+        local w = Ways(line)
+        assert(w.limit == 1 and w.peak > 0 and w.peak <= 1.0, ("the largest frame: %.2f ms"):format(w.peak))
+        assert(w.step > 0 and w.step <= 0.5, ("the longest step: %.2f ms"):format(w.step))
+        assert(w.requests == 3 and w.builds == 2 and w.back == 1, ("3 requests, 2 builds, 1 taken back at once: %d / %d / %d"):format(w.requests, w.builds, w.back))
+        assert(w.given == 0 and w.late == 0 and w.dropped == 0 and w.over == 0, "nothing given up, late, dropped or over the limits")
+        -- the next minute starts from nothing; a zone above the limits and a search given up are counted
+        ns.StopRun(true)
+        W.Pieces(WAYS.Snake({}, 40, 40, 100, 81))
+        W.Clock("fast")
+        slash("perf on")
+        W.At(40, 40)
+        run = W.Run({ W.Node(60, 40) }, 2)
+        w = Ways(Result())
+        assert(w.requests == 0 and w.builds == 1 and w.over == 1 and w.back == 0, ("a new minute, a zone of 8,100 squares: %d requests, %d builds, %d over the limits"):format(w.requests, w.builds, w.over))
+        ns.StopRun(true)
+        W.Pieces(WAYS.U())
+        W.At(10, 10)
+        run = W.Run({ A }, 2)
+        slash("perf on")
+        W.Clock("search")
+        W.At(10, 10, 0, -30)
+        advance(0.1)
+        ns.StopRun(true)
+        w = Ways(Result())
+        assert(w.requests == 1 and w.given == 1 and w.builds == 0, ("a search given up with its run: %d requests, %d given up"):format(w.requests, w.given))
+        -- not measuring: the numbers go on being counted, nothing is printed for them
+        local d = ns.WaysDiag()
+        assert(d.requests == 1 and not ns.PerfMeasuring(), "(the counters are the ways' own)")
+    end)
+    slash("perf off")
     W.Done()
     if not ok then error(err, 0) end
 end)

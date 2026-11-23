@@ -1850,6 +1850,25 @@ ns.WaysWork = function() work:Show() end
 ns.WaysNow = Clock
 ns.WaysSpend = Spend
 
+-- /gcr perf on (Perf.lua): what S1 counted since the minute began, as the last piece of its line.
+-- WaysPerf(true) starts the count anew.
+--   largest frame: the most time all of S1 took in one frame (the limit is 1.0 ms);
+--   longest step: of the work done in pieces (aimed at 0.125 ms, 0.5 ms is too long);
+--   requests: ways asked for - given up (another one came, or the context went), late (not done in
+--   2 s), dropped (done, but for a context that was no longer the one of now);
+--   builds: nets built - late (not done in 5 s) counts with the requests' late, over the limits
+--   (more than 8,000 squares or 20,000 edges: no net); taken back at once: a piece changed its
+--   direction, pieces went, other saved data.
+ns.WaysPerf = function(reset)
+    if reset then
+        diag.peak, diag.step, diag.requests, diag.cancelled, diag.late = 0, 0, 0, 0, 0
+        diag.over, diag.builds, diag.invalid, diag.dropped = 0, 0, 0, 0
+        return
+    end
+    return ("ways: largest frame %.2f ms (limit %.1f), longest step %.2f ms, %d requests (%d given up, %d late, %d dropped), %d builds (%d over the limits), %d taken back at once")
+        :format(diag.peak, FRAME_MS, diag.step, diag.requests, diag.cancelled, diag.late, diag.dropped, diag.builds, diag.over, diag.invalid)
+end
+
 -- for /gcr perf and the tests: the counters, and what is going on
 ns.WaysDiag = function() return diag, frameSum end
 ns.WaysState = function()
