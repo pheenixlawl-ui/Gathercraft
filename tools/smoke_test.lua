@@ -31845,6 +31845,173 @@ step("Ways 0.2.4: the net is built in pieces of any size with the same result; a
     assert(not code:find("collectgarbage"), "no collectgarbage")
 end)
 
+step("Paths 0.2.4: a listener is told a new piece, a change of fall class, removed pieces and other saved data - nothing about a cost or a count; what is recorded and saved is the same with a listener and without (S1 W2)", function()
+    local W = PathsWorld()
+    local keepClock = GetTime
+    local ok, err = pcall(function()
+        assert(ns.PathsListen and ns.PathsChanged and ns.PathsFallClass and ns.PathsZone and ns.PathsZoneSize, "what Ways.lua needs of Paths.lua")
+        local clock = GetTime()
+        GetTime = function() return clock end
+        local function Look(x, y)
+            W.At(x, y)
+            clock = clock + 0.5
+            ns.PathsLook()
+        end
+        -- a new start in the middle of a square (after a gap the first look forgets, the second starts)
+        local function Start(tx, ty)
+            clock = clock + 10
+            Look(tx * 25 + 12.5, ty * 25 + 12.5)
+            Look(tx * 25 + 12.5, ty * 25 + 12.5)
+        end
+        local function East(tx, ty, squares)
+            for i = 1, squares do Look((tx + i) * 25 + 12.5, ty * 25 + 12.5) end
+        end
+        local ev = {}
+        local function Listener(mapID, kind) ev[#ev + 1] = tostring(mapID) .. ":" .. tostring(kind) end
+        local function Events()
+            local s = table.concat(ev, " ")
+            ev = {}
+            return s
+        end
+        local function Saved()
+            local p = ns.db.paths
+            local t, names = {}, {}
+            for k in pairs(p) do names[#names + 1] = tostring(k) end
+            table.sort(names)
+            t[#t + 1] = table.concat(names, ",") .. " total=" .. tostring(p.total)
+            local maps = {}
+            for mapID in pairs(p.zones) do maps[#maps + 1] = mapID end
+            table.sort(maps)
+            for _, mapID in ipairs(maps) do
+                local z, keys, zn = p.zones[mapID], {}, {}
+                for k in pairs(z) do zn[#zn + 1] = tostring(k) end
+                table.sort(zn)
+                for k in pairs(z.e) do keys[#keys + 1] = k end
+                table.sort(keys)
+                t[#t + 1] = mapID .. " " .. table.concat(zn, ",") .. " n=" .. z.n
+                for _, k in ipairs(keys) do t[#t + 1] = k .. "=" .. ("%.0f"):format(z.e[k]) end
+            end
+            return table.concat(t, "\n")
+        end
+        -- the same rides, told step by step: what a listener hears at each
+        local heard = {}
+        local function Rides(listen)
+            ns.db.paths = nil
+            ns.PathsSetEnabled(true)
+            ns.PathsListen(listen and Listener or nil)
+            ev, heard = {}, {}
+            W.speed, W.falling = 25, false
+            -- 1. five new pieces
+            Start(100, 100)
+            East(100, 100, 5)
+            heard[1] = Events()
+            -- 2. the same ride again: counts only
+            Start(100, 100)
+            East(100, 100, 5)
+            heard[2] = Events()
+            -- 3. and with a long way inside the first square: another cost
+            Start(100, 100)
+            W.speed = 100
+            Look(100 * 25 + 12.5, 100 * 25 + 12.5)
+            Look(100 * 25 + 12.5, 100 * 25 + 12.5)
+            East(100, 100, 1)
+            W.speed = 25
+            heard[3] = Events()
+            -- 4. a fall across an edge on a fresh row: a new piece, ridden once with a fall (unsure)
+            local function Fall(ty)
+                Start(100, ty)
+                W.falling = true
+                for _ = 1, 3 do Look(100 * 25 + 12.5, ty * 25 + 12.5) end
+                East(100, ty, 1)
+                W.falling = false
+                Look(101 * 25 + 12.5, ty * 25 + 12.5)
+            end
+            Fall(102)
+            heard[4] = Events()
+            -- 5. the same piece again without a fall: it is normal now
+            Start(100, 102)
+            East(100, 102, 1)
+            heard[5] = Events()
+            -- 6. another piece, twice with a fall: unsure, then sure
+            Fall(104)
+            heard[6] = Events()
+            Fall(104)
+            heard[7] = Events()
+            -- 7. ridden first, a fall the second time: normal stays normal
+            Start(100, 106)
+            East(100, 106, 1)
+            Events()
+            Fall(106)
+            heard[8] = Events()
+            -- 8. crossed on the way down before the fall is known: the piece is new, then it gets its fall
+            Start(100, 108)
+            W.falling = true
+            Look(100 * 25 + 12.5, 108 * 25 + 12.5)
+            East(100, 108, 1)
+            heard[9] = Events()
+            Look(101 * 25 + 12.5, 108 * 25 + 12.5)
+            W.falling = false
+            Look(101 * 25 + 12.5, 108 * 25 + 12.5)
+            heard[10] = Events()
+            return Saved()
+        end
+        local without = Rides(false)
+        for i = 1, 10 do assert(heard[i] == "", "nobody listens: nothing is told (" .. i .. ")") end
+        local with = Rides(true)
+        assert(heard[1] == "1412:new 1412:new 1412:new 1412:new 1412:new", "five new pieces: " .. heard[1])
+        assert(heard[2] == "", "ridden again: nothing (" .. heard[2] .. ")")
+        local _, cost = W.Piece(100, 100, 1, 0)
+        assert(cost > 1.5 and heard[3] == "", ("another cost (%.2f): nothing (%s)"):format(cost, heard[3]))
+        local count, _, falls = W.Piece(100, 102, 1, 0)
+        assert(heard[4] == "1412:new", "a new piece with a fall is a new piece: " .. heard[4])
+        assert(count == 2 and falls == 1 and heard[5] == "1412:class", "unsure -> normal by the second ride without a fall: " .. heard[5])
+        count, _, falls = W.Piece(100, 104, 1, 0)
+        assert(heard[6] == "1412:new" and heard[7] == "1412:class" and count == 2 and falls == 2, "unsure -> sure by the second fall: " .. heard[6] .. " / " .. heard[7])
+        count, _, falls = W.Piece(100, 106, 1, 0)
+        assert(count == 2 and falls == 1 and heard[8] == "", "normal stays normal with one fall in two rides: " .. heard[8])
+        count, _, falls = W.Piece(100, 108, 1, 0)
+        assert(heard[9] == "1412:new" and heard[10] == "1412:class" and count == 1 and falls == 1, "a fall known a look later: new, then its class: " .. heard[9] .. " / " .. heard[10])
+        -- the recording is what it was, to the last number; no new field
+        assert(with == without, "the saved pieces are the same with a listener and without")
+        assert(with:match("^hinted,total,zones total=") or with:match("^total,zones total="), "no new field in the saved data: " .. with:match("^[^\n]*"))
+        assert(with:find("\n1412 e,n n=", 1, true), "nor in a zone")
+        -- the class is the one the net is built by
+        for c = 0, 255 do for f = 0, c do assert(ns.PathsFallClass(c, f) == ns.WaysCore.Class(c, f)) end end
+        assert(ns.PathsFallClass == ns.WaysCore.Class, "one rule, not two")
+        -- the zone's pieces and its size, as Ways.lua reads them
+        local e, n = ns.PathsZone(1412)
+        assert(e == ns.db.paths.zones[1412].e and n == ns.db.paths.zones[1412].n and ns.PathsZone(1999) == nil, "PathsZone")
+        local w, h = ns.PathsZoneSize(1412)
+        assert(w == W.w and h == W.h and ns.PathsZoneSize(1999) == nil, "PathsZoneSize")
+
+        -- removed pieces: a zone at its limit loses a tenth with the next new piece
+        local big = { n = 8000, e = {} }
+        for i = 0, 7999 do
+            big.e[((200 + math.floor(i / 100)) * 1024 + 300 + i % 100) * 9 + 5] = WAYS.Pack(1, 100, 0, 0, 100 + i % 7)
+        end
+        ns.db.paths = { zones = { [1412] = big }, total = 8000 }
+        assert(ns.PathsCount() == 8000 and Events() == "nil:data", "other saved data: told once")
+        ns.PathsCount()
+        assert(Events() == "", "and not again")
+        Start(100, 110)
+        East(100, 110, 1)
+        assert(Events() == "1412:gone 1412:new", "the limit of a zone: pieces went, then the new one")
+        assert(ns.db.paths.zones[1412].n == 7201, "800 went, one came: " .. ns.db.paths.zones[1412].n)
+        -- /gcr paths clear yes
+        slash("paths clear yes")
+        assert(Events() == "nil:gone", "cleared: told for every zone")
+        -- nobody listens any more
+        ns.PathsListen(nil)
+        Start(100, 112)
+        East(100, 112, 2)
+        assert(Events() == "" and ns.PathsCount() == 2, "the listener taken off: nothing is told, the recording goes on")
+    end)
+    ns.PathsListen(nil)
+    GetTime = keepClock
+    W.Done()
+    if not ok then error(err, 0) end
+end)
+
 io.write("\n--- errors: " .. #errors .. "\n")
 for _, e in ipairs(errors) do io.write("  " .. e .. "\n") end
 io.write("\n--- notable log lines:\n")

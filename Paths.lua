@@ -59,6 +59,33 @@ local SQRT2 = math.sqrt(2)
 local function Dir(dx, dy) return (dy + 1) * 3 + (dx + 1) end
 
 ---------------------------------------------------------------------------
+-- (0.2.4 S1) Whoever makes a net of the pieces (Ways.lua, only during a farm
+-- run that shows its way) is told what changed in them:
+--   "new"    a piece more in the zone mapID
+--   "class"  a piece of the zone changed its fall class: it may be ridden the
+--            other way now, or no longer
+--   "gone"   pieces were removed (a limit, /gcr paths clear) - mapID nil: in
+--            any zone
+--   "data"   other saved data (a login, damaged data put right)
+-- Nothing is told about a piece's cost or its count. With nobody listening
+-- this is one empty check. Nothing new is saved for it and what is recorded
+-- is what it was.
+--   The fall class of a piece, from its counts as they are saved (they stop
+--   at 255): 0 normal (no fall, or also ridden without one - those marks were
+--   jumps), 1 an unsure fall (ridden once, with a fall), 2 a sure fall
+--   (ridden twice or more, every time with a fall).
+---------------------------------------------------------------------------
+local listener
+local function Changed(mapID, kind)
+    if listener then listener(mapID, kind) end
+end
+local function FallClass(count, falls)
+    if falls == 0 or falls < count then return 0 end
+    if count >= 2 then return 2 end
+    return 1
+end
+
+---------------------------------------------------------------------------
 -- The saved data: ns.db.paths = {
 --     off = true            only when turned off (on by default)
 --     hinted = true         the one-time note was shown
@@ -114,11 +141,15 @@ local function DB()
         p = {}
         db.paths = p
     end
-    if type(p.zones) ~= "table" then p.zones, p.total = {}, 0 end
+    if type(p.zones) ~= "table" then
+        p.zones, p.total = {}, 0
+        Changed(nil, "data")
+    end
     if type(p.total) ~= "number" then p.total = 0 end
     if lookedThrough ~= p then
         lookedThrough = p
         LookThrough(p)
+        Changed(nil, "data")
     end
     return p
 end
@@ -159,6 +190,7 @@ local function Prune(p, onlyZone)
     if total < (onlyZone and MAX_ZONE or MAX_TOTAL) then
         -- no limit is reached: a count was wrong, not the data. Nothing has to go.
         LookThrough(p)
+        Changed(onlyZone, "gone") -- (damaged pieces may have gone)
         return 0
     end
     local need = max(1, floor(total * PRUNE_SHARE + 0.5))
@@ -209,6 +241,7 @@ local function Prune(p, onlyZone)
         end
     end
     p.total = max(0, p.total - removed)
+    Changed(onlyZone, "gone")
     return removed
 end
 
@@ -225,6 +258,7 @@ local function Record(p, mapID, tx, ty, dx, dy, cost, fell, swam)
     if v then
         local count, mean, falls, swims = Unpack(v)
         local counted = count < COUNT_MAX
+        local class = listener and FallClass(count, falls) -- (0.2.4 S1: only looked at while somebody listens)
         if counted then
             count = count + 1
             if fell then falls = falls + 1 end
@@ -245,6 +279,7 @@ local function Record(p, mapID, tx, ty, dx, dy, cost, fell, swam)
             mean = mean + (diff > 0 and step or -step)
         end
         z.e[key] = Pack(count, max(100, min(COST_MAX, mean)), falls, swims, Today())
+        if class and class ~= FallClass(count, falls) then Changed(mapID, "class") end
         return counted, key
     end
     if z.n >= MAX_ZONE then
@@ -266,6 +301,7 @@ local function Record(p, mapID, tx, ty, dx, dy, cost, fell, swam)
     z.e[key] = Pack(1, hundredths, fell and 1 or 0, swam and 1 or 0, Today())
     z.n = z.n + 1
     p.total = p.total + 1
+    Changed(mapID, "new")
     return true, key
 end
 
@@ -276,7 +312,10 @@ local function AddFall(p, mapID, key)
     local v = z and z.e[key]
     if not v then return end
     local count, cost, falls, swims, day = Unpack(v)
-    if falls < count then z.e[key] = Pack(count, cost, falls + 1, swims, day) end
+    if falls < count then
+        z.e[key] = Pack(count, cost, falls + 1, swims, day)
+        if listener and FallClass(count, falls) ~= FallClass(count, falls + 1) then Changed(mapID, "class") end
+    end
 end
 
 ---------------------------------------------------------------------------
@@ -448,6 +487,7 @@ local function Command(rest)
         if arg == "yes" then
             p.zones, p.total = {}, 0
             Forget()
+            Changed(nil, "gone")
             ns.Print((L["Recorded paths deleted (%d path pieces). Your nodes and everything else are untouched."]):format(total))
         elseif total == 0 then
             ns.Print(L["No paths recorded yet."])
@@ -500,6 +540,18 @@ ns.PathsPiece = function(mapID, tx, ty, dx, dy)
     local count, cost, falls, swims, day = Unpack(v)
     return count, cost / 100, falls, swims, day
 end
+-- (0.2.4 S1) for Ways.lua: who is told what changed (one listener, nil: nobody); the fall class;
+-- a zone's pieces as they are saved ({ [key] = value } and how many - to be read, never written);
+-- a zone's size in yards as the squares are cut from it
+ns.PathsListen = function(fn) listener = fn end
+ns.PathsChanged = Changed
+ns.PathsFallClass = FallClass
+ns.PathsZone = function(mapID)
+    local p = DB()
+    local z = p and p.zones[mapID]
+    if z then return z.e, z.n end
+end
+ns.PathsZoneSize = ZoneSize
 -- The square of a place in a zone (map coordinates 0-1), nil where the zone has no size
 ns.PathsSquare = function(mapID, x, y)
     local w, h = ZoneSize(mapID)

@@ -309,12 +309,8 @@ end)
 -- (they stop at 255): falls < count is normal, falls = count >= 2 a sure fall.
 --   pr[j] = the way back (0 none, 1 ridden, 2 guessed) + 4 x the class
 --   (0 normal, 1 an unsure fall, 2 a sure fall).
--- (the class of a saved piece, for Paths' notice of a change of class too)
-local function Class(count, falls)
-    if falls == 0 or falls < count then return 0 end
-    if count >= 2 then return 2 end
-    return 1
-end
+-- (the class of a saved piece: Paths' own rule, the one it tells a change of class by)
+local Class = ns.PathsFallClass
 M.Class = Class
 Phase(function(ctx, job, budget)
     local S = ctx.S
