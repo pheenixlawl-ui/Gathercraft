@@ -32623,6 +32623,18 @@ step("Ways 0.2.4: a farm run asks for its way at one place and shows it only for
         tpB.wx = tpB.wx + 30
         advance(1)
         assert(W.Way():match(" 543,388$"), "the way to its new place: " .. W.Way())
+        -- another node at the very same place (an ore where a herb grows): still another node - its way is asked for anew
+        local twin = { id = "o1731", name = "Copper Vein", type = "ore", x = B.x, y = B.y, count = 3, last = 1 }
+        local tpTwin = { node = twin, mapID = W.Z, wx = tpB.wx, wy = tpB.wy }
+        requests = diag.requests
+        ns.run.target, ns.run.targetPoint = twin, tpTwin
+        ns.run.path[1] = tpTwin
+        assert(W.Read().state == "line", "another node at the same place: the way shown was the other node's - taken back")
+        advance(1)
+        assert(W.Read().state == "net" and diag.requests == requests + 1, "and asked anew for this one")
+        ns.run.target, ns.run.targetPoint = B, tpB
+        ns.run.path[1] = tpB
+        advance(1)
 
         -- 6. a result that comes late is dropped: you moved into another square while it was worked out
         W.Clock("search")
@@ -32823,6 +32835,32 @@ step("Ways 0.2.4: a piece that changes its fall class, removed pieces and other 
         assert(net.rev == rev + 1 and diag.requests == requests + 1 and shown, "then one new request in the new net; the way never left")
         r = W.Read()
         assert(r.state == "net" and Near(r.cost, 250 + 5 * 25), "the new way has the new costs: " .. r.cost)
+        -- A request does not wait for an ordinary build: 50 more pieces, and while the net is built you
+        -- leave the way - the way from where you are now is shown before the build is done.
+        W.Clock("build")
+        for i = 1, 50 do
+            Piece(e, 300 + 2 * i, 120, 1, 0)
+            ns.PathsChanged(W.Z, "new")
+        end
+        assert(net.building, "(a build is on its way)")
+        requests = diag.requests
+        W.At(20, 10, 0, -30)
+        local inTime = false
+        t = 0
+        while net.building and t < 400 do
+            advance(0.05)
+            t = t + 1
+            if diag.requests > requests and not req.active and W.Read().state == "net" then
+                inTime = net.building
+                break
+            end
+        end
+        assert(inTime, "the new way is shown while the net is still being built (after " .. t .. " looks)")
+        W.Clock("fast")
+        advance(2)
+        W.At(20, 10)
+        advance(1.5)
+        assert(W.Read().state == "net", "(on the ride's end again, a way)")
 
         -- 4. removed pieces: the way is gone at once; the next net is the one of what is left
         for x = 12, 13 do e[(10 * 1024 + x) * 9 + 5] = nil end
@@ -33210,6 +33248,7 @@ step("Ways 0.2.4: the line's head follows the way - its own dots at fixed places
         -- 4. another look of the line: every dot anew, in the new size and distance
         ns.db.routeLineStyle = "dots"
         ns.RedrawRouteLine()
+        assert(T.Known("mini", T.HEAD) == 0 and T.Known("world", T.HEAD) == 0, "the line drawn again while a way is shown: no dot of the straight head, not for a moment")
         advance(0.3)
         seen = T.Seen("mini")
         assert(#seen > 5 and #seen < 30, "big steps of 25 yd: " .. #seen .. " dots")
@@ -33268,6 +33307,43 @@ step("Ways 0.2.4: the line's head follows the way - its own dots at fixed places
         local farther = select(2, T.Off(way, onMap[#onMap][1], onMap[#onMap][2]))
         assert(way.seg > 5 and farther > farMap + 200, ("further along the line reaches further: %.0f after %.0f yd"):format(farther, farMap))
         assert(Near(farther <= way.points.cum[math.min(way.n, way.seg + 48)] + 0.01 and 1 or 0, 1), "and still 48 segments ahead at the most")
+        ns.StopRun(true)
+
+        -- 6. Never more than 150 dots a map, also when the stretch ahead grows after the way was shown:
+        -- 50 short bits of 50 yd first (the dots' distance is set by them), then six legs of 500 yd.
+        local s2, list = {}, { { 10, 10 } }
+        local sx, sy = 10, 10
+        for i = 1, 50 do
+            for _ = 1, 2 do
+                if i % 2 == 1 then sx = sx + 1 else sy = sy + 1 end
+                list[#list + 1] = { sx, sy }
+            end
+        end
+        for i = 1, 6 do
+            for _ = 1, 20 do
+                if i % 2 == 1 then sx = sx + 1 else sy = sy + 1 end
+                list[#list + 1] = { sx, sy }
+            end
+        end
+        WAYS.Ride(s2, list)
+        W.Pieces(s2)
+        W.At(10, 10)
+        run = W.Run({ W.Node(sx, sy) }, 2)
+        way = W.Read()
+        assert(way.state == "net" and way.n - 1 == 56, "test setup: 50 short segments and 6 long ones (" .. way.state .. ", " .. way.n - 1 .. ")")
+        local spacing = wh.spacing
+        assert(#T.Seen("world") <= 150 and spacing > 15 and spacing < 18, ("at first 2,400 yd lie ahead: a dot every %.1f yd"):format(spacing))
+        for i = 2, 81 do
+            W.At(list[i][1], list[i][2])
+            advance(0.2)
+        end
+        way = W.Read()
+        local ahead = way.points.cum[math.min(way.n, way.seg + 48)] - way.pos
+        assert(way.state == "net" and way.seg > 38 and ahead > 150 * spacing, ("40 segments on, %.0f yd lie ahead: more than 150 dots at %.1f yd would need"):format(ahead, spacing))
+        -- (150 were placed the last time; the ones you rode past since are hidden)
+        assert(wh.n == 150 and #T.Seen("world") <= 150 and #T.Seen("world") >= 140 and #T.Seen("mini") <= 150,
+            "150 dots are placed, no more: " .. wh.n .. " placed, " .. #T.Seen("world") .. " / " .. #T.Seen("mini") .. " seen")
+        assert(#world <= 150 and #mini <= 150, "150 dots a map were ever made at the most: " .. #world .. " / " .. #mini)
     end)
     T.Done()
     ns.db.routeLineStyle = nil
