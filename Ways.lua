@@ -1460,6 +1460,9 @@ local function Valid(run)
         return true
     end
     Withdraw()
+    -- (the next tick takes whatever node the run has then for a new one - also the old one again:
+    -- nothing of the way that was shown is used for it)
+    nav.node = nil
     return false
 end
 
@@ -1783,6 +1786,29 @@ ns.WaysRead = Wrap("Ways", function(run)
     end
     Spend(Clock() - t0)
     return read
+end)
+
+-- The arrow (UI.lua): where it turns to, in world yards - the point 30 yd
+-- ahead along the way shown. nil: the node itself (no way of the net, the
+-- rest is shorter, or the point lies on the last bit to the node). Only the
+-- angle is this point's; the distance, the name, "Here!" and the arrival stay
+-- with the node. Reading it moves the progress on (once a frame, whoever
+-- reads first); more than 25 yd off the way, the way is taken back here and
+-- the head tick asks anew.
+ns.WaysArrow = Wrap("Ways", function(run, px, py)
+    if not (nav and run == navRun) then return end
+    local t0 = Clock()
+    local x, y
+    if Valid(run) and not AnySecret("ways", px, py) and type(px) == "number" and type(py) == "number" then
+        if Follow(px, py) then
+            x, y = M.ArrowPoint(nav.core)
+        else
+            Withdraw()
+            nav.asked = false
+        end
+    end
+    Spend(Clock() - t0)
+    return x, y
 end)
 
 -- The line of the run window (UI.lua): a text kept until the way changes, or nil

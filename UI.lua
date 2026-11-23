@@ -423,6 +423,17 @@ local function ArrowTarget()
     if not facing then return end -- no facing info (e.g. in instances)
     local angle, dist = HBD:GetWorldVector(instance, px, py, run.targetPoint.wx, run.targetPoint.wy)
     if not angle then return end
+    -- (0.2.4 S1) Only the arrow's angle follows the way along the paths you
+    -- rode (Ways.lua): it turns to the point 30 yd ahead on that way. The
+    -- distance, the name, "Here!" and the arrival stay with the node itself.
+    -- No way of the net (or the option off): the angle is the node's, as before.
+    if ns.WaysArrow then
+        local ax, ay = ns.WaysArrow(run, px, py)
+        if ax then
+            local along = HBD:GetWorldVector(instance, px, py, ax, ay)
+            if along then angle = along end
+        end
+    end
     return angle - facing, dist, run.target
 end
 

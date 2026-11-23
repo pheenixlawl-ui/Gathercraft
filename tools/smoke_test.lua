@@ -33434,6 +33434,169 @@ step("Ways 0.2.4: a way that is taken back is unseen in the same frame, on both 
     if not ok then error(err, 0) end
 end)
 
+step("Ways 0.2.4: only the arrow's angle follows the way - it turns to the point 30 yd ahead along it; the distance, the name and Here! stay with the node; at a hairpin it does not jump ahead; near the node, without a way and with the option off it points at the node as before; the game's waypoint is untouched (S1 W5)", function()
+    local Near = WAYS.Near
+    -- a hairpin: east from (10,10) to (20,10), one square south, back west to (10,11) - and on south to
+    -- the node at (10,31). (What lies between the two legs at the start was ridden around, never across.)
+    local e, squares = {}, {}
+    for x = 10, 20 do squares[#squares + 1] = { x, 10 } end
+    for x = 20, 10, -1 do squares[#squares + 1] = { x, 11 } end
+    for y = 12, 31 do squares[#squares + 1] = { 10, y } end
+    WAYS.Ride(e, squares)
+    local W = WAYS.World(e)
+    local T = WAYS.Pins()
+    local HBD = LibStub("HereBeDragons-2.0")
+    local keepRot, keepText = methods.SetRotation, methods.SetText
+    local ok, err = pcall(function()
+        -- the mock's HereBeDragons gives every direction as 1.0: here the real formula
+        HBD.GetWorldVector = function(_, _, ox, oy, dx, dy)
+            local ddx, ddy = dx - ox, dy - oy
+            return math.atan2(-ddx, ddy), math.sqrt(ddx * ddx + ddy * ddy)
+        end
+        GetPlayerFacing = function() return 0 end
+        local rot, text
+        methods.SetRotation = function(self, r)
+            if self.__parent == GathercraftArrow then rot = r end
+            return keepRot(self, r)
+        end
+        methods.SetText = function(self, s)
+            if self.__parent == GathercraftArrow and type(s) == "string" and (s:find(" yd", 1, true) or s == ns.L["Here!"]) then text = s end
+            return keepText(self, s)
+        end
+        local function Arrow()
+            rot, text = nil, nil
+            GathercraftArrow:GetScript("OnUpdate")(GathercraftArrow, 0.25)
+            return rot, text
+        end
+        local function Angle(fromX, fromY, toX, toY) return math.atan2(-(toX - fromX), toY - fromY) end
+        local A = W.Node(10, 31, 20, 0)
+        W.At(10, 10)
+        local run = W.Run({ A }, 2)
+        local way = W.Read()
+        -- the way: 250 yd east, 25 south, 250 west, 500 south, and 20 yd from the last square's middle to
+        -- the node - for a node 525 yd south of you
+        assert(way.state == "net" and Near(way.yards, 1045), "test setup: the hairpin is the way (" .. way.state .. ", " .. way.yards .. " yd)")
+        -- 1. at the start: the arrow turns east along the way (30 yd ahead), not south to the node
+        local east, south = Angle(0, 0, 30, 0), Angle(0, 0, 20, 525)
+        local r, s = Arrow()
+        assert(Near(r, east), ("the arrow turns along the way: %.3f, east is %.3f, the node lies at %.3f"):format(r, east, south))
+        assert(s == (ns.L["%d yd"]):format(525), "the number is the node's distance: " .. tostring(s))
+        assert(math.floor(ns.DistanceToTarget()) == 525, "DistanceToTarget is the node's: " .. ns.DistanceToTarget())
+        -- the point 30 yd ahead is near, the node far: no Here!
+        assert(s ~= ns.L["Here!"], "no Here! for a point of the way")
+        -- 2. the hairpin: the leg back runs 25 yd south of you - the arrow stays on your leg
+        for x = 11, 15 do
+            W.At(x, 10)
+            advance(0.2)
+            r = Arrow()
+            assert(Near(r, east), "riding east on the first leg at square " .. x .. ": the arrow turns east (" .. r .. ")")
+        end
+        way = W.Read()
+        assert(way.seg == 1 and Near(way.pos, 125), "the progress is on the first leg: " .. way.pos)
+        -- the head and the arrow read the same way, whoever looks first in a frame
+        advance(0.07)
+        W.At(16, 10)
+        local world = HBD.GetPlayerWorldPosition
+        r = Arrow()
+        local pos1 = W.Read().pos
+        ns.WaysTick(run, world())
+        assert(Near(W.Read().pos, pos1) and Near(pos1, 150), "the arrow first, then the head's tick: one progress (" .. pos1 .. ")")
+        advance(0.07)
+        W.At(17, 10)
+        ns.WaysTick(run, world())
+        local pos2 = W.Read().pos
+        local r2 = Arrow()
+        assert(Near(W.Read().pos, pos2) and Near(pos2, 175) and Near(r2, east), "the head's tick first, then the arrow: the same")
+        local ax, ay = ns.WaysArrow(run, world())
+        local off, along = T.Off(W.Read(), ax, ay)
+        assert(off < 0.001 and Near(along, pos2 + 30), "the arrow's point lies on the way that is shown, 30 yd ahead of you")
+        -- around the bend: at the corner it turns south, then west
+        for x = 18, 20 do
+            W.At(x, 10)
+            advance(0.2)
+        end
+        r = Arrow()
+        assert(r ~= east and Near(r, Angle(0, 0, -5, 25)), "at the east end: around the bend (5 yd of the leg back are in the 30)")
+        W.At(20, 11)
+        advance(0.3)
+        assert(Near(Arrow(), Angle(0, 0, -30, 0)), "on the leg back: west")
+        -- 3. near the end: the rest is shorter than 30 yd, or the point lies on the last bit - the node itself
+        for x = 19, 10, -1 do
+            W.At(x, 11)
+            advance(0.2)
+        end
+        for y = 12, 30 do
+            W.At(10, y)
+            advance(0.2)
+        end
+        -- (one square before the last: 25 yd of way and the 20 yd to the node are left - the point 30 yd
+        -- ahead lies on that last bit)
+        way = W.Read()
+        r, s = Arrow()
+        assert(way.state == "net" and Near(way.points.len - way.pos, 45), "the way is still shown, 45 yd of it are left: " .. way.state)
+        assert(Near(r, Angle(0, 0, 20, 25)), ("the arrow points at the node itself, not along the way: %.3f (the way's point lies at %.3f)"):format(r, Angle(0, 0, 5, 25)))
+        assert(s == (ns.L["%d yd"]):format(32), "and the number is its distance: " .. tostring(s))
+        -- 4. the lines hidden, the arrow shown: it still follows the way; nothing is drawn
+        ns.StopRun(true)
+        ns.db.routeLineHidden, ns.db.routeLineMiniHidden = true, true
+        W.At(10, 10)
+        run = W.Run({ A }, 2)
+        assert(W.Read().state == "net" and T.Known("mini") == 0 and T.Known("world") == 0, "lines hidden: the way is found, no dot is placed")
+        assert(Near(Arrow(), east), "and the arrow follows it")
+        ns.db.routeLineHidden, ns.db.routeLineMiniHidden = nil, nil
+        advance(0.5)
+        -- 5. another node: the very next look of the arrow is the new node's straight direction
+        local B = W.Node(20, 31)
+        local bx, by = W.World((20 + 0.5) * 25, (31 + 0.5) * 25)
+        local tp = run.targetPoint
+        run.target, run.targetPoint = B, { node = B, mapID = W.Z, wx = bx, wy = by }
+        run.targetBest, run.progressBest = nil, nil
+        run.path[1] = run.targetPoint
+        r, s = Arrow()
+        assert(Near(r, Angle(0, 0, 250, 525)), "another node: straight at it, nothing of the old way's direction (" .. r .. ")")
+        run.target, run.targetPoint = A, tp
+        run.path[1] = tp
+        advance(2)
+        assert(Near(Arrow(), east), "(A again: along its way)")
+        -- 6. the option off: the angle is the node's, as it was before S1
+        ns.db.routeWaysOff = true
+        r, s = Arrow()
+        assert(Near(r, south) and s == (ns.L["%d yd"]):format(525), "option off: straight at the node at once")
+        ns.db.routeWaysOff = nil
+        advance(2)
+        -- 7. the game's waypoint: yours stays yours; with our arrow off the run sets it at the node as before
+        local mine = { m = W.Z, x = 0.9, y = 0.9 }
+        USER_WP = mine
+        local sets, clears = WP_SETS or 0, WP_CLEARS or 0
+        for x = 11, 14 do
+            W.At(x, 10)
+            advance(0.3)
+            Arrow()
+        end
+        assert(USER_WP == mine and (WP_SETS or 0) == sets and (WP_CLEARS or 0) == clears, "a waypoint of your own (or another addon's) is not touched while the way is followed")
+        USER_WP = nil
+        ns.db.arrowHidden = true
+        ns.RouteArrowChanged()
+        advance(0.3)
+        assert(USER_WP and Near(USER_WP.x, A.x) and Near(USER_WP.y, A.y), "our arrow off: the game's waypoint at the node itself, as before")
+        assert(W.Read().state == "net", "(the line still follows the way)")
+        ns.db.arrowHidden = nil
+        ns.RouteArrowChanged()
+        -- no run: the arrow asks nothing of the ways
+        ns.StopRun(true)
+        local d = ns.WaysDiag()
+        local requests = d.requests
+        assert(ns.WaysArrow(nil, 1, 2) == nil and ns.WaysArrow(run, 1, 2) == nil and d.requests == requests, "no run: nothing")
+        local src = io.open(ROOT .. "/Ways.lua"):read("*a"):gsub("%-%-[^\n]*", "")
+        assert(not src:find("Waypoint") and not src:find("SuperTrack"), "Ways.lua does not know the game's waypoint")
+    end)
+    methods.SetRotation, methods.SetText = keepRot, keepText
+    USER_WP = nil
+    T.Done()
+    W.Done()
+    if not ok then error(err, 0) end
+end)
+
 io.write("\n--- errors: " .. #errors .. "\n")
 for _, e in ipairs(errors) do io.write("  " .. e .. "\n") end
 io.write("\n--- notable log lines:\n")
