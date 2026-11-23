@@ -31433,6 +31433,418 @@ step("Test mock: OnUpdate runs for the same frames in the same order as going ov
     assert(s == "", "after all are removed: " .. s:sub(1, 12))
 end)
 
+-- ---------------------------------------------------------------- 0.2.4 S1: the ways you rode as a net (Ways.lua)
+-- Helpers of the steps about the net: pieces as Paths saves them, written by hand.
+local WAYS = { GRID = 1024, SQRT2 = math.sqrt(2) }
+do
+    local GRID = WAYS.GRID
+    function WAYS.Pack(count, cost, falls, swims, day)
+        return (((swims * 256 + falls) * 1024 + cost) * 256 + count) * 16384 + day
+    end
+    -- a piece from square (tx, ty) into its neighbour (dx, dy); o: cost (hundredths), falls, count (rides)
+    function WAYS.Piece(e, tx, ty, dx, dy, o)
+        e[(ty * GRID + tx) * 9 + (dy + 1) * 3 + (dx + 1)] = WAYS.Pack(o and o.count or 1, o and o.cost or 100, o and o.falls or 0, 0, 300)
+    end
+    -- a ride through a list of squares { {tx, ty}, ... }, forwards only
+    function WAYS.Ride(e, squares, o)
+        for i = 1, #squares - 1 do
+            local a, b = squares[i], squares[i + 1]
+            WAYS.Piece(e, a[1], a[2], b[1] - a[1], b[2] - a[2], o)
+        end
+    end
+    -- the edges from square a to square b: how many, and the first one's cost and flag
+    function WAYS.Edge(set, ax, ay, bx, by)
+        local Core = ns.WaysCore
+        local a, b = Core.Find(set.key, set.n, ay * GRID + ax), Core.Find(set.key, set.n, by * GRID + bx)
+        if not a or not b then return 0 end
+        local n, cost, flag = 0, nil, nil
+        for e = set.first[a], set.first[a + 1] - 1 do
+            if set.to[e] == b then
+                n = n + 1
+                cost, flag = cost or set.cost[e], flag or set.flag[e]
+            end
+        end
+        return n, cost, flag
+    end
+    function WAYS.Near(a, b) return a ~= nil and math.abs(a - b) < 1e-9 end
+    function WAYS.Centre(t) return (t + 0.5) * 25 end
+    function WAYS.Build(e)
+        local ctx = ns.WaysCore.New()
+        local set, over = ns.WaysCore.Build(ctx, e)
+        return set, ctx, over
+    end
+    -- everything of a set as one text (two nets are the same when their texts are)
+    function WAYS.Text(set)
+        local t = { set.n, set.m, set.nCon, set.partsObs, set.parts }
+        for i = 1, set.n do t[#t + 1] = ("%d:%d:%d:%d:%.3f:%.3f"):format(set.key[i], set.first[i], set.hasIn[i], set.part[i], set.x[i], set.y[i]) end
+        t[#t + 1] = set.first[set.n + 1]
+        for i = 1, set.m do t[#t + 1] = ("%d:%.9f:%d"):format(set.to[i], set.cost[i], set.flag[i]) end
+        return table.concat(t, " ")
+    end
+    -- Codex' counter-example of round 2 (R2-M1), its squares moved to (20, 20): a ridden U
+    -- around a cliff (part A) and a second part B between its two ends
+    function WAYS.CodexABA()
+        local e, ox, oy, a = {}, 20, 20, {}
+        for x = -4, 0 do a[#a + 1] = { ox + x, oy } end
+        for y = 1, 4 do a[#a + 1] = { ox, oy + y } end
+        for x = 1, 2 do a[#a + 1] = { ox + x, oy + 4 } end
+        for y = 3, 0, -1 do a[#a + 1] = { ox + 2, oy + y } end
+        for x = 3, 6 do a[#a + 1] = { ox + x, oy } end
+        WAYS.Ride(e, a)
+        WAYS.Ride(e, { { ox + 1, oy }, { ox + 1, oy - 1 } })
+        return e, ox, oy
+    end
+    -- the same with two parts B and C between the ends
+    function WAYS.CodexABCA()
+        local e, ox, oy, a = {}, 20, 20, {}
+        for x = -4, 0 do a[#a + 1] = { ox + x, oy } end
+        for y = 1, 4 do a[#a + 1] = { ox, oy + y } end
+        for x = 1, 3 do a[#a + 1] = { ox + x, oy + 4 } end
+        for y = 3, 0, -1 do a[#a + 1] = { ox + 3, oy + y } end
+        for x = 4, 7 do a[#a + 1] = { ox + x, oy } end
+        WAYS.Ride(e, a)
+        WAYS.Ride(e, { { ox + 1, oy }, { ox + 1, oy - 1 } })
+        WAYS.Ride(e, { { ox + 2, oy }, { ox + 2, oy - 1 } })
+        return e, ox, oy
+    end
+    -- a ride back and forth through w x h squares from (ox, oy): w * h squares, one part
+    function WAYS.Snake(e, ox, oy, w, h)
+        local list = {}
+        for y = 0, h - 1 do
+            if y % 2 == 0 then
+                for x = 0, w - 1 do list[#list + 1] = { ox + x, oy + y } end
+            else
+                for x = w - 1, 0, -1 do list[#list + 1] = { ox + x, oy + y } end
+            end
+        end
+        WAYS.Ride(e, list)
+        return e
+    end
+end
+
+step("Ways 0.2.4: the net - an edge for every piece you rode and its way back; a fall seen once has a guessed way back, a sure fall none; the counts read as saved; the diagonal; a cost under 1 (S1 W1)", function()
+    local Core = ns.WaysCore
+    local Piece, Ride, Edge, Near, Build = WAYS.Piece, WAYS.Ride, WAYS.Edge, WAYS.Near, WAYS.Build
+    local OBS, REV, CON, GREV, FALL, UNSURE = Core.OBS, Core.REV, Core.CON, Core.GREV, Core.FALL, Core.UNSURE
+    assert(Core.TILE == select(3, ns.PathsLimits()), "the square's side is Paths' own")
+    -- a ridden edge and its way back
+    local e = {}
+    Piece(e, 10, 10, 1, 0, { cost = 130 })
+    local set = Build(e)
+    assert(set.n == 2 and set.m == 2, "2 squares, 2 edges")
+    local n, cost, flag = Edge(set, 10, 10, 11, 10)
+    assert(n == 1 and Near(cost, 32.5) and flag == OBS, "the ridden edge: 25 x 1.30")
+    n, cost, flag = Edge(set, 11, 10, 10, 10)
+    assert(n == 1 and Near(cost, 32.5) and flag == REV, "the way back: the same cost, marked as a way back")
+    -- the squares lie where Paths puts them: the key of the square you left
+    assert(set.key[1] == 10 * 1024 + 10 and set.key[2] == 10 * 1024 + 11 and Near(set.x[1], 262.5) and Near(set.y[1], 262.5), "square (10, 10): its key, its middle")
+
+    -- a sure fall: ridden twice at least, every time with a fall - downwards only
+    e = {}
+    Piece(e, 10, 10, 1, 0, { falls = 2, count = 2 })
+    set = Build(e)
+    n, cost, flag = Edge(set, 10, 10, 11, 10)
+    assert(n == 1 and flag == OBS + FALL, "the sure fall, downwards")
+    assert(Edge(set, 11, 10, 10, 10) == 0 and set.m == 1, "no way back up")
+    assert(set.partsObs == 1 and set.nFall == 1 and set.nUnsure == 0, "both squares are one part all the same")
+    -- an unsure fall: ridden once, with a fall - a guessed way back at 1.5 times the cost
+    e = {}
+    Piece(e, 10, 10, 1, 0, { falls = 1, count = 1, cost = 120 })
+    set = Build(e)
+    n, cost, flag = Edge(set, 10, 10, 11, 10)
+    assert(n == 1 and Near(cost, 30) and flag == OBS + UNSURE, "the unsure fall: ridden, its own cost")
+    n, cost, flag = Edge(set, 11, 10, 10, 10)
+    assert(n == 1 and Near(cost, 45) and flag == GREV, "its way back: guessed, 25 x 1.20 x 1.5")
+    assert(set.nUnsure == 1 and set.nGrev == 1 and set.nFall == 0 and set.nRev == 0, "counted as that")
+    -- normal: ridden without a fall as well (the mark was a jump) - a ridden way back
+    e = {}
+    Piece(e, 10, 10, 1, 0, { falls = 1, count = 3, cost = 120 })
+    set = Build(e)
+    n, cost, flag = Edge(set, 10, 10, 11, 10)
+    assert(n == 1 and flag == OBS, "ridden without a fall too: normal")
+    n, cost, flag = Edge(set, 11, 10, 10, 10)
+    assert(n == 1 and Near(cost, 30) and flag == REV, "its way back: ridden, the same cost")
+    assert(set.nJump == 1 and set.nUnsure == 0 and set.nFall == 0 and set.nRev == 1, "counted as a jump")
+    -- the second ride without a fall makes a fall seen once normal; with one, sure
+    assert(Core.Class(1, 1) == 1 and Core.Class(2, 1) == 0 and Core.Class(2, 2) == 2 and Core.Class(1, 0) == 0 and Core.Class(7, 0) == 0, "the classes")
+    -- the counts stop at 255 in the saved data and are read as they are
+    assert(Core.Class(255, 255) == 2 and Core.Class(255, 254) == 0, "255 of 255: a sure fall; 254 of 255: normal")
+    e = {}
+    Piece(e, 10, 10, 1, 0, { falls = 255, count = 255 })
+    Piece(e, 20, 10, 1, 0, { falls = 254, count = 255 })
+    set = Build(e)
+    assert(Edge(set, 11, 10, 10, 10) == 0 and Edge(set, 21, 10, 20, 10) == 1, "and built as that")
+
+    -- an observed opposite direction keeps its own values: nothing is averaged, nothing beside it
+    e = {}
+    Piece(e, 10, 10, 1, 0, { cost = 100 })
+    Piece(e, 11, 10, -1, 0, { cost = 300, falls = 2, count = 2 })
+    set = Build(e)
+    n, cost, flag = Edge(set, 10, 10, 11, 10)
+    assert(n == 1 and Near(cost, 25) and flag == OBS, "A->B: its own cost, one edge only")
+    n, cost, flag = Edge(set, 11, 10, 10, 10)
+    assert(n == 1 and Near(cost, 75) and flag == OBS + FALL, "B->A: its own cost and its fall")
+    assert(set.m == 2, "no third edge")
+    e = {}
+    Piece(e, 10, 10, 1, 0, { cost = 100, falls = 1 })
+    Piece(e, 11, 10, -1, 0, { cost = 200 })
+    set = Build(e)
+    n, cost, flag = Edge(set, 11, 10, 10, 10)
+    assert(n == 1 and Near(cost, 50) and flag == OBS and set.m == 2 and set.nGrev == 0, "no guessed way back beside a ridden one")
+
+    -- the diagonal is 25 x sqrt 2 (the same root Paths takes)
+    e = {}
+    Piece(e, 10, 10, 1, 1)
+    Piece(e, 20, 20, -1, 1, { cost = 200 })
+    set = Build(e)
+    n, cost = Edge(set, 10, 10, 11, 11)
+    assert(Near(cost, 25 * WAYS.SQRT2), "diagonal south-east")
+    n, cost = Edge(set, 20, 20, 19, 21)
+    assert(Near(cost, 50 * WAYS.SQRT2), "diagonal south-west, cost 2.00")
+    n, cost = Edge(set, 19, 21, 20, 20)
+    assert(Near(cost, 50 * WAYS.SQRT2), "its way back")
+    -- a cost under 1 counts as 1.0 (the search's estimate must never be above the truth)
+    e = {}
+    Piece(e, 10, 10, 1, 0, { cost = 40 })
+    set = Build(e)
+    n, cost = Edge(set, 10, 10, 11, 10)
+    assert(Near(cost, 25), "25 yd at least")
+    n, cost = Edge(set, 11, 10, 10, 10)
+    assert(Near(cost, 25), "the way back too")
+    -- a key that is no piece (the square itself, a neighbour outside the grid) is left out
+    e = {}
+    Piece(e, 10, 10, 1, 0)
+    e[(10 * 1024 + 10) * 9 + 4] = WAYS.Pack(1, 100, 0, 0, 300)
+    e[(10 * 1024 + 0) * 9 + 3] = WAYS.Pack(1, 100, 0, 0, 300)
+    e[(10 * 1024 + 1023) * 9 + 5] = WAYS.Pack(1, 100, 0, 0, 300)
+    set = Build(e)
+    assert(set.n == 2 and set.m == 2 and set.pieces == 1, "only the one real piece: " .. set.n .. " squares")
+    -- the edge from one key to another, as the navigation asks for it
+    assert(Core.Edge(set, 10 * 1024 + 10, 10 * 1024 + 11) == OBS and Core.Edge(set, 10 * 1024 + 11, 10 * 1024 + 10) == REV, "Edge by keys")
+    assert(Core.Edge(set, 10 * 1024 + 10, 10 * 1024 + 12) == nil and Core.Edge(set, 5, 6) == nil, "no edge, no square")
+    assert(CON == 3, "(the kinds)")
+end)
+
+step("Ways 0.2.4: the same pieces in another order of pairs give the same net, byte for byte - the squares numbered by their key (S1 W1)", function()
+    local Piece, Build = WAYS.Piece, WAYS.Build
+    -- rides with gaps, written into the table in two orders (and with other keys in between)
+    local list = {}
+    for i = 0, 40 do list[#list + 1] = { 10 + i, 10, 1, 0 } end
+    for i = 0, 40 do list[#list + 1] = { 10 + i, 12, 1, i % 7 == 0 and -1 or 0 } end
+    for i = 0, 30 do list[#list + 1] = { 30, 10 + i, 0, 1 } end
+    for i = 0, 30 do list[#list + 1] = { 31 + (i % 2), 14 + i, i % 2 == 0 and 1 or -1, 1 } end
+    for i = 0, 12 do list[#list + 1] = { 60 + 2 * (i % 5), 30 + 2 * math.floor(i / 5), 1, 0 } end -- islands side by side: connectors
+    local e1, e2 = {}, {}
+    for i = 1, #list do Piece(e1, list[i][1], list[i][2], list[i][3], list[i][4], { cost = 100 + i, falls = i % 9 == 0 and 1 or 0 }) end
+    for i = 1, 5000 do e2[-i] = 0 end
+    for i = #list, 1, -1 do Piece(e2, list[i][1], list[i][2], list[i][3], list[i][4], { cost = 100 + i, falls = i % 9 == 0 and 1 or 0 }) end
+    for i = 1, 5000 do e2[-i] = nil end
+    local o1, o2, differs = {}, {}, false
+    for k in pairs(e1) do o1[#o1 + 1] = k end
+    for k in pairs(e2) do o2[#o2 + 1] = k end
+    assert(#o1 == #o2, "the same pieces")
+    for i = 1, #o1 do if o1[i] ~= o2[i] then differs = true end end
+    assert(differs, "(the test needs two different orders of pairs)")
+    local s1, s2 = Build(e1), Build(e2)
+    assert(s1.nCon > 0 and s1.nGrev > 0, "(the test needs connectors and guessed ways back: " .. s1.nCon .. ", " .. s1.nGrev .. ")")
+    for i = 2, s1.n do assert(s1.key[i] > s1.key[i - 1], "squares numbered by their key, ascending") end
+    assert(WAYS.Text(s1) == WAYS.Text(s2), "the same net")
+end)
+
+step("Ways 0.2.4: guessed connectors - one by one in a fixed order, only between two parts that are still apart; never a circle, never a cut through a detour you rode (Codex A-B-A, A-B-C-A); none over a fall or a square's distance (S1 W1)", function()
+    local Core = ns.WaysCore
+    local Piece, Ride, Edge, Near, Build = WAYS.Piece, WAYS.Ride, WAYS.Edge, WAYS.Near, WAYS.Build
+    local CON, GREV = Core.CON, Core.GREV
+    -- two rides side by side: one connector, both ways, 25 x 1.5
+    local e = {}
+    Ride(e, { { 10, 10 }, { 11, 10 } })
+    Ride(e, { { 12, 10 }, { 13, 10 } })
+    local set = Build(e)
+    assert(set.partsObs == 2 and set.parts == 1 and set.nCon == 1, "two parts, one connector, then one part")
+    local n, cost, flag = Edge(set, 11, 10, 12, 10)
+    assert(n == 1 and Near(cost, 37.5) and flag == CON, "guessed, 25 x 1.5")
+    n, cost, flag = Edge(set, 12, 10, 11, 10)
+    assert(n == 1 and Near(cost, 37.5) and flag == CON, "and back")
+    e = {}
+    Ride(e, { { 10, 10 }, { 11, 10 } })
+    Ride(e, { { 12, 11 }, { 13, 11 } })
+    set = Build(e)
+    n, cost, flag = Edge(set, 11, 10, 12, 11)
+    assert(n == 1 and Near(cost, 37.5 * WAYS.SQRT2) and flag == CON, "diagonal: 25 x sqrt 2 x 1.5")
+
+    -- the cliff: up at (10,10), down at (10,11) right below it, ridden around - one part, no connector
+    e = {}
+    Ride(e, { { 10, 10 }, { 11, 10 }, { 12, 10 }, { 13, 10 }, { 13, 11 }, { 13, 12 }, { 12, 12 }, { 11, 12 }, { 10, 12 }, { 10, 11 } })
+    set = Build(e)
+    assert(set.partsObs == 1 and set.nCon == 0, "one part, no connector at all")
+    assert(Edge(set, 10, 10, 10, 11) == 0 and Edge(set, 10, 11, 10, 10) == 0, "nothing straight down the cliff")
+    assert(Edge(set, 11, 10, 10, 11) == 0 and Edge(set, 11, 10, 11, 12) == 0, "nor between other neighbours of the detour")
+
+    -- Codex A->B->A (R2-M1): one connector A-B and one B-A would cut the ridden U together
+    local ox, oy
+    e, ox, oy = WAYS.CodexABA()
+    set = Build(e)
+    assert(set.partsObs == 2 and set.parts == 1, "two parts, joined")
+    assert(set.nCon == 1, "by ONE connector, not by two: " .. set.nCon)
+    assert(select(3, Edge(set, ox + 1, oy - 1, ox, oy)) == CON and select(3, Edge(set, ox, oy, ox + 1, oy - 1)) == CON, "the first candidate in the order of the keys: from B's upper square down to the left")
+    assert(Edge(set, ox, oy, ox + 1, oy) == 0 and Edge(set, ox + 1, oy, ox + 2, oy) == 0 and Edge(set, ox + 2, oy, ox + 1, oy) == 0 and Edge(set, ox + 1, oy - 1, ox + 2, oy) == 0,
+        "none of the other three candidates between A and B")
+    -- A->B->C->A: no circle of connectors over three parts
+    e, ox, oy = WAYS.CodexABCA()
+    set = Build(e)
+    assert(set.partsObs == 3 and set.parts == 1, "three parts, joined")
+    assert(set.nCon == 2, "by two connectors (a tree), not by three or more: " .. set.nCon)
+    assert(Edge(set, ox + 2, oy, ox + 3, oy) == 0, "the circle is not closed at the far end")
+    -- the connectors are a forest over the parts, whatever the data
+    local seed = 99
+    local function Rand(m)
+        seed = (seed * 16807) % 2147483647
+        return seed % m
+    end
+    for round = 1, 40 do
+        e = {}
+        for _ = 1, 4 + Rand(8) do
+            local x, y = 20 + Rand(14), 20 + Rand(14)
+            for _ = 1, 3 + Rand(12) do
+                local dx, dy = Rand(3) - 1, Rand(3) - 1
+                if (dx ~= 0 or dy ~= 0) and x + dx >= 15 and x + dx <= 40 and y + dy >= 15 and y + dy <= 40 then
+                    Piece(e, x, y, dx, dy, { cost = 100 + Rand(250), count = 1 + Rand(5) })
+                    x, y = x + dx, y + dy
+                end
+            end
+        end
+        set = Build(e)
+        assert(set.nCon == set.partsObs - set.parts, ("round %d: %d connectors join %d parts into %d"):format(round, set.nCon, set.partsObs, set.parts))
+    end
+
+    -- no connector over a sure fall, and nothing else leads back up
+    e = {}
+    Ride(e, { { 9, 10 }, { 10, 10 } })
+    Piece(e, 10, 10, 1, 0, { falls = 2, count = 2 })
+    Ride(e, { { 11, 10 }, { 12, 10 } })
+    set = Build(e)
+    assert(set.nCon == 0 and Edge(set, 11, 10, 10, 10) == 0, "nothing leads back up, guessed or not")
+    -- a fall seen once: its guessed way back, and no connector beside it
+    e = {}
+    Ride(e, { { 9, 10 }, { 10, 10 } })
+    Piece(e, 10, 10, 1, 0, { falls = 1 })
+    Ride(e, { { 11, 10 }, { 12, 10 } })
+    set = Build(e)
+    n, cost, flag = Edge(set, 11, 10, 10, 10)
+    assert(set.nCon == 0 and n == 1 and flag == GREV, "one guessed way back, no connector beside it")
+    -- one square between two rides: they stay two parts; one square nearer and they are joined
+    e = {}
+    Ride(e, { { 10, 10 }, { 11, 10 } })
+    Ride(e, { { 13, 10 }, { 14, 10 } })
+    set = Build(e)
+    assert(set.nCon == 0 and set.parts == 2, "one square between them: two parts stay")
+    e = {}
+    Ride(e, { { 10, 10 }, { 11, 10 } })
+    Ride(e, { { 12, 10 }, { 13, 10 } })
+    set = Build(e)
+    assert(set.nCon == 1 and set.parts == 1, "(side by side they are joined)")
+end)
+
+step("Ways 0.2.4: the net is built in pieces of any size with the same result; a piece that comes while the pieces are copied starts the copy again; two sets written over, never made anew; 8,000 squares and 20,000 edges at the most; no table.sort (S1 W1)", function()
+    local Core = ns.WaysCore
+    local Piece, Ride, Build = WAYS.Piece, WAYS.Ride, WAYS.Build
+    local e = {}
+    WAYS.Snake(e, 30, 30, 23, 17)
+    for i = 0, 20 do Piece(e, 80 + 2 * (i % 7), 40 + 2 * math.floor(i / 7), 0, 1, { cost = 100 + 7 * i, falls = i % 4 == 0 and 1 or 0 }) end
+    Ride(e, { { 28, 28 }, { 29, 29 }, { 30, 29 } })
+    local whole = WAYS.Text(Build(e))
+    -- in pieces: 1, 7 and 100 operations at a time
+    for _, budget in ipairs({ 1, 7, 100 }) do
+        local ctx = Core.New()
+        local job = Core.BuildStart(ctx, e)
+        local steps, phases, last = 0, 0, nil
+        while not job.done do
+            if job.phase ~= last then phases, last = phases + 1, job.phase end
+            local used = Core.BuildStep(ctx, budget)
+            assert(used >= 1 and used <= budget + 8, "a step uses about what it was given: " .. used .. " of " .. budget)
+            steps = steps + 1
+            assert(steps < 2000000, "the build ends")
+        end
+        assert(phases == Core.BUILD_PHASES, "every phase was worked in: " .. phases)
+        assert(WAYS.Text(ctx.sets[ctx.active]) == whole, "budget " .. budget .. ": the same net as in one go")
+    end
+    -- while the pieces are copied a new one comes: the copy starts again, the result is the net of all pieces
+    local ctx = Core.New()
+    local job = Core.BuildStart(ctx, e)
+    for _ = 1, 20 do Core.BuildStep(ctx, 5) end
+    assert(job.phase == 1 and job.pieces > 0 and job.pieces < 400, "(in the middle of the copy: " .. job.pieces .. " pieces so far)")
+    Piece(e, 200, 200, 1, 0)
+    Core.BuildDisturbed(ctx)
+    while not job.done do Core.BuildStep(ctx, 5) end
+    assert(job.restarts == 1, "the copy began again once: " .. job.restarts)
+    assert(WAYS.Text(ctx.sets[ctx.active]) == WAYS.Text(Build(e)), "the same net as without the disturbance")
+    -- after the copy a new piece changes nothing in this build (the next one has it)
+    local before = WAYS.Text(Build(e))
+    job = Core.BuildStart(ctx, e)
+    while job.phase == 1 do Core.BuildStep(ctx, 50) end
+    Piece(e, 210, 210, 1, 0)
+    Core.BuildDisturbed(ctx)
+    while not job.done do Core.BuildStep(ctx, 50) end
+    assert(job.restarts == 0 and WAYS.Text(ctx.sets[ctx.active]) == before, "the build has its own lists by then")
+
+    -- two sets: a build writes into the free one, then they change places; the lists are written over
+    ctx = Core.New()
+    local a, b = ctx.sets[1], ctx.sets[2]
+    local lists = { a.key, a.to, a.cost, b.key, b.to, b.cost, ctx.S.pk, ctx.S.uf, ctx.Q.g, ctx.Q.heap }
+    local s1 = Core.Build(ctx, e)
+    assert(ctx.active == 1 and s1 == a, "the first build: set A")
+    local textA = WAYS.Text(a)
+    Piece(e, 220, 220, 1, 0)
+    local s2 = Core.Build(ctx, e)
+    assert(ctx.active == 2 and s2 == b, "the second: set B")
+    assert(WAYS.Text(a) == textA, "set A is untouched while B is built and after it")
+    local s3 = Core.Build(ctx, e)
+    assert(ctx.active == 1 and s3 == a and WAYS.Text(a) == WAYS.Text(b), "the third: set A again, written over")
+    local now = { a.key, a.to, a.cost, b.key, b.to, b.cost, ctx.S.pk, ctx.S.uf, ctx.Q.g, ctx.Q.heap }
+    for i = 1, #lists do assert(lists[i] == now[i], "list " .. i .. " is the table it was") end
+    -- a smaller net after a larger one: what is left over in the lists does not count
+    local small = {}
+    Ride(small, { { 5, 5 }, { 6, 5 }, { 7, 5 } })
+    assert(WAYS.Text(Core.Build(ctx, small)) == WAYS.Text(Build(small)), "a small net in lists that held a large one")
+    Core.Drop(ctx)
+    assert(ctx.active == 0 and ctx.sets[1] == a, "dropped: no set in use, the tables stay")
+
+    -- the limits: 8,000 squares ...
+    local big = WAYS.Snake({}, 100, 100, 100, 80)
+    local set, _, over = Build(big)
+    assert(set and set.n == 8000 and set.m == 15998 and over == nil, "8,000 squares: a net")
+    Piece(big, 300, 300, 1, 0)
+    set, _, over = Build(big)
+    assert(set == nil and over == "fields", "8,002 squares: no net, and why")
+    -- ... and 20,000 edges
+    local dense = {}
+    for y = 0, 79 do
+        for x = 0, 99 do
+            if x < 99 then Piece(dense, 100 + x, 100 + y, 1, 0) end
+            if y < 79 then Piece(dense, 100 + x, 100 + y, 0, 1) end
+        end
+    end
+    set, _, over = Build(dense)
+    assert(set == nil and over == "edges", "8,000 squares with 31,640 edges: no net, and why")
+    dense = {}
+    for y = 0, 49 do
+        for x = 0, 99 do
+            if x < 99 then Piece(dense, 100 + x, 100 + y, 1, 0) end
+            if y < 49 then Piece(dense, 100 + x, 100 + y, 0, 1) end
+        end
+    end
+    set, _, over = Build(dense)
+    assert(set and set.n == 5000 and set.m == 19700, "19,700 edges: a net (" .. tostring(over) .. ")")
+    assert(Core.MAX_FIELDS == 8000 and Core.MAX_EDGES == 20000, "the limits")
+
+    -- the source: nothing that cannot be stopped half way, nothing of LuaJIT
+    local src = io.open(ROOT .. "/Ways.lua"):read("*a")
+    local code = src:gsub("%-%-[^\n]*", "")
+    assert(not code:find("table%.sort"), "no table.sort in Ways.lua")
+    assert(not code:find("%f[%w_]goto%f[^%w_]") and not code:find("%f[%w_]bit%.") and not code:find("%f[%w_]ffi%f[^%w_]") and not code:find("%f[%w_]jit%."), "nothing of LuaJIT")
+    assert(not code:find("collectgarbage"), "no collectgarbage")
+end)
+
 io.write("\n--- errors: " .. #errors .. "\n")
 for _, e in ipairs(errors) do io.write("  " .. e .. "\n") end
 io.write("\n--- notable log lines:\n")

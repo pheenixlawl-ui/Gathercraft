@@ -54,6 +54,7 @@ SkinLog.lua
 DisenchantTest.lua
 VisitLog.lua
 Paths.lua
+Ways.lua
 RunHistory.lua
 SearchRange.lua
 Data\StarterData.lua
