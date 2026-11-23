@@ -137,6 +137,9 @@ local function ImportQuestieZone(mapID, quiet, hold)
         -- (0.2.2 W3) only this zone's pins: no rebuild of every pin; at login
         -- (hold) one word at the end for all zones (W2)
         if not hold then ns.NotifyNodesChanged("zone", mapID) end
+        -- (0.2.4 a2) held: the pins hear of it at the end, a farm run's
+        -- collect knows at once that this zone has more nodes
+        if hold and ns.NodesTouched then ns.NodesTouched(mapID) end
         if not quiet and firstTime then
             ns.Print((L["Loaded %d known spawn points for %s."]):format(added, ns.GetZoneName(mapID)))
         end
@@ -173,6 +176,9 @@ local function SaveSpawnState()
         end
         ns.db.nodes[mapID] = #keep > 0 and keep or nil
     end
+    -- (0.2.4 a2) the known spawn points left every zone's list (logout):
+    -- a farm run would collect everything again
+    if ns.NodesTouched then ns.NodesTouched() end
     ns.db.spawnState = state
 end
 

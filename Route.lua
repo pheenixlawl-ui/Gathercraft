@@ -104,8 +104,13 @@ local TUNE = {
     loopFast = 0.5,    -- points refill within this share of a round: shorter round
     loopSlow = 1.0,    -- still filling after a whole round: longer round
     loopRemember = 3 * 3600, -- seconds a shorter round is remembered for the zone
+    collectCheck = false, -- (0.2.4 a2, the tests) every collect of a farm run against a full collect
 }
 ns.RouteTune = TUNE
+-- (0.2.4 a2, the tests) with TUNE.collectCheck every collect of a farm run is
+-- compared with a full collect: how many, how many of them took zones of
+-- before, and what differed
+ns.RouteCollectCheck = { checks = 0, partial = 0, bad = {} }
 
 local ticker
 local headTicker
@@ -329,26 +334,11 @@ local function ZoneOn(mapID, instance)
 end
 
 -- quick = a run started where you are: your Zones tab selection doesn't count
---   (0.2.3 lauf-last B3) keep = the run's own store of its points: a node's
---   point of the last collect is taken again when it is in the same zone at
---   the same place - every harvest of the target collects all points again
---   (a guess can move), thousands of new tables each time otherwise. A point
---   is only ever read for these and for what is written to it before it is
---   read (kind, d). A node twice in one collect gets a point of its own each
---   time, as before. Without keep (the preview, "Best place to farm") all
---   points are new, as before.
---   (R1 M1, Codex 23.11.2026) How long it lives is bound, also under the
---   rules of Lua 5.1: a point holds its node, so weak keys never let a
---   removed node go. So at the end of each collect the store keeps only the
---   nodes this collect took - one not taken any more goes at the next
---   collect at the latest - and StopRun lets go of the whole store.
-local function CollectPoints(filter, instance, zone, quick, keep)
+-- Every point a new table: the preview, "Best place to farm" and the tests'
+-- look at what a full collect gives (quiet: without learning the stays of
+-- empty visits, see CollectRun). A farm run collects with CollectRun below.
+local function CollectPoints(filter, instance, zone, quick, quiet)
     local points = {}
-    local gen
-    if keep then
-        gen = (keep.gen or 0) + 1
-        keep.gen = gen
-    end
     local kindZones = not quick and KindZones() or nil
     for mapID, nodes in pairs(ns.db.nodes) do
         if ZoneTaken(mapID, zone) and ZoneOn(mapID, instance) then
@@ -357,29 +347,115 @@ local function CollectPoints(filter, instance, zone, quick, keep)
                 if NodeTaken(n, mapID, filter, quick, noKinds) then
                     local wx, wy, inst = WorldPos(n, mapID)
                     if wx and inst == instance then
-                        local p = keep and keep.of[n]
-                        if not (p and p.mapID == mapID and p.wx == wx and p.wy == wy and keep.at[n] ~= gen) then
-                            p = { node = n, mapID = mapID, wx = wx, wy = wy }
-                            if keep then keep.of[n] = p end
-                        end
-                        if keep then keep.at[n] = gen end
-                        points[#points + 1] = p
-                        if n.learnStay then learnStays[n] = true end
+                        points[#points + 1] = { node = n, mapID = mapID, wx = wx, wy = wy }
+                        if n.learnStay and not quiet then learnStays[n] = true end
                     end
                 end
             end
         end
     end
-    -- (R1 M1) what this collect did not take goes from the store (clearing
-    -- fields while going over them is allowed in Lua)
-    if keep then
-        for n, g in pairs(keep.at) do
-            if g ~= gen then
-                keep.at[n] = nil
-                keep.of[n] = nil
+    return points
+end
+
+-- (0.2.4 a2) A farm run's points, collected again only where something
+-- changed. Every harvest of the target collects the run's points again (a
+-- guess can move): with Sven's data 5,175 points in The Barrens, 3-6 ms
+-- without the JIT. Now the run keeps the points of each zone with the count
+-- of changes the zone had then (Core.lua NodesTouched, counted for every
+-- change of a node or a zone): a zone whose count, list or length is the
+-- same gives its points of before, any other is collected again as
+-- CollectPoints does it. Collected in full when anything else changed (the
+-- count of everything), on another continent, after a parked node changed
+-- (Sync.lua tells RouteNodeListChanged), and always for a plan run (what
+-- counts for it is the plan's). The list is the one a full collect gives:
+-- the zones in the order of pairs now, each zone's points in its list's
+-- order (the tests compare the two at every collect).
+--   (0.2.3 lauf-last B3) the run's own store of its points: a node's point
+--   of the last collect is taken again when it is in the same zone at the
+--   same place - thousands of new tables each time otherwise. A point is
+--   only ever read for these and for what is written to it before it is
+--   read (kind, d). A node twice in one collect gets a point of its own
+--   each time, as before.
+--   (R1 M1, Codex 23.11.2026) How long it lives is bound, also under the
+--   rules of Lua 5.1 (a point holds its node, so weak keys never let a
+--   removed node go): a zone collected again keeps only the nodes it took,
+--   a zone no longer taken goes with its entries, and StopRun lets go of
+--   the whole store.
+--   keep = { of = node -> point, at = node -> number of the collect that
+--   took it, zones = mapID -> the zone's points (with the version, list and
+--   length they were taken at), all = the count of everything, instance,
+--   n = number of the collect; full, again, kept: what the last one did;
+--   scratch: the list a zone is collected into, kept from collect to collect }
+local function CollectRun(run, instance)
+    local keep = run.keepPoints
+    if not keep then
+        keep = { of = {}, at = {}, zones = {}, n = 0, scratch = {} }
+        run.keepPoints = keep
+    end
+    local all, versions = ns.NodeVersions()
+    local full = (run.plan or run.collectFull or keep.all ~= all or keep.instance ~= instance) and true or false
+    run.collectFull = nil
+    keep.all, keep.instance, keep.n = all, instance, keep.n + 1
+    local gen, of, at, zones = keep.n, keep.of, keep.at, keep.zones
+    local filter, quick = run.filter, run.quick
+    local kindZones = not quick and KindZones() or nil
+    local points, again, kept = {}, 0, 0
+    for mapID, nodes in pairs(ns.db.nodes) do
+        if ZoneTaken(mapID, run.zone) and ZoneOn(mapID, instance) then
+            local seg, ver = zones[mapID], versions[mapID] or 0
+            if full or not seg or seg.ver ~= ver or seg.list ~= nodes or seg.len ~= #nodes then
+                -- (into a list kept from collect to collect, then into the zone's own: no new tables but new points)
+                local s, m = keep.scratch, 0
+                local noKinds = kindZones and not kindZones[tostring(mapID)] or nil
+                for _, n in ipairs(nodes) do
+                    if NodeTaken(n, mapID, filter, quick, noKinds) then
+                        local wx, wy, inst = WorldPos(n, mapID)
+                        if wx and inst == instance then
+                            local p = of[n]
+                            if not (p and p.mapID == mapID and p.wx == wx and p.wy == wy and at[n] ~= gen) then
+                                p = { node = n, mapID = mapID, wx = wx, wy = wy }
+                                of[n] = p
+                            end
+                            at[n] = gen
+                            m = m + 1
+                            s[m] = p
+                            if n.learnStay then learnStays[n] = true end
+                        end
+                    end
+                end
+                -- the zone's nodes of before that it did not take again go from the store
+                if seg then
+                    for i = 1, seg.k do
+                        local n = seg[i].node
+                        if at[n] ~= gen then of[n], at[n] = nil, nil end
+                    end
+                else
+                    seg = { k = 0 }
+                    zones[mapID] = seg
+                end
+                for i = 1, m do seg[i] = s[i] end
+                for i = m + 1, seg.k do seg[i] = nil end
+                for i = 1, m do s[i] = nil end
+                seg.k, seg.ver, seg.list, seg.len = m, ver, nodes, #nodes
+                again = again + 1
+            else
+                kept = kept + 1
             end
+            seg.seen = gen
+            for i = 1, seg.k do points[#points + 1] = seg[i] end
         end
     end
+    -- zones no longer taken (or gone) go with their entries
+    for mapID, seg in pairs(zones) do
+        if seg.seen ~= gen then
+            for i = 1, seg.k do
+                local n = seg[i].node
+                if at[n] ~= gen then of[n], at[n] = nil, nil end
+            end
+            zones[mapID] = nil
+        end
+    end
+    keep.full, keep.again, keep.kept = full, again, kept
     return points
 end
 
@@ -1664,9 +1740,24 @@ Plan = function(quick)
     -- a plan run: what the plan needs now (a change collects the nodes anew)
     if run.plan and ns.PlanRunRefresh then ns.PlanRunRefresh(run) end
     if not run.points or run.pointsDirty or run.pointsInstance ~= instance then
-        -- (B3: the run's points kept by node; R1 M1: only the nodes of the last collect, let go at StopRun)
-        run.keepPoints = run.keepPoints or { of = {}, at = {} }
-        run.points = CollectPoints(run.filter, instance, run.zone, run.quick, run.keepPoints)
+        -- (B3: the run's points kept by node; R1 M1: bound, let go at StopRun;
+        -- 0.2.4 a2: only the zones that changed are collected again)
+        run.points = CollectRun(run, instance)
+        if TUNE.collectCheck then
+            -- (the tests) the list a full collect gives, compared point by point
+            local whole, c = CollectPoints(run.filter, instance, run.zone, run.quick, true), ns.RouteCollectCheck
+            local same = #whole == #run.points
+            for i = 1, #whole do
+                local a, b = whole[i], run.points[i]
+                if not (b and a.node == b.node and a.mapID == b.mapID and a.wx == b.wx and a.wy == b.wy) then same = false break end
+            end
+            c.checks = c.checks + 1
+            if not run.keepPoints.full then c.partial = c.partial + 1 end
+            if not same then
+                c.bad[#c.bad + 1] = ("%d points collected, a full collect gives %d (%s, %d zones again, %d kept)"):format(#run.points, #whole,
+                    run.keepPoints.full and "full" or "zones that changed", run.keepPoints.again, run.keepPoints.kept)
+            end
+        end
         -- picked zones far apart: the group of neighbouring zones near you.
         -- Chosen once; again on another continent, when you are in a picked
         -- zone outside it (a flight), or when nothing of it is left.
@@ -2022,7 +2113,10 @@ end
 -- A node went out of what routes may use or came back (parked by Sync.lua):
 -- the node list is collected again with the next plan
 ns.RouteNodeListChanged = function()
-    if ns.run then ns.run.pointsDirty = true end
+    if ns.run then
+        -- (0.2.4 a2) parked or back: what a node's zone count does not say - all again
+        ns.run.pointsDirty, ns.run.collectFull = true, true
+    end
 end
 
 -- Found empty: out for a short while, then its chance comes back slowly.

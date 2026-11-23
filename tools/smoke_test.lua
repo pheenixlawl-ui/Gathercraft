@@ -446,6 +446,11 @@ if HARNESS_ONLY then
     }
 end
 
+-- (0.2.4 a2) In every step, every collect of a farm run's points is compared
+-- with a full collect (Route.lua: only the zones that changed are collected
+-- again); a step in which they differ fails (see step)
+if ns.RouteTune then ns.RouteTune.collectCheck = true end
+
 -- the test mock itself: every frame with an OnUpdate is in updFrames, in the
 -- order the frames were made (else advance() would skip it)
 local function CheckMock()
@@ -463,10 +468,16 @@ local function CheckMock()
 end
 local function step(name, fn)
     local before = #errors
+    local check = ns.RouteCollectCheck
+    local differed = check and #check.bad or 0
     local ok, err = pcall(fn)
     if not ok then errors[#errors + 1] = name .. ": " .. tostring(err) end
     local mock = CheckMock()
     if mock then errors[#errors + 1] = name .. ": " .. mock end
+    -- (0.2.4 a2) every collect of a farm run in this step against a full collect (Route.lua)
+    if check and #check.bad > differed then
+        errors[#errors + 1] = name .. ": a farm run collected another list than a full collect gives - " .. check.bad[#check.bad]
+    end
     io.write(("%-38s %s\n"):format(name, (#errors == before) and "ok" or ("FAIL -> " .. errors[#errors])))
 end
 local function slash(cmd) SlashCmdList.GATHERCRAFT(cmd) end
@@ -15860,6 +15871,163 @@ step("Route: a run's collect does not look at the nodes of zones on another cont
     player.map, player.x, player.y = saved.map, saved.x, saved.y
     advance(1)
     if not ok then error(err, 0) end
+end)
+-- Order 0.2.4 a2 part A (23.11.2026, the hitch after a harvest): every harvest
+-- of the run's target collected every node of the zone group again (3-6 ms in
+-- The Barrens with Sven's data). Now only the zones whose count moved (Core.lua
+-- NodesTouched) are collected again; everything else, a parked node, another
+-- continent and a plan run in full. Every collect of every step is compared
+-- with a full collect (tools/smoke_test.lua step, Route.lua collectCheck):
+-- this step makes each kind of change happen in a run and looks at what was
+-- collected again.
+step("Route 0.2.4: after a change only the zones that changed are collected again - a merged target, a learned node, a node moved off the route, a Questie zone, a Sync spot; a deleted node, a kind unticked, a parked node, another continent in full; each list the one of a full collect (0.2.4 a2 part A)", function()
+    local H = libs["HereBeDragons-2.0"]
+    local EK = {}
+    for m = 1416, 1437 do EK[m] = true end
+    local check = ns.RouteCollectCheck
+    local saved = { map = player.map, x = player.x, y = player.y, zone = H.GetWorldCoordinatesFromZone, me = H.GetPlayerWorldPosition,
+        kinds = ns.db.disabledKinds, lists = {}, checks = check.checks }
+    local MAPS = { 1412, 1413, 1429 }
+    local seed = 4243
+    local function Rand() seed = (seed * 1103515245 + 12345) % 2147483648 return seed / 2147483648 end
+    local cast = 0
+    local function Gather(name)
+        cast = cast + 1
+        local oid, item = 1618, 2447
+        if name == "Silverleaf" then oid, item = 1617, 765 end
+        fire("UNIT_SPELLCAST_SENT", "player", name, "colA" .. cast, 2366)
+        fire("UNIT_SPELLCAST_SUCCEEDED", "player", "colA" .. cast, 2366)
+        loot = { { guid = ("GameObject-0-1-1-1-%d-COLA%04d"):format(oid, cast), item = item, qty = 2 } }
+        fire("LOOT_READY") fire("LOOT_OPENED") fire("LOOT_CLOSED")
+        loot = {}
+        advance(1)
+    end
+    local results = {}
+    -- what the run's last collect did: in full, the zones collected again, the zones kept
+    local function Last(what, full, again)
+        local k = ns.run and ns.run.keepPoints
+        assert(k, what .. ": no store of the run's points")
+        results[#results + 1] = ("%s: %s, %d again, %d kept"):format(what, k.full and "full" or "zones", k.again, k.kept)
+        assert(k.full == full, ("%s: collected %s, want %s"):format(what, k.full and "in full" or "by zones", full and "in full" or "by zones"))
+        if again then assert(k.again == again, ("%s: %d zones collected again, want %d"):format(what, k.again, again)) end
+        if not full then assert(k.kept >= 1, what .. ": no zone kept") end
+    end
+    local function Collected(what, full, again, act)
+        local before = ns.run.keepPoints.n
+        act()
+        advance(1)
+        assert(ns.run and ns.run.keepPoints.n > before, what .. ": no collect after the change")
+        Last(what, full, again)
+    end
+    local ok, err = pcall(function()
+        for _, m in ipairs(MAPS) do
+            saved.lists[m] = ns.db.nodes[m] or false
+            local copy = {}
+            for i, n in ipairs(ns.db.nodes[m] or {}) do
+                local c = {}
+                for k, v in pairs(n) do c[k] = v end
+                copy[i] = c
+            end
+            ns.db.nodes[m] = copy
+        end
+        local function Add(m, count, name, id)
+            for _ = 1, count do
+                table.insert(ns.db.nodes[m], { name = name, type = "herb", id = id, x = 0.03 + 0.94 * Rand(), y = 0.03 + 0.94 * Rand(),
+                    count = 1, last = time() - 86400 })
+            end
+        end
+        Add(1412, 300, "Peacebloom", "o1618") Add(1412, 200, "Silverleaf", "o1617")
+        Add(1413, 300, "Peacebloom", "o1618") Add(1429, 200, "Peacebloom", "o1618")
+        ns.db.disabledKinds = {}
+        for k, v in pairs(saved.kinds) do ns.db.disabledKinds[k] = v end
+        ns.NotifyNodesChanged()
+        H.GetWorldCoordinatesFromZone = function(self, x, y, map)
+            local wx, wy = saved.zone(self, x, y, map)
+            return wx, wy, EK[map] and 0 or 1
+        end
+        H.GetPlayerWorldPosition = function(self)
+            local wx, wy = saved.me(self)
+            return wx, wy, EK[player.map] and 0 or 1
+        end
+        player.map, player.x, player.y = 1412, 0.5, 0.5
+        ns.StartRun("herb") advance(2)
+        local run = ns.run
+        assert(run and run.points and #run.points > 800 and run.keepPoints, "test setup: a run with more than 800 points")
+        Last("the run's start", true)
+        -- merged: the target harvested at its place - its zone again, the other kept
+        local tp = run.targetPoint
+        assert(tp and tp.mapID == 1412, "test setup: the target is not in this zone")
+        Collected("a merged target", false, 1, function()
+            player.x, player.y = tp.node.x + 0.0004, tp.node.y
+            local count = #ns.db.nodes[1412]
+            Gather(tp.node.name)
+            assert(#ns.db.nodes[1412] == count and tp.node.count == 2, "test setup: the harvest is not merged into the target")
+        end)
+        -- learned: a harvest where no node is
+        Collected("a learned node", false, 1, function()
+            player.x, player.y = 0.015, 0.985
+            local count = #ns.db.nodes[1412]
+            Gather("Peacebloom")
+            assert(#ns.db.nodes[1412] == count + 1, "test setup: no node learned")
+        end)
+        player.x, player.y = 0.5, 0.5
+        -- moved off the route (no collect of its own, as before): taken in, with its zone, at the next collect
+        local other = ns.db.nodes[1413][5]
+        assert(other ~= ns.run.target, "test setup: the node is the target")
+        other.x = other.x + 0.003
+        ns.NotifyNodesChanged("update", 1413, other)
+        advance(1)
+        Collected("a node moved off the route, then a merged target", false, 2, function()
+            ns.NotifyNodesChanged("update", 1412, ns.run.target)
+        end)
+        -- a Questie zone, a Sync spot
+        Collected("a Questie zone", false, 1, function() ns.NotifyNodesChanged("zone", 1413) end)
+        Collected("a Sync spot", false, 1, function()
+            local spot = { name = "Peacebloom", type = "herb", id = "o1618", x = 0.52, y = 0.47, count = 1, last = time(), source = "sync" }
+            table.insert(ns.db.nodes[1412], spot)
+            ns.NotifyNodesChanged("add", 1412, spot)
+            advance(11) -- (the bundle of Sync spots)
+        end)
+        -- the known spawn points of a zone loaded while the pins wait (counted, nobody told yet)
+        Collected("spawn points loaded quietly, then a merged target", false, 2, function()
+            Add(1413, 20, "Peacebloom", "o1618")
+            ns.NodesTouched(1413)
+            ns.NotifyNodesChanged("update", 1412, ns.run.target)
+        end)
+        -- in full: a deleted node, a kind unticked, a parked node back, another continent
+        Collected("a deleted node", true, nil, function()
+            table.remove(ns.db.nodes[1413], 7)
+            ns.NotifyNodesChanged()
+        end)
+        Collected("a kind unticked", true, nil, function()
+            ns.db.disabledKinds["1412:herb:silverleaf"] = true
+            ns.NotifyNodesChanged()
+        end)
+        local parked = { name = "Peacebloom", type = "herb", id = "o1618", x = 0.48, y = 0.53, count = 1, last = time(), source = "sync",
+            parked = time() }
+        table.insert(ns.db.nodes[1412], parked)
+        ns.NotifyNodesChanged("add", 1412, parked)
+        advance(11)
+        for _, q in ipairs(ns.run.points) do assert(q.node ~= parked, "test setup: a parked node is a point of the run") end
+        Collected("a parked node back", true, nil, function() ns.SyncUnpark(parked, "test", 1412) end)
+        local found = false
+        for _, q in ipairs(ns.run.points) do if q.node == parked then found = true end end
+        assert(found, "a node back from parking is no point of the run")
+        Collected("another continent", true, nil, function()
+            player.map, player.x, player.y = 1429, 0.5, 0.5
+            ns.RouteReplan()
+        end)
+        -- the lists were compared with a full collect each time
+        assert(check.checks - saved.checks >= 11, ("test setup: %d collects compared"):format(check.checks - saved.checks))
+    end)
+    if ns.run then ns.StopRun(true) end
+    H.GetWorldCoordinatesFromZone, H.GetPlayerWorldPosition = saved.zone, saved.me
+    for _, m in ipairs(MAPS) do ns.db.nodes[m] = saved.lists[m] or nil end
+    ns.db.disabledKinds = saved.kinds
+    ns.NotifyNodesChanged()
+    player.map, player.x, player.y = saved.map, saved.x, saved.y
+    advance(1)
+    if not ok then error(err .. " | " .. table.concat(results, "; "), 0) end
 end)
 step("Settings: no game setting is changed in combat - the gathering help and the bobber settings follow at the end of the fight (v0.1.22 R1, combat)", function()
     -- Sven, 13.11.2026 (live, 0.1.22 a62cefe): the questing mode switched on
@@ -34259,6 +34427,9 @@ step("Ways 0.2.4: riding along a way that is shown makes no new garbage - 600 fr
     if not ok then error(err, 0) end
 end)
 
+-- (0.2.4 a2) how many collects of farm runs were compared with a full collect (see step)
+note("MEASURE collect check:", ns.RouteCollectCheck.checks, "collects compared with a full collect,", ns.RouteCollectCheck.partial,
+    "of them by zones,", #ns.RouteCollectCheck.bad, "differed")
 io.write("\n--- errors: " .. #errors .. "\n")
 for _, e in ipairs(errors) do io.write("  " .. e .. "\n") end
 io.write("\n--- notable log lines:\n")

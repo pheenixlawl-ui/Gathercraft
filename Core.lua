@@ -255,11 +255,28 @@ end
 local nodeIndex = {}   -- mapID -> kind id -> { nodes }
 local nameCache        -- kind id -> name we know in our own language
 
+-- (0.2.4 a2) What changed since a farm run collected its points (Route.lua
+-- collects again only the zones whose count moved): one count per zone for
+-- a change of one of its nodes or of the zone ("add", "update", "zone"), and
+-- one for everything else (deleted, wiped, moved between zones, renamed,
+-- ticked in the Zones tab, a change that names no zone). Counted before the
+-- listeners hear of it. NodesTouched counts without telling anyone (a change
+-- the pins learn of later, in one word for many).
+local nodeVersions = { all = 0, zone = {} }
+local function NodesTouched(mapID)
+    if mapID then
+        nodeVersions.zone[mapID] = (nodeVersions.zone[mapID] or 0) + 1
+    else
+        nodeVersions.all = nodeVersions.all + 1
+    end
+end
+
 -- Tells everyone about database changes.
 --   kind = "add" / "update" with mapID and node for a single node,
 --   "zone" with mapID: the known spawn points of that zone came in (0.2.2 W3),
 --   nil for bigger changes (delete, wipe, imports, selection)
 local function NodesChanged(kind, mapID, node)
+    NodesTouched((kind == "add" or kind == "update" or kind == "zone") and mapID or nil)
     if kind == "add" and mapID and nodeIndex[mapID] and node and node.id then
         local byId = nodeIndex[mapID]
         byId[node.id] = byId[node.id] or {}
@@ -2310,6 +2327,8 @@ ns.GetContinent = GetContinent
 ns.IsOnCooldown = IsOnCooldown
 ns.IsNodeEnabled = IsNodeEnabled
 ns.NotifyNodesChanged = NodesChanged
+ns.NodesTouched = NodesTouched
+ns.NodeVersions = function() return nodeVersions.all, nodeVersions.zone end
 ns.FindNode = FindNode
 ns.KnownName = KnownName
 ns.SetWaypoint = SetWaypoint
