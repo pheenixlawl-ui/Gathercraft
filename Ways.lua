@@ -1456,7 +1456,8 @@ end
 -- Is the way shown the way to the run's target of now? (every reader asks this first)
 local function Valid(run)
     if not nav or nav.core.state ~= "net" then return false end
-    local tp = run and run == navRun and run == ns.run and run.targetPoint
+    local tp
+    if run and run == navRun and run == ns.run then tp = run.targetPoint end
     local node = tp and tp.node
     if node and node == nav.node and node == run.target and tp.mapID == nav.tmap and node.x == nav.nx and node.y == nav.ny
         and run.instance == nav.inst and not (ns.db and ns.db.routeWaysOff) then
