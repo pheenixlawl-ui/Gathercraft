@@ -763,4 +763,12 @@ ns.Locales.koKR = {
     ["Gathercraft perf: already measuring, %d s to go."] = "Gathercraft perf: 이미 측정 중입니다. %d초 남았습니다.",
     ["Press Ctrl+C to copy the perf result:"] = "Ctrl+C를 눌러 결과를 복사하세요:",
     ["Gathercraft perf: not measuring. /gcr perf on starts a minute."] = "Gathercraft perf: 측정 중이 아닙니다. /gcr perf on으로 1분 동안 측정합니다.",
+    -- 0.2.4 S1: the route line's head and the arrow follow the paths you rode (Ways.lua)
+    ["Route line and arrow follow your ridden paths"] = "경로 선과 화살표가 내가 다닌 길을 따라감",
+    ["Uses the ways you have ridden yourself. Gaps between them are guessed."] = "직접 다닌 길을 사용합니다. 그 사이의 빈 곳은 추측입니다.",
+    ["The run window shows the guessed share, without the first and last yards (always straight)."] = "채집 경로 창에 추측 비율이 표시됩니다. 처음과 마지막 몇 미터(항상 직선)는 제외됩니다.",
+    ["Without height, a way may cross under a bridge or into a cave."] = "높이 정보가 없어 길이 다리 밑이나 동굴 안으로 이어질 수 있습니다.",
+    ["Path: your ridden ways"] = "길: 내가 다닌 길",
+    ["Path: your ridden ways (%d%% guessed)"] = "길: 내가 다닌 길 (%d%% 추측)",
+    ["Path: straight line"] = "길: 직선",
 }

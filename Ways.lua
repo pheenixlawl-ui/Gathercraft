@@ -1242,6 +1242,9 @@ ns.WaysCore = M
 --   One state per run (`nav`), made when the run needs it and gone with it.
 --   ONE place asks for a way: the run's head tick (Route.lua UpdateHead, ten
 --   times a second) through ns.WaysTick. The line and the arrow only read.
+--   A way is asked for when a run gets a node, when the net is new, when you
+--   leave the way shown - and, while none is shown, whenever you are a
+--   square's length (25 yd) from where you asked last.
 --   A way is only ever shown for the context it was asked in. A request
 --   carries a mark: the run (a number that counts at every start and stop),
 --   the node AND its coordinates, the zone and the instance, the net it was
@@ -1495,7 +1498,7 @@ local function Ask(px, py, instance)
     req.field = floor(ay / TILE) * GRID + floor(ax / TILE)
     req.pwx, req.pwy, req.twx, req.twy = px, py, navRun.targetPoint.wx, navRun.targetPoint.wy
     req.t0, req.i = GetTime(), 0
-    nav.asked = true
+    nav.asked, nav.ax, nav.ay = true, px, py
     diag.requests = diag.requests + 1
     M.QueryStart(ctx, nav.core, ax, ay, nav.nx * w, nav.ny * h, nav.core.have)
     work:Show()
@@ -1571,6 +1574,13 @@ local function Tick(run, px, py, instance)
             Withdraw()
             nav.asked = false
         end
+    end
+    if nav.asked and not req.active and nav.core.state ~= "net" and nav.ax then
+        -- No way is shown (none was found from where you asked), and you are a square's length from
+        -- there: what was found for that place says nothing about this one - asked anew from here.
+        -- (So the line finds your net again when you ride back onto it, not only at the next node.)
+        local dx, dy = px - nav.ax, py - nav.ay
+        if dx * dx + dy * dy >= TILE * TILE then nav.asked = false end
     end
     if net.ready and not nav.asked and not net.over then Ask(px, py, instance) end
     SetState(nav.core.state == "net" and "net" or "line")
@@ -1821,6 +1831,18 @@ ns.WaysSource = function(run)
     if nav.state == "line" then return L["Path: straight line"] end
     return nil
 end
+
+-- The option's switch (Options.lua). Off: everything of S1 ends in this
+-- frame - the way is taken back and unseen, a request and a build are given
+-- up, the net's lists are let go; the line is drawn again as it was before
+-- S1 and the run window loses its line. On: the next head tick starts anew.
+ns.WaysOptionChanged = Wrap("Ways", function()
+    local t0 = Clock()
+    if ns.db and ns.db.routeWaysOff then Release() end
+    Spend(Clock() - t0)
+    if ns.RedrawRouteLine then ns.RedrawRouteLine() end
+    if ns.UpdateRunSource then ns.UpdateRunSource() end
+end)
 
 -- Route.lua has dots to place or to take off: the work goes on
 ns.WaysWork = function() work:Show() end

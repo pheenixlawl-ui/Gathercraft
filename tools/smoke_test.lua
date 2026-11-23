@@ -33460,7 +33460,7 @@ step("Ways 0.2.4: only the arrow's angle follows the way - it turns to the point
             return keepRot(self, r)
         end
         methods.SetText = function(self, s)
-            if self.__parent == GathercraftArrow and type(s) == "string" and (s:find(" yd", 1, true) or s == ns.L["Here!"]) then text = s end
+            if self.__parent == GathercraftArrow and type(s) == "string" and (s:match("^%d") or s == ns.L["Here!"]) then text = s end -- (the distance: "525 yd", "525 m", ...)
             return keepText(self, s)
         end
         local function Arrow()
@@ -33593,6 +33593,129 @@ step("Ways 0.2.4: only the arrow's angle follows the way - it turns to the point
     methods.SetRotation, methods.SetText = keepRot, keepText
     USER_WP = nil
     T.Done()
+    W.Done()
+    if not ok then error(err, 0) end
+end)
+
+step("Ways 0.2.4: the run window says what the line follows - your ridden ways, with the guessed share in percent, or the straight line; only in the whole window; the option is on unless turned off, off it ends everything in the same frame and the window and the line are what they were; nine languages (S1 W6)", function()
+    local Near = WAYS.Near
+    local LABEL = "Route line and arrow follow your ridden paths"
+    local HINTS = { "Uses the ways you have ridden yourself. Gaps between them are guessed.",
+        "The run window shows the guessed share, without the first and last yards (always straight).",
+        "Without height, a way may cross under a bridge or into a cave." }
+    local LINES = { "Path: your ridden ways", "Path: your ridden ways (%d%% guessed)", "Path: straight line" }
+    -- two rides side by side (a connector between them: guessed) and a third far off
+    local e = {}
+    WAYS.Ride(e, { { 10, 10 }, { 11, 10 }, { 12, 10 }, { 13, 10 }, { 14, 10 } })
+    WAYS.Ride(e, { { 15, 10 }, { 16, 10 }, { 17, 10 }, { 18, 10 }, { 19, 10 }, { 20, 10 } })
+    local W = WAYS.World(e)
+    local T = WAYS.Pins()
+    local ok, err = pcall(function()
+        local source = GathercraftPanel.sourceText
+        assert(source, "the run window has a line for the way")
+        local function Line() return source:IsShown() and source:GetText() or nil end
+        -- what the window shows besides: the title, the time, the four numbers, the next node
+        local function Window()
+            local t = {}
+            for _, f in ipairs(allFrames) do
+                if f ~= source and f.__parent == GathercraftPanel and f.__kind == "FontString" and f:IsShown() then t[#t + 1] = tostring(f.__text) end
+            end
+            return table.concat(t, " | ")
+        end
+        local near, far = W.Node(14, 10), W.Node(20, 10)
+        -- 1. a way on one ride alone: nothing guessed
+        W.At(10, 10)
+        local run = W.Run({ near }, 2)
+        assert(W.Read().state == "net" and Line() == ns.L[LINES[1]], "ridden ways, nothing guessed: " .. tostring(Line()))
+        ns.StopRun(true)
+        assert(Line() == nil, "the run stopped: no line")
+        -- over the connector: the share in percent - 25 of 250 yd, the first and last bit left out
+        W.At(10, 10, 0, -40)
+        run = W.Run({ far }, 2)
+        local way = W.Read()
+        assert(way.state == "net" and way.percent == 10 and Near(way.guessed, 25) and Near(way.yards, 290), "25 of 250 yd of net (and 40 yd to get onto it): 10 %")
+        assert(Line() == (ns.L[LINES[2]]):format(10), "the line: " .. tostring(Line()))
+        -- the number in the line is the one of the way that is shown
+        assert(Line():find(tostring(way.percent) .. "%", 1, true), "the percent of the read")
+        -- 2. the slim line and the hidden window: no line for the way; back in the whole window it is there again
+        ns.db.panelCompact = true
+        ns.PanelLayout()
+        assert(Line() == nil, "the slim line: no line for the way")
+        ns.db.panelCompact = nil
+        ns.PanelLayout()
+        assert(Line() == (ns.L[LINES[2]]):format(10), "the whole window again: the line again")
+        ns.db.runPanelHidden = true
+        advance(0.5)
+        assert(Line() == nil and not GathercraftPanel:IsShown(), "the window hidden: nothing")
+        ns.db.runPanelHidden = nil
+        advance(0.5)
+        assert(Line() == (ns.L[LINES[2]]):format(10), "shown again")
+        -- 3. no way of the net: the straight line, said so
+        W.At(10, 14)
+        advance(0.5)
+        assert(W.Read().state == "line" and Line() == ns.L[LINES[3]], "100 yd off any ridden square: " .. tostring(Line()))
+        W.At(10, 10, 0, -40)
+        advance(1.5)
+        assert(Line() == (ns.L[LINES[2]]):format(10), "(on the net again)")
+
+        -- 4. the option: on a page of the options, ticked without ever being touched
+        assert(ns.db.routeWaysOff == nil, "test setup: the option was never touched")
+        local label
+        for _, f in ipairs(allFrames) do if f.__kind == "FontString" and f.__text == ns.L[LABEL] then label = f end end
+        assert(label, "no switch '" .. LABEL .. "' in the options")
+        local box = (label.__pts.TOPLEFT and label.__pts.TOPLEFT[1]) or (label.__pts.LEFT and label.__pts.LEFT[1])
+        assert(box and box.__kind == "CheckButton" and box.get and box.__scripts.OnClick, "test setup: the switch has no box")
+        assert(box.get() == true, "never touched, and the box is empty")
+        local page = label.__parent
+        while page and not page.key do page = page.__parent end
+        assert(page, "the switch is on no page")
+        for i, hint in ipairs(HINTS) do
+            local fs
+            for _, f in ipairs(allFrames) do if f.__kind == "FontString" and f.__text == ns.L[hint] and f.__parent == page then fs = f end end
+            assert(fs, "hint " .. i .. " is not on the switch's page")
+        end
+        local used = ns.OptionsUsedHeight()
+        assert(used[page.key] <= 640 - 112 - 18 - 4 - 66, ("Options %s: %d px, too long"):format(page.key, used[page.key]))
+        -- the window with the way, and what it is with the option off from the start (below)
+        local withWay = Window()
+        assert(#T.Seen("mini") > 20, "(the way's dots are on the minimap)")
+        -- off: saved, and everything of the way ends in the same frame
+        box:SetChecked(false) box.__scripts.OnClick(box)
+        assert(ns.db.routeWaysOff == true and box.get() == false, "unticked is saved as " .. tostring(ns.db.routeWaysOff))
+        assert(Line() == nil, "off: the line of the run window is gone at once")
+        assert(#T.Seen("mini") == 0 and #T.Seen("world") == 0, "off: no dot of the way is seen")
+        assert(ns.WaysState() == nil and ns.WaysRead(run).state == "none", "off: no navigation is left")
+        assert(T.Known("mini", T.HEAD) > 0, "off: the straight head is drawn at once")
+        assert(Window() == withWay, "the rest of the window is what it was")
+        advance(2)
+        assert(Line() == nil and ns.WaysState() == nil and T.Known("mini") == 0, "and it stays off")
+        -- on again: nothing is left in the saved data, the way comes back
+        box:SetChecked(true) box.__scripts.OnClick(box)
+        assert(ns.db.routeWaysOff == nil and box.get() == true, "ticked again is saved as " .. tostring(ns.db.routeWaysOff))
+        advance(2)
+        assert(Line() == (ns.L[LINES[2]]):format(10) and #T.Seen("mini") > 20, "on again: the way and its line")
+        ns.StopRun(true)
+
+        -- 5. nine languages: the switch, its three lines, the three lines of the window - the same placeholders
+        local n = 0
+        for lang, d in pairs(ns.Locales) do
+            n = n + 1
+            for _, key in ipairs({ LABEL, HINTS[1], HINTS[2], HINTS[3], LINES[1], LINES[2], LINES[3] }) do
+                assert(type(d[key]) == "string" and d[key] ~= "" and d[key] ~= key, lang .. ": not translated - " .. key)
+            end
+            local text = d[LINES[2]]
+            local _, count = text:gsub("%%", "")
+            assert(text:find("%d%%", 1, true) and count == 3 and (text:format(7)):find("7%", 1, true), lang .. ": the percent line needs %d%% once - " .. text)
+            assert(not d[LINES[1]]:find("%", 1, true) and not d[LINES[3]]:find("%", 1, true), lang .. ": a placeholder too many")
+            assert(d[LINES[1]] ~= d[LINES[3]] and d[LINES[1]] ~= (text:format(7)), lang .. ": the three lines differ")
+        end
+        assert(n == 9, "nine languages: " .. n)
+        -- the hint keeps what Codex asked for: the share does not count the first and last bit
+        assert(HINTS[2]:find("guessed share", 1, true) and HINTS[2]:find("without the first and last", 1, true), "the hint says what the percent leaves out")
+    end)
+    T.Done()
+    ns.db.routeWaysOff = nil
+    GathercraftOptions:Refresh()
     W.Done()
     if not ok then error(err, 0) end
 end)

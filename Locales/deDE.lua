@@ -792,4 +792,12 @@ ns.Locales.deDE = {
     ["Gathercraft perf: already measuring, %d s to go."] = "Gathercraft-Leistung: Die Messung läuft schon, noch %d s.",
     ["Press Ctrl+C to copy the perf result:"] = "Mit Strg+C das Messergebnis kopieren:",
     ["Gathercraft perf: not measuring. /gcr perf on starts a minute."] = "Gathercraft-Leistung: Es läuft keine Messung. /gcr perf on misst eine Minute.",
+    -- 0.2.4 S1: the route line's head and the arrow follow the paths you rode (Ways.lua)
+    ["Route line and arrow follow your ridden paths"] = "Routenlinie und Pfeil folgen deinen gerittenen Wegen",
+    ["Uses the ways you have ridden yourself. Gaps between them are guessed."] = "Nutzt die Wege, die du selbst geritten bist. Lücken dazwischen sind geraten.",
+    ["The run window shows the guessed share, without the first and last yards (always straight)."] = "Das Lauf-Fenster zeigt den geratenen Anteil, ohne die ersten und letzten Meter (immer gerade).",
+    ["Without height, a way may cross under a bridge or into a cave."] = "Ohne Höhe kann ein Weg unter einer Brücke hindurch oder in eine Höhle führen.",
+    ["Path: your ridden ways"] = "Weg: deine gerittenen Wege",
+    ["Path: your ridden ways (%d%% guessed)"] = "Weg: deine gerittenen Wege (%d%% geraten)",
+    ["Path: straight line"] = "Weg: Luftlinie",
 }

@@ -763,4 +763,12 @@ ns.Locales.itIT = {
     ["Gathercraft perf: already measuring, %d s to go."] = "Gathercraft perf: misurazione già in corso, mancano %d s.",
     ["Press Ctrl+C to copy the perf result:"] = "Premi Ctrl+C per copiare il risultato:",
     ["Gathercraft perf: not measuring. /gcr perf on starts a minute."] = "Gathercraft perf: nessuna misurazione in corso. /gcr perf on misura un minuto.",
+    -- 0.2.4 S1: the route line's head and the arrow follow the paths you rode (Ways.lua)
+    ["Route line and arrow follow your ridden paths"] = "La linea del percorso e la freccia seguono le strade che hai percorso",
+    ["Uses the ways you have ridden yourself. Gaps between them are guessed."] = "Usa le strade che hai percorso tu. I vuoti tra di esse sono stimati.",
+    ["The run window shows the guessed share, without the first and last yards (always straight)."] = "La finestra del giro mostra la parte stimata, senza i primi e gli ultimi metri (sempre dritti).",
+    ["Without height, a way may cross under a bridge or into a cave."] = "Senza altezza, una strada può passare sotto un ponte o entrare in una grotta.",
+    ["Path: your ridden ways"] = "Via: le strade che hai percorso",
+    ["Path: your ridden ways (%d%% guessed)"] = "Via: le strade che hai percorso (%d%% stimato)",
+    ["Path: straight line"] = "Via: linea retta",
 }

@@ -763,4 +763,12 @@ ns.Locales.ruRU = {
     ["Gathercraft perf: already measuring, %d s to go."] = "Gathercraft perf: измерение уже идёт, осталось %d с.",
     ["Press Ctrl+C to copy the perf result:"] = "Нажмите Ctrl+C, чтобы скопировать результат:",
     ["Gathercraft perf: not measuring. /gcr perf on starts a minute."] = "Gathercraft perf: измерение не запущено. /gcr perf on измеряет минуту.",
+    -- 0.2.4 S1: the route line's head and the arrow follow the paths you rode (Ways.lua)
+    ["Route line and arrow follow your ridden paths"] = "Линия маршрута и стрелка следуют вашим путям",
+    ["Uses the ways you have ridden yourself. Gaps between them are guessed."] = "Использует пути, по которым вы ездили сами. Промежутки между ними — догадка.",
+    ["The run window shows the guessed share, without the first and last yards (always straight)."] = "Окно маршрута показывает долю догадок, без первых и последних метров (они всегда прямые).",
+    ["Without height, a way may cross under a bridge or into a cave."] = "Без высоты путь может пройти под мостом или уйти в пещеру.",
+    ["Path: your ridden ways"] = "Путь: ваши пути",
+    ["Path: your ridden ways (%d%% guessed)"] = "Путь: ваши пути (%d%% — догадка)",
+    ["Path: straight line"] = "Путь: по прямой",
 }

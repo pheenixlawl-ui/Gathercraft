@@ -1201,6 +1201,22 @@ local function Build()
         function() return ns.PathsEnabled ~= nil and ns.PathsEnabled() end,
         function(on) if ns.PathsSetEnabled then ns.PathsSetEnabled(on) end end)
     AddHint("Only on this computer, nothing is sent. Helps routes later.")
+    -- (0.2.4 S1) The route line's head and the arrow follow the paths you rode
+    -- (Ways.lua). On unless turned off (Sven, 22.11.2026); saved as
+    -- routeWaysOff = true when off - that name stays when the switch moves.
+    -- It stands here for now, under the paths it uses: Farm runs is full to
+    -- the last row (436 of 440 px); with the new pages of 0.3 it goes there.
+    -- Off, the way shown is gone in the same frame (Ways.lua) and the line
+    -- is drawn as before.
+    AddCheck("Route line and arrow follow your ridden paths",
+        function() return not ns.db.routeWaysOff end,
+        function(on)
+            ns.db.routeWaysOff = not on or nil
+            if ns.WaysOptionChanged then ns.WaysOptionChanged() end
+        end)
+    AddHint("Uses the ways you have ridden yourself. Gaps between them are guessed.")
+    AddHint("The run window shows the guessed share, without the first and last yards (always straight).")
+    AddHint("Without height, a way may cross under a bridge or into a cave.")
     -- what sharing did so far, kept up to date while the section is open
     nextY = nextY - 10
     AddHeader("Right now")

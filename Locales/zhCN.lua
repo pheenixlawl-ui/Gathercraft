@@ -763,4 +763,12 @@ ns.Locales.zhCN = {
     ["Gathercraft perf: already measuring, %d s to go."] = "Gathercraft 性能：已在测量，还剩 %d 秒。",
     ["Press Ctrl+C to copy the perf result:"] = "按 Ctrl+C 复制结果：",
     ["Gathercraft perf: not measuring. /gcr perf on starts a minute."] = "Gathercraft 性能：当前没有测量。/gcr perf on 测量一分钟。",
+    -- 0.2.4 S1: the route line's head and the arrow follow the paths you rode (Ways.lua)
+    ["Route line and arrow follow your ridden paths"] = "路线和箭头沿着你走过的路径",
+    ["Uses the ways you have ridden yourself. Gaps between them are guessed."] = "使用你自己走过的路径。它们之间的空隙是推测的。",
+    ["The run window shows the guessed share, without the first and last yards (always straight)."] = "采集路线窗口显示推测部分所占比例，不含起点和终点的几码（始终为直线）。",
+    ["Without height, a way may cross under a bridge or into a cave."] = "没有高度信息，路径可能从桥下穿过或通向洞穴。",
+    ["Path: your ridden ways"] = "路径：你走过的路",
+    ["Path: your ridden ways (%d%% guessed)"] = "路径：你走过的路（%d%% 为推测）",
+    ["Path: straight line"] = "路径：直线",
 }

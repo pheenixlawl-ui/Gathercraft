@@ -185,6 +185,34 @@ nextText:SetJustifyH("LEFT")
 nextText:SetWordWrap(false)
 panel.nextText = nextText
 
+-- (0.2.4 S1) What the line's head and the arrow follow right now: "Path:
+-- your ridden ways", "... (12% guessed)" or "Path: straight line" - one small
+-- grey line above the next node. In the whole window only: the slim line has
+-- no room for it, a hidden window shows nothing. With the option off there is
+-- no such line. The text is Ways.lua's and is kept there until the way
+-- changes; here it is set only when it is another one than the one shown.
+local sourceText = panel:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+sourceText:SetPoint("BOTTOMLEFT", 10, 30)
+sourceText:SetPoint("RIGHT", panel, "RIGHT", -10, 0)
+sourceText:SetJustifyH("LEFT")
+sourceText:SetWordWrap(false)
+sourceText:Hide()
+panel.sourceText = sourceText
+local shownSource
+local function UpdateSource()
+    local text
+    local run = ns.run
+    if run and ns.WaysSource and ns.db and not ns.db.runPanelHidden and not ns.db.panelCompact and not panel.fishing then
+        text = ns.WaysSource(run)
+    end
+    if text ~= shownSource then
+        shownSource = text
+        sourceText:SetText(text or "")
+        sourceText:SetShown(text ~= nil)
+    end
+end
+ns.UpdateRunSource = UpdateSource
+
 local stopButton = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
 stopButton:SetSize(52, 20)
 stopButton:SetPoint("BOTTOMRIGHT", -8, 8)
@@ -254,6 +282,7 @@ local function Layout()
         skipButton:SetPoint("RIGHT", stopButton, "LEFT", -4, 0)
         compactButton:SetText("-")
     end
+    UpdateSource() -- (0.2.4 S1: only the whole window has the line about the way)
 end
 ns.PanelLayout = Layout
 compactButton:SetScript("OnClick", function()
@@ -299,6 +328,7 @@ local function UpdatePanel()
     local run = ns.run
     -- (the plan's materials under the window belong to a plan run only)
     if ns.PlanPanelUpdate and not (run and run.plan) then ns.PlanPanelUpdate(nil) end
+    UpdateSource() -- (0.2.4 S1)
     if not run then
         RunStats()
         local f = ns.FishingSession and ns.FishingSession()
