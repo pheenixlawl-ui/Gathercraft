@@ -1252,8 +1252,17 @@ local function DrawHead(px, py, instance)
 end
 local function UpdateHead()
     local run = ns.run
-    if not (run and run.targetPoint and run.path) then return end
+    if not (run and run.targetPoint and run.path) then
+        -- (0.2.4 S1) no target: no way of your net either (Ways.lua lets go of what it had)
+        if run and ns.WaysTick then ns.WaysTick(run) end
+        return
+    end
     local px, py, instance = PlayerWorld()
+    -- (0.2.4 S1) the one place that asks for a way along the paths you rode
+    -- (Ways.lua): here, ten times a second, whether the line is drawn or not.
+    -- The line and the arrow only read what is shown. With the option off
+    -- this does nothing.
+    if ns.WaysTick then ns.WaysTick(run, px, py, instance) end
     if not px or instance ~= run.instance then return end
     if run.headTarget == run.targetPoint and run.headX and WDist(px, py, run.headX, run.headY) < HEAD_MOVE then return end
     DrawHead(px, py, instance)
@@ -1406,6 +1415,8 @@ local function StopRun(silent, summary)
         -- snapshot above: the run itself may still be held (the run history)
         ns.run.keepPoints = nil
         ns.run = nil
+        -- (0.2.4 S1) the run's way along your paths goes with it, in this frame
+        if ns.WaysRunChanged then ns.WaysRunChanged() end
         if wasPlan and ns.PlanRunStopped then ns.PlanRunStopped() end
         if ns.UpdateGatherHelp then ns.UpdateGatherHelp("run stop") end
         ClearTargetMarks()
@@ -2166,6 +2177,8 @@ local function StartRun(filter, zone, quick)
     }
     -- (with the character that started it: only that one takes it up again)
     ns.db.activeRun = { filter = filter, zone = zone, quick = quick or nil, owner = ns.PlayerKey() }
+    -- (0.2.4 S1) a new run: nothing found for a run before it counts (Ways.lua)
+    if ns.WaysRunChanged then ns.WaysRunChanged() end
     ns.run.bonusSig = BonusSignature()
     Plan()
     local run = ns.run
