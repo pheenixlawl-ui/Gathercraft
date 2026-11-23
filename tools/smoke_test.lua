@@ -32488,19 +32488,23 @@ function WAYS.World(pieces)
         for i = 1, r.n do t[#t + 1] = ("%.0f,%.0f"):format(r.points.wx[i] - (Z - 1400) * 6000, r.points.wy[i]) end
         return table.concat(t, " ")
     end
-    -- A clock for the steps: every look at it is `ms` later. How many operations a step does is set
-    -- by the clock as the work goes; it starts from the first values again here, so a step of this
-    -- world does not depend on what ran before it.
-    --   0.01   a step "takes" next to nothing: a build or a search is done within a frame or two
-    --   0.125  a step takes what it aims at: about five steps a frame, a build goes over many frames
-    --   0.2    too long: the steps shrink to 16 operations - a search goes over many frames
-    --   0.74   the frame is full after one look: nothing gets done
-    function W.Clock(ms)
-        local t = 0
-        ns.WaysClock = function()
-            t = t + ms
-            return t
-        end
+    -- A clock for the steps of Ways.lua's work: it goes by the operations they do, `c` milliseconds
+    -- each, plus W.extra (what a step of the test adds by hand). Reading it costs nothing. How many
+    -- operations a step does is set by the clock as the work goes; it starts from the first values
+    -- again here, so a step of this world does not depend on what ran before it.
+    --   "fast"    an operation takes next to nothing: a build or a search is done within a frame
+    --   "draw"    1,250 operations a step: a search takes a few frames, a line's dots come in pieces
+    --             when placing one costs time too (W.extra)
+    --   "build"   250 operations a step, about five steps a frame: a build goes over many frames
+    --   "search"  an operation takes so long that a step shrinks to 16 of them and a frame has room
+    --             for one step: a search goes over many frames, a large net is never done in time
+    W.extra = 0
+    function W.Clock(speed)
+        local c = ({ fast = 0.000001, draw = 0.0001, build = 0.0005, search = 0.05 })[speed]
+        local d = ns.WaysDiag()
+        local base = d.ops
+        W.extra = 0
+        ns.WaysClock = function() return (d.ops - base) * c + W.extra end
         local ops = select(5, ns.WaysState())
         for k in pairs(ops) do ops[k] = nil end
     end
@@ -32509,6 +32513,8 @@ function WAYS.World(pieces)
         if ns.run then ns.StopRun(true) end
         advance(1)
         HBD.GetZoneSize, issecretvalue, ns.WaysClock = k.size, k.secret, k.clock
+        local ops = select(5, ns.WaysState())
+        for kind in pairs(ops) do ops[kind] = nil end
         C_Map.GetBestMapForUnit, HBD.GetPlayerWorldPosition, C_Map.GetPlayerMapPosition = k.best, k.world, k.pos
         GetPlayerFacing, HBD.GetWorldVector = k.facing, k.vector
         local d = ns.db
@@ -32618,7 +32624,7 @@ step("Ways 0.2.4: a farm run asks for its way at one place and shows it only for
         assert(W.Way():match(" 543,388$"), "the way to its new place: " .. W.Way())
 
         -- 6. a result that comes late is dropped: you moved into another square while it was worked out
-        W.Clock(0.2)
+        W.Clock("search")
         W.At(10, 10)
         advance(3)
         assert(W.Read().state == "net", "(a way from (10,10) with the slow clock)")
@@ -32644,7 +32650,7 @@ step("Ways 0.2.4: a farm run asks for its way at one place and shows it only for
         ns.StopRun(true)
         assert(not req.active and diag.cancelled == cancelled + 1 and ns.WaysRead(nil).state == "none", "the run stopped: the request is gone, nothing is shown")
         assert(select(6, ns.WaysState()) == gen0 + 1 and ns.WaysState() == nil, "the run's number counts at the stop; no navigation is left")
-        W.Clock(0.01)
+        W.Clock("fast")
         run = W.Run({ B }, 0.05)
         assert(select(6, ns.WaysState()) >= gen0 + 2, "and at the start")
         advance(2)
@@ -32794,7 +32800,7 @@ step("Ways 0.2.4: a piece that changes its fall class, removed pieces and other 
         end
         advance(1)
         assert(diag.builds == builds and net.rev == rev, "49 new pieces: no build")
-        W.Clock(0.125)
+        W.Clock("build")
         Piece(e, 150, 100, 1, 0)
         ns.PathsChanged(W.Z, "new")
         assert(net.building and net.ready and diag.builds == builds + 1, "the 50th: a build, the net in use stays in use")
@@ -32806,7 +32812,7 @@ step("Ways 0.2.4: a piece that changes its fall class, removed pieces and other 
         end
         assert(not net.building and t > 3, "(the build took a while: " .. t .. ")")
         assert(shown, "the way stayed shown through the whole build")
-        W.Clock(0.01)
+        W.Clock("fast")
         t = 0
         while (req.active or diag.requests == requests) and t < 100 do
             advance(0.1)
@@ -32834,7 +32840,7 @@ step("Ways 0.2.4: a piece that changes its fall class, removed pieces and other 
         r = W.Read()
         assert(r.state == "net" and Near(r.yards, 350), "the other data's way: " .. r.state .. " " .. r.yards)
         -- cleared while the net is built and while a way is searched: no error, nothing comes back
-        W.Clock(0.2)
+        W.Clock("search")
         ns.PathsChanged(W.Z, "gone")
         assert(net.building, "(a build is on its way)")
         local before = #errors
@@ -32842,7 +32848,7 @@ step("Ways 0.2.4: a piece that changes its fall class, removed pieces and other 
         assert(not net.building and not net.ready and W.Read().state == "line", "cleared during the build: no build, no net")
         advance(3)
         assert(#errors == before and W.Read().state == "line" and ns.WaysSource(run) == ns.L["Path: straight line"], "and nothing of the old pieces comes back")
-        W.Clock(0.01)
+        W.Clock("fast")
         W.Pieces(WAYS.U())
         advance(1.5)
         ns.db.nodes[W.Z] = { W.Node(10, 20) }
@@ -32852,7 +32858,7 @@ step("Ways 0.2.4: a piece that changes its fall class, removed pieces and other 
         W.At(10, 10)
         advance(2)
         assert(ns.run.target and W.Read().state == "net", "(the U again, a way to its other end)")
-        W.Clock(0.2)
+        W.Clock("search")
         W.At(12, 10, 0, -30)
         advance(0.1)
         assert(req.active, "(a search is on its way)")
@@ -32861,7 +32867,7 @@ step("Ways 0.2.4: a piece that changes its fall class, removed pieces and other 
         assert(not req.active and diag.cancelled == cancelled + 1, "cleared during the search: the search is given up")
         advance(3)
         assert(#errors == before and W.Read().state == "line", "and no way of the old pieces is shown")
-        W.Clock(0.01)
+        W.Clock("fast")
     end)
     W.Done()
     if not ok then error(err, 0) end
@@ -32962,7 +32968,7 @@ step("Ways 0.2.4: Codex R3-M2 in a run - after a new build the search finds only
 
         -- the option off while the net is built: everything ends in that frame
         W.Pieces(TwoWays(100))
-        W.Clock(0.2)
+        W.Clock("search")
         W.At(50, 50)
         run = W.Run({ A }, 0.3)
         nav, net, req = ns.WaysState()
@@ -32975,11 +32981,11 @@ step("Ways 0.2.4: Codex R3-M2 in a run - after a new build the search finds only
         advance(3)
         assert(ns.WaysState() == nil and diag.builds == builds and diag.requests == requests2, "and nothing is done while it is off")
         -- on again, and off while a way is searched
-        W.Clock(0.01)
+        W.Clock("fast")
         ns.db.routeWaysOff = nil
         advance(1.5)
         assert(W.Read().state == "net", "on again: the way again")
-        W.Clock(0.2)
+        W.Clock("search")
         W.At(50, 50, -30, 0)
         advance(0.1)
         nav, net, req = ns.WaysState()
@@ -32991,7 +32997,7 @@ step("Ways 0.2.4: Codex R3-M2 in a run - after a new build the search finds only
         advance(3)
         assert(ns.WaysRead(run).state == "none", "nothing comes back")
         ns.db.routeWaysOff = nil
-        W.Clock(0.01)
+        W.Clock("fast")
 
         ns.StopRun(true)
 
@@ -33025,9 +33031,10 @@ step("Ways 0.2.4: Codex R3-M2 in a run - after a new build the search finds only
         nav, net, req = ns.WaysState()
         local far = W.Node(139, 118)
         local fx, fy = W.World((139 + 0.5) * 25, (118 + 0.5) * 25)
-        W.Clock(0.74)
+        W.Clock("search")
         local late = diag.late
         run.target, run.targetPoint = far, { node = far, mapID = W.Z, wx = fx, wy = fy }
+        run.targetBest, run.progressBest = nil, nil -- (or the run takes the far node for one you rode away from)
         run.path[1] = run.targetPoint
         advance(0.1)
         assert(req.active, "(a search is on its way)")
@@ -33045,8 +33052,384 @@ step("Ways 0.2.4: Codex R3-M2 in a run - after a new build the search finds only
         advance(1)
         assert(not net.building and not net.ready and net.over == "time" and diag.late == late + 2, "given up after 5 s: " .. tostring(net.over))
         assert(W.Read().state == "line", "the straight line")
-        W.Clock(0.01)
+        W.Clock("fast")
     end)
+    W.Done()
+    if not ok then error(err, 0) end
+end)
+
+-- (S1 W4) What HereBeDragons is told about the dots of a way's line, kept by the test: which dots it
+-- knows on each map and where. A dot is seen when the library knows it and its texture is shown.
+function WAYS.Pins()
+    local P = libs["HereBeDragons-Pins-2.0"]
+    local T = { REF = "GathercraftRouteWays", HEAD = "GathercraftRouteHead", mini = {}, world = {}, adds = { mini = 0, world = 0 }, offAll = 0, offOne = 0 }
+    local keep = { P.AddMinimapIconWorld, P.AddWorldMapIconWorld, P.RemoveMinimapIcon, P.RemoveAllWorldMapIcons, P.RemoveAllMinimapIcons }
+    local function Reg(kind, ref)
+        T[kind][ref] = T[kind][ref] or {}
+        return T[kind][ref]
+    end
+    P.AddMinimapIconWorld = function(self, ref, icon, inst, x, y, ...)
+        Reg("mini", ref)[icon] = { x, y }
+        if ref == T.REF then T.adds.mini = T.adds.mini + 1 end
+        if ref == T.REF and T.onAdd then T.onAdd() end
+        return keep[1](self, ref, icon, inst, x, y, ...)
+    end
+    P.AddWorldMapIconWorld = function(self, ref, icon, inst, x, y, ...)
+        assert(not (ref == T.REF and Reg("world", ref)[icon]), "a dot added to the world map while it is still on it (it would hold one more of the map's pins)")
+        Reg("world", ref)[icon] = { x, y }
+        if ref == T.REF then T.adds.world = T.adds.world + 1 end
+        if ref == T.REF and T.onAdd then T.onAdd() end
+        return keep[2](self, ref, icon, inst, x, y, ...)
+    end
+    P.RemoveMinimapIcon = function(self, ref, icon, ...)
+        if ref == T.REF and Reg("mini", ref)[icon] then T.offOne = T.offOne + 1 end
+        Reg("mini", ref)[icon] = nil
+        return keep[3](self, ref, icon, ...)
+    end
+    P.RemoveAllWorldMapIcons = function(self, ref, ...)
+        if ref == T.REF then T.offAll = T.offAll + 1 end
+        T.world[ref] = {}
+        return keep[4](self, ref, ...)
+    end
+    P.RemoveAllMinimapIcons = function(self, ref, ...)
+        T.mini[ref] = {}
+        return keep[5](self, ref, ...)
+    end
+    -- the dots of the way's line that are seen on a map, in their order: { x, y, i }
+    function T.Seen(kind)
+        local world, mini = ns.RouteWaysHead()
+        local dots, list = kind == "mini" and mini or world, {}
+        local reg = Reg(kind, T.REF)
+        for i = 1, #dots do
+            local at = reg[dots[i]]
+            if at and dots[i].tex:IsShown() then list[#list + 1] = { at[1], at[2], i } end
+        end
+        return list
+    end
+    -- how many dots the library knows on a map (seen or hidden); the straight head's dots it knows
+    function T.Known(kind, ref)
+        local n = 0
+        for _ in pairs(Reg(kind, ref or T.REF)) do n = n + 1 end
+        return n
+    end
+    -- how far a place is from the way shown, and how far along it
+    function T.Off(way, x, y)
+        local b, best, along = way.points, math.huge, 0
+        for s = 1, b.n - 1 do
+            local ax, ay = b.wx[s], b.wy[s]
+            local vx, vy = b.wx[s + 1] - ax, b.wy[s + 1] - ay
+            local len2 = vx * vx + vy * vy
+            local t = len2 > 0 and ((x - ax) * vx + (y - ay) * vy) / len2 or 0
+            t = math.max(0, math.min(1, t))
+            local d = math.sqrt((x - ax - t * vx) ^ 2 + (y - ay - t * vy) ^ 2)
+            if d < best then best, along = d, b.cum[s] + t * (b.cum[s + 1] - b.cum[s]) end
+        end
+        return best, along
+    end
+    function T.Done()
+        P.AddMinimapIconWorld, P.AddWorldMapIconWorld, P.RemoveMinimapIcon, P.RemoveAllWorldMapIcons, P.RemoveAllMinimapIcons = unpack(keep)
+    end
+    return T
+end
+
+step("Ways 0.2.4: the line's head follows the way - its own dots at fixed places along it, 150 a map at the most, 32 segments ahead on the minimap and 48 on the world map, on the world map only while it is open; riding hides the dots behind you and places nothing; the straight head is gone meanwhile (S1 W4)", function()
+    local Near = WAYS.Near
+    local W = WAYS.World(WAYS.U())
+    local T = WAYS.Pins()
+    local ok, err = pcall(function()
+        local world, mini, wh = ns.RouteWaysHead()
+        if WorldMapFrame:IsShown() then WorldMapFrame:Hide() end
+        local A = W.Node(10, 20)
+        W.At(10, 10)
+        local run = W.Run({ A }, 2)
+        local way = W.Read()
+        assert(way.state == "net" and Near(way.yards, 750), "test setup: the U is shown")
+        -- 1. the minimap: dots along the way from 4 yd ahead of you to 6 yd before the node, the style's distance apart
+        -- (750 yd at 5 yd a dot - 150 dots would not reach at the style's 4 yd; a few are left out
+        -- where a pin sits on the minimap, as with the straight head)
+        local seen = T.Seen("mini")
+        assert(#seen >= 135 and #seen <= 148 and wh.n == 148 and not wh.job, "a dot every 5 yd: " .. #seen .. " seen, " .. wh.n .. " placed")
+        local last = 0
+        for k, d in ipairs(seen) do
+            local off, along = T.Off(way, d[1], d[2])
+            assert(off < 0.001, "dot " .. k .. " lies " .. off .. " yd off the way")
+            assert(Near(along / 5, math.floor(along / 5 + 0.5)) and along > last, ("dot %d lies %.2f yd along the way: not at a fifth yard"):format(k, along))
+            last = along
+        end
+        assert(Near(select(2, T.Off(way, seen[1][1], seen[1][2])), 5), "the first one 5 yd ahead of you")
+        assert(last <= 750 - 6, "the node's own pin stays clear: the last dot at " .. last)
+        local count = #seen
+        -- the world map is closed: not one dot of the line on it; the straight head has none anywhere
+        assert(T.Known("world") == 0 and T.adds.world == 0 and #T.Seen("world") == 0, "world map closed: no dots on it")
+        assert(T.Known("mini", T.HEAD) == 0 and T.Known("world", T.HEAD) == 0, "the straight head is off both maps")
+        assert(T.Known("mini") == count, "the library knows the dots that are shown: " .. T.Known("mini"))
+        -- 2. riding along it: the dots behind you are hidden, nothing is placed or moved
+        local adds = T.adds.mini
+        W.At(11, 10)
+        advance(0.2)
+        seen = T.Seen("mini")
+        assert(T.adds.mini == adds, "25 yd along: nothing placed anew")
+        assert(#seen == count - 5 and Near(select(2, T.Off(way, seen[1][1], seen[1][2])), 30), "the dots up to 4 yd ahead of you are gone: " .. #seen)
+        -- 50 yd along: placed anew from you outwards - at the same places as before
+        W.At(12, 10, 5, 0)
+        advance(0.3)
+        seen = T.Seen("mini")
+        assert(T.adds.mini > adds and not wh.job, "55 yd along: placed anew")
+        assert(Near(select(2, T.Off(way, seen[1][1], seen[1][2])), 60) and #seen == count - 11, "from 4 yd ahead of you on, at the same fixed places: " .. #seen)
+        for k = 2, #seen do
+            local gap = select(2, T.Off(way, seen[k][1], seen[k][2])) - select(2, T.Off(way, seen[k - 1][1], seen[k - 1][2]))
+            assert(Near(gap / 5, math.floor(gap / 5 + 0.5)) and gap > 0, "at every fifth yard")
+        end
+        -- at the bend: placed anew too
+        for xx = 13, 20 do
+            W.At(xx, 10)
+            advance(0.2)
+        end
+        adds = T.adds.mini
+        W.At(20, 10, 0, 10)
+        advance(0.3)
+        assert(W.Read().seg == 2 and T.adds.mini > adds, "the next segment: placed anew (" .. W.Read().seg .. ")")
+        -- 3. the world map opens: the dots on it too, at the same places; it closes: off it in one call
+        WorldMapFrame:Show()
+        advance(0.3)
+        local onMap, onMini = T.Seen("world"), T.Seen("mini")
+        -- (the minimap leaves out the dots at its pins, the world map has them all)
+        assert(#onMap > 50 and #onMap >= #onMini and #onMap - #onMini < 12, "world map open: the line on it too (" .. #onMap .. " / " .. #onMini .. ")")
+        local byDot = {}
+        for _, d in ipairs(onMap) do byDot[d[3]] = d end
+        for _, d in ipairs(onMini) do
+            assert(byDot[d[3]] and byDot[d[3]][1] == d[1] and byDot[d[3]][2] == d[2], "the same places on both maps")
+        end
+        assert(T.Known("world", T.HEAD) == 0, "no dot of the straight head on the world map")
+        local offAll = T.offAll
+        WorldMapFrame:Hide()
+        advance(0.3)
+        assert(T.Known("world") == 0 and T.offAll >= offAll + 1 and #T.Seen("world") == 0, "world map closed: its dots off in one call")
+        assert(#T.Seen("mini") == #onMini, "the minimap keeps its line")
+        -- 4. another look of the line: every dot anew, in the new size and distance
+        ns.db.routeLineStyle = "dots"
+        ns.RedrawRouteLine()
+        advance(0.3)
+        seen = T.Seen("mini")
+        assert(#seen > 5 and #seen < 30, "big steps of 25 yd: " .. #seen .. " dots")
+        for k = 2, #seen do
+            local gap = select(2, T.Off(way, seen[k][1], seen[k][2])) - select(2, T.Off(way, seen[k - 1][1], seen[k - 1][2]))
+            assert(Near(gap / 25, math.floor(gap / 25 + 0.5)) and gap > 0, "at every 25th yard")
+        end
+        assert(mini[seen[1][3]].__w == 4 and world[seen[1][3]].__w == 5, "the style's sizes")
+        ns.db.routeLineStyle = nil
+        -- the lines hidden: no dot of the way is seen; shown again: the way again
+        ns.db.routeLineHidden, ns.db.routeLineMiniHidden = true, true
+        ns.RedrawRouteLine()
+        assert(#T.Seen("mini") == 0 and #T.Seen("world") == 0, "lines hidden: no dot is seen, at once")
+        advance(0.5)
+        assert(T.Known("mini") == 0 and W.Read().state == "net", "then they are off the maps; the way itself stays (the arrow follows it)")
+        ns.db.routeLineHidden, ns.db.routeLineMiniHidden = nil, nil
+        ns.RedrawRouteLine()
+        advance(0.5)
+        assert(#T.Seen("mini") > 50, "shown again: the line again")
+        ns.StopRun(true)
+        assert(#T.Seen("mini") == 0, "the run stopped: no dot is seen, at once")
+        advance(1)
+        assert(T.Known("mini") == 0 and T.Known("world") == 0, "and they are off the maps")
+
+        -- 5. a long way with many bends: 32 segments ahead on the minimap, 48 on the world map, 150 dots a map
+        local z, squares = {}, {}
+        local x, y = 10, 10
+        for i = 1, 400 do
+            squares[#squares + 1] = { x, y }
+            if i % 4 < 2 then x = x + 1 else y = y + 1 end
+        end
+        WAYS.Ride(z, squares)
+        W.Pieces(z)
+        local lastSq = squares[#squares]
+        WorldMapFrame:Show()
+        W.At(10, 10)
+        run = W.Run({ W.Node(lastSq[1], lastSq[2]) }, 2)
+        way = W.Read()
+        assert(way.state == "net" and way.n - 1 > 48, "test setup: a way of " .. way.n - 1 .. " segments")
+        onMap, onMini = T.Seen("world"), T.Seen("mini")
+        assert(#onMap <= 150 and #onMini <= 150 and #onMap > 100, "150 dots a map at the most: " .. #onMap .. " / " .. #onMini)
+        local endMap, endMini = way.points.cum[1 + 48], way.points.cum[1 + 32]
+        local farMap = select(2, T.Off(way, onMap[#onMap][1], onMap[#onMap][2]))
+        local farMini = select(2, T.Off(way, onMini[#onMini][1], onMini[#onMini][2]))
+        assert(farMap <= endMap + 0.01 and farMap > endMap - 2 * wh.spacing - 0.01, ("the world map's line ends at segment 48: %.0f of %.0f yd"):format(farMap, endMap))
+        assert(farMini <= endMini + 0.01 and farMini > endMini - 2 * wh.spacing - 0.01, ("the minimap's line ends at segment 32: %.0f of %.0f yd"):format(farMini, endMini))
+        for _, d in ipairs(onMap) do assert(T.Off(way, d[1], d[2]) < 0.001, "every dot on the way - no straight bit to the node") end
+        assert(farMap < way.points.len - 500, "(the line ends long before the node: " .. math.floor(way.points.len - farMap) .. " yd)")
+        -- riding on: the rest follows
+        for i = 2, 30 do
+            W.At(squares[i][1], squares[i][2])
+            advance(0.3)
+        end
+        way = W.Read()
+        onMap = T.Seen("world")
+        local farther = select(2, T.Off(way, onMap[#onMap][1], onMap[#onMap][2]))
+        assert(way.seg > 5 and farther > farMap + 200, ("further along the line reaches further: %.0f after %.0f yd"):format(farther, farMap))
+        assert(Near(farther <= way.points.cum[math.min(way.n, way.seg + 48)] + 0.01 and 1 or 0, 1), "and still 48 segments ahead at the most")
+    end)
+    T.Done()
+    ns.db.routeLineStyle = nil
+    W.Done()
+    if not ok then error(err, 0) end
+end)
+
+step("Ways 0.2.4: a way that is taken back is unseen in the same frame, on both maps, however full the frame was (1.0 ms for all of S1, 0.25 ms of it kept back for this); a map opened later shows nothing of it; its dots come off the maps in later frames; a new way is drawn from you outwards (S1 W4, Codex R3-M1 and R4-N2)", function()
+    local Near = WAYS.Near
+    local e, squares = {}, {}
+    do
+        local x, y = 10, 10
+        for i = 1, 400 do
+            squares[#squares + 1] = { x, y }
+            if i % 4 < 2 then x = x + 1 else y = y + 1 end
+        end
+        WAYS.Ride(e, squares)
+    end
+    local W = WAYS.World(e)
+    local T = WAYS.Pins()
+    local keepHide = methods.Hide
+    local ok, err = pcall(function()
+        local frameMs, reserveMs, stepMs = ns.WaysLimits()
+        assert(frameMs == 1.0 and reserveMs == 0.25 and stepMs == 0.25, "the limits: " .. frameMs .. " / " .. reserveMs .. " / " .. stepMs)
+        local world, mini, wh = ns.RouteWaysHead()
+        local diag = ns.WaysDiag()
+        local function FrameSum() return select(2, ns.WaysDiag()) end
+        local last = squares[#squares]
+        local A, B = W.Node(last[1], last[2]), W.Node(squares[200][1], squares[200][2])
+        WorldMapFrame:Show()
+        W.At(10, 10)
+        local run = W.Run({ A }, 2)
+        assert(W.Read().state == "net" and #T.Seen("world") == 150 and #T.Seen("mini") > 90, "test setup: the most dots there can be on the world map, " .. #T.Seen("mini") .. " on the minimap")
+        local shown = #T.Seen("world") + #T.Seen("mini")
+        -- hiding a dot's texture takes time by the test's clock: all 300 of them the whole of what is kept back
+        local hides = 0
+        methods.Hide = function(self)
+            if self.__kind == "Texture" and self.__shown then
+                hides = hides + 1
+                W.extra = W.extra + reserveMs / 300
+            end
+            return keepHide(self)
+        end
+        -- 1. the frame is full of ordinary work (a build of 50 new pieces), then the node changes
+        local function FullFrame()
+            W.Clock("build")
+            for i = 1, 50 do
+                WAYS.Piece(W.e, 300 + 2 * i + diag.builds * 120, 300, 1, 0)
+                ns.PathsChanged(W.Z, "new")
+            end
+            local _, net = ns.WaysState()
+            assert(net.building, "(a build is on its way)")
+            -- a frame's work, in the frame that is going on: as many steps as the frame has room for
+            local work = select(7, ns.WaysState())
+            work:GetScript("OnUpdate")(work, 0.016)
+            assert(net.building, "(and still is after a frame's work)")
+            local sum = FrameSum()
+            assert(sum > frameMs - reserveMs - stepMs and sum <= frameMs - reserveMs + 1e-9, ("the ordinary work filled its share of the frame: %.3f ms"):format(sum))
+            return sum
+        end
+        diag.peak = 0
+        local before = FullFrame()
+        hides = 0
+        local tp = run.targetPoint
+        local bx, by = W.World((squares[200][1] + 0.5) * 25, (squares[200][2] + 0.5) * 25)
+        run.target, run.targetPoint = B, { node = B, mapID = W.Z, wx = bx, wy = by }
+        run.targetBest, run.progressBest = nil, nil
+        run.path[1] = run.targetPoint
+        ns.RedrawRouteLine() -- (as the plan does when it takes another node)
+        assert(#T.Seen("world") == 0 and #T.Seen("mini") == 0, "another node: not one dot of the old way is seen, in the same frame")
+        assert(hides == shown, "every dot that was seen was hidden: " .. hides .. " of " .. shown)
+        assert(W.Read().state == "line" and ns.WaysSource(run) == ns.L["Path: straight line"], "the state and the run window in the same frame")
+        local sum = FrameSum()
+        assert(sum <= frameMs + 1e-9 and sum >= before + reserveMs * shown / 300 - 1e-9, ("the whole frame: %.3f ms, hiding included"):format(sum))
+        assert(diag.peak <= frameMs + 1e-9, ("the largest frame so far: %.3f ms"):format(diag.peak))
+        -- the dots are still known to the library; a map that opens now shows none of them
+        assert(T.Known("mini") + T.Known("world") >= shown - 150, "(they are taken off later)")
+        WorldMapFrame:Hide()
+        WorldMapFrame:Show()
+        assert(#T.Seen("world") == 0 and #T.Seen("mini") == 0, "the map closed and opened: the hidden dots stay hidden")
+        -- later frames: off the maps in small steps, the new way's dots from you outwards
+        -- (placing a dot on a map takes a hundredth of a millisecond by the test's clock)
+        W.Clock("draw")
+        local addFrames, addsNow, addsMost, addAt = 0, 0, 0, nil
+        T.onAdd = function()
+            W.extra = W.extra + 0.01
+            if GetTime() ~= addAt then addAt, addsNow, addFrames = GetTime(), 0, addFrames + 1 end
+            addsNow = addsNow + 1
+            if addsNow > addsMost then addsMost = addsNow end
+        end
+        local offBefore = T.offOne
+        local firstNew, mixed, t = nil, false, 0
+        while (W.Read().state ~= "net" or wh.job or wh.n == 0) and t < 3000 do
+            advance(0.01)
+            t = t + 1
+            local way = W.Read()
+            local onMini = T.Seen("mini")
+            if way.state == "net" and #onMini > 0 then
+                firstNew = firstNew or #onMini
+                local prev = 0
+                for _, d in ipairs(onMini) do
+                    local off, along = T.Off(way, d[1], d[2])
+                    if off > 0.001 or along <= prev then mixed = true end
+                    prev = along
+                end
+                -- from you outwards: the dots placed so far are the first ones, none is left out but at a pin
+                if onMini[#onMini][3] > #onMini + 12 then mixed = true end
+            elseif #onMini > 0 then
+                mixed = true
+            end
+            assert(FrameSum() <= frameMs + 1e-9, "a frame over 1.0 ms")
+        end
+        assert(W.Read().state == "net" and not wh.job, "the way to the new node, drawn: " .. W.Read().state .. " after " .. t)
+        assert(firstNew and addFrames >= 4 and addsMost <= 80, ("it came in pieces: its dots were placed in %d frames, %d placements in a frame at the most"):format(addFrames, addsMost))
+        assert(not mixed, "never a dot off the way that is shown, never a gap in the dots from you outwards")
+        assert(diag.peak <= frameMs + 1e-9, ("the largest frame: %.3f ms"):format(diag.peak))
+        T.onAdd = nil
+        W.Clock("fast")
+        advance(1)
+
+        -- 2. the same with the option turned off ...
+        run.target, run.targetPoint = A, tp
+        run.targetBest, run.progressBest = nil, nil
+        run.path[1] = tp
+        advance(2)
+        shown = #T.Seen("world") + #T.Seen("mini")
+        assert(W.Read().state == "net" and shown > 200, "(the long way again: " .. shown .. " dots)")
+        diag.peak = 0
+        FullFrame()
+        ns.db.routeWaysOff = true
+        ns.RedrawRouteLine() -- (the option's switch draws the line again)
+        assert(#T.Seen("world") == 0 and #T.Seen("mini") == 0 and ns.WaysSource(run) == nil, "option off: nothing of the way is seen, no line in the run window, in the same frame")
+        assert(FrameSum() <= frameMs + 1e-9 and diag.peak <= frameMs + 1e-9, ("the whole frame: %.3f ms"):format(FrameSum()))
+        assert(T.Known("mini", T.HEAD) > 0, "and the straight head is drawn as it was")
+        W.Clock("fast")
+        advance(1)
+        assert(T.Known("mini") == 0 and T.Known("world") == 0 and ns.WaysState() == nil, "then its dots are off the maps, nothing is held")
+        ns.db.routeWaysOff = nil
+        advance(2)
+        -- 3. ... and with a piece that changes its class
+        shown = #T.Seen("world") + #T.Seen("mini")
+        assert(W.Read().state == "net" and shown > 200, "(option on: the long way again)")
+        diag.peak = 0
+        FullFrame()
+        ns.PathsChanged(W.Z, "class")
+        assert(#T.Seen("world") == 0 and #T.Seen("mini") == 0 and W.Read().state == "line", "a piece changed its class: nothing of the way is seen in the same frame")
+        assert(FrameSum() <= frameMs + 1e-9 and diag.peak <= frameMs + 1e-9, ("the whole frame: %.3f ms"):format(FrameSum()))
+        -- 4. the run ends in a full frame
+        W.Clock("fast")
+        advance(2)
+        assert(W.Read().state == "net", "(the way again)")
+        diag.peak = 0
+        FullFrame()
+        ns.StopRun(true)
+        assert(#T.Seen("world") == 0 and #T.Seen("mini") == 0, "the run stopped: nothing is seen in the same frame")
+        assert(FrameSum() <= frameMs + 1e-9 and diag.peak <= frameMs + 1e-9, ("the whole frame: %.3f ms"):format(FrameSum()))
+        W.Clock("fast")
+        advance(1)
+        assert(T.Known("mini") == 0 and T.Known("world") == 0, "and its dots come off the maps afterwards")
+        assert(#world <= 150 and #mini <= 150, "150 dots a map were ever made at the most: " .. #world .. " / " .. #mini)
+    end)
+    methods.Hide = keepHide
+    T.Done()
     W.Done()
     if not ok then error(err, 0) end
 end)

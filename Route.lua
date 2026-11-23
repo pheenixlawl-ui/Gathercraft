@@ -1151,10 +1151,12 @@ local function MiniGapTest(px, py)
     return MiniClear
 end
 
-local ClearHead -- below
-local function ClearLine()
+local ClearHead, ClearStraight -- below
+-- (0.2.4 S1) keepWays: the dots of a way along your paths stay (the line is drawn again right away;
+-- whoever draws it decides about them)
+local function ClearLine(keepWays)
     if not HBDPins then return end
-    ClearHead()
+    if keepWays then ClearStraight() else ClearHead() end
     HBDPins:RemoveAllWorldMapIcons(LINE_REF)
     HBDPins:RemoveAllMinimapIcons(LINE_REF)
     for _, dot in ipairs(usedDots) do
@@ -1196,7 +1198,197 @@ local function MakeDot(mini)
 end
 local headShown = 0
 local headOnMap = false -- (0.2.2 W5) head dots are on the world map now
-ClearHead = function()
+
+---------------------------------------------------------------------------
+-- (0.2.4 S1) The head along the ways you rode. Ways.lua finds the way and
+-- says when one is shown (ns.WaysRead); here its dots are drawn.
+--   Dots of their own (never the straight head's), HEAD_MAX_DOTS on each
+--   map at the most - as many as the straight head has: all of them can be
+--   hidden in one frame. They sit at fixed places along the way: as you
+--   ride, the ones behind you are hidden and nothing is moved. They are
+--   placed anew - from you outwards, a few per step of Ways.lua's work -
+--   when a new way is shown, at its next bend, after 50 yd, and when the
+--   line's look, the minimap zoom or the world map change.
+--   32 segments ahead of you on the minimap, 48 on the world map; where
+--   the line ends before the node, the rest follows as you ride. No
+--   straight bit is made up to close the gap.
+--   Taking a way back: every dot's texture is hidden at once, in the same
+--   frame. (HereBeDragons shows a pin's frame again by itself - on the
+--   minimap at every move, on the world map whenever it opens. A hidden
+--   texture stays hidden.) Taking the hidden dots off the maps follows in
+--   small steps.
+---------------------------------------------------------------------------
+local WAYS_REF = ADDON_NAME .. "RouteWays"
+local WAYS_REDRAW = 50             -- yards along the way before its dots are placed anew
+local WAYS_MINI, WAYS_MAP = 32, 48 -- segments ahead of you that are drawn
+local waysWorld, waysMini = {}, {}
+-- top: the dots that may be shown (1..top); n: the dots of the drawing that is done; first: the first of
+-- them not behind you; reg: the minimap dots HereBeDragons knows (1..reg); worldReg: it knows world map
+-- dots; job: dots are being placed (i: so far, arc: the next one's place, s: the segment it lies on);
+-- pub: the way they belong to
+local wh = { top = 0, n = 0, first = 1, reg = 0, worldReg = false, job = false, i = 0, arc = 0, s = 1, pub = -1, seg = 0, at = 0,
+    spacing = 0, near = 0, endArc = 0, miniArc = 0, world = false, mini = false, instance = 0 }
+
+-- every dot hidden, now (Ways.lua calls this when it takes a way back)
+local function WaysHideRaw()
+    for i = 1, wh.top do
+        waysWorld[i].tex:Hide()
+        waysMini[i].tex:Hide()
+    end
+    wh.top, wh.n, wh.first, wh.job, wh.pub = 0, 0, 1, false, -1
+    -- (the straight head is drawn at the next head tick, as it was)
+    local run = ns.run
+    if run then run.headX = nil end
+    if (wh.reg > 0 or wh.worldReg) and ns.WaysWork then ns.WaysWork() end
+end
+-- the same from here: its time counts for the frame like all of S1
+local function WaysHide()
+    local t0 = ns.WaysNow()
+    WaysHideRaw()
+    ns.WaysSpend(ns.WaysNow() - t0)
+end
+
+-- 2: dots are to be placed; 1: hidden dots are to come off the maps; false: nothing
+local function WaysPending()
+    if wh.job then return 2 end
+    if wh.reg > wh.top or (wh.worldReg and not (wh.top > 0 and wh.world)) then return 1 end
+    return false
+end
+
+-- One step of Ways.lua's work: up to `ops` dots placed, or hidden dots taken off the maps
+local function WaysStep(ops)
+    if wh.job then
+        local run = ns.run
+        local way = run and ns.WaysRead(run)
+        if not (way and way.state == "net" and way.pub == wh.pub) then
+            wh.job = false
+            return 1
+        end
+        if wh.i == 0 and wh.world and wh.worldReg then
+            -- (as the straight head does it: off the world map in one call before they are added again -
+            -- added while still on it, each would hold one more of the map's pins)
+            HBDPins:RemoveAllWorldMapIcons(WAYS_REF)
+            wh.worldReg = false
+            return 1
+        end
+        local b = way.points
+        local px, py = PlayerWorld()
+        local clear = wh.mini and px and MiniGapTest(px, py)
+        local style, rgb = LineStyle(), LineColor().rgb
+        local showFlag = HBD_PINS_WORLDMAP_SHOW_PARENT or 1
+        local wx, wy, cum, n = b.wx, b.wy, b.cum, b.n
+        local i, arc, s, spacing, stop = wh.i, wh.arc, wh.s, wh.spacing, wh.endArc
+        local used = 0
+        while used < ops do
+            if arc >= stop or i >= HEAD_MAX_DOTS then
+                -- done: what is left of the drawing before goes
+                for j = i + 1, wh.top do
+                    waysWorld[j].tex:Hide()
+                    waysMini[j].tex:Hide()
+                end
+                wh.n, wh.top, wh.first, wh.job = i, i, 1, false
+                break
+            end
+            while s < n - 1 and cum[s + 1] < arc do s = s + 1 end
+            local len = cum[s + 1] - cum[s]
+            local t = len > 0 and (arc - cum[s]) / len or 0
+            local x, y = wx[s] + (wx[s + 1] - wx[s]) * t, wy[s] + (wy[s + 1] - wy[s]) * t
+            i = i + 1
+            local w, m = waysWorld[i], waysMini[i]
+            if not w then
+                w, m = MakeDot(), MakeDot(true)
+                waysWorld[i], waysMini[i] = w, m
+            end
+            w:SetSize(style.map, style.map)
+            m:SetSize(style.mini, style.mini)
+            w.tex:SetVertexColor(rgb[1], rgb[2], rgb[3], 0.9)
+            m.tex:SetVertexColor(rgb[1], rgb[2], rgb[3], 0.9)
+            w.arc = arc
+            if wh.world then
+                HBDPins:AddWorldMapIconWorld(WAYS_REF, w, wh.instance, x, y, showFlag)
+                wh.worldReg = true
+                w.tex:Show()
+            else
+                w.tex:Hide()
+            end
+            if wh.mini and arc <= wh.miniArc and (not clear or clear(x, y)) then
+                HBDPins:AddMinimapIconWorld(WAYS_REF, m, wh.instance, x, y, false)
+                if i > wh.reg then wh.reg = i end
+                m.tex:Show()
+            else
+                m.tex:Hide()
+            end
+            if i > wh.top then wh.top = i end
+            arc = arc + spacing
+            used = used + 1
+        end
+        wh.i, wh.arc, wh.s = i, arc, s
+        return used + 1
+    end
+    -- nothing to place: the hidden dots come off the maps
+    local used = 0
+    while wh.reg > wh.top and used < ops do
+        HBDPins:RemoveMinimapIcon(WAYS_REF, waysMini[wh.reg])
+        wh.reg = wh.reg - 1
+        used = used + 1
+    end
+    if used == 0 and wh.worldReg and not (wh.top > 0 and wh.world) then
+        HBDPins:RemoveAllWorldMapIcons(WAYS_REF)
+        wh.worldReg = false
+    end
+    return used + 1
+end
+
+-- The dots of the way shown are placed (anew), from you outwards
+local function WaysStart(way, instance)
+    local b = way.points
+    local near = LineStyle().near
+    if way.pub ~= wh.pub or near ~= wh.near then
+        -- another way (or another look): never two mixed - what is there goes first
+        if wh.top > 0 or wh.job then WaysHideRaw() end
+        wh.pub, wh.near = way.pub, near
+        local last = way.seg + WAYS_MAP
+        if last > b.n then last = b.n end
+        -- as the straight head: the style's distance, wider when 150 dots would not reach
+        wh.spacing = math.max(near, (b.cum[last] - way.pos) / HEAD_MAX_DOTS)
+    end
+    wh.world, wh.mini, wh.instance = WorldLineShown() and WorldMapOpen(), MiniLineShown(), instance
+    local last, lastMini = way.seg + WAYS_MAP, way.seg + WAYS_MINI
+    if last > b.n then last = b.n end
+    if lastMini > b.n then lastMini = b.n end
+    -- (the node's own pin stays clear, as with the straight head)
+    wh.endArc, wh.miniArc = math.min(b.cum[last], b.len - 6), b.cum[lastMini]
+    wh.arc = (math.floor((way.pos + 4) / wh.spacing) + 1) * wh.spacing
+    wh.i, wh.s, wh.job = 0, way.seg, true
+    wh.seg, wh.at = way.seg, way.pos
+    if ns.WaysWork then ns.WaysWork() end
+end
+
+-- At a head tick while a way is shown: the dots behind you go; placed anew when it is time
+local function WaysUpdate(run, way, px, py, instance)
+    if not (WorldLineShown() or MiniLineShown()) or LineLength() == "off" then
+        if wh.top > 0 or wh.job then WaysHideRaw() end
+        return
+    end
+    if way.pub ~= wh.pub then
+        -- a new way: the straight head goes, the way's dots come
+        run.headX, run.headY, run.headTarget = px, py, run.targetPoint
+        ClearStraight()
+        return WaysStart(way, instance)
+    end
+    if wh.job then return end
+    local pos = way.pos + 4
+    while wh.first <= wh.n and waysWorld[wh.first].arc < pos do
+        waysWorld[wh.first].tex:Hide()
+        waysMini[wh.first].tex:Hide()
+        wh.first = wh.first + 1
+    end
+    if way.seg ~= wh.seg or way.pos - wh.at >= WAYS_REDRAW then WaysStart(way, instance) end
+end
+ns.RouteWaysDrawer = { Hide = WaysHideRaw, Pending = WaysPending, Step = WaysStep }
+ns.RouteWaysHead = function() return waysWorld, waysMini, wh end -- (the tests, /gcr perf)
+
+ClearStraight = function()
     if not HBDPins then return end
     -- (0.2.2 W5) in one call, and only when there are some: each call goes over every pin the map holds
     if headOnMap then HBDPins:RemoveAllWorldMapIcons(HEAD_REF) headOnMap = false end
@@ -1207,11 +1399,27 @@ ClearHead = function()
     end
     headShown = 0
 end
+ClearHead = function()
+    ClearStraight()
+    -- (0.2.4 S1) and the dots of a way along your paths, at once
+    if wh.top > 0 or wh.job then WaysHide() end
+end
 local function DrawHead(px, py, instance)
     local run = ns.run
     local tp = run and run.targetPoint
     if not (HBDPins and tp and px) or not (WorldLineShown() or MiniLineShown()) or LineLength() == "off" then return ClearHead() end
     run.headX, run.headY, run.headTarget = px, py, tp
+    -- (0.2.4 S1) a way along your own paths is shown (Ways.lua): its dots
+    -- instead of the straight ones. Otherwise everything below is as it was.
+    local way = ns.WaysRead and ns.WaysRead(run)
+    if way and way.state == "net" then
+        local t0 = ns.WaysNow()
+        ClearStraight()
+        WaysStart(way, instance)
+        ns.WaysSpend(ns.WaysNow() - t0)
+        return
+    end
+    if wh.top > 0 or wh.job then WaysHide() end
     local style, rgb = LineStyle(), LineColor().rgb
     local world, mini = WorldLineShown() and WorldMapOpen(), MiniLineShown()
     -- (0.2.2 W5) the head's world map dots off in one call before they are added
@@ -1264,6 +1472,14 @@ local function UpdateHead()
     -- this does nothing.
     if ns.WaysTick then ns.WaysTick(run, px, py, instance) end
     if not px or instance ~= run.instance then return end
+    -- (0.2.4 S1) a way is shown: its dots are looked after instead of the straight head
+    local way = ns.WaysRead and ns.WaysRead(run)
+    if way and way.state == "net" then
+        local t0 = ns.WaysNow()
+        WaysUpdate(run, way, px, py, instance)
+        ns.WaysSpend(ns.WaysNow() - t0)
+        return
+    end
     if run.headTarget == run.targetPoint and run.headX and WDist(px, py, run.headX, run.headY) < HEAD_MOVE then return end
     DrawHead(px, py, instance)
 end
@@ -1275,8 +1491,12 @@ end
 --   Minimap: only the part around you (the rest isn't visible there anyway,
 --   and the line is drawn again as you ride), dense.
 local function DrawLine(path, length, instance, px, py)
-    ClearLine()
-    if not path or #path == 0 or not (WorldLineShown() or MiniLineShown()) or LineLength() == "off" then return end
+    ClearLine(true)
+    if not path or #path == 0 or not (WorldLineShown() or MiniLineShown()) or LineLength() == "off" then
+        -- (0.2.4 S1) no line: the dots of a way along your paths go too (DrawHead below looks after them otherwise)
+        if wh.top > 0 or wh.job then WaysHide() end
+        return
+    end
     if LineLength() == "next10" and #path > LINE_NEXT then
         local cut = {}
         for i = 1, LINE_NEXT do cut[i] = path[i] end

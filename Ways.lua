@@ -1281,7 +1281,7 @@ local function Clock() return (ns.WaysClock or debugprofilestop)() end
 
 -- The frame sum: what S1 took in the frame going on (a frame is one value of GetTime)
 local frameAt, frameSum = -1, 0
-local diag = { peak = 0, step = 0, requests = 0, cancelled = 0, late = 0, over = 0, builds = 0, invalid = 0, dropped = 0 }
+local diag = { peak = 0, step = 0, requests = 0, cancelled = 0, late = 0, over = 0, builds = 0, invalid = 0, dropped = 0, ops = 0 }
 local function Frame()
     local now = GetTime()
     if now ~= frameAt then frameAt, frameSum = now, 0 end
@@ -1299,8 +1299,10 @@ local gen = 0    -- counts at every start and stop of a run
 local net = { mapID = nil, ready = false, building = false, over = nil, rev = 0, epoch = 0, fresh = 0, t0 = 0, w = 0, h = 0 }
 local req = { active = false }
 local keeping = false -- the rest of the way shown is being looked at against a new net
-local read = { state = "none", n = 0, yards = 0, cost = 0, guessed = 0, percent = 0, seg = 1, pos = 0, serial = 0 }
-local drawer     -- Route.lua: { Step = fn(ops) -> used, more; Pending = fn() -> bool; Hide = fn() } (W4)
+local read = { state = "none", n = 0, yards = 0, cost = 0, guessed = 0, percent = 0, seg = 1, pos = 0, serial = 0, pub = 0 }
+-- Route.lua's part: the dots of the way's line. Hide() hides all of them now; Pending() says whether
+-- dots are to be placed or taken off the maps; Step(ops) does up to ops of that and returns how many.
+local drawer = ns.RouteWaysDrawer
 local work = CreateFrame("Frame")
 work:Hide()
 
@@ -1597,8 +1599,19 @@ end
 
 -- One step of the work that is due. Returns the kind of work and the
 -- operations used, or nil when there is none.
+--   The order: a request goes first (it is short, and a way is waited for);
+--   then the dots of a way that is shown; then a build (the ordinary one
+--   works in the background - the net in use stays in use); last the hidden
+--   dots that are to come off the maps.
 local function Step()
-    if net.building then
+    if not req.active then
+        -- (first a request - below; then the dots of a way that is shown; then a build; last the hidden dots)
+        local pending = drawer and drawer.Pending()
+        if pending == 2 then return 202, drawer.Step(Ops(202, 6)) end
+        if not net.building then
+            if pending then return 203, drawer.Step(Ops(203, 20)) end
+            return
+        end
         local job = ctx.job
         local kind = job.phase
         local used = M.BuildStep(ctx, Ops(kind, 400))
@@ -1618,7 +1631,7 @@ local function Step()
         end
         return kind, used
     end
-    if req.active then
+    do
         if req.stage == "query" then
             local q = ctx.q
             local kind = 100 + q.phase
@@ -1664,6 +1677,7 @@ local function Step()
                     -- published: the buffers change places; what was shown before is hidden first
                     if nav.core.state == "net" and drawer then drawer.Hide() end
                     M.Publish(nav.core)
+                    read.pub = read.pub + 1
                     nav.stamp = -1
                     nav.source = SourceText(nav.core.front.percent)
                     req.active = false
@@ -1691,10 +1705,6 @@ local function Step()
             return 201, used
         end
     end
-    if drawer and drawer.Pending() then
-        local used = drawer.Step(Ops(202, 6))
-        return 202, used
-    end
 end
 
 local function Work()
@@ -1721,6 +1731,7 @@ local function Work()
             idle = true
             break
         end
+        diag.ops = diag.ops + used
         local t1 = Clock()
         local ms = t1 - t0
         t0 = t1
@@ -1756,7 +1767,7 @@ end)
 --   points  with "net": the way's buffer (wx, wy: the points in world yards; cum: how far along each is)
 --   n       its points;  yards: its length (you - net - node);  cost: the search's cost (to look at only)
 --   source  "net" or "line";  guessed: yards of guessed edges in it;  percent: their share of the way of the net
---   seg, pos  where you are on it;  serial: counts whenever what is shown changes
+--   seg, pos  where you are on it;  serial: counts whenever what is shown changes;  pub: at every new way
 ns.WaysRead = Wrap("Ways", function(run)
     local t0 = Clock()
     if nav and run == navRun and Valid(run) then
@@ -1776,7 +1787,7 @@ end)
 
 -- The line of the run window (UI.lua): a text kept until the way changes, or nil
 ns.WaysSource = function(run)
-    if not (nav and run == navRun and run == ns.run) then return nil end
+    if not (nav and run == navRun and run == ns.run) or (ns.db and ns.db.routeWaysOff) then return nil end
     if nav.core.state == "net" then
         if Valid(run) then return nav.source end
         return L["Path: straight line"]
@@ -1785,16 +1796,15 @@ ns.WaysSource = function(run)
     return nil
 end
 
--- Route.lua's part of the work: the line's dots, placed and taken off in small steps (W4)
-ns.WaysDrawer = function(d)
-    drawer = d
-end
--- (Route.lua has something to place or to take off: the work goes on)
+-- Route.lua has dots to place or to take off: the work goes on
 ns.WaysWork = function() work:Show() end
+-- Route.lua's own S1 work outside the steps (hiding a line, starting one) counts for the frame too
+ns.WaysNow = Clock
+ns.WaysSpend = Spend
 
 -- for /gcr perf and the tests: the counters, and what is going on
 ns.WaysDiag = function() return diag, frameSum end
 ns.WaysState = function()
-    return nav, net, req, ctx, ops, gen
+    return nav, net, req, ctx, ops, gen, work
 end
 ns.WaysLimits = function() return FRAME_MS, RESERVE_MS, STEP_MS, REQUEST_SECONDS, BUILD_SECONDS, REBUILD_PIECES end
