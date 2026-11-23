@@ -5759,7 +5759,7 @@ step("Skill plan 2.0: texts in every language, the release 0.2.0 - its what's ne
     -- which stays for players who skip a version. The changelog holds the
     -- current version only: the 0.2.0 section is in the history (tag v0.2.0).
     -- the changelog is 0.2.2's (0.2.1's is in the history, tag v0.2.1); the TOC says the build's version
-    assert(version == "0.2.4-a1", "TOC version: " .. tostring(version))
+    assert(version == "0.2.4-a2", "TOC version: " .. tostring(version))
     version = "0.2.0"
     -- the two files of building block 2 load last: they read the data files only after login
     assert(toc:gsub("\r", ""):match("\nStarter%.lua\nSpawnCounts%.lua\nItemTooltip%.lua\n?$"), "the TOC does not end with Starter.lua, SpawnCounts.lua, ItemTooltip.lua")
@@ -18434,7 +18434,7 @@ end)
 step("What's new: 0.2.2 after an update, in this language and all translations", function()
     local version = toc:match("## Version: ([%w%.%-]+)")
     -- the release 0.2.2 (Sven, 22.11.2026); a 0.2.3 test build: the TOC says its mark, the window checked is 0.2.2's
-    assert(version == "0.2.4-a1", "TOC version: " .. tostring(version))
+    assert(version == "0.2.4-a2", "TOC version: " .. tostring(version))
     version = "0.2.2"
     assert(toc:match("## Interface: (%d+)") == "16001", "TOC interface changed")
     local f = assert(io.open(ROOT .. "/Welcome.lua"))
@@ -25955,7 +25955,7 @@ step("Farm for plan: every text in nine languages with the same placeholders, th
     -- The order's part 6; concept test 10 (long names in all 11 language
     -- codes). Since the release 0.2.0 the changelog and "What's new" name it.
     local toc = assert(io.open(ROOT .. "/Gathercraft.toc")):read("*a")
-    assert(toc:match("## Version: ([%w%.%-]+)") == "0.2.4-a1", "TOC version: " .. tostring(toc:match("## Version: ([%w%.%-]+)"))) -- (0.2.2)
+    assert(toc:match("## Version: ([%w%.%-]+)") == "0.2.4-a2", "TOC version: " .. tostring(toc:match("## Version: ([%w%.%-]+)"))) -- (0.2.2)
     local function Read(name) return assert(io.open(ROOT .. "/" .. name)):read("*a") end
     local farm = Read("PlanFarm.lua")
     -- ---- the texts: every L["..."] of PlanFarm.lua, the reasons it looks up, and the three in Route.lua and UI.lua
@@ -28697,7 +28697,7 @@ end)
 step("Version 0.2.1: the TOC says it, /gcr shows it, the What's new window of 0.2.1 once after 0.2.0, 0.2.1-a1 or 0.1.23 (0.2.1)", function()
     local version = toc:match("## Version: ([%w%.%-]+)")
     -- the TOC says the build's version (own step); the window checked is 0.2.1's
-    assert(version == "0.2.4-a1", "TOC version: " .. tostring(version))
+    assert(version == "0.2.4-a2", "TOC version: " .. tostring(version))
     version = "0.2.1"
     local function Read(name) local f = assert(io.open(ROOT .. "/" .. name)) local s = f:read("*a") f:close() return s end
     -- "What's new" has the entry of 0.2.1, none for the test build
@@ -30058,7 +30058,7 @@ end)
 step("Version 0.2.2: the TOC says it, /gcr shows it, the What's new window of 0.2.2 once after 0.2.2-a8, 0.2.2-a7, 0.2.2-a6, 0.2.2-a5, 0.2.2-a4, 0.2.2-a3, 0.2.2-a2, 0.2.2-a1, 0.2.1, 0.2.1-a1, 0.2.0 or 0.1.23 (0.2.2)", function()
     local version = toc:match("## Version: ([%w%.%-]+)")
     -- a 0.2.3 test build: the TOC says its mark (own step); the window checked is 0.2.2's
-    assert(version == "0.2.4-a1", "TOC version: " .. tostring(version))
+    assert(version == "0.2.4-a2", "TOC version: " .. tostring(version))
     version = "0.2.2"
     local function Read(name) local f = assert(io.open(ROOT .. "/" .. name)) local s = f:read("*a") f:close() return s end
     -- "What's new" has the entry of 0.2.2, none for a test build
@@ -30095,15 +30095,16 @@ step("Version 0.2.2: the TOC says it, /gcr shows it, the What's new window of 0.
     if not ok then error(err, 0) end
 end)
 -- 0.2.3: test builds under their own marks after the release 0.2.2 - 0.2.3-a1 for 0.2.3 P3, 0.2.3-a2 for P4, 0.2.3-a3 for the P3 R1 fixes, 0.2.3-a4 for /gcr perf on, 0.2.3-a5 for the skill plan fix, 0.2.3-a6 for 0.2.3 set onto 0.2.2, 0.2.3-a7 for the path net's S0, 0.2.3-a8 for the measured map hooks of W5, 0.2.3-a9 for the load of a ride (lauf-last), 0.2.3-a10 for the jump that is no fall (paths), 0.2.3-a11 for the R1 fix of the point store.
--- 0.2.4: test builds on top of them, while 0.2.3 is not released yet - 0.2.4-a1 for S1 (the route line's head and the arrow follow the paths you rode).
+-- 0.2.4: test builds on top of them, while 0.2.3 is not released yet - 0.2.4-a1 for S1 (the route line's head and the arrow follow the paths you rode),
+-- 0.2.4-a2 for the hitch after a harvest (a run collects again only the zones that changed; 2-opt and Untangle in bites).
 -- No What's new window for them: 0.2.3 and 0.2.4, their changelogs and their What's new come with their release commits.
-step("Version 0.2.4-a1: the TOC says it, /gcr shows it, no What's new window after 0.2.3-a11, 0.2.3-a10, 0.2.3-a9, 0.2.3-a8, 0.2.3-a7, 0.2.3-a6, 0.2.3-a5, 0.2.3-a4, 0.2.3-a3, 0.2.3-a2, 0.2.3-a1, 0.2.2, 0.2.2-a8, 0.2.2-a7, 0.2.2-a6, 0.2.2-a5, 0.2.2-a4, 0.2.2-a3, 0.2.2-a2, 0.2.2-a1, 0.2.1, 0.2.1-a1, 0.2.0 or 0.1.23 (0.2.4 S1)", function()
+step("Version 0.2.4-a2: the TOC says it, /gcr shows it, no What's new window after 0.2.4-a1, 0.2.3-a11, 0.2.3-a10, 0.2.3-a9, 0.2.3-a8, 0.2.3-a7, 0.2.3-a6, 0.2.3-a5, 0.2.3-a4, 0.2.3-a3, 0.2.3-a2, 0.2.3-a1, 0.2.2, 0.2.2-a8, 0.2.2-a7, 0.2.2-a6, 0.2.2-a5, 0.2.2-a4, 0.2.2-a3, 0.2.2-a2, 0.2.2-a1, 0.2.1, 0.2.1-a1, 0.2.0 or 0.1.23 (0.2.4 a2)", function()
     local version = toc:match("## Version: ([%w%.%-]+)")
-    assert(version == "0.2.4-a1", "TOC version: " .. tostring(version))
+    assert(version == "0.2.4-a2", "TOC version: " .. tostring(version))
     local function Read(name) local f = assert(io.open(ROOT .. "/" .. name)) local s = f:read("*a") f:close() return s end
     -- "What's new" has no entry for it, nor for 0.2.3 or 0.2.4 yet: the build is not a release; 0.2.2's stays
     local welcome = Read("Welcome.lua")
-    for _, mark in ipairs({ "0.2.3-a1", "0.2.3-a2", "0.2.3-a3", "0.2.3-a4", "0.2.3-a5", "0.2.3-a6", "0.2.3-a7", "0.2.3-a8", "0.2.3-a9", "0.2.3-a10", "0.2.3-a11", "0.2.3", "0.2.4-a1", "0.2.4" }) do
+    for _, mark in ipairs({ "0.2.3-a1", "0.2.3-a2", "0.2.3-a3", "0.2.3-a4", "0.2.3-a5", "0.2.3-a6", "0.2.3-a7", "0.2.3-a8", "0.2.3-a9", "0.2.3-a10", "0.2.3-a11", "0.2.3", "0.2.4-a1", "0.2.4-a2", "0.2.4" }) do
         assert(not welcome:find('["' .. mark .. '"]', 1, true), "Welcome.lua has a What's new entry for " .. mark)
     end
     assert(welcome:find('["0.2.2"]', 1, true), "the What's new of 0.2.2 is gone")
@@ -30117,14 +30118,14 @@ step("Version 0.2.4-a1: the TOC says it, /gcr shows it, no What's new window aft
     local ok, err = pcall(function()
         C_AddOns.GetAddOnMetadata = function(_, field) if field == "Version" then return version end end
         ns.freshInstall = false
-        for _, before in ipairs({ "0.2.3-a11", "0.2.3-a10", "0.2.3-a9", "0.2.3-a8", "0.2.3-a7", "0.2.3-a6", "0.2.3-a5", "0.2.3-a4", "0.2.3-a3", "0.2.3-a2", "0.2.3-a1", "0.2.2", "0.2.2-a8", "0.2.2-a7", "0.2.2-a6", "0.2.2-a5", "0.2.2-a4", "0.2.2-a3", "0.2.2-a2", "0.2.2-a1", "0.2.1", "0.2.1-a1", "0.2.0", "0.1.23" }) do
+        for _, before in ipairs({ "0.2.4-a1", "0.2.3-a11", "0.2.3-a10", "0.2.3-a9", "0.2.3-a8", "0.2.3-a7", "0.2.3-a6", "0.2.3-a5", "0.2.3-a4", "0.2.3-a3", "0.2.3-a2", "0.2.3-a1", "0.2.2", "0.2.2-a8", "0.2.2-a7", "0.2.2-a6", "0.2.2-a5", "0.2.2-a4", "0.2.2-a3", "0.2.2-a2", "0.2.2-a1", "0.2.1", "0.2.1-a1", "0.2.0", "0.1.23" }) do
             local win = _G.GathercraftWhatsNew
             if win then win:Hide() end
             ns.db.lastVersion = before
             ns.WelcomeOnLogin()
             win = _G.GathercraftWhatsNew
             assert(not (win and win:IsShown()), "a What's new window after " .. before)
-            assert(ns.db.lastVersion == "0.2.4-a1", "after " .. before .. " not remembered: " .. tostring(ns.db.lastVersion))
+            assert(ns.db.lastVersion == "0.2.4-a2", "after " .. before .. " not remembered: " .. tostring(ns.db.lastVersion))
         end
     end)
     local win = _G.GathercraftWhatsNew
