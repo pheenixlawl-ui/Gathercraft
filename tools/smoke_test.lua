@@ -30094,17 +30094,17 @@ step("Version 0.2.2: the TOC says it, /gcr shows it, the What's new window of 0.
     C_AddOns.GetAddOnMetadata, ns.db.lastVersion, ns.freshInstall = keep.meta, keep.last, keep.fresh
     if not ok then error(err, 0) end
 end)
--- 0.2.3: test builds under their own marks after the release 0.2.2 - 0.2.3-a1 for 0.2.3 P3, 0.2.3-a2 for P4, 0.2.3-a3 for the P3 R1 fixes, 0.2.3-a4 for /gcr perf on, 0.2.3-a5 for the skill plan fix, 0.2.3-a6 for 0.2.3 set onto 0.2.2, 0.2.3-a7 for the path net's S0, 0.2.3-a8 for the measured map hooks of W5, 0.2.3-a9 for the load of a ride (lauf-last), 0.2.3-a10 for the jump that is no fall (paths), 0.2.3-a11 for the R1 fix of the point store.
+-- 0.2.3: test builds under their own marks after the release 0.2.2 - 0.2.3-a1 for 0.2.3 P3, 0.2.3-a2 for P4, 0.2.3-a3 for the P3 R1 fixes, 0.2.3-a4 for /gcr perf on, 0.2.3-a5 for the skill plan fix, 0.2.3-a6 for 0.2.3 set onto 0.2.2, 0.2.3-a7 for the path net's S0, 0.2.3-a8 for the measured map hooks of W5, 0.2.3-a9 for the load of a ride (lauf-last), 0.2.3-a10 for the jump that is no fall (paths), 0.2.3-a11 for the R1 fix of the point store, 0.2.3-a12 for the switches to measure the world map pins (mapdiag).
 -- 0.2.4: test builds on top of them, while 0.2.3 is not released yet - 0.2.4-a1 for S1 (the route line's head and the arrow follow the paths you rode),
 -- 0.2.4-a2 for the hitch after a harvest (a run collects again only the zones that changed; 2-opt and Untangle in bites).
 -- No What's new window for them: 0.2.3 and 0.2.4, their changelogs and their What's new come with their release commits.
-step("Version 0.2.4-a2: the TOC says it, /gcr shows it, no What's new window after 0.2.4-a1, 0.2.3-a11, 0.2.3-a10, 0.2.3-a9, 0.2.3-a8, 0.2.3-a7, 0.2.3-a6, 0.2.3-a5, 0.2.3-a4, 0.2.3-a3, 0.2.3-a2, 0.2.3-a1, 0.2.2, 0.2.2-a8, 0.2.2-a7, 0.2.2-a6, 0.2.2-a5, 0.2.2-a4, 0.2.2-a3, 0.2.2-a2, 0.2.2-a1, 0.2.1, 0.2.1-a1, 0.2.0 or 0.1.23 (0.2.4 a2)", function()
+step("Version 0.2.4-a2: the TOC says it, /gcr shows it, no What's new window after 0.2.4-a1, 0.2.3-a12, 0.2.3-a11, 0.2.3-a10, 0.2.3-a9, 0.2.3-a8, 0.2.3-a7, 0.2.3-a6, 0.2.3-a5, 0.2.3-a4, 0.2.3-a3, 0.2.3-a2, 0.2.3-a1, 0.2.2, 0.2.2-a8, 0.2.2-a7, 0.2.2-a6, 0.2.2-a5, 0.2.2-a4, 0.2.2-a3, 0.2.2-a2, 0.2.2-a1, 0.2.1, 0.2.1-a1, 0.2.0 or 0.1.23 (0.2.4 a2)", function()
     local version = toc:match("## Version: ([%w%.%-]+)")
     assert(version == "0.2.4-a2", "TOC version: " .. tostring(version))
     local function Read(name) local f = assert(io.open(ROOT .. "/" .. name)) local s = f:read("*a") f:close() return s end
     -- "What's new" has no entry for it, nor for 0.2.3 or 0.2.4 yet: the build is not a release; 0.2.2's stays
     local welcome = Read("Welcome.lua")
-    for _, mark in ipairs({ "0.2.3-a1", "0.2.3-a2", "0.2.3-a3", "0.2.3-a4", "0.2.3-a5", "0.2.3-a6", "0.2.3-a7", "0.2.3-a8", "0.2.3-a9", "0.2.3-a10", "0.2.3-a11", "0.2.3", "0.2.4-a1", "0.2.4-a2", "0.2.4" }) do
+    for _, mark in ipairs({ "0.2.3-a1", "0.2.3-a2", "0.2.3-a3", "0.2.3-a4", "0.2.3-a5", "0.2.3-a6", "0.2.3-a7", "0.2.3-a8", "0.2.3-a9", "0.2.3-a10", "0.2.3-a11", "0.2.3-a12", "0.2.3", "0.2.4-a1", "0.2.4-a2", "0.2.4" }) do
         assert(not welcome:find('["' .. mark .. '"]', 1, true), "Welcome.lua has a What's new entry for " .. mark)
     end
     assert(welcome:find('["0.2.2"]', 1, true), "the What's new of 0.2.2 is gone")
@@ -30118,7 +30118,7 @@ step("Version 0.2.4-a2: the TOC says it, /gcr shows it, no What's new window aft
     local ok, err = pcall(function()
         C_AddOns.GetAddOnMetadata = function(_, field) if field == "Version" then return version end end
         ns.freshInstall = false
-        for _, before in ipairs({ "0.2.4-a1", "0.2.3-a11", "0.2.3-a10", "0.2.3-a9", "0.2.3-a8", "0.2.3-a7", "0.2.3-a6", "0.2.3-a5", "0.2.3-a4", "0.2.3-a3", "0.2.3-a2", "0.2.3-a1", "0.2.2", "0.2.2-a8", "0.2.2-a7", "0.2.2-a6", "0.2.2-a5", "0.2.2-a4", "0.2.2-a3", "0.2.2-a2", "0.2.2-a1", "0.2.1", "0.2.1-a1", "0.2.0", "0.1.23" }) do
+        for _, before in ipairs({ "0.2.4-a1", "0.2.3-a12", "0.2.3-a11", "0.2.3-a10", "0.2.3-a9", "0.2.3-a8", "0.2.3-a7", "0.2.3-a6", "0.2.3-a5", "0.2.3-a4", "0.2.3-a3", "0.2.3-a2", "0.2.3-a1", "0.2.2", "0.2.2-a8", "0.2.2-a7", "0.2.2-a6", "0.2.2-a5", "0.2.2-a4", "0.2.2-a3", "0.2.2-a2", "0.2.2-a1", "0.2.1", "0.2.1-a1", "0.2.0", "0.1.23" }) do
             local win = _G.GathercraftWhatsNew
             if win then win:Hide() end
             ns.db.lastVersion = before
@@ -31733,6 +31733,405 @@ step("Search range 0.2.3: on Rares & prices for now - the range (150 yd, steps o
     if not wasOpen then ns.ToggleOptions() end
     advance(1)
     ns.db.searchRange = keep
+end)
+-- 0.2.3 mapdiag (Sven's order of 23.11.2026, "Weltkarte: Messschalter für
+-- die Pins"): dense zones cost many frames on the world map (The Barrens,
+-- about 1,800 pins shown, about 30 FPS less), and which part of a pin costs
+-- is not measured. /gcr mapdiag switches parts of our world map pins off for
+-- this session, so the cost can be measured in the game: the masks (round
+-- icons), the rings, the mouse on the pins, and the pins of one source
+-- (Questie, sync with the grey reports, your own). Only the world map and
+-- only our node pins: the minimap, the run target, the settings, sync and
+-- the data stay as they are. The switches go together and stay while the
+-- map changes (another zone, opened again, a rebuild); off gives back what
+-- was there. Nothing is saved (a /reload starts without them).
+step("/gcr mapdiag: switches for a measurement - masks, rings, mouse, one source; only our world map pins, kept while the map changes, off gives back what was there, nothing saved (0.2.3 mapdiag)", function()
+    local Z, Z2 = 1450, 1469 -- (1450: no known spawn points, on your continent - grey reports show there)
+    local P = LibStub("HereBeDragons-Pins-2.0")
+    local REF, TREF = "Gathercraft", "GathercraftTarget"
+    local keep = { nodes = ns.db.nodes[Z], nodes2 = ns.db.nodes[Z2], pending = ns.db.sync.pending[Z], map = player.map, x = player.x,
+        y = player.y, herb = PROFS[1][2], herbMax = PROFS[1][3], tip = ns.db.worldPinTip, shift = IsShiftKeyDown, combat = InCombatLockdown,
+        getMap = rawget(WorldMapFrame, "GetMapID"), shown = WorldMapFrame:IsShown(), add = P.AddWorldMapIconMap, rem = P.RemoveWorldMapIcon,
+        all = P.RemoveAllWorldMapIcons, owner = rawget(GameTooltip, "GetOwner"), hide = rawget(GameTooltip, "Hide"), style = ns.db.worldPinStyle }
+    local ok, err = pcall(function()
+        -- the world map as HereBeDragons shows it: a registered pin of the zone the map shows is shown, one
+        -- taken off is hidden; the map on another zone (or opened again) hides them and shows its own
+        local onMap, shownMap = {}, nil
+        P.AddWorldMapIconMap = function(self, ref, icon, m, ...)
+            local r = keep.add(self, ref, icon, m, ...)
+            onMap[icon] = { ref = ref, m = m }
+            if shownMap == m then icon:Show() end
+            return r
+        end
+        P.RemoveWorldMapIcon = function(self, ref, icon, ...)
+            if onMap[icon] and onMap[icon].ref == ref then onMap[icon] = nil icon:Hide() end
+            return keep.rem(self, ref, icon, ...)
+        end
+        P.RemoveAllWorldMapIcons = function(self, ref, ...)
+            for icon, e in pairs(onMap) do if e.ref == ref then onMap[icon] = nil icon:Hide() end end
+            return keep.all(self, ref, ...)
+        end
+        local function ShowMap(m)
+            shownMap = m
+            WorldMapFrame.GetMapID = function() return m or Z end
+            if m then WorldMapFrame:Show() else WorldMapFrame:Hide() end
+            for icon in pairs(onMap) do icon:Hide() end
+            for icon, e in pairs(onMap) do if e.m == m then icon:Show() end end
+        end
+        local shift = false
+        IsShiftKeyDown = function() return shift end
+
+        local function N(id, name, kind, x, y, src) return { id = id, name = name, type = kind, x = x, y = y, count = 1, last = 1, source = src } end
+        local own1, own2, far = N("o1618", "Peacebloom", "herb", 0.48, 0.50), N("o1731", "Copper Vein", "ore", 0.52, 0.50),
+            N("o1621", "Briarthorn", "herb", 0.90, 0.10)
+        local sync1 = N("o1617", "Silverleaf", "herb", 0.50, 0.46, "sync")
+        -- (Copper or Tin at one known spot: one pin)
+        local q1, q2, q3 = N("o1731", "Copper Vein", "ore", 0.55, 0.55, "questie"), N("o1732", "Tin Vein", "ore", 0.55, 0.55, "questie"),
+            N("o1620", "Mageroyal", "herb", 0.45, 0.55, "questie")
+        local st = N("o1619", "Earthroot", "herb", 0.50, 0.54, "starter")
+        local other = N("o1617", "Silverleaf", "herb", 0.30, 0.30) -- (in another zone)
+        local report = { id = "o1622", type = "herb", x = 0.47, y = 0.47, item = 2453, rc = 1 }
+        local label = { [own1] = "own1", [own2] = "own2", [far] = "far", [sync1] = "sync1", [q1] = "q1", [q2] = "q2", [q3] = "q3", [st] = "st",
+            [other] = "other" }
+        -- Herbalism 130 of 225: Peacebloom and Earthroot are grey - their pins step back (the ring's colour counts)
+        PROFS[1][2], PROFS[1][3] = 130, 225
+        ns.db.worldPinTip = nil
+        ns.WorldPinTipChanged()
+        ns.db.nodes[Z] = { own1, own2, far, sync1, q1, q2, q3, st }
+        ns.db.nodes[Z2] = { other }
+        ns.db.sync.pending[Z] = { report }
+        player.map, player.x, player.y = Z, 0.50, 0.50 -- (minimap pins for the zone, the ones near you registered)
+        fire("ZONE_CHANGED_NEW_AREA") advance(1)
+        ns.NotifyNodesChanged() advance(2)
+        ShowMap(Z)
+        ns.SetRouteTarget(Z, own2)
+        local tw, tm = ns.RouteTargetPins()
+        assert(tw and tm and tw:IsShown(), "test setup: the run target's pins")
+
+        -- every pin of these nodes, what can be seen of it (the run target's two pins too)
+        local FIELDS = { "reg", "shown", "mouse", "masks", "ring", "ringTex", "ringColor", "tex", "iconShown", "iconAlpha", "alpha", "size", "inset" }
+        local function Row(f, reg)
+            local ic, rg = f.icon, f.ring
+            local pts = ic.__pts and ic.__pts.TOPLEFT
+            -- (the colour of a ring that is there: shown, or hidden by noring - a pin from the pool keeps an old one hidden)
+            local look = rg and (rg.__shown or f.diagRing)
+            return { reg = tostring(reg and true or false), shown = tostring(f.__shown), mouse = tostring(f:IsMouseEnabled()),
+                masks = tostring(ic.__masks or 0), ring = tostring(rg and rg.__shown or false), ringTex = look and tostring(rg.__tex) or "-",
+                ringColor = look and rg.__color and table.concat(rg.__color, ",") or "-", tex = tostring(ic.__tex), iconShown = tostring(ic.__shown),
+                iconAlpha = ("%.3f"):format(ic:GetAlpha()), alpha = ("%.3f"):format(f:GetAlpha()), size = tostring(f.__w),
+                inset = pts and (tostring(pts[1]) .. "," .. tostring(pts[2])) or "-" }
+        end
+        local function Snap()
+            local rows, W, M = {}, HBD_WORLD.reg[REF] or {}, HBD_MINI.reg[REF] or {}
+            for _, f in ipairs(allFrames) do
+                local n = f.node
+                local l = n and (label[n] or (n.pendingReport == report and "report"))
+                if l and not f.isTarget and (f.isWorld or f.isMini) then
+                    local key = l .. (f.isWorld and ".world" or ".mini")
+                    assert(not rows[key], "test setup: two pins for " .. key)
+                    rows[key] = Row(f, f.isWorld and W[f] or M[f])
+                end
+            end
+            rows["target.world"] = Row(tw, (HBD_WORLD.reg[TREF] or {})[tw])
+            rows["target.mini"] = Row(tm, (HBD_MINI.reg[TREF] or {})[tm])
+            return rows
+        end
+        -- the same as before, but for want: key -> { field = value } (ANY: not looked at)
+        local ANY = {}
+        local function Same(before, what, want)
+            local now = Snap()
+            for key, row in pairs(before) do
+                assert(now[key], ("%s: the pin %s is gone"):format(what, key))
+                for _, k in ipairs(FIELDS) do
+                    local w = want and want[key] and want[key][k]
+                    if w == nil then w = row[k] end
+                    assert(w == ANY or now[key][k] == w, ("%s: %s %s is %s, want %s"):format(what, key, k, now[key][k], tostring(w)))
+                end
+            end
+            for key in pairs(now) do assert(before[key], ("%s: a pin %s more"):format(what, key)) end
+        end
+        -- the pins the map shows (zone Z); the pins with a ring and a mask - of every zone, the map can show any
+        local SHOWN = { "own1", "own2", "far", "sync1", "q1", "q3", "st", "report" }
+        local RINGED = { "own1", "own2", "far", "sync1", "q1", "q3", "st", "other" }
+        local function Worlds(fields, keys) -- want for the world map pins of keys (the shown ones when nil)
+            local out = {}
+            for _, key in ipairs(keys or SHOWN) do
+                local f = {}
+                for k, v in pairs(fields) do f[k] = v end
+                out[key .. ".world"] = f
+            end
+            return out
+        end
+        local function Status()
+            local mark = #log
+            slash("mapdiag status")
+            for i = mark + 1, #log do
+                if log[i]:find("mapdiag", 1, true) and log[i]:find("pins shown", 1, true) then
+                    local l, t = log[i], {}
+                    t.shown, t.own, t.sync, t.questie, t.starter = l:match("(%d+) pins shown %(own (%d+), sync (%d+), Questie (%d+), starter (%d+)%)")
+                    t.target = l:match("run target (%d+)")
+                    t.frames, t.textures, t.masks, t.mouse = l:match("frames (%d+), textures (%d+), masks (%d+), with mouse (%d+)")
+                    t.hidden = l:match("hidden by mapdiag here (%d+)")
+                    for k, v in pairs(t) do t[k] = tonumber(v) end
+                    t.switches = l:match("switches: ([%a ]+)$")
+                    t.line = l
+                    return t
+                end
+            end
+            error("/gcr mapdiag status printed no line with the pins shown", 0)
+        end
+        local function Expect(t, want)
+            for k, v in pairs(want) do assert(t[k] == v, ("status: %s is %s, want %s - %s"):format(k, tostring(t[k]), tostring(v), t.line)) end
+        end
+        local S0 = Snap()
+        assert(S0["report.world"] and S0["q1.world"] and not S0["q2.world"] and S0["own1.mini"] and S0["far.mini"], "test setup: the pins")
+        assert(S0["own1.mini"].reg == "true" and S0["far.mini"].reg == "false" and S0["sync1.mini"].reg == "true", "test setup: the minimap pins near you")
+        assert(S0["own1.world"].masks == "1" and S0["own1.world"].ring == "true" and S0["report.world"].masks == "0", "test setup: rings and masks")
+        assert(S0["other.world"].shown == "false" and S0["other.world"].reg == "true", "test setup: the pin of another zone")
+        assert(S0["own1.world"].ringColor ~= S0["q3.world"].ringColor and S0["own1.world"].alpha ~= "1.000", "test setup: Peacebloom is not grey")
+
+        -- 1. the short help, in English, names every command
+        local mark = #log
+        slash("mapdiag")
+        local help = {}
+        for i = mark + 1, #log do help[#help + 1] = log[i] end
+        help = table.concat(help, "\n")
+        for _, word in ipairs({ "/gcr mapdiag status", "/gcr mapdiag nomask", "/gcr mapdiag noring", "/gcr mapdiag nomouse",
+            "/gcr mapdiag noquestie", "/gcr mapdiag nosync", "/gcr mapdiag noown", "/gcr mapdiag off" }) do
+            assert(help:find(word, 1, true), "/gcr mapdiag: the help does not name " .. word)
+        end
+        Same(S0, "the help")
+
+        -- 2. status: the pins the map shows, by source; frames, textures, masks, mouse (our node pins; the run target apart)
+        Expect(Status(), { shown = 8, own = 3, sync = 2, questie = 2, starter = 1, target = 1, frames = 8, textures = 15, masks = 7, mouse = 8,
+            hidden = 0, switches = "none" })
+        ShowMap(nil)
+        mark = #log
+        slash("mapdiag status")
+        local closed = false
+        for i = mark + 1, #log do if log[i]:find("world map is closed", 1, true) then closed = true end end
+        assert(closed, "status with the world map closed does not say so")
+        ShowMap(Z)
+        Same(S0, "status")
+
+        -- nothing of it is saved, no global is made: every command once, no time going by
+        local db0, g0 = DetestCopy(ns.db), {}
+        for k, v in pairs(_G) do g0[k] = type(v) end
+        for _, cmd in ipairs({ "mapdiag", "mapdiag status", "mapdiag nomask", "mapdiag noring", "mapdiag nomouse", "mapdiag noquestie",
+            "mapdiag nosync", "mapdiag noown", "mapdiag status", "mapdiag off", "mapdiag nomask noring nomouse noquestie nosync noown",
+            "mapdiag status", "mapdiag off", "mapdiag nonsense", "mapdiag off" }) do
+            slash(cmd)
+        end
+        local d = DetestDiff(db0, ns.db, "db")
+        assert(not d, "/gcr mapdiag changed the saved data: " .. tostring(d))
+        for k, v in pairs(_G) do assert(g0[k] == type(v), "/gcr mapdiag made or changed a global: " .. tostring(k)) end
+        Same(S0, "every command once, then off")
+
+        -- 3. nomask: the world map pins of nodes lose their round mask, nothing else changes (the minimap, the run target neither)
+        slash("mapdiag nomask")
+        Same(S0, "nomask", Worlds({ masks = "0" }, RINGED))
+        Expect(Status(), { shown = 8, textures = 15, masks = 0, mouse = 8, switches = "nomask" })
+        slash("mapdiag off")
+        Same(S0, "nomask, then off")
+
+        -- 4. noring: the ring is hidden; it is coloured as before underneath (a grey node's pin steps back as before)
+        slash("mapdiag noring")
+        local noRing = Worlds({ ring = "false" }, RINGED)
+        Same(S0, "noring", noRing)
+        Expect(Status(), { shown = 8, textures = 8, masks = 7, switches = "noring" })
+        slash("mapdiag off")
+        Same(S0, "noring, then off")
+        -- skill points that turn Mageroyal grey: every pin's colour is worked out anew - with noring the hidden
+        -- ring's too, as without it
+        PROFS[1][2] = 150
+        advance(4)
+        local S150 = Snap()
+        assert(S150["q3.world"].ringColor ~= S0["q3.world"].ringColor and S150["q3.world"].alpha ~= S0["q3.world"].alpha,
+            "test setup: Mageroyal is not grey at 150")
+        PROFS[1][2] = 130
+        advance(4)
+        Same(S0, "the skill back")
+        slash("mapdiag noring")
+        PROFS[1][2] = 150
+        advance(4)
+        Same(S150, "noring, Mageroyal turned grey", noRing)
+        slash("mapdiag off")
+        Same(S150, "noring, Mageroyal turned grey, then off")
+        PROFS[1][2] = 130
+        advance(4)
+        Same(S0, "the skill back again")
+
+        -- 5. nomouse: the shown world map pins of nodes take no mouse, a tooltip of one goes; hidden pins are not touched
+        local hidden = 0
+        local w1
+        for _, f in ipairs(allFrames) do if f.node == own1 and f.isWorld and not f.isTarget then w1 = f end end
+        GameTooltip.GetOwner = function() return w1 end
+        GameTooltip.Hide = function() hidden = hidden + 1 end
+        slash("mapdiag nomouse")
+        GameTooltip.GetOwner, GameTooltip.Hide = keep.owner, keep.hide
+        assert(hidden >= 1, "nomouse: the tooltip of a pin stays")
+        local noMouse = Worlds({ mouse = "false" })
+        Same(S0, "nomouse", noMouse)
+        Expect(Status(), { shown = 8, mouse = 0, textures = 15, masks = 7, switches = "nomouse" })
+        -- the map on another zone and back: the pins shown there take no mouse either
+        ShowMap(Z2)
+        assert(not Snap()["other.world"] or Snap()["other.world"].mouse == "false", "nomouse: a pin of another zone takes the mouse")
+        ShowMap(Z)
+        Same(S0, "nomouse, the map on another zone and back", Worlds({ mouse = "false" }, { "own1", "own2", "far", "sync1", "q1", "q3", "st", "report", "other" }))
+        -- the tooltip choice: With Shift and Shift held, Shift pressed, back to Always - still no mouse; the run target as chosen
+        shift = true
+        ns.db.worldPinTip = "shift"
+        ns.WorldPinTipChanged()
+        assert(Snap()["own1.world"].mouse == "false" and tw:IsMouseEnabled(), "nomouse, With Shift chosen while Shift is held")
+        fire("MODIFIER_STATE_CHANGED", "LSHIFT", 1)
+        assert(Snap()["own1.world"].mouse == "false" and Snap()["q1.world"].mouse == "false" and tw:IsMouseEnabled(), "nomouse, Shift pressed")
+        shift = false
+        fire("MODIFIER_STATE_CHANGED", "LSHIFT", 0)
+        ns.db.worldPinTip = nil
+        ns.WorldPinTipChanged()
+        assert(Snap()["own1.world"].mouse == "false" and tw:IsMouseEnabled(), "nomouse, back to Always")
+        slash("mapdiag off")
+        Same(S0, "nomouse, then off")
+
+        -- 6. one source off: its world map pins leave the map (HereBeDragons) - their minimap pins stay
+        local function Gone(keys) return Worlds({ reg = "false", shown = "false" }, keys) end
+        local W = HBD_WORLD
+        local function Registered()
+            local c = 0
+            for _ in pairs(W.reg[REF] or {}) do c = c + 1 end
+            return c
+        end
+        slash("mapdiag noquestie")
+        Same(S0, "noquestie", Gone({ "q1", "q3" }))
+        Expect(Status(), { shown = 6, own = 3, sync = 2, questie = 0, starter = 1, hidden = 2, frames = 6, textures = 11, masks = 5, mouse = 6,
+            switches = "noquestie" })
+        assert(ns.WorldPinCount() == Registered(), ("noquestie: /gcr perf counts %d of our world map pins, %d are registered"):format(ns.WorldPinCount(), Registered()))
+        slash("mapdiag off")
+        Same(S0, "noquestie, then off")
+        slash("mapdiag nosync")
+        Same(S0, "nosync", Gone({ "sync1", "report" }))
+        Expect(Status(), { shown = 6, own = 3, sync = 0, questie = 2, hidden = 2, switches = "nosync" })
+        slash("mapdiag off")
+        Same(S0, "nosync, then off")
+        slash("mapdiag noown")
+        Same(S0, "noown", Gone({ "own1", "own2", "far", "other" })) -- (other: your own in another zone)
+        Expect(Status(), { shown = 5, own = 0, target = 1, hidden = 3, switches = "noown" })
+        slash("mapdiag off")
+        Same(S0, "noown, then off")
+
+        -- 7. all at once, in one command; then off
+        slash("mapdiag nomask noring nomouse noquestie nosync noown")
+        -- (the mouse of a pin off the map is not looked at: it is set again when it shows)
+        local all = Worlds({ reg = "false", shown = "false", masks = "0", ring = "false", mouse = ANY }, { "own1", "own2", "far", "sync1", "q1", "q3" })
+        all["report.world"] = { reg = "false", shown = "false", mouse = ANY }
+        all["st.world"] = { masks = "0", ring = "false", mouse = "false" }
+        all["other.world"] = { reg = "false", masks = "0", ring = "false" } -- (your own too, in another zone; never shown while nomouse was on)
+        Same(S0, "all switches", all)
+        Expect(Status(), { shown = 1, own = 0, sync = 0, questie = 0, starter = 1, hidden = 7, frames = 1, textures = 1, masks = 0, mouse = 0,
+            switches = "nomask noring nomouse noquestie nosync noown" })
+        slash("mapdiag off")
+        Same(S0, "all switches, then off")
+
+        -- 8. in combat: the same (no protected call, nothing waits)
+        InCombatLockdown = function() return true end
+        slash("mapdiag nomask noquestie")
+        local fight = Gone({ "q1", "q3" })
+        for _, key in ipairs({ "own1", "own2", "far", "sync1", "st", "other" }) do fight[key .. ".world"] = { masks = "0" } end
+        fight["q1.world"].masks, fight["q3.world"].masks = "0", "0" -- (off the map too)
+        Same(S0, "in combat", fight)
+        slash("mapdiag off")
+        InCombatLockdown = keep.combat
+        Same(S0, "in combat, then off")
+
+        -- 9. a word it does not know: the help, nothing switched
+        mark = #log
+        slash("mapdiag nomask nonsense")
+        local helped = false
+        for i = mark + 1, #log do if log[i]:find("/gcr mapdiag off", 1, true) then helped = true end end
+        assert(helped, "an unknown word: no help")
+        Same(S0, "an unknown word")
+        Expect(Status(), { switches = "none" })
+
+        -- 10. the switches stay while the map changes: closed and opened, another zone, a rebuild, a node in or out
+        slash("mapdiag nomask noring noquestie")
+        local kept = Gone({ "q1", "q3" })
+        for _, key in ipairs(RINGED) do
+            kept[key .. ".world"] = kept[key .. ".world"] or {}
+            kept[key .. ".world"].masks, kept[key .. ".world"].ring = "0", "false"
+        end
+        Same(S0, "kept: switched on", kept)
+        ShowMap(nil) ShowMap(Z2) ShowMap(Z)
+        Same(S0, "kept: the map closed, on another zone, back", kept)
+        local rmOne = W.rmOne[REF] or 0
+        ns.NotifyNodesChanged("update", Z, q3) advance(1) -- (a hidden pin is not taken off HereBeDragons: it is not on it)
+        assert((W.rmOne[REF] or 0) == rmOne, "noquestie: a hidden pin was taken off HereBeDragons one by one")
+        ns.NotifyNodesChanged() advance(2) -- a rebuild: pins made again, from the pool
+        Same(S0, "kept: a rebuild", kept)
+        local q4, own3 = N("o1620", "Mageroyal", "herb", 0.42, 0.58, "questie"), N("o1618", "Peacebloom", "herb", 0.58, 0.42)
+        label[q4], label[own3] = "q4", "own3"
+        table.insert(ns.db.nodes[Z], q4)
+        ns.NotifyNodesChanged("add", Z, q4) advance(1)
+        table.insert(ns.db.nodes[Z], own3)
+        ns.NotifyNodesChanged("add", Z, own3) advance(1)
+        local now = Snap()
+        assert(now["q4.world"] and now["q4.world"].reg == "false" and now["q4.world"].shown == "false", "noquestie: a new known spawn point shows on the map")
+        assert(now["own3.world"] and now["own3.world"].reg == "true" and now["own3.world"].shown == "true" and now["own3.world"].masks == "0"
+            and now["own3.world"].ring == "false", "nomask, noring: a new pin of your own has its mask or its ring")
+        assert(now["q4.mini"] and now["own3.mini"], "a new node has no minimap pin")
+        Expect(Status(), { shown = 7, questie = 0, own = 4, hidden = 3, masks = 0, switches = "nomask noring noquestie" })
+        -- off: as a fresh build gives them, with the two new nodes too
+        slash("mapdiag off")
+        local afterOff = Snap()
+        ns.NotifyNodesChanged() advance(2)
+        local fresh = Snap()
+        for key, row in pairs(fresh) do
+            for _, k in ipairs(FIELDS) do
+                assert(afterOff[key] and afterOff[key][k] == row[k], ("off after the changes: %s %s is %s, a fresh build gives %s"):format(key, k,
+                    tostring(afterOff[key] and afterOff[key][k]), row[k]))
+            end
+        end
+        table.remove(ns.db.nodes[Z]) table.remove(ns.db.nodes[Z])
+        label[q4], label[own3] = nil, nil
+        ns.NotifyNodesChanged() advance(2)
+        Same(S0, "the two new nodes gone again")
+
+        -- 11. the world map style changed while switched on: every pin made again (from the pool) without a ring;
+        -- off, as a fresh build in that style gives them
+        slash("mapdiag nomask noring")
+        ns.db.worldPinStyle = "normal"
+        ns.NotifyNodesChanged() advance(2)
+        for key, row in pairs(Snap()) do
+            if key:find("%.world$") and key ~= "target.world" then
+                assert(row.masks == "0" and row.ring == "false", ("style normal, nomask noring: %s masks %s, ring %s"):format(key, row.masks, row.ring))
+            end
+        end
+        slash("mapdiag off")
+        local plainOff = Snap()
+        ns.NotifyNodesChanged() advance(2)
+        for key, row in pairs(Snap()) do
+            for _, k in ipairs(FIELDS) do
+                assert(plainOff[key] and plainOff[key][k] == row[k], ("off in style normal: %s %s is %s, a fresh build gives %s"):format(key, k,
+                    tostring(plainOff[key] and plainOff[key][k]), row[k]))
+            end
+        end
+        ns.db.worldPinStyle = keep.style
+        ns.NotifyNodesChanged() advance(2)
+        Same(S0, "the style back")
+    end)
+    if ns.MapDiagCommand then pcall(ns.MapDiagCommand, "off") end
+    P.AddWorldMapIconMap, P.RemoveWorldMapIcon, P.RemoveAllWorldMapIcons = keep.add, keep.rem, keep.all
+    IsShiftKeyDown, InCombatLockdown, GameTooltip.GetOwner, GameTooltip.Hide = keep.shift, keep.combat, keep.owner, keep.hide
+    WorldMapFrame.GetMapID = keep.getMap
+    if keep.shown then WorldMapFrame:Show() else WorldMapFrame:Hide() end
+    if ns.ClearRouteTarget then ns.ClearRouteTarget() end
+    ns.db.worldPinTip, ns.db.worldPinStyle = keep.tip, keep.style
+    if ns.WorldPinTipChanged then ns.WorldPinTipChanged() end
+    ns.db.nodes[Z], ns.db.nodes[Z2], ns.db.sync.pending[Z] = keep.nodes, keep.nodes2, keep.pending
+    PROFS[1][2], PROFS[1][3] = keep.herb, keep.herbMax
+    player.map, player.x, player.y = keep.map, keep.x, keep.y
+    fire("ZONE_CHANGED_NEW_AREA") advance(1)
+    ns.NotifyNodesChanged() advance(2)
+    if not ok then error(err, 0) end
 end)
 step("Long run (10 min) for leaks", function() slash("run herb") advance(600) slash("stop") end)
 step("Test mock: OnUpdate runs for the same frames in the same order as going over every frame (tools only)", function()
