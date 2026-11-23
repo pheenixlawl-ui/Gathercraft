@@ -34024,7 +34024,7 @@ step("Ways 0.2.4: with the option off the line, the arrow, the run window and th
         local off, offRun = Ride("off", W.Z + 1)
         local on, onRun = Ride("on", W.Z + 2)
         assert(lines > 400 and before:find("AddMinimapIconWorld GathercraftRouteHead", 1, true) and before:find("AddWorldMapIconWorld GathercraftRouteHead", 1, true)
-            and before:find("arrow %-?%d") and before:find("window Farm run", 1, true), "test setup: the ride draws the head on both maps, turns the arrow and shows the window (" .. lines .. " lines)")
+            and before:find("arrow %-?%d") and before:find("window " .. ns.L["Farm run"], 1, true), "test setup: the ride draws the head on both maps, turns the arrow and shows the window (" .. lines .. " lines)")
         local reached = 0
         for done in (beforeRun .. string.char(10)):gmatch(" (%-?%d+) %-?%d+" .. string.char(10)) do reached = math.max(reached, tonumber(done)) end
         assert(reached == 3, "test setup: the run reached its three nodes (" .. reached .. ")")
