@@ -1843,6 +1843,12 @@ function Refine.Drop(why)
     end
     Refine.job = nil
     if Refine.frame then Refine.frame:Hide() end
+    -- (0.2.4 r1, Codex H-N1) nothing works with the lists any more (a new plan fills them
+    -- anew when it takes them): they keep no points or nodes, the tables themselves stay
+    for k = 1, #Refine.bufs do
+        local b = Refine.bufs[k]
+        for i = #b, 1, -1 do b[i] = nil end
+    end
 end
 
 -- The plan's own work counts for its frame (Plan's wrapper)

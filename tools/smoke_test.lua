@@ -15743,6 +15743,15 @@ step("Route: the store of a run's points lives no longer than its nodes and its 
         StartStop()
         Full()
         assert(store.it == nil, "the store of a stopped run's points is still reachable" .. (held.run and " (the run is still held)" or ""))
+        -- (0.2.4 r1, Codex H-N1) and the lists the bites and the plan keep from plan to plan hold none
+        -- of its points: emptied at the stop, the lists themselves kept for the next plan (no new garbage)
+        local R = ns.RouteRefine()
+        local lists = { R.bufs[1], R.bufs[2], R.bufs[3] }
+        StartStop()
+        for k = 1, 3 do
+            assert(R.bufs[k] == lists[k], "the bites' list " .. k .. " was made anew")
+            assert(next(R.bufs[k]) == nil, ("the bites' list %d still holds %d points of the stopped run"):format(k, #R.bufs[k]))
+        end
     end)
     if ns.run then ns.StopRun(true) end
     player.map, player.x, player.y = saved.map, saved.x, saved.y
