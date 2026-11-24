@@ -28,7 +28,7 @@ local function Fail(j, why)
     j.steps, j.lines, j.parts = nil, nil, nil
 end
 function D.New(paths, version, id)
-    local j = { phase = "scan", rows = {}, buf = {}, steps = {}, count = 0, zoneCount = 0,
+    local j = { phase = "scan", rows = {}, buf = {}, steps = {}, count = 0, skipped = 0, zoneCount = 0,
         version = version, id = id, maxMS = 0, frames = 0 }
     if type(version) ~= "string" or #version > 24 or not version:match("^[%w%.%-]+$")
         or type(id) ~= "string" or #id ~= 16 or not id:match("^[0-9a-f]+$") then
@@ -61,7 +61,11 @@ local function Scan(j)
     local ok, key, value = pcall(next, j.edges, j.key)
     if not ok then Fail(j, "changed") return end
     if key == nil then j.edges, j.key = nil, nil return end
-    if not Int(key, 0, KEY_LIMIT - 1) or not Int(value, 0, 2 ^ 48 - 1) then Fail(j, "data") return end
+    j.key = key -- Advance even when this individual piece cannot be encoded.
+    if not Int(key, 0, KEY_LIMIT - 1) or not Int(value, 0, 2 ^ 48 - 1) then
+        j.skipped = j.skipped + 1
+        return
+    end
     local dir = key % 9
     local cell = (key - dir) / 9
     local x, y = cell % GRID, floor(cell / GRID)
@@ -71,7 +75,10 @@ local function Scan(j)
     local cost = v % 1024 v = floor(v / 1024)
     local falls, swims = v % 256, floor(v / 256)
     if dir == 4 or x + dx < 0 or x + dx >= GRID or y + dy < 0 or y + dy >= GRID
-        or count == 0 or cost < 100 or falls > count or swims > count then Fail(j, "data") return end
+        or count == 0 or cost < 100 or falls > count or swims > count then
+        j.skipped = j.skipped + 1
+        return
+    end
     j.count, j.zoneRows = j.count + 1, j.zoneRows + 1
     if j.count > MAX_ROWS or j.zoneRows > MAX_ZONE then Fail(j, "limit") return end
     -- Numeric index orders zone then Paths key; it fits exactly in a Lua number.
@@ -82,7 +89,6 @@ local function Scan(j)
     local fall = falls >= 1 and falls == count and 1 or 0
     j.rows[j.count] = index
     j.steps[index] = direction * 8 + stage * 2 + fall
-    j.key = key
 end
 local function Sort(j)
     -- Bottom-up merge sort, one output slot per unit. Never table.sort on a

@@ -78,7 +78,17 @@ return function(mode, c)
         assert(sliced.done)
         local bad = D.New({zones={[1412]={e={[Key(1,2,4)]=Pack(1,100,0,0,1)}}}}, "0.2.3-a13", "0123456789abcdef")
         repeat D.Step(bad) until bad.done or bad.error
-        assert(bad.error, "self direction accepted")
+        assert(bad.error == "empty" and bad.skipped == 1, "all-invalid export must count the rejected piece")
+        local mixed = { zones = { [1412] = { e = {
+            [Key(1,2,5)] = p.zones[1412].e[Key(1,2,5)],
+            [Key(1,2,4)] = one, [Key(0,0,0)] = one,
+            [Key(3,4,5)] = Pack(0,100,0,0,0), [Key(4,4,5)] = Pack(1,99,0,0,0),
+            [Key(5,4,5)] = Pack(1,100,2,0,0), [Key(6,4,5)] = Pack(1,100,0,2,0),
+            ["broken key"] = one, [Key(7,4,5)] = "broken value",
+        } }, [1413] = p.zones[1413] } }
+        local recovered = Finish(mixed)
+        assert(recovered.skipped == 8 and recovered.count == 2 and recovered.parts[1] == text,
+            "mixed export must retain exactly the valid pieces")
         local huge = { zones = {} }
         for z=1,4 do
             local e={} huge.zones[1400+z]={e=e}

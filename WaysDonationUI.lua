@@ -56,7 +56,7 @@ local function NewWindow()
     ns.LText(detail, "Includes today's ways and this session. Nothing is uploaded by the addon; this is a submission for manual review.")
     local scroll = CreateFrame("ScrollFrame", nil, f, "UIPanelScrollFrameTemplate")
     scroll:SetPoint("TOPLEFT", detail, "BOTTOMLEFT", 0, -16)
-    scroll:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -42, 110)
+    scroll:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -42, 128)
     local function Edit(parent, multiline)
         local e = CreateFrame("EditBox", nil, parent)
         e:SetFontObject(GameFontHighlightSmall) e:SetAutoFocus(false)
@@ -79,6 +79,8 @@ local function NewWindow()
     ns.LText(linkLabel, "Form link (Ctrl+C)")
     f.status = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     f.status:SetPoint("BOTTOM", 0, 78)
+    f.skipped = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    f.skipped:SetPoint("BOTTOM", 0, 106)
     local function Button(label, x, fn)
         local b = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
         b:SetSize(165, 24) b:SetPoint("BOTTOM", x, 75)
@@ -91,7 +93,7 @@ local function NewWindow()
         self.job, self.parts, self.part = nil, nil, nil
         self.edit.expected, self.link.expected = nil, nil
         self.edit:ClearFocus() self.link:ClearFocus()
-        self.edit:SetText("") self.link:SetText("") self.status:SetText("")
+        self.edit:SetText("") self.link:SetText("") self.status:SetText("") self.skipped:SetText("")
     end)
     return f
 end
@@ -99,8 +101,15 @@ local function Update(f)
     local j = f.job
     if not j then return end
     ns.WaysDonation.Step(j)
+    if (j.error or j.done) and j.skipped > 0 then
+        f.skipped:SetText(L["Skipped damaged path pieces: %d"]:format(j.skipped))
+    end
     if j.error then
-        f.status:SetText(L[j.error == "empty" and "No paths recorded yet." or "Could not prepare the ways. Close this window and try again."])
+        local message = "Could not prepare the ways. Close this window and try again."
+        if j.error == "empty" then
+            message = j.skipped > 0 and "No valid path pieces." or "No paths recorded yet."
+        end
+        f.status:SetText(L[message])
         f.job = nil f:SetScript("OnUpdate", nil)
     elseif j.done and not j.ready then
         -- Text layout/selection gets a fresh frame, not what is left of an
@@ -119,6 +128,7 @@ function ns.OpenWaysDonation()
     window:Hide() -- a second export releases the first one
     window:Show()
     Enable(window.previous, false) Enable(window.next, false)
+    window.skipped:SetText("")
     window.status:SetText(L["Preparing..."])
     window.link.expected = url window.link:SetText(url)
     Select(window.edit, "")

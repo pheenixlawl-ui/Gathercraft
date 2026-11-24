@@ -29,6 +29,7 @@ return function(c)
         local e={}
         for i=1,4000 do e[((math.floor(i/100)+1)*1024+2*(i%100)+1)*9+5] = (100*256+1)*16384+600 end
         ns.db.paths={zones={[1412]={e=e}},total=4000}
+        e["broken"] = false
         local sent=#c.sent
         ns.OpenWaysDonation()
         local f=assert(_G.GathercraftWaysDonation)
@@ -36,11 +37,16 @@ return function(c)
         assert(f.edit.focus and f.edit.highlight, "initial focus/selection")
         for _=1,10000 do local update=f:GetScript("OnUpdate") if not update then break end update(f,1/60) end
         assert(f.parts and #f.parts>1 and not f.job, "did not finish/release job")
+        local function Skipped(n)
+            return ns.L["Skipped damaged path pieces: %d"]:format(n)
+        end
+        assert(f.skipped:GetText() == Skipped(1), "skipped count missing")
         local text=f.edit:GetText()
         assert(text:match('^GCWAYS2|') and #text<=20000 and f.edit.focus and f.edit.highlight)
         f.edit:SetText("tampered") f.edit:GetScript("OnTextChanged")(f.edit,true)
         assert(f.edit:GetText()==text, "editable export")
         f.next:GetScript("OnClick")(f.next)
+        assert(f.skipped:GetText() == Skipped(1), "lost skipped count on next part")
         assert(f.part==2 and f.edit:GetText()~=text and f.edit.highlight, "next part")
         f.previous:GetScript("OnClick")(f.previous)
         assert(f.part==1 and f.edit:GetText()==text, "previous part")
@@ -53,6 +59,19 @@ return function(c)
         assert(not f.job and not f:GetScript("OnUpdate"), "preparing cannot cancel")
         assert(#c.sent==sent,"donation sent channel traffic")
         assert(ns.db.paths.zones[1412].e==e and ns.db.paths.total==4000,"changed paths")
+        ns.db.paths = {zones={[1412]={e={broken=false}}}}
+        ns.OpenWaysDonation()
+        while f:GetScript("OnUpdate") do f:GetScript("OnUpdate")(f,1/60) end
+        assert(not f.parts and f.skipped:GetText() == Skipped(1) and
+            f.status:GetText() == ns.L["No valid path pieces."], "all-invalid feedback")
+        f:Hide()
+        ns.db.paths = {zones={[1412]={e={}}}}
+        ns.OpenWaysDonation()
+        while f:GetScript("OnUpdate") do f:GetScript("OnUpdate")(f,1/60) end
+        assert(f.skipped:GetText() == "" and f.status:GetText() == ns.L["No paths recorded yet."],
+            "clean empty export retained a warning")
+        f:Hide()
+        ns.db.paths = {zones={[1412]={e=e}}, total=4000}
         -- Login clock, two characters, reload, combat, switch and link gating.
         local now, combat, who=0,false,"Player-TEST-A"
         GetTime=function() return now end InCombatLockdown=function() return combat end
