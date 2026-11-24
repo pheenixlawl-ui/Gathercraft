@@ -50,7 +50,7 @@ local function Scan(j)
         j.zone, j.edges, j.key, j.zoneRows = zone, z.e, nil, 0
         return
     end
-    if j.zones[j.zone] == nil or j.zones[j.zone].e ~= j.edges then Fail(j, "changed") return end
+    if type(j.zones[j.zone]) ~= "table" or j.zones[j.zone].e ~= j.edges then Fail(j, "changed") return end
     local ok, key, value = pcall(next, j.edges, j.key)
     if not ok then Fail(j, "changed") return end
     if key == nil then j.edges, j.key = nil, nil return end
@@ -67,11 +67,12 @@ local function Scan(j)
         or count == 0 or falls > count or swims > count then Fail(j, "data") return end
     j.count, j.zoneRows = j.count + 1, j.zoneRows + 1
     if j.count > MAX_ROWS or j.zoneRows > MAX_ZONE then Fail(j, "limit") return end
-    j.rows[j.count] = { zone = j.zone, key = key, x = x, y = y, dir = dir,
-        count = count, cost = cost, falls = falls, swims = swims }
+    -- Three array slots instead of a hash table with nine named fields.
+    -- Keep only the counters/cost; the recorded day is no longer present.
+    j.rows[j.count] = { j.zone, key, floor(value / 16384) }
     j.key = key
 end
-local function Before(a, b) return a.zone < b.zone or a.zone == b.zone and a.key < b.key end
+local function Before(a, b) return a[1] < b[1] or a[1] == b[1] and a[2] < b[2] end
 local function Sort(j)
     -- Bottom-up merge sort, one output slot per unit. Never table.sort on a
     -- whole 30,000-piece snapshot in one frame.
@@ -118,10 +119,15 @@ local function Encode(j)
         j.whole, j.at, j.phase = Hex(j.a, j.b), 1, "headers"
         return
     end
-    local zone = row.zone ~= j.lastZone and ("Z,%d\n"):format(row.zone) or ""
-    local line = ("E,%d,%d,%d,%d,%d,%d,%d\n"):format(row.x, row.y, row.dir, row.count, row.cost, row.falls, row.swims)
+    local zone = row[1] ~= j.lastZone and ("Z,%d\n"):format(row[1]) or ""
+    local dir = row[2] % 9
+    local cell = (row[2] - dir) / 9
+    local v = row[3]
+    local count = v % 256 v = floor(v / 256)
+    local cost = v % 1024 v = floor(v / 1024)
+    local line = ("E,%d,%d,%d,%d,%d,%d,%d\n"):format(cell % 1024, floor(cell / 1024), dir, count, cost, v % 256, floor(v / 256))
     if j.size + #zone + #line > PAYLOAD then Flush(j) return end
-    if zone ~= "" then Append(j, zone) j.lastZone = row.zone end
+    if zone ~= "" then Append(j, zone) j.lastZone = row[1] end
     Append(j, line)
     j.at = j.at + 1
 end
@@ -138,12 +144,12 @@ function D.Step(j)
     local start = debugprofilestop()
     -- Leave room for caller/UI overhead under the 0.5 ms frame target.
     -- One unit is one record/merge slot/short line or <=19,800-byte copy.
-    for _ = 1, 64 do
+    for _ = 1, 2048 do
         if j.phase == "scan" then Scan(j)
         elseif j.phase == "sort" then Sort(j)
         elseif j.phase == "encode" then Encode(j)
         else Headers(j) end
-        if j.done or j.error or debugprofilestop() - start >= 0.30 then break end
+        if j.done or j.error or debugprofilestop() - start >= 0.15 then break end
     end
     local elapsed = debugprofilestop() - start
     j.maxMS = math.max(j.maxMS, elapsed) j.frames = j.frames + 1

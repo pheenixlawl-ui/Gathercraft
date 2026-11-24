@@ -31836,7 +31836,7 @@ step("Ways donation: canonical own pieces, no private fields, bounds and sliced 
     assert(loadfile(ROOT .. "/tools/ways_donation_test.lua"))()("codec", {ns=ns})
 end)
 step("Ways donation: copy window, focus, Escape, hint once per character, no channel traffic", function()
-    assert(loadfile(ROOT .. "/tools/ways_donation_ui_test.lua"))()({ns=ns,fire=fire,sent=sentMessages})
+    assert(loadfile(ROOT .. "/tools/ways_donation_ui_test.lua"))()({ns=ns,fire=fire,sent=sentMessages,slash=slash})
 end)
 step("Ways donation: no form hides the button, all nine translations and unchanged idle data", function()
     local keys = {

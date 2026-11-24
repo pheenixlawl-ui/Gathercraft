@@ -102,6 +102,10 @@ local function Update(f)
     if j.error then
         f.status:SetText(L[j.error == "empty" and "No paths recorded yet." or "Could not prepare the ways. Close this window and try again."])
         f.job = nil f:SetScript("OnUpdate", nil)
+    elseif j.done and not j.ready then
+        -- Text layout/selection gets a fresh frame, not what is left of an
+        -- encoding slice. WoW's actual EditBox layout is checked live.
+        j.ready = true
     elseif j.done then
         f.parts, f.job = j.parts, nil
         f:SetScript("OnUpdate", nil)

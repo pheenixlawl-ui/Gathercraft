@@ -30,6 +30,22 @@ return function(mode, c)
         assert(p.zones[1412].e[Key(1,2,5)] == Pack(2,123,1,0,317), "source changed")
         local p2 = { zones = { [1412] = p.zones[1412], [1413] = p.zones[1413] } }
         assert(table.concat(Finish(p2).parts) == text, "noncanonical output")
+        p2 = { zones = {
+            [1412] = { e = { [Key(1, 2, 5)] = Pack(2, 123, 1, 0, 999) } },
+            [1413] = { e = { [Key(8, 10, 0)] = Pack(255, 1023, 254, 253, 0) } },
+        } }
+        assert(table.concat(Finish(p2).parts) == text, "a recorded day leaked into the export")
+        local clock, ms = debugprofilestop, 0
+        debugprofilestop = function() ms = ms + 0.01 return ms end
+        local timed={zones={[1412]={e={}}}}
+        for i=1,64 do timed.zones[1412].e[Key(i,2,5)]=Pack(1,100,0,0,1) end
+        local sliced=D.New(timed,"0.2.3-a13","0123456789abcdef")
+        repeat
+            local start=ms; D.Step(sliced)
+            assert(ms-start < 0.5,"slice does not consult the clock")
+        until sliced.done or sliced.error
+        debugprofilestop=clock
+        assert(sliced.done)
         local bad = D.New({zones={[1412]={e={[Key(1,2,4)]=Pack(1,100,0,0,1)}}}}, "0.2.3-a13", "0123456789abcdef")
         repeat D.Step(bad) until bad.done or bad.error
         assert(bad.error, "self direction accepted")

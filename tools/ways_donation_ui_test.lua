@@ -13,7 +13,7 @@ return function(c)
     end
     local ok, err = pcall(function()
         ns.WaysDonationFormURL = ""
-        ns.OpenWaysDonation()
+        if c.slash then c.slash("shareways") else ns.OpenWaysDonation() end
         assert(not _G.GathercraftWaysDonation or not _G.GathercraftWaysDonation:IsShown(), "window without link")
         assert(not ns.WaysDonationLink(), "empty link accepted")
         ns.WaysDonationFormURL = "https://example.invalid/manual-form"
@@ -74,6 +74,12 @@ return function(c)
             ns.WaysDonationHintSet(true) tick(245) assert(lines==2,"other character hint")
             who="Player-TEST-C" ns.WaysDonationFormURL="" c.fire("PLAYER_LOGIN")
             tick(1000) assert(lines==2 and not hint:GetScript("OnUpdate"),"no-link hint/idle work")
+            ns.WaysDonationFormURL="https://example.invalid/manual-form"
+            c.fire("PLAYER_LOGIN")
+            ns.db.paths.total=1999
+            tick(1060) assert(lines==2,"hint before 2000 pieces")
+            ns.db.paths.total=2000
+            tick(1065) assert(lines==3,"hint at 2000 pieces")
         end)
         ns.Print=oldPrint assert(good,why)
     end)
