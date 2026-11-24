@@ -20,9 +20,15 @@ return function(c)
         CreateFrame = function(kind,...)
             local f = oldCreate(kind,...)
             if kind == "EditBox" then
-                f.SetFocus=function(self) self.focus=true end
+                f.SetFocus=function(self)
+                    self.focus=true
+                    self.focusCalls=(rawget(self,"focusCalls") or 0)+1
+                end
                 f.ClearFocus=function(self) self.focus=false end
-                f.HighlightText=function(self) self.highlight=true end
+                f.HighlightText=function(self)
+                    self.highlight=true
+                    self.selectionCalls=(rawget(self,"selectionCalls") or 0)+1
+                end
             end
             return f
         end
@@ -34,15 +40,21 @@ return function(c)
         ns.OpenWaysDonation()
         local f=assert(_G.GathercraftWaysDonation)
         assert(f:IsShown() and f.job and not f.job.done, "did not open immediately preparing")
-        assert(f.edit.focus and f.edit.highlight, "initial focus/selection")
-        for _=1,10000 do local update=f:GetScript("OnUpdate") if not update then break end update(f,1/60) end
+        for _=1,10000 do
+            local update=f:GetScript("OnUpdate")
+            if not update then break end
+            assert(not rawget(f.edit,"focus") and not rawget(f.edit,"selectionCalls"),
+                "export took keyboard focus or selected text during preparation")
+            assert(not f.edit:IsShown(), "empty export field can receive clicks")
+            update(f,1/60)
+        end
         assert(f.parts and #f.parts>1 and not f.job, "did not finish/release job")
         local function Skipped(n)
             return ns.L["Skipped damaged path pieces: %d"]:format(n)
         end
         assert(f.skipped:GetText() == Skipped(1), "skipped count missing")
         local text=f.edit:GetText()
-        assert(text:match('^GCWAYS2|') and #text<=20000 and f.edit.focus and f.edit.highlight)
+        assert(f.edit:IsShown() and text:match('^GCWAYS2|') and #text<=20000 and f.edit.focus and f.edit.highlight)
         f.edit:SetText("tampered") f.edit:GetScript("OnTextChanged")(f.edit,true)
         assert(f.edit:GetText()==text, "editable export")
         f.next:GetScript("OnClick")(f.next)
@@ -55,13 +67,18 @@ return function(c)
         f.link:GetScript("OnEscapePressed")(f.link)
         assert(not f:IsShown() and not f.edit.focus and not f.link.focus, "Escape/focus")
         assert(not f.parts and not f.job and f.edit:GetText()=="" and f.link:GetText()=="", "retained export")
-        ns.OpenWaysDonation() f.edit:GetScript("OnEscapePressed")(f.edit)
+        local calls, selections = f.edit.focusCalls, f.edit.selectionCalls
+        ns.OpenWaysDonation()
+        assert(not f.edit.focus and not f.edit:IsShown() and f.edit.focusCalls == calls
+            and f.edit.selectionCalls == selections, "reopening took focus before the export was ready")
+        f.edit:GetScript("OnEscapePressed")(f.edit)
         assert(not f.job and not f:GetScript("OnUpdate"), "preparing cannot cancel")
         assert(#c.sent==sent,"donation sent channel traffic")
         assert(ns.db.paths.zones[1412].e==e and ns.db.paths.total==4000,"changed paths")
         ns.db.paths = {zones={[1412]={e={broken=false}}}}
         ns.OpenWaysDonation()
         while f:GetScript("OnUpdate") do f:GetScript("OnUpdate")(f,1/60) end
+        assert(not f.edit.focus and not f.edit:IsShown() and f.edit.focusCalls == calls, "failed export took focus")
         assert(not f.parts and f.skipped:GetText() == Skipped(1) and
             f.status:GetText() == ns.L["No valid path pieces."], "all-invalid feedback")
         f:Hide()

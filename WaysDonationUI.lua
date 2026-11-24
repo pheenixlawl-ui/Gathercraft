@@ -24,6 +24,7 @@ local function Part(f, number)
     f.part = number
     f.status:SetText((L["Part %d of %d"]):format(number, #f.parts))
     Enable(f.previous, number > 1) Enable(f.next, number < #f.parts)
+    f.edit:Show()
     Select(f.edit, f.parts[number])
 end
 local function NewWindow()
@@ -126,12 +127,12 @@ function ns.OpenWaysDonation()
     if not url then ns.Print(L["The form is not ready yet"]) return end
     window = window or NewWindow()
     window:Hide() -- a second export releases the first one
+    window.edit:Hide() -- The empty scroll child must not capture movement keys or clicks.
     window:Show()
     Enable(window.previous, false) Enable(window.next, false)
     window.skipped:SetText("")
     window.status:SetText(L["Preparing..."])
     window.link.expected = url window.link:SetText(url)
-    Select(window.edit, "")
     local id = ("%04x%04x%04x%04x"):format(math.random(0, 65535), math.random(0, 65535), math.random(0, 65535), math.random(0, 65535))
     local get = C_AddOns and C_AddOns.GetAddOnMetadata or GetAddOnMetadata
     local version = get and get(ADDON_NAME, "Version") or "0.2.3-a13"
