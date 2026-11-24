@@ -16205,6 +16205,74 @@ step("Route 0.2.4: a plan's 2-opt and Untangle in bites - the target at once (as
     advance(1)
     if not ok then error(err, 0) end
 end)
+step("Route 0.2.4: a bite decides by the time of now - after 2-opt the take-over with Prune, and Untangle's first row, start only while a row still fits the frame; time that goes by inside Prune, the lists and the lengths is counted, Show's from its first step (0.2.4 r1, Codex H-M1)", function()
+    local Z = 1441
+    local R = ns.RouteRefine()
+    local saved = { map = player.map, x = player.x, y = player.y, list = ns.db.nodes[Z], clock = ns.RouteClock, getTime = GetTime,
+        refine = ns.RouteTune.refine, sqrt = math.sqrt }
+    local CLK, COST, FRAME = 0, 0.0015, 5000
+    local function Node(x, y) return { name = "Peacebloom", type = "herb", id = "o1618", x = x, y = y, count = 1, last = time() - 86400 } end
+    local ok, err = pcall(function()
+        -- 100 points on a band to the east, in an order with crossings for 2-opt and Untangle
+        local list = {}
+        local seed = 17
+        local function Rand() seed = (seed * 1103515245 + 12345) % 2147483648 return seed / 2147483648 end
+        for i = 1, 100 do list[i] = Node(0.3 + 0.6 * Rand(), 0.3 + 0.4 * Rand()) end
+        ns.db.nodes[Z] = list
+        ns.NotifyNodesChanged()
+        player.map, player.x, player.y = Z, 0.2, 0.5
+        ns.RouteTune.refine = true
+        GetTime = function() return FRAME end
+        ns.RouteClock = function() return CLK end -- (the plan itself takes no time here)
+        ns.StartRun("herb", Z) advance(1)
+        local run = ns.run
+        assert(run and #run.points == 100, "test setup: a run with the 100 points")
+        run.target, run.targetPoint = nil, nil
+        ns.RouteReplan()
+        local job = R.job
+        assert(job and job.phase == 1 and #job.opt.t >= 50, "test setup: bites to come")
+        -- from now on every square root costs the test's clock 0.0015 ms: Prune, the rows of 2-opt
+        -- and Untangle and Show's lengths take time where they work, not where the clock is read
+        math.sqrt = function(x) CLK = CLK + COST return saved.sqrt(x) end
+        -- 1. 2-opt at the end of its budget: its next row ends it, then the take-over and Untangle
+        job.opt.used = job.opt.budget
+        FRAME = FRAME + 1
+        local t0 = CLK
+        R.Step()
+        local first = CLK - t0
+        assert(R.lastRow > 0.05, ("test setup: a row takes time (%.3f ms)"):format(R.lastRow))
+        assert(first <= R.FRAME_MS + 1e-9, ("a bite went on after its frame's limit: %.3f ms (Codex' probe: 1.476 ms)"):format(first))
+        -- 2. every later bite keeps to the limit too (with the time of a row known, nothing starts that
+        -- would not fit), up to the improved path being shown
+        local most, bites = first, 1
+        while R.job and job.phase ~= 4 and bites < 400 do
+            FRAME = FRAME + 1
+            t0 = CLK
+            R.Step()
+            local spent = CLK - t0
+            if spent > most then most = spent end
+            bites = bites + 1
+        end
+        assert(R.job and job.phase == 4, "test setup: Untangle is done: " .. tostring(job.phase) .. " after " .. bites .. " bites")
+        assert(most <= R.FRAME_MS + 1e-9, ("a bite over the frame's limit: %.3f ms"):format(most))
+        -- 3. Show, in a frame of its own: all of its work is counted - the lists and the lengths too
+        FRAME = FRAME + 1
+        t0 = CLK
+        R.Step()
+        local show = CLK - t0
+        assert(not R.job, "test setup: shown")
+        assert(R.frameAt == FRAME and R.frameMs >= show - 1e-9, ("Show's work not all counted: %.3f ms of %.3f"):format(R.frameAt == FRAME and R.frameMs or -1, show))
+    end)
+    math.sqrt = saved.sqrt
+    if ns.run then ns.StopRun(true) end
+    GetTime, ns.RouteClock, ns.RouteTune.refine = saved.getTime, saved.clock, saved.refine
+    ns.db.nodes[Z] = saved.list
+    ns.NotifyNodesChanged()
+    player.map, player.x, player.y = saved.map, saved.x, saved.y
+    advance(1)
+    if not ok then error(err, 0) end
+end)
+
 step("Settings: no game setting is changed in combat - the gathering help and the bobber settings follow at the end of the fight (v0.1.22 R1, combat)", function()
     -- Sven, 13.11.2026 (live, 0.1.22 a62cefe): the questing mode switched on
     -- in a fight - "[ADDON_ACTION_BLOCKED] AddOn 'Gathercraft' tried to call

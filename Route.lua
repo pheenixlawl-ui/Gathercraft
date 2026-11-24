@@ -1902,33 +1902,23 @@ function Refine.Step()
     local t0 = clock()
     local deadline = t0 + avail
     Refine.lastNow, Refine.lastRow = t0, 0
+    -- (0.2.4 r1, Codex H-M1) What comes next is decided by the time of now, against the last
+    -- row's time (job.row, kept for the job): the take-over with Prune is work of its own
+    -- (phase 2), at the start of a bite (it costs about two rows; a guess of its time would be
+    -- one more thing to go wrong); Untangle's first row after it only while a row still fits.
     while true do
         if job.phase == 1 then
-            if not Refine.Opt(job.opt, deadline) then break end
-            do
-                -- Prune, as after PlanPath's 2-opt: what follows the kept
-                -- target from it, or the whole path from you
-                local t = job.opt.t
-                local list = Refine.Take(2)
-                for i = 2, #t do list[#list + 1] = t[i] end
-                local u = Refine.Take(1)
-                u[1] = job.me
-                if job.keep then
-                    list = Prune(list, job.target.wx, job.target.wy)
-                    u[2] = job.target
-                    for i = 1, #list do u[i + 2] = list[i] end
-                else
-                    list = Prune(list, job.px, job.py)
-                    for i = 1, #list do u[i + 1] = list[i] end
-                end
-                -- Untangle: from you, the target fixed
-                job.opt = { t = u, first = 2, i = 2, improved = false, used = 0, budget = job.budget }
-                job.phase = 3
-            end
-            -- Untangle in this frame only when a row of it still fits
-            if Refine.lastNow + Refine.lastRow >= deadline then break end
+            local done = Refine.Opt(job.opt, deadline)
+            job.row = Refine.lastRow > 0 and Refine.lastRow or job.row or 0
+            if done then job.phase = 2 end
+            break
+        elseif job.phase == 2 then
+            Refine.TakeOver(job)
+            job.phase = 3
+            if clock() + (job.row or 0) >= deadline then break end
         elseif job.phase == 3 then
             if Refine.Opt(job.opt, deadline) then job.phase = 4 end
+            job.row = Refine.lastRow > 0 and Refine.lastRow or job.row or 0
             break
         else
             break
@@ -1941,14 +1931,40 @@ function Refine.Step()
     if Refine.frameMs > Refine.stats.maxFrame then Refine.stats.maxFrame = Refine.frameMs end
 end
 
--- The improved path replaces the quick one: one change of the line
+-- Prune, as after PlanPath's 2-opt: what follows the kept target from it,
+-- or the whole path from you; then Untangle's list, from you, the target
+-- fixed. (0.2.4 r1, Codex H-M1) a piece of work of its own, phase 2.
+function Refine.TakeOver(job)
+    local t = job.opt.t
+    local list = Refine.Take(2)
+    for i = 2, #t do list[#list + 1] = t[i] end
+    local u = Refine.Take(1)
+    u[1] = job.me
+    if job.keep then
+        list = Prune(list, job.target.wx, job.target.wy)
+        u[2] = job.target
+        for i = 1, #list do u[i + 2] = list[i] end
+    else
+        list = Prune(list, job.px, job.py)
+        for i = 1, #list do u[i + 1] = list[i] end
+    end
+    job.opt = { t = u, first = 2, i = 2, improved = false, used = 0, budget = job.budget }
+end
+
+-- The improved path replaces the quick one: one change of the line.
+-- (0.2.4 r1, Codex H-M1) its work counts from the first step on, also when
+-- the order is the same and nothing is drawn.
 function Refine.Show(job)
+    local t0 = Refine.Clock()
     local run = job.run
     local t = job.opt.t
     local path = job.quick
     Refine.job = nil
     Refine.frame:Hide()
-    if t[2] ~= job.target or run.target ~= job.target.node or run.path ~= path then return Refine.Drop("the target or the path is another") end
+    if t[2] ~= job.target or run.target ~= job.target.node or run.path ~= path then
+        Refine.Note(Refine.Clock() - t0)
+        return Refine.Drop("the target or the path is another")
+    end
     -- written into the quick path's list (the run's path): no new list; the
     -- same order as the quick path: nothing to show again
     local n, old = #t - 1, #path
@@ -1960,6 +1976,7 @@ function Refine.Show(job)
     for i = old, n + 1, -1 do path[i] = nil end
     if same then
         Refine.stats.done, Refine.stats.same = Refine.stats.done + 1, Refine.stats.same + 1
+        Refine.Note(Refine.Clock() - t0)
         return
     end
     local length, cx, cy = 0, job.px, job.py
@@ -1967,7 +1984,6 @@ function Refine.Show(job)
         length = length + WDist(cx, cy, p.wx, p.wy)
         cx, cy = p.wx, p.wy
     end
-    local t0 = Refine.Clock()
     run.path, run.length = path, length
     run.zones = CountZones(path)
     run.targetPoint = path[1]
