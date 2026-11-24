@@ -102,6 +102,20 @@ return function(mode, c)
         end
         local large, frames = Finish(huge)
         assert(large.count == 30000 and #large.parts > 1 and frames > 100, "not sliced/multipart")
+        -- Reference parts from the independent Python codec, decoded back to all
+        -- 30,000 expected records in test_ways_donation.py. Pin the test header
+        -- (version and ID) independently of the current addon build.
+        local reference = assert(io.open((c.root or arg[1]) .. "/tools/gcways2-snake.txt", "r"))
+        local canonical = reference:read("*a"):gsub("\r\n", "\n")
+        reference:close()
+        local offset = 1
+        for number, part in ipairs(large.parts) do
+            local boundary = canonical:find("GCWAYS2|", offset + 1, true) or (#canonical + 1)
+            assert(part == canonical:sub(offset, boundary - 1),
+                "GCWAYS2 decoder reference differs in part " .. number)
+            offset = boundary
+        end
+        assert(offset == #canonical + 1, "missing GCWAYS2 reference part")
         local chars=0
         for _, part in ipairs(large.parts) do
             assert(#part<=20000,"part too long")

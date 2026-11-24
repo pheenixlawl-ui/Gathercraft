@@ -20,6 +20,12 @@ for zone, count in zip(range(1401, 1405), (8000, 8000, 8000, 6000)):
 assert len(data['records']) == len(expected) == 30000
 assert set(data['records']) == expected
 assert codec.encode(data['records'], data['addon_version'], data['donation_id']) == ordered
+# The regular Lua smoke test consumes these same canonical bytes. Check their
+# provenance here as well, including reconstruction of the entire route.
+reference = Path(__file__).with_name('gcways2-snake.txt').read_text(encoding='ascii')
+reference_parts = ['GCWAYS2|' + piece for piece in reference.split('GCWAYS2|')[1:]]
+assert codec.encode(expected, '0.2.3-a13', '0123456789abcdef') == reference_parts
+assert set(codec.decode(reference_parts)[0]['records']) == expected
 assert codec.decode(parts + [parts[0]])[0] == data
 assert codec.decode([p.replace('\n','\r\n') for p in parts])[0] == data
 
