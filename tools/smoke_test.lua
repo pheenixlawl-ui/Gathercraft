@@ -13759,6 +13759,9 @@ step("Paths: /gcr paths diag on - one line in chat for every time in the air, at
         W.falling = true W.Step(3.5, 0) W.Step(3.5, 0) W.falling = false W.Step(3.5, 0)
         assert(#Lines(mark) == 0, "a line while the diagnosis is off")
         ns.PathsCommand("diag on")
+        -- on: the switch is in no saved table either
+        for k in pairs(ns.db.paths) do assert(not tostring(k):find("diag"), "the diagnosis is saved: " .. tostring(k)) end
+        for k in pairs(ns.db) do assert(not tostring(k):lower():find("diag"), "the diagnosis is saved: " .. tostring(k)) end
         -- a jump seen at two looks: one line at the landing - 2 looks, 0.50 s seen, no fall
         mark = #log
         W.falling = true W.Step(3.5, 0) W.Step(3.5, 0) W.falling = false W.Step(3.5, 0)
@@ -16314,6 +16317,7 @@ step("Route 0.2.4: a bite decides by the time of now - after 2-opt the take-over
         local show = CLK - t0
         assert(not R.job, "test setup: shown")
         assert(R.frameAt == FRAME and R.frameMs >= show - 1e-9, ("Show's work not all counted: %.3f ms of %.3f"):format(R.frameAt == FRAME and R.frameMs or -1, show))
+        assert(R.frameMs <= show + 1e-9, ("Show counted more than it did: %.3f ms of %.3f"):format(R.frameMs, show))
     end)
     math.sqrt = saved.sqrt
     if ns.run then ns.StopRun(true) end
