@@ -4,7 +4,7 @@ local Wrap = ns.PerfWrap or function(_, fn) return fn end
 
 -- Set only from Sven's supplied form address at build time. An empty value
 -- deliberately disables the button, export command and one-time invitation.
-ns.WaysDonationFormURL = ""
+ns.WaysDonationFormURL = "https://docs.google.com/forms/d/e/1FAIpQLSdVQaOSmH6xq2z_RS_vB8jT1TyDKdBqE5s2ZqlfDZzwLvPNZA/viewform"
 function ns.WaysDonationLink()
     local url = ns.WaysDonationFormURL
     if type(url) == "string" and #url <= 2048 and url:match('^https://[^%s|"<>]+$') then return url end
