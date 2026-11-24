@@ -34098,6 +34098,62 @@ step("Ways 0.2.4: the line's head follows the way - its own dots at fixed places
     if not ok then error(err, 0) end
 end)
 
+step("Ways 0.2.4: a reader that comes before the head's tick - in another zone, on a world map opened there, in another instance or while your place cannot be read - gets no way: the way shown is taken back by the read itself, in the same frame (0.2.4 r1, Codex S1-M1)", function()
+    local W = WAYS.World(WAYS.U())
+    local T = WAYS.Pins()
+    local HBD = LibStub("HereBeDragons-2.0")
+    local world = HBD.GetPlayerWorldPosition
+    local ok, err = pcall(function()
+        local A = W.Node(10, 20)
+        WorldMapFrame:Hide()
+        W.At(10, 10)
+        local run = W.Run({ A })
+        local function Shown(what)
+            HBD.GetPlayerWorldPosition = world
+            W.At(10, 10)
+            advance(1)
+            local r = W.Read()
+            assert(r.state == "net" and ns.WaysSource(run) == ns.L["Path: your ridden ways"], "test setup (" .. what .. "): a way of the net is shown: " .. r.state)
+        end
+        -- no time goes by after the change: the head's tick has not seen it yet, only the reader does
+        local function Gone(what)
+            local r = W.Read()
+            assert(r.state ~= "net" and (r.n or 0) == 0, what .. ": the reader still gets the old way (" .. r.state .. ")")
+            assert(ns.WaysSource(run) ~= ns.L["Path: your ridden ways"], what .. ": the run window still names the old way")
+            local ax = ns.WaysArrow(run, W.Where())
+            assert(ax == nil, what .. ": the arrow still follows the old way")
+        end
+        -- 1. another zone (one with a size of its own in this world)
+        Shown("zone")
+        player.map = W.Z + 1
+        Gone("another zone")
+        -- 2. the world map opened in the other zone: what it draws on opening shows nothing of the old way
+        Shown("map")
+        player.map = W.Z + 1
+        WorldMapFrame:Show()
+        assert(#T.Seen("world") == 0, "the world map opened in another zone shows the old way: " .. #T.Seen("world") .. " dots")
+        Gone("the map opened")
+        WorldMapFrame:Hide()
+        -- 3. another instance
+        Shown("instance")
+        HBD.GetPlayerWorldPosition = function(...)
+            local x, y = world(...)
+            return x, y, 2
+        end
+        Gone("another instance")
+        -- 4. your place cannot be read for a moment
+        Shown("unreadable")
+        HBD.GetPlayerWorldPosition = function() return nil end
+        Gone("a place that cannot be read")
+        -- 5. readable again, in the zone, in the instance: the way comes back with the next ticks
+        Shown("back again")
+    end)
+    HBD.GetPlayerWorldPosition = world
+    WorldMapFrame:Hide()
+    T.Done()
+    W.Done()
+    if not ok then error(err, 0) end
+end)
 step("Ways 0.2.4: a way that is taken back is unseen in the same frame, on both maps, however full the frame was (1.0 ms for all of S1, 0.25 ms of it kept back for this); a map opened later shows nothing of it; its dots come off the maps in later frames; a new way is drawn from you outwards (S1 W4, Codex R3-M1 and R4-N2)", function()
     local Near = WAYS.Near
     local e, squares = {}, {}

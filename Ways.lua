@@ -1453,7 +1453,21 @@ local function Wanted(run)
     return not (db.routeLineHidden and db.routeLineMiniHidden)
 end
 
--- Is the way shown the way to the run's target of now? (every reader asks this first)
+-- (0.2.4 r1, Codex S1-M1) Where you are now, read as the head's tick reads it: the zone
+-- (the game's map of you while it is the node's zone, else Paths' zone under a continent's
+-- map) and the instance. nil when your place cannot be read. Read anew at every call, not
+-- once a frame: a zone change and a reader in the same frame must not see the old way.
+local function Here(tmap)
+    local px, py, inst
+    if HBD then px, py, inst = HBD:GetPlayerWorldPosition() end
+    if px == nil or AnySecret("ways", px, py, inst) or type(px) ~= "number" or type(py) ~= "number" then return end
+    local mapID = ns.PlayerMap and ns.PlayerMap()
+    if mapID ~= tmap and ns.GetPlayerPos then mapID = ns.GetPlayerPos() end
+    if type(mapID) ~= "number" or AnySecret("ways", mapID) then return end
+    return mapID, inst
+end
+
+-- Is the way shown the way to the run's target of now, from where you are now? (every reader asks this first)
 local function Valid(run)
     if not nav or nav.core.state ~= "net" then return false end
     local tp
@@ -1461,7 +1475,9 @@ local function Valid(run)
     local node = tp and tp.node
     if node and node == nav.node and node == run.target and tp.mapID == nav.tmap and node.x == nav.nx and node.y == nav.ny
         and run.instance == nav.inst and not (ns.db and ns.db.routeWaysOff) then
-        return true
+        -- the context of now: still in the net's zone and the instance the way was found in
+        local mapID, inst = Here(nav.tmap)
+        if mapID == nav.tmap and mapID == net.mapID and inst == nav.inst then return true end
     end
     Withdraw()
     -- (the next tick takes whatever node the run has then for a new one - also the old one again:
