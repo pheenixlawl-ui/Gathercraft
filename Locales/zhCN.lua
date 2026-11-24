@@ -763,4 +763,19 @@ ns.Locales.zhCN = {
     ["Gathercraft perf: already measuring, %d s to go."] = "Gathercraft 性能：已在测量，还剩 %d 秒。",
     ["Press Ctrl+C to copy the perf result:"] = "按 Ctrl+C 复制结果：",
     ["Gathercraft perf: not measuring. /gcr perf on starts a minute."] = "Gathercraft 性能：当前没有测量。/gcr perf on 测量一分钟。",
+
+    -- Manual ways donation (0.2.3).
+    ["Share my ways..."] = "分享我的路径...",
+    ["Help build the path network for everyone. This text contains only the ways you have ridden, as 25-yard steps: no names, no prices, no times, no character. Copy it (Ctrl+C) and paste it into the form at the link below."] = "帮助大家建立路径网络。这段文本只包含你亲自走过的路径，以25码为一段：没有姓名、价格、时间或角色信息。复制（Ctrl+C）后，粘贴到下方链接的表单中。",
+    ["Includes today's ways and this session. Nothing is uploaded by the addon; this is a submission for manual review."] = "包括今天和本次登录的路径。插件不会上传任何内容；提交的数据将由人工审核。",
+    ["Form link (Ctrl+C)"] = "表单链接（Ctrl+C）",
+    ["Part %d of %d"] = "第%d部分，共%d部分",
+    ["Previous part"] = "上一部分",
+    ["Next part"] = "下一部分",
+    ["Preparing..."] = "正在准备...",
+    ["Could not prepare the ways. Close this window and try again."] = "无法准备路径。请关闭此窗口后重试。",
+    ["The form is not ready yet"] = "表单尚未准备好",
+    ["Donation hint in chat"] = "在聊天中提示贡献路径",
+    ["You have recorded %d path steps. Help build the path network for everyone: /gcr shareways (this hint will not show again)"] = "你已记录%d段路径。帮助大家建立路径网络：/gcr shareways（此提示不会再次出现）",
+    ["  /gcr shareways    - copy your ridden ways for the donation form"] = "  /gcr shareways    - 复制自己的路径以提交表单",
 }

@@ -763,4 +763,19 @@ ns.Locales.frFR = {
     ["Gathercraft perf: already measuring, %d s to go."] = "Gathercraft perf : mesure déjà en cours, encore %d s.",
     ["Press Ctrl+C to copy the perf result:"] = "Appuyez sur Ctrl+C pour copier le résultat :",
     ["Gathercraft perf: not measuring. /gcr perf on starts a minute."] = "Gathercraft perf : aucune mesure en cours. /gcr perf on mesure une minute.",
+
+    -- Manual ways donation (0.2.3).
+    ["Share my ways..."] = "Partager mes chemins...",
+    ["Help build the path network for everyone. This text contains only the ways you have ridden, as 25-yard steps: no names, no prices, no times, no character. Copy it (Ctrl+C) and paste it into the form at the link below."] = "Aide à construire le réseau de chemins pour tous. Ce texte contient seulement tes trajets, par pas de 25 yards : aucun nom, prix, horaire ou personnage. Copie-le (Ctrl+C) et colle-le dans le formulaire au lien ci-dessous.",
+    ["Includes today's ways and this session. Nothing is uploaded by the addon; this is a submission for manual review."] = "Inclut les chemins d'aujourd'hui et de cette session. L'addon ne transmet rien ; cet envoi sera vérifié à la main.",
+    ["Form link (Ctrl+C)"] = "Lien du formulaire (Ctrl+C)",
+    ["Part %d of %d"] = "Partie %d sur %d",
+    ["Previous part"] = "Partie précédente",
+    ["Next part"] = "Partie suivante",
+    ["Preparing..."] = "Préparation...",
+    ["Could not prepare the ways. Close this window and try again."] = "Impossible de préparer les chemins. Ferme cette fenêtre et réessaie.",
+    ["The form is not ready yet"] = "Le formulaire n'est pas encore prêt",
+    ["Donation hint in chat"] = "Rappel de contribution dans le chat",
+    ["You have recorded %d path steps. Help build the path network for everyone: /gcr shareways (this hint will not show again)"] = "Tu as enregistré %d tronçons. Aide à construire le réseau pour tous : /gcr shareways (ce rappel ne sera plus affiché)",
+    ["  /gcr shareways    - copy your ridden ways for the donation form"] = "  /gcr shareways    - copier tes chemins pour le formulaire",
 }

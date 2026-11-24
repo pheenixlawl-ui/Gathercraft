@@ -763,4 +763,19 @@ ns.Locales.koKR = {
     ["Gathercraft perf: already measuring, %d s to go."] = "Gathercraft perf: 이미 측정 중입니다. %d초 남았습니다.",
     ["Press Ctrl+C to copy the perf result:"] = "Ctrl+C를 눌러 결과를 복사하세요:",
     ["Gathercraft perf: not measuring. /gcr perf on starts a minute."] = "Gathercraft perf: 측정 중이 아닙니다. /gcr perf on으로 1분 동안 측정합니다.",
+
+    -- Manual ways donation (0.2.3).
+    ["Share my ways..."] = "내 경로 공유...",
+    ["Help build the path network for everyone. This text contains only the ways you have ridden, as 25-yard steps: no names, no prices, no times, no character. Copy it (Ctrl+C) and paste it into the form at the link below."] = "모두를 위한 경로망 만들기에 참여하세요. 이 텍스트에는 직접 이동한 경로만 25야드 단위로 담깁니다. 이름, 가격, 시간, 캐릭터 정보는 없습니다. 복사(Ctrl+C)한 뒤 아래 링크의 양식에 붙여 넣으세요.",
+    ["Includes today's ways and this session. Nothing is uploaded by the addon; this is a submission for manual review."] = "오늘과 이번 접속에서 이동한 경로도 포함됩니다. 애드온은 아무것도 업로드하지 않으며, 제출 자료는 사람이 검토합니다.",
+    ["Form link (Ctrl+C)"] = "양식 링크(Ctrl+C)",
+    ["Part %d of %d"] = "%d번째 부분 / 전체 %d개",
+    ["Previous part"] = "이전 부분",
+    ["Next part"] = "다음 부분",
+    ["Preparing..."] = "준비 중...",
+    ["Could not prepare the ways. Close this window and try again."] = "경로를 준비하지 못했습니다. 창을 닫고 다시 시도하세요.",
+    ["The form is not ready yet"] = "양식이 아직 준비되지 않았습니다",
+    ["Donation hint in chat"] = "채팅에 경로 기부 안내 표시",
+    ["You have recorded %d path steps. Help build the path network for everyone: /gcr shareways (this hint will not show again)"] = "경로 구간 %d개를 기록했습니다. 모두를 위한 경로망 만들기에 참여하세요: /gcr shareways (이 안내는 다시 표시되지 않습니다)",
+    ["  /gcr shareways    - copy your ridden ways for the donation form"] = "  /gcr shareways    - 제출 양식에 쓸 내 경로 복사",
 }

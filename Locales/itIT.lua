@@ -763,4 +763,19 @@ ns.Locales.itIT = {
     ["Gathercraft perf: already measuring, %d s to go."] = "Gathercraft perf: misurazione già in corso, mancano %d s.",
     ["Press Ctrl+C to copy the perf result:"] = "Premi Ctrl+C per copiare il risultato:",
     ["Gathercraft perf: not measuring. /gcr perf on starts a minute."] = "Gathercraft perf: nessuna misurazione in corso. /gcr perf on misura un minuto.",
+
+    -- Manual ways donation (0.2.3).
+    ["Share my ways..."] = "Condividi i miei percorsi...",
+    ["Help build the path network for everyone. This text contains only the ways you have ridden, as 25-yard steps: no names, no prices, no times, no character. Copy it (Ctrl+C) and paste it into the form at the link below."] = "Aiuta a costruire la rete di percorsi per tutti. Questo testo contiene solo i percorsi che hai seguito, in passi di 25 iarde: nessun nome, prezzo, orario o personaggio. Copialo (Ctrl+C) e incollalo nel modulo al link qui sotto.",
+    ["Includes today's ways and this session. Nothing is uploaded by the addon; this is a submission for manual review."] = "Include i percorsi di oggi e di questa sessione. L'addon non carica nulla; il contributo sarà verificato a mano.",
+    ["Form link (Ctrl+C)"] = "Link al modulo (Ctrl+C)",
+    ["Part %d of %d"] = "Parte %d di %d",
+    ["Previous part"] = "Parte precedente",
+    ["Next part"] = "Parte successiva",
+    ["Preparing..."] = "Preparazione...",
+    ["Could not prepare the ways. Close this window and try again."] = "Impossibile preparare i percorsi. Chiudi questa finestra e riprova.",
+    ["The form is not ready yet"] = "Il modulo non è ancora pronto",
+    ["Donation hint in chat"] = "Promemoria dei contributi in chat",
+    ["You have recorded %d path steps. Help build the path network for everyone: /gcr shareways (this hint will not show again)"] = "Hai registrato %d tratti. Aiuta a costruire la rete per tutti: /gcr shareways (questo promemoria non apparirà più)",
+    ["  /gcr shareways    - copy your ridden ways for the donation form"] = "  /gcr shareways    - copia i tuoi percorsi per il modulo",
 }

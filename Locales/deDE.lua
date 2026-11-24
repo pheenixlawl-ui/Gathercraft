@@ -792,4 +792,19 @@ ns.Locales.deDE = {
     ["Gathercraft perf: already measuring, %d s to go."] = "Gathercraft-Leistung: Die Messung läuft schon, noch %d s.",
     ["Press Ctrl+C to copy the perf result:"] = "Mit Strg+C das Messergebnis kopieren:",
     ["Gathercraft perf: not measuring. /gcr perf on starts a minute."] = "Gathercraft-Leistung: Es läuft keine Messung. /gcr perf on misst eine Minute.",
+
+    -- Manual ways donation (0.2.3).
+    ["Share my ways..."] = "Meine Wege spenden...",
+    ["Help build the path network for everyone. This text contains only the ways you have ridden, as 25-yard steps: no names, no prices, no times, no character. Copy it (Ctrl+C) and paste it into the form at the link below."] = "Hilf, das Wegenetz für alle aufzubauen. Dieser Text enthält nur deine gefahrenen Wege in 25-Yard-Schritten: keine Namen, Preise, Zeiten oder Charakterangaben. Kopiere ihn (Strg+C) und füge ihn in das Formular unter dem Link unten ein.",
+    ["Includes today's ways and this session. Nothing is uploaded by the addon; this is a submission for manual review."] = "Enthält auch heutige Wege und diese Sitzung. Das Addon lädt nichts hoch; die Einreichung wird von Hand geprüft.",
+    ["Form link (Ctrl+C)"] = "Formular-Link (Strg+C)",
+    ["Part %d of %d"] = "Teil %d von %d",
+    ["Previous part"] = "Voriger Teil",
+    ["Next part"] = "Nächster Teil",
+    ["Preparing..."] = "Wird vorbereitet...",
+    ["Could not prepare the ways. Close this window and try again."] = "Die Wege konnten nicht vorbereitet werden. Schließe das Fenster und versuche es erneut.",
+    ["The form is not ready yet"] = "Das Formular ist noch nicht bereit",
+    ["Donation hint in chat"] = "Hinweis zur Wegespende im Chat",
+    ["You have recorded %d path steps. Help build the path network for everyone: /gcr shareways (this hint will not show again)"] = "Du hast %d Wegstücke aufgezeichnet. Hilf, das Wegenetz für alle aufzubauen: /gcr shareways (dieser Hinweis erscheint nicht erneut)",
+    ["  /gcr shareways    - copy your ridden ways for the donation form"] = "  /gcr shareways    - gefahrene Wege für das Spendenformular kopieren",
 }

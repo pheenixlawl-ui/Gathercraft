@@ -763,4 +763,19 @@ ns.Locales.esES = {
     ["Gathercraft perf: already measuring, %d s to go."] = "Gathercraft perf: ya se está midiendo, faltan %d s.",
     ["Press Ctrl+C to copy the perf result:"] = "Pulsa Ctrl+C para copiar el resultado:",
     ["Gathercraft perf: not measuring. /gcr perf on starts a minute."] = "Gathercraft perf: no hay ninguna medición. /gcr perf on mide un minuto.",
+
+    -- Manual ways donation (0.2.3).
+    ["Share my ways..."] = "Compartir mis caminos...",
+    ["Help build the path network for everyone. This text contains only the ways you have ridden, as 25-yard steps: no names, no prices, no times, no character. Copy it (Ctrl+C) and paste it into the form at the link below."] = "Ayuda a crear la red de caminos para todos. Este texto solo contiene los caminos que has recorrido, en tramos de 25 yardas: sin nombres, precios, horas ni personaje. Cópialo (Ctrl+C) y pégalo en el formulario del enlace de abajo.",
+    ["Includes today's ways and this session. Nothing is uploaded by the addon; this is a submission for manual review."] = "Incluye los caminos de hoy y de esta sesión. El addon no sube nada; el envío se revisa a mano.",
+    ["Form link (Ctrl+C)"] = "Enlace al formulario (Ctrl+C)",
+    ["Part %d of %d"] = "Parte %d de %d",
+    ["Previous part"] = "Parte anterior",
+    ["Next part"] = "Parte siguiente",
+    ["Preparing..."] = "Preparando...",
+    ["Could not prepare the ways. Close this window and try again."] = "No se pudieron preparar los caminos. Cierra esta ventana e inténtalo de nuevo.",
+    ["The form is not ready yet"] = "El formulario aún no está listo",
+    ["Donation hint in chat"] = "Aviso para aportar caminos en el chat",
+    ["You have recorded %d path steps. Help build the path network for everyone: /gcr shareways (this hint will not show again)"] = "Has registrado %d tramos de camino. Ayuda a crear la red para todos: /gcr shareways (este aviso no volverá a aparecer)",
+    ["  /gcr shareways    - copy your ridden ways for the donation form"] = "  /gcr shareways    - copiar tus caminos para el formulario",
 }

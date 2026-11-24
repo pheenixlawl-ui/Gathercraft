@@ -29742,13 +29742,13 @@ step("Version 0.2.2: the TOC says it, /gcr shows it, the What's new window of 0.
 end)
 -- 0.2.3: test builds under their own marks after the release 0.2.2 - 0.2.3-a1 for 0.2.3 P3, 0.2.3-a2 for P4, 0.2.3-a3 for the P3 R1 fixes, 0.2.3-a4 for /gcr perf on, 0.2.3-a5 for the skill plan fix, 0.2.3-a6 for 0.2.3 set onto 0.2.2, 0.2.3-a7 for the path net's S0, 0.2.3-a8 for the measured map hooks of W5, 0.2.3-a9 for the load of a ride (lauf-last), 0.2.3-a10 for the jump that is no fall (paths), 0.2.3-a11 for the R1 fix of the point store, 0.2.3-a12 for the switches to measure the world map pins (mapdiag).
 -- No What's new window for them: 0.2.3, its changelog and its What's new come with its release commit.
-step("Version 0.2.3-a12: the TOC says it, /gcr shows it, no What's new window after 0.2.3-a11, 0.2.3-a10, 0.2.3-a9, 0.2.3-a8, 0.2.3-a7, 0.2.3-a6, 0.2.3-a5, 0.2.3-a4, 0.2.3-a3, 0.2.3-a2, 0.2.3-a1, 0.2.2, 0.2.2-a8, 0.2.2-a7, 0.2.2-a6, 0.2.2-a5, 0.2.2-a4, 0.2.2-a3, 0.2.2-a2, 0.2.2-a1, 0.2.1, 0.2.1-a1, 0.2.0 or 0.1.23 (0.2.3 mapdiag)", function()
+step("Version 0.2.3-a13: the TOC says it, /gcr shows it, no What's new window after 0.2.3-a12, 0.2.3-a11, 0.2.3-a10, 0.2.3-a9, 0.2.3-a8, 0.2.3-a7, 0.2.3-a6, 0.2.3-a5, 0.2.3-a4, 0.2.3-a3, 0.2.3-a2, 0.2.3-a1, 0.2.2, 0.2.2-a8, 0.2.2-a7, 0.2.2-a6, 0.2.2-a5, 0.2.2-a4, 0.2.2-a3, 0.2.2-a2, 0.2.2-a1, 0.2.1, 0.2.1-a1, 0.2.0 or 0.1.23 (0.2.3 mapdiag)", function()
     local version = toc:match("## Version: ([%w%.%-]+)")
-    assert(version == "0.2.3-a12", "TOC version: " .. tostring(version))
+    assert(version == "0.2.3-a13", "TOC version: " .. tostring(version))
     local function Read(name) local f = assert(io.open(ROOT .. "/" .. name)) local s = f:read("*a") f:close() return s end
     -- "What's new" has no entry for it nor for 0.2.3 yet: the build is not a release; 0.2.2's stays
     local welcome = Read("Welcome.lua")
-    for _, mark in ipairs({ "0.2.3-a1", "0.2.3-a2", "0.2.3-a3", "0.2.3-a4", "0.2.3-a5", "0.2.3-a6", "0.2.3-a7", "0.2.3-a8", "0.2.3-a9", "0.2.3-a10", "0.2.3-a11", "0.2.3-a12", "0.2.3" }) do
+    for _, mark in ipairs({ "0.2.3-a1", "0.2.3-a2", "0.2.3-a3", "0.2.3-a4", "0.2.3-a5", "0.2.3-a6", "0.2.3-a7", "0.2.3-a8", "0.2.3-a9", "0.2.3-a10", "0.2.3-a11", "0.2.3-a12", "0.2.3-a13", "0.2.3" }) do
         assert(not welcome:find('["' .. mark .. '"]', 1, true), "Welcome.lua has a What's new entry for " .. mark)
     end
     assert(welcome:find('["0.2.2"]', 1, true), "the What's new of 0.2.2 is gone")
@@ -29761,14 +29761,14 @@ step("Version 0.2.3-a12: the TOC says it, /gcr shows it, no What's new window af
     local ok, err = pcall(function()
         C_AddOns.GetAddOnMetadata = function(_, field) if field == "Version" then return version end end
         ns.freshInstall = false
-        for _, before in ipairs({ "0.2.3-a11", "0.2.3-a10", "0.2.3-a9", "0.2.3-a8", "0.2.3-a7", "0.2.3-a6", "0.2.3-a5", "0.2.3-a4", "0.2.3-a3", "0.2.3-a2", "0.2.3-a1", "0.2.2", "0.2.2-a8", "0.2.2-a7", "0.2.2-a6", "0.2.2-a5", "0.2.2-a4", "0.2.2-a3", "0.2.2-a2", "0.2.2-a1", "0.2.1", "0.2.1-a1", "0.2.0", "0.1.23" }) do
+        for _, before in ipairs({ "0.2.3-a12", "0.2.3-a11", "0.2.3-a10", "0.2.3-a9", "0.2.3-a8", "0.2.3-a7", "0.2.3-a6", "0.2.3-a5", "0.2.3-a4", "0.2.3-a3", "0.2.3-a2", "0.2.3-a1", "0.2.2", "0.2.2-a8", "0.2.2-a7", "0.2.2-a6", "0.2.2-a5", "0.2.2-a4", "0.2.2-a3", "0.2.2-a2", "0.2.2-a1", "0.2.1", "0.2.1-a1", "0.2.0", "0.1.23" }) do
             local win = _G.GathercraftWhatsNew
             if win then win:Hide() end
             ns.db.lastVersion = before
             ns.WelcomeOnLogin()
             win = _G.GathercraftWhatsNew
             assert(not (win and win:IsShown()), "a What's new window after " .. before)
-            assert(ns.db.lastVersion == "0.2.3-a12", "after " .. before .. " not remembered: " .. tostring(ns.db.lastVersion))
+            assert(ns.db.lastVersion == "0.2.3-a13", "after " .. before .. " not remembered: " .. tostring(ns.db.lastVersion))
         end
     end)
     local win = _G.GathercraftWhatsNew
@@ -31830,6 +31830,50 @@ step("Test mock: OnUpdate runs for the same frames in the same order as going ov
     for _, f in ipairs({ A, B, C, D, E, F }) do f:SetScript("OnUpdate", nil) end
     s = Rounds()
     assert(s == "", "after all are removed: " .. s:sub(1, 12))
+end)
+
+step("Ways donation: canonical own pieces, no private fields, bounds and sliced multipart export", function()
+    assert(loadfile(ROOT .. "/tools/ways_donation_test.lua"))()("codec", {ns=ns})
+end)
+step("Ways donation: copy window, focus, Escape, hint once per character, no channel traffic", function()
+    assert(loadfile(ROOT .. "/tools/ways_donation_ui_test.lua"))()({ns=ns,fire=fire,sent=sentMessages})
+end)
+step("Ways donation: no form hides the button, all nine translations and unchanged idle data", function()
+    local keys = {
+        "Share my ways...", "Donation hint in chat", "The form is not ready yet",
+        "Form link (Ctrl+C)", "Part %d of %d", "Previous part", "Next part", "Preparing...",
+        "Could not prepare the ways. Close this window and try again.",
+        "Help build the path network for everyone. This text contains only the ways you have ridden, as 25-yard steps: no names, no prices, no times, no character. Copy it (Ctrl+C) and paste it into the form at the link below.",
+        "Includes today's ways and this session. Nothing is uploaded by the addon; this is a submission for manual review.",
+        "You have recorded %d path steps. Help build the path network for everyone: /gcr shareways (this hint will not show again)",
+        "  /gcr shareways    - copy your ridden ways for the donation form",
+    }
+    for lang, dict in pairs(ns.Locales) do
+        for _, key in ipairs(keys) do
+            assert(type(dict[key])=="string" and dict[key]~="",lang .. ": missing " .. key)
+            assert(not dict[key]:find("→",1,true) and not dict[key]:find("\\",1,true),lang .. ": forbidden character")
+            local _,a=key:gsub("%%d","") local _,b=dict[key]:gsub("%%d","")
+            assert(a==b,lang .. ": format arguments")
+        end
+    end
+    local keep=ns.WaysDonationFormURL
+    ns.WaysDonationFormURL=""
+    ns.ShowOptionsSection("general") ns.ShowOptionsSection("sync")
+    local found
+    for _, f in ipairs(allFrames) do
+        if f.__kind=="Button" and f:GetText()==ns.L["Share my ways..."] and f:GetParent()~=GathercraftWaysDonation then
+            found=f
+        end
+    end
+    assert(found,"options button missing")
+    assert(not found:IsShown(),"button visible without a form")
+    ns.WaysDonationFormURL="https://example.invalid/manual-form"
+    ns.ShowOptionsSection("general") ns.ShowOptionsSection("sync")
+    assert(found:IsShown(),"button absent with a form")
+    ns.WaysDonationFormURL=keep
+    ns.ShowOptionsSection("general") ns.ShowOptionsSection("sync")
+    ns.WaysDonationHintRefresh()
+    if not keep or keep=="" then assert(not ns.WaysDonationHintFrame:GetScript("OnUpdate"),"idle polling without form") end
 end)
 
 io.write("\n--- errors: " .. #errors .. "\n")

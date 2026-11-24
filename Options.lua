@@ -1201,6 +1201,17 @@ local function Build()
         function() return ns.PathsEnabled ~= nil and ns.PathsEnabled() end,
         function(on) if ns.PathsSetEnabled then ns.PathsSetEnabled(on) end end)
     AddHint("Only on this computer, nothing is sent. Helps routes later.")
+    AddCheck("Donation hint in chat",
+        function() return not ns.db.waysDonationHintOff end,
+        function(on) ns.WaysDonationHintSet(on) end)
+    local share = CreateFrame("Button", nil, page, "UIPanelButtonTemplate")
+    share:SetSize(240, 24)
+    share:SetPoint("TOPLEFT", colX + 6, nextY)
+    ns.LText(share, "Share my ways...")
+    share:SetScript("OnClick", function() ns.OpenWaysDonation() end)
+    share:SetShown(ns.WaysDonationLink() ~= nil)
+    page:HookScript("OnShow", function() share:SetShown(ns.WaysDonationLink() ~= nil) end)
+    nextY = nextY - 28
     -- what sharing did so far, kept up to date while the section is open
     nextY = nextY - 10
     AddHeader("Right now")

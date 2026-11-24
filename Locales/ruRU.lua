@@ -763,4 +763,19 @@ ns.Locales.ruRU = {
     ["Gathercraft perf: already measuring, %d s to go."] = "Gathercraft perf: измерение уже идёт, осталось %d с.",
     ["Press Ctrl+C to copy the perf result:"] = "Нажмите Ctrl+C, чтобы скопировать результат:",
     ["Gathercraft perf: not measuring. /gcr perf on starts a minute."] = "Gathercraft perf: измерение не запущено. /gcr perf on измеряет минуту.",
+
+    -- Manual ways donation (0.2.3).
+    ["Share my ways..."] = "Поделиться моими путями...",
+    ["Help build the path network for everyone. This text contains only the ways you have ridden, as 25-yard steps: no names, no prices, no times, no character. Copy it (Ctrl+C) and paste it into the form at the link below."] = "Помоги создать сеть путей для всех. Этот текст содержит только пройденные тобой пути, отрезками по 25 ярдов: без имён, цен, времени и персонажа. Скопируй его (Ctrl+C) и вставь в форму по ссылке ниже.",
+    ["Includes today's ways and this session. Nothing is uploaded by the addon; this is a submission for manual review."] = "Включает сегодняшние пути и текущий сеанс. Аддон ничего не загружает; отправленные данные проверят вручную.",
+    ["Form link (Ctrl+C)"] = "Ссылка на форму (Ctrl+C)",
+    ["Part %d of %d"] = "Часть %d из %d",
+    ["Previous part"] = "Предыдущая часть",
+    ["Next part"] = "Следующая часть",
+    ["Preparing..."] = "Подготовка...",
+    ["Could not prepare the ways. Close this window and try again."] = "Не удалось подготовить пути. Закрой это окно и попробуй ещё раз.",
+    ["The form is not ready yet"] = "Форма ещё не готова",
+    ["Donation hint in chat"] = "Напоминание о передаче путей в чате",
+    ["You have recorded %d path steps. Help build the path network for everyone: /gcr shareways (this hint will not show again)"] = "Записано %d отрезков пути. Помоги создать сеть для всех: /gcr shareways (это напоминание больше не появится)",
+    ["  /gcr shareways    - copy your ridden ways for the donation form"] = "  /gcr shareways    - скопировать свои пути для формы",
 }
