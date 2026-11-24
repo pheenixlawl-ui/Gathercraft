@@ -5738,7 +5738,7 @@ step("Skill plan 2.0: texts in every language, the release 0.2.0 - its what's ne
     -- which stays for players who skip a version. The changelog holds the
     -- current version only: the 0.2.0 section is in the history (tag v0.2.0).
     -- the changelog is 0.2.2's (0.2.1's is in the history, tag v0.2.1); the TOC says the build's version
-    assert(version == "0.2.3-a12", "TOC version: " .. tostring(version))
+    assert(version == "0.2.3-a13", "TOC version: " .. tostring(version))
     version = "0.2.0"
     -- the two files of building block 2 load last: they read the data files only after login
     assert(toc:gsub("\r", ""):match("\nStarter%.lua\nSpawnCounts%.lua\nItemTooltip%.lua\n?$"), "the TOC does not end with Starter.lua, SpawnCounts.lua, ItemTooltip.lua")
@@ -18080,7 +18080,7 @@ end)
 step("What's new: 0.2.2 after an update, in this language and all translations", function()
     local version = toc:match("## Version: ([%w%.%-]+)")
     -- the release 0.2.2 (Sven, 22.11.2026); a 0.2.3 test build: the TOC says its mark, the window checked is 0.2.2's
-    assert(version == "0.2.3-a12", "TOC version: " .. tostring(version))
+    assert(version == "0.2.3-a13", "TOC version: " .. tostring(version))
     version = "0.2.2"
     assert(toc:match("## Interface: (%d+)") == "16001", "TOC interface changed")
     local f = assert(io.open(ROOT .. "/Welcome.lua"))
@@ -25601,7 +25601,7 @@ step("Farm for plan: every text in nine languages with the same placeholders, th
     -- The order's part 6; concept test 10 (long names in all 11 language
     -- codes). Since the release 0.2.0 the changelog and "What's new" name it.
     local toc = assert(io.open(ROOT .. "/Gathercraft.toc")):read("*a")
-    assert(toc:match("## Version: ([%w%.%-]+)") == "0.2.3-a12", "TOC version: " .. tostring(toc:match("## Version: ([%w%.%-]+)"))) -- (0.2.2)
+    assert(toc:match("## Version: ([%w%.%-]+)") == "0.2.3-a13", "TOC version: " .. tostring(toc:match("## Version: ([%w%.%-]+)"))) -- (0.2.2)
     local function Read(name) return assert(io.open(ROOT .. "/" .. name)):read("*a") end
     local farm = Read("PlanFarm.lua")
     -- ---- the texts: every L["..."] of PlanFarm.lua, the reasons it looks up, and the three in Route.lua and UI.lua
@@ -28343,7 +28343,7 @@ end)
 step("Version 0.2.1: the TOC says it, /gcr shows it, the What's new window of 0.2.1 once after 0.2.0, 0.2.1-a1 or 0.1.23 (0.2.1)", function()
     local version = toc:match("## Version: ([%w%.%-]+)")
     -- the TOC says the build's version (own step); the window checked is 0.2.1's
-    assert(version == "0.2.3-a12", "TOC version: " .. tostring(version))
+    assert(version == "0.2.3-a13", "TOC version: " .. tostring(version))
     version = "0.2.1"
     local function Read(name) local f = assert(io.open(ROOT .. "/" .. name)) local s = f:read("*a") f:close() return s end
     -- "What's new" has the entry of 0.2.1, none for the test build
@@ -29704,7 +29704,7 @@ end)
 step("Version 0.2.2: the TOC says it, /gcr shows it, the What's new window of 0.2.2 once after 0.2.2-a8, 0.2.2-a7, 0.2.2-a6, 0.2.2-a5, 0.2.2-a4, 0.2.2-a3, 0.2.2-a2, 0.2.2-a1, 0.2.1, 0.2.1-a1, 0.2.0 or 0.1.23 (0.2.2)", function()
     local version = toc:match("## Version: ([%w%.%-]+)")
     -- a 0.2.3 test build: the TOC says its mark (own step); the window checked is 0.2.2's
-    assert(version == "0.2.3-a12", "TOC version: " .. tostring(version))
+    assert(version == "0.2.3-a13", "TOC version: " .. tostring(version))
     version = "0.2.2"
     local function Read(name) local f = assert(io.open(ROOT .. "/" .. name)) local s = f:read("*a") f:close() return s end
     -- "What's new" has the entry of 0.2.2, none for a test build
