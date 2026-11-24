@@ -27,8 +27,8 @@ return function(c)
             return f
         end
         local e={}
-        for i=1,2000 do e[((math.floor(i/100)+1)*1024+i%100+1)*9+5] = (100*256+1)*16384+600 end
-        ns.db.paths={zones={[1412]={e=e}},total=2000}
+        for i=1,4000 do e[((math.floor(i/100)+1)*1024+2*(i%100)+1)*9+5] = (100*256+1)*16384+600 end
+        ns.db.paths={zones={[1412]={e=e}},total=4000}
         local sent=#c.sent
         ns.OpenWaysDonation()
         local f=assert(_G.GathercraftWaysDonation)
@@ -37,7 +37,7 @@ return function(c)
         for _=1,10000 do local update=f:GetScript("OnUpdate") if not update then break end update(f,1/60) end
         assert(f.parts and #f.parts>1 and not f.job, "did not finish/release job")
         local text=f.edit:GetText()
-        assert(text:match('^GCWAYS1') and #text<=20000 and f.edit.focus and f.edit.highlight)
+        assert(text:match('^GCWAYS2|') and #text<=20000 and f.edit.focus and f.edit.highlight)
         f.edit:SetText("tampered") f.edit:GetScript("OnTextChanged")(f.edit,true)
         assert(f.edit:GetText()==text, "editable export")
         f.next:GetScript("OnClick")(f.next)
@@ -52,7 +52,7 @@ return function(c)
         ns.OpenWaysDonation() f.edit:GetScript("OnEscapePressed")(f.edit)
         assert(not f.job and not f:GetScript("OnUpdate"), "preparing cannot cancel")
         assert(#c.sent==sent,"donation sent channel traffic")
-        assert(ns.db.paths.zones[1412].e==e and ns.db.paths.total==2000,"changed paths")
+        assert(ns.db.paths.zones[1412].e==e and ns.db.paths.total==4000,"changed paths")
         -- Login clock, two characters, reload, combat, switch and link gating.
         local now, combat, who=0,false,"Player-TEST-A"
         GetTime=function() return now end InCombatLockdown=function() return combat end

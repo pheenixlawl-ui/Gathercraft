@@ -1,11 +1,17 @@
 local _, ns = ...
--- Manual donation format GCWAYS1. No channel, persistent state, clock/day or
+-- Manual donation format GCWAYS2. No channel, persistent state, clock/day or
 -- identity in the encoder. tools/ways_donation.py is its strict reader.
 local D = {}
 ns.WaysDonation = D
 local floor = math.floor
 local MAX_ROWS, MAX_ZONES, MAX_ZONE = 30000, 256, 8000
 local PAYLOAD, MAX_PARTS, MAX_CHARS = 19800, 64, 1280000
+local LINE_LIMIT = 1024
+local GRID, KEY_LIMIT = 1024, 1024 * 1024 * 9
+local ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+local SYMBOL = {}
+for n = 0, 63 do SYMBOL[n] = ALPHABET:sub(n + 1, n + 1) end
+local PATH_DIRS = { 0, 1, 2, 3, 5, 6, 7, 8 }
 local function Int(v, lo, hi)
     if ns.AnySecret and ns.AnySecret("ways donation", v) then return false end
     return type(v) == "number" and v >= lo and v <= hi and v == floor(v)
@@ -18,10 +24,11 @@ local function Hex(a, b) return ("%08x"):format(b * 65536 + a) end
 function D.Checksum(s) return Hex(Sum(s, 1, 0)) end
 local function Fail(j, why)
     j.error = why
-    j.rows, j.buf, j.zones, j.source, j.edges, j.lines, j.parts = nil, nil, nil, nil, nil, nil, nil
+    j.rows, j.buf, j.zones, j.source, j.edges = nil, nil, nil, nil, nil
+    j.steps, j.lines, j.parts = nil, nil, nil
 end
 function D.New(paths, version, id)
-    local j = { phase = "scan", rows = {}, buf = {}, count = 0, zoneCount = 0,
+    local j = { phase = "scan", rows = {}, buf = {}, steps = {}, count = 0, zoneCount = 0,
         version = version, id = id, maxMS = 0, frames = 0 }
     if type(version) ~= "string" or #version > 24 or not version:match("^[%w%.%-]+$")
         or type(id) ~= "string" or #id ~= 16 or not id:match("^[0-9a-f]+$") then
@@ -54,30 +61,35 @@ local function Scan(j)
     local ok, key, value = pcall(next, j.edges, j.key)
     if not ok then Fail(j, "changed") return end
     if key == nil then j.edges, j.key = nil, nil return end
-    if not Int(key, 0, 1024 * 1024 * 9 - 1) or not Int(value, 0, 2 ^ 48 - 1) then Fail(j, "data") return end
+    if not Int(key, 0, KEY_LIMIT - 1) or not Int(value, 0, 2 ^ 48 - 1) then Fail(j, "data") return end
     local dir = key % 9
     local cell = (key - dir) / 9
-    local x, y = cell % 1024, floor(cell / 1024)
+    local x, y = cell % GRID, floor(cell / GRID)
     local dx, dy = dir % 3 - 1, floor(dir / 3) - 1
     local v = floor(value / 16384) -- the recorded day is deliberately discarded
     local count = v % 256 v = floor(v / 256)
     local cost = v % 1024 v = floor(v / 1024)
     local falls, swims = v % 256, floor(v / 256)
-    if dir == 4 or x + dx < 0 or x + dx > 1023 or y + dy < 0 or y + dy > 1023
-        or count == 0 or falls > count or swims > count then Fail(j, "data") return end
+    if dir == 4 or x + dx < 0 or x + dx >= GRID or y + dy < 0 or y + dy >= GRID
+        or count == 0 or cost < 100 or falls > count or swims > count then Fail(j, "data") return end
     j.count, j.zoneRows = j.count + 1, j.zoneRows + 1
     if j.count > MAX_ROWS or j.zoneRows > MAX_ZONE then Fail(j, "limit") return end
-    -- Three array slots instead of a hash table with nine named fields.
-    -- Keep only the counters/cost; the recorded day is no longer present.
-    j.rows[j.count] = { j.zone, key, floor(value / 16384) }
+    -- Numeric index orders zone then Paths key; it fits exactly in a Lua number.
+    -- The lookup keeps only the six wire bits, with no other saved fields.
+    local index = j.zone * KEY_LIMIT + key
+    local direction = dir < 4 and dir or dir - 1
+    local stage = cost < 125 and 0 or cost < 175 and 1 or cost < 250 and 2 or 3
+    local fall = falls >= 1 and falls == count and 1 or 0
+    j.rows[j.count] = index
+    j.steps[index] = direction * 8 + stage * 2 + fall
     j.key = key
 end
-local function Before(a, b) return a[1] < b[1] or a[1] == b[1] and a[2] < b[2] end
 local function Sort(j)
     -- Bottom-up merge sort, one output slot per unit. Never table.sort on a
     -- whole 30,000-piece snapshot in one frame.
     if j.width >= j.count then
         j.phase, j.at, j.parts, j.lines, j.size = "encode", 1, {}, {}, 0
+        j.lineSize = 0
         j.a, j.b, j.pa, j.pb, j.characters = 1, 0, 1, 0, 0
         j.buf = nil
         return
@@ -93,7 +105,7 @@ local function Sort(j)
         j.right = math.min(j.left + 2 * j.width - 1, j.count)
         j.r = j.mid + 1
     end
-    if j.i <= j.mid and (j.r > j.right or Before(j.rows[j.i], j.rows[j.r])) then
+    if j.i <= j.mid and (j.r > j.right or j.rows[j.i] < j.rows[j.r]) then
         j.buf[j.k] = j.rows[j.i] j.i = j.i + 1
     else
         j.buf[j.k] = j.rows[j.r] j.r = j.r + 1
@@ -101,40 +113,73 @@ local function Sort(j)
     j.k = j.k + 1
     if j.k > j.right then j.left, j.i = j.right + 1, nil end
 end
-local function Append(j, line)
-    j.lines[#j.lines + 1] = line j.size = j.size + #line
-    j.a, j.b = Sum(line, j.a, j.b)
-    j.pa, j.pb = Sum(line, j.pa, j.pb)
+local function Append(j, text)
+    j.lines[#j.lines + 1] = text
+    j.size = j.size + #text
+    j.a, j.b = Sum(text, j.a, j.b)
+    j.pa, j.pb = Sum(text, j.pa, j.pb)
 end
 local function Flush(j)
     if #j.parts >= MAX_PARTS then Fail(j, "limit") return end
+    Append(j, "\n")
     j.parts[#j.parts + 1] = { body = table.concat(j.lines), sum = Hex(j.pa, j.pb) }
-    j.lines, j.size, j.pa, j.pb, j.lastZone = {}, 0, 1, 0, nil
+    j.lines, j.size, j.pa, j.pb, j.lastZone, j.lineSize = {}, 0, 1, 0, nil, 0
+end
+local function ChainStart(x, y)
+    local word = (x * GRID + y) * 16
+    return SYMBOL[floor(word / 262144)] .. SYMBOL[floor(word / 4096) % 64]
+        .. SYMBOL[floor(word / 64) % 64] .. SYMBOL[word % 64]
 end
 local function Encode(j)
-    local row = j.rows[j.at]
-    if not row then
+    local index = j.follow or j.rows[j.at]
+    if not index then
         if j.size > 0 then Flush(j) return end
-        j.rows, j.lines = nil, nil
+        j.rows, j.steps, j.lines = nil, nil, nil
         j.whole, j.at, j.phase = Hex(j.a, j.b), 1, "headers"
         return
     end
-    local zone = row[1] ~= j.lastZone and ("Z,%d\n"):format(row[1]) or ""
-    local dir = row[2] % 9
-    local cell = (row[2] - dir) / 9
-    local v = row[3]
-    local count = v % 256 v = floor(v / 256)
-    local cost = v % 1024 v = floor(v / 1024)
-    local line = ("E,%d,%d,%d,%d,%d,%d,%d\n"):format(cell % 1024, floor(cell / 1024), dir, count, cost, v % 256, floor(v / 256))
-    if j.size + #zone + #line > PAYLOAD then Flush(j) return end
-    if zone ~= "" then Append(j, zone) j.lastZone = row[1] end
-    Append(j, line)
-    j.at = j.at + 1
+    local step = j.steps[index]
+    if step == nil then
+        j.at = j.at + 1
+        return
+    end
+    local zone = floor(index / KEY_LIMIT)
+    local key = index % KEY_LIMIT
+    local dir = key % 9
+    local cell = (key - dir) / 9
+    local x, y = cell % GRID, floor(cell / GRID)
+    local sameLine = zone == j.lastZone and j.lineSize + (j.follow and 1 or 6) <= LINE_LIMIT
+    local prefix, separator = "", ""
+    if not sameLine then
+        prefix = ("Z%d:"):format(zone) .. ChainStart(x, y)
+        if j.size > 0 then separator = "\n" end
+    elseif not j.follow then
+        prefix = "." .. ChainStart(x, y)
+    end
+    -- Always reserve the final LF. On a break the unconsumed edge retains
+    -- its place in the traversal and opens the next part with a fresh start.
+    if j.size + #separator + #prefix + 2 > PAYLOAD then Flush(j) return end
+    Append(j, separator .. prefix .. SYMBOL[step])
+    j.lastZone = zone
+    j.lineSize = (sameLine and j.lineSize or 0) + #prefix + 1
+
+    if not j.follow then j.at = j.at + 1 end
+    j.steps[index] = nil
+    j.follow = nil
+    local dx, dy = dir % 3 - 1, floor(dir / 3) - 1
+    local nextCell = zone * KEY_LIMIT + ((y + dy) * GRID + x + dx) * 9
+    for _, nextDir in ipairs(PATH_DIRS) do
+        local nextEdge = nextCell + nextDir
+        if j.steps[nextEdge] ~= nil then
+            j.follow = nextEdge
+            break
+        end
+    end
 end
 local function Headers(j)
     local p = j.parts[j.at]
     if not p then j.done, j.phase = true, nil return end
-    local part = ("GCWAYS1|%s|%s|%d|%d|%s|%s\n"):format(j.version, j.id, j.at, #j.parts, p.sum, j.whole) .. p.body
+    local part = ("GCWAYS2|%s|%s|%d|%d|%s|%s\n"):format(j.version, j.id, j.at, #j.parts, p.sum, j.whole) .. p.body
     j.characters = j.characters + #part
     if #part > 20000 or j.characters > MAX_CHARS then Fail(j, "limit") return end
     j.parts[j.at], j.at = part, j.at + 1
