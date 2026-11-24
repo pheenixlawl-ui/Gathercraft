@@ -135,7 +135,7 @@ function ns.OpenWaysDonation()
     window.link.expected = url window.link:SetText(url)
     local id = ("%04x%04x%04x%04x"):format(math.random(0, 65535), math.random(0, 65535), math.random(0, 65535), math.random(0, 65535))
     local get = C_AddOns and C_AddOns.GetAddOnMetadata or GetAddOnMetadata
-    local version = get and get(ADDON_NAME, "Version") or "0.2.3-a13"
+    local version = get and get(ADDON_NAME, "Version") or "0.2.3-a14"
     window.job = ns.WaysDonation.New(ns.db and ns.db.paths, version, id)
     window:SetScript("OnUpdate", Wrap("WaysDonation", Update))
 end
