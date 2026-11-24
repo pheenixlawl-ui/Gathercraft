@@ -1294,6 +1294,22 @@ local function Spend(ms)
     frameSum = frameSum + ms
     if frameSum > diag.peak then diag.peak = frameSum end
 end
+-- (0.2.4 r1, Codex S1-N1) Every way in from outside counts its own work into the frame's sum,
+-- once: a call made while another one is counting (the run window's line asked for while a
+-- tick tells it the state changed) adds nothing of its own. A count an error left open is
+-- closed at the next frame.
+local inside, insideAt = 0, -1
+local function Enter()
+    local now = GetTime()
+    if now ~= insideAt then insideAt, inside = now, 0 end
+    inside = inside + 1
+    if inside == 1 then return Clock() end
+end
+local function Leave(t0)
+    inside = inside - 1
+    if t0 then Spend(Clock() - t0) end
+end
+local function Outside() return inside <= 0 or insideAt ~= GetTime() end
 
 local ctx        -- the net's lists (nil: none are held)
 local nav        -- the run's navigation (nil: no S1 work)
@@ -1371,7 +1387,7 @@ local BuildAnew, Rebuild
 -- What changed in the pieces (Paths.lua tells it)
 local function OnPaths(mapID, kind)
     if not nav or (mapID and mapID ~= net.mapID) then return end
-    local t0 = Clock()
+    local t0 = Enter()
     if kind == "new" then
         -- a new piece: the copy of a build going on starts again; 50 of them: a new net
         net.fresh = net.fresh + 1
@@ -1389,7 +1405,7 @@ local function OnPaths(mapID, kind)
         nav.asked = false
         if net.mapID then BuildAnew() end
     end
-    Spend(Clock() - t0)
+    Leave(t0)
 end
 
 -- A net from nothing: at the start, in another zone, after pieces changed
@@ -1738,6 +1754,7 @@ local function Step()
 end
 
 local function Work()
+    Enter() -- (its own work is counted below, step by step; what it calls counts nothing of its own)
     local t0 = Clock()
     Frame()
     local now = GetTime()
@@ -1770,6 +1787,7 @@ local function Work()
     end
     if idle then work:Hide() end
     Spend(Clock() - t0)
+    Leave(nil)
 end
 work:SetScript("OnUpdate", Wrap("Ways", Work))
 
@@ -1778,18 +1796,18 @@ work:SetScript("OnUpdate", Wrap("Ways", Work))
 ---------------------------------------------------------------------------
 -- Route.lua, at every head tick of a run (the one place that asks)
 ns.WaysTick = Wrap("Ways", function(run, px, py, instance)
-    local t0 = Clock()
+    local t0 = Enter()
     local state = Tick(run, px, py, instance)
-    Spend(Clock() - t0)
+    Leave(t0)
     return state
 end)
 
 -- A run started or stopped: whatever was found belongs to the run before
 ns.WaysRunChanged = Wrap("Ways", function()
-    local t0 = Clock()
+    local t0 = Enter()
     gen = gen + 1
     Release()
-    Spend(Clock() - t0)
+    Leave(t0)
 end)
 
 -- What is shown now. Always an answer, the same table each time:
@@ -1799,7 +1817,7 @@ end)
 --   source  "net" or "line";  guessed: yards of guessed edges in it;  percent: their share of the way of the net
 --   seg, pos  where you are on it;  serial: counts whenever what is shown changes;  pub: at every new way
 ns.WaysRead = Wrap("Ways", function(run)
-    local t0 = Clock()
+    local t0 = Enter()
     if nav and run == navRun and Valid(run) then
         local b = nav.core.front
         read.state, read.points, read.n, read.yards, read.cost = "net", b, b.n, b.yards, b.cost
@@ -1811,7 +1829,7 @@ ns.WaysRead = Wrap("Ways", function(run)
         read.state, read.points, read.n, read.yards, read.cost = state, nil, 0, 0, 0
         read.source, read.guessed, read.percent = state == "line" and "line" or nil, 0, 0
     end
-    Spend(Clock() - t0)
+    Leave(t0)
     return read
 end)
 
@@ -1824,7 +1842,7 @@ end)
 -- the head tick asks anew.
 ns.WaysArrow = Wrap("Ways", function(run, px, py)
     if not (nav and run == navRun) then return end
-    local t0 = Clock()
+    local t0 = Enter()
     local x, y
     if Valid(run) and not AnySecret("ways", px, py) and type(px) == "number" and type(py) == "number" then
         if Follow(px, py) then
@@ -1834,19 +1852,24 @@ ns.WaysArrow = Wrap("Ways", function(run, px, py)
             nav.asked = false
         end
     end
-    Spend(Clock() - t0)
+    Leave(t0)
     return x, y
 end)
 
--- The line of the run window (UI.lua): a text kept until the way changes, or nil
+-- The line of the run window (UI.lua): a text kept until the way changes, or nil.
+-- (0.2.4 r1, Codex S1-N1) It may be the first to see that the way no longer holds and take
+-- it back: that work counts for the frame like every other reader's.
 ns.WaysSource = function(run)
     if not (nav and run == navRun and run == ns.run) or (ns.db and ns.db.routeWaysOff) then return nil end
+    local t0 = Enter()
+    local text
     if nav.core.state == "net" then
-        if Valid(run) then return nav.source end
-        return L["Path: straight line"]
+        if Valid(run) then text = nav.source else text = L["Path: straight line"] end
+    elseif nav.state == "line" then
+        text = L["Path: straight line"]
     end
-    if nav.state == "line" then return L["Path: straight line"] end
-    return nil
+    Leave(t0)
+    return text
 end
 
 -- The option's switch (Options.lua). Off: everything of S1 ends in this
@@ -1854,9 +1877,9 @@ end
 -- up, the net's lists are let go; the line is drawn again as it was before
 -- S1 and the run window loses its line. On: the next head tick starts anew.
 ns.WaysOptionChanged = Wrap("Ways", function()
-    local t0 = Clock()
+    local t0 = Enter()
     if ns.db and ns.db.routeWaysOff then Release() end
-    Spend(Clock() - t0)
+    Leave(t0)
     if ns.RedrawRouteLine then ns.RedrawRouteLine() end
     if ns.UpdateRunSource then ns.UpdateRunSource() end
 end)
@@ -1865,7 +1888,8 @@ end)
 ns.WaysWork = function() work:Show() end
 -- Route.lua's own S1 work outside the steps (hiding a line, starting one) counts for the frame too
 ns.WaysNow = Clock
-ns.WaysSpend = Spend
+-- (0.2.4 r1, Codex S1-N1) not counted twice when it comes inside a call that counts already
+ns.WaysSpend = function(ms) if Outside() then Spend(ms) end end
 
 -- /gcr perf on (Perf.lua): what S1 counted since the minute began, as the last piece of its line.
 -- WaysPerf(true) starts the count anew.

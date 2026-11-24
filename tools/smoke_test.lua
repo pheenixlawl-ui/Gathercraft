@@ -34314,6 +34314,82 @@ step("Ways 0.2.4: a way that is taken back is unseen in the same frame, on both 
     if not ok then error(err, 0) end
 end)
 
+step("Ways 0.2.4: the run window's line may be the first to take a way back - its hiding counts for the frame once, not missing and not twice, also when taking it back tells the run window again (0.2.4 r1, Codex S1-N1)", function()
+    local Near = WAYS.Near
+    local e, squares = {}, {}
+    do
+        local x, y = 10, 10
+        for i = 1, 400 do
+            squares[#squares + 1] = { x, y }
+            if i % 4 < 2 then x = x + 1 else y = y + 1 end
+        end
+        WAYS.Ride(e, squares)
+    end
+    local W = WAYS.World(e)
+    local T = WAYS.Pins()
+    local keepHide = methods.Hide
+    local ok, err = pcall(function()
+        local frameMs, reserveMs, stepMs = ns.WaysLimits()
+        assert(frameMs == 1.0 and reserveMs == 0.25 and stepMs == 0.25, "the limits: " .. frameMs .. " / " .. reserveMs .. " / " .. stepMs)
+        local world, mini, wh = ns.RouteWaysHead()
+        local diag = ns.WaysDiag()
+        local function FrameSum() return select(2, ns.WaysDiag()) end
+        local last = squares[#squares]
+        local A, B = W.Node(last[1], last[2]), W.Node(squares[200][1], squares[200][2])
+        WorldMapFrame:Show()
+        W.At(10, 10)
+        local run = W.Run({ A }, 2)
+        assert(W.Read().state == "net" and #T.Seen("world") == 150 and #T.Seen("mini") > 90, "test setup: the most dots there can be on the world map, " .. #T.Seen("mini") .. " on the minimap")
+        local shown = #T.Seen("world") + #T.Seen("mini")
+        -- hiding a dot's texture takes time by the test's clock: all 300 of them the whole of what is kept back
+        local hides = 0
+        methods.Hide = function(self)
+            if self.__kind == "Texture" and self.__shown then
+                hides = hides + 1
+                W.extra = W.extra + reserveMs / 300
+            end
+            return keepHide(self)
+        end
+        -- 1. the frame is full of ordinary work (a build of 50 new pieces), then the node changes
+        local function FullFrame()
+            W.Clock("build")
+            for i = 1, 50 do
+                WAYS.Piece(W.e, 300 + 2 * i + diag.builds * 120, 300, 1, 0)
+                ns.PathsChanged(W.Z, "new")
+            end
+            local _, net = ns.WaysState()
+            assert(net.building, "(a build is on its way)")
+            -- a frame's work, in the frame that is going on: as many steps as the frame has room for
+            local work = select(7, ns.WaysState())
+            work:GetScript("OnUpdate")(work, 0.016)
+            assert(net.building, "(and still is after a frame's work)")
+            local sum = FrameSum()
+            assert(sum > frameMs - reserveMs - stepMs and sum <= frameMs - reserveMs + 1e-9, ("the ordinary work filled its share of the frame: %.3f ms"):format(sum))
+            return sum
+        end
+        diag.peak = 0
+        local before = FullFrame()
+        hides = 0
+        local tp = run.targetPoint
+        local bx, by = W.World((squares[200][1] + 0.5) * 25, (squares[200][2] + 0.5) * 25)
+        run.target, run.targetPoint = B, { node = B, mapID = W.Z, wx = bx, wy = by }
+        run.targetBest, run.progressBest = nil, nil
+        run.path[1] = run.targetPoint
+        ns.UpdateRunSource() -- (the run window's line reads first: Codex S1-N1's probe)
+        assert(#T.Seen("world") == 0 and #T.Seen("mini") == 0, "another node: not one dot of the old way is seen, in the same frame")
+        assert(hides == shown, "every dot that was seen was hidden: " .. hides .. " of " .. shown)
+        assert(W.Read().state == "line" and ns.WaysSource(run) == ns.L["Path: straight line"], "the state and the run window in the same frame")
+        local sum = FrameSum()
+        local hiding = reserveMs * shown / 300
+        assert(sum >= before + hiding - 1e-9, ("the hiding is missing in the frame's sum: %.3f ms, at least %.3f"):format(sum, before + hiding))
+        assert(sum <= before + hiding + 1e-6, ("the hiding counted twice: %.3f ms, at most %.3f"):format(sum, before + hiding))
+        assert(diag.peak <= frameMs + 1e-9, ("the largest frame so far: %.3f ms"):format(diag.peak))
+    end)
+    methods.Hide = keepHide
+    T.Done()
+    W.Done()
+    if not ok then error(err, 0) end
+end)
 step("Ways 0.2.4: only the arrow's angle follows the way - it turns to the point 30 yd ahead along it; the distance, the name and Here! stay with the node; at a hairpin it does not jump ahead; near the node, without a way and with the option off it points at the node as before; the game's waypoint is untouched (S1 W5)", function()
     local Near = WAYS.Near
     -- a hairpin: east from (10,10) to (20,10), one square south, back west to (10,11) - and on south to
