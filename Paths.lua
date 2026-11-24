@@ -376,9 +376,10 @@ local function Look()
     if falling == true then
         if here.aloft then
             here.air = here.air + dt
+            here.looks = here.looks + 1
         else
             -- the first look in the air: how long you have been up there is not known - from here on
-            here.aloft, here.air, here.air0 = true, 0, dt
+            here.aloft, here.air, here.air0, here.looks = true, 0, dt, 1
         end
         if here.air >= FALL_SECONDS then
             here.fell = true
@@ -387,6 +388,14 @@ local function Look()
             here.pendN = 0
         end
     else
+        -- (0.2.4 r1, jump diagnosis) /gcr paths diag on: one line for every time in the air, at the
+        -- landing - its looks, the time seen (from the second look on), the time before the first
+        -- look, how far apart the looks were and whether it counts as a fall. For Sven to measure
+        -- what the game shows of a jump; this session only, nothing saved.
+        if here.diag and here.aloft then
+            print(("Gathercraft paths diag: in the air %d looks, %.2f s seen from the second look (%.2f s before the first), a look every %.2f s - %s"):format(
+                here.looks or 0, here.air, here.air0, dt, here.air >= FALL_SECONDS and "a fall" or "no fall"))
+        end
         here.aloft, here.air, here.pendN = false, 0, 0
     end
     if swimming == true then here.swam = true end
@@ -482,6 +491,10 @@ local function Command(rest)
     if cmd == "on" or cmd == "off" then
         SetEnabled(cmd == "on")
         Status()
+    elseif cmd == "diag" then
+        -- (0.2.4 r1) the jump diagnosis: a line in chat for every time in the air (see Look); this session only
+        if arg == "on" or arg == "off" then here.diag = arg == "on" or nil end
+        print("Gathercraft paths diag: " .. (here.diag and "on - a line for every time in the air" or "off") .. " (this session only). /gcr paths diag on | off")
     elseif cmd == "clear" then
         local total = p.total
         if arg == "yes" then

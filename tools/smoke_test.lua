@@ -13741,6 +13741,49 @@ step("Paths: a jump is no fall - the time in the air counts from the second look
     W.Done()
     if not ok then error(err, 0) end
 end)
+step("Paths: /gcr paths diag on - one line in chat for every time in the air, at the landing: its looks, the time seen, the time before the first look, how far apart the looks were and whether it is a fall; off by default and again with off, this session only, nothing saved (0.2.4 r1, jump diagnosis)", function()
+    -- Order 0.2.4 r1, part 5 (Sven's live probe of 23.11.: in Tanaris about every jump still
+    -- counted as a fall): first the cause, then a change - a line for Sven to measure with.
+    local W = PathsWorld()
+    local ok, err = pcall(function()
+        local function Lines(mark)
+            local t = {}
+            for i = mark + 1, #log do
+                if log[i]:find("^PRINT") and log[i]:find("paths diag: in the air", 1, true) then t[#t + 1] = log[i] end
+            end
+            return t
+        end
+        W.Start(100, 200)
+        -- off by default: a time in the air gives no line
+        local mark = #log
+        W.falling = true W.Step(3.5, 0) W.Step(3.5, 0) W.falling = false W.Step(3.5, 0)
+        assert(#Lines(mark) == 0, "a line while the diagnosis is off")
+        ns.PathsCommand("diag on")
+        -- a jump seen at two looks: one line at the landing - 2 looks, 0.50 s seen, no fall
+        mark = #log
+        W.falling = true W.Step(3.5, 0) W.Step(3.5, 0) W.falling = false W.Step(3.5, 0)
+        local l = Lines(mark)
+        assert(#l == 1 and l[1]:find("in the air 2 looks, 0.50 s seen", 1, true) and l[1]:find("a look every 0.50 s - no fall", 1, true),
+            "a jump: " .. table.concat(l, " / "))
+        -- a fall seen at four looks: 1.50 s seen, a fall
+        mark = #log
+        W.falling = true
+        for _ = 1, 4 do W.Step(3.5, 0) end
+        W.falling = false W.Step(3.5, 0)
+        l = Lines(mark)
+        assert(#l == 1 and l[1]:find("in the air 4 looks, 1.50 s seen", 1, true) and l[1]:find("- a fall", 1, true), "a fall: " .. table.concat(l, " / "))
+        -- off again: no line; the switch is not in the saved data
+        ns.PathsCommand("diag off")
+        mark = #log
+        W.falling = true W.Step(3.5, 0) W.Step(3.5, 0) W.falling = false W.Step(3.5, 0)
+        assert(#Lines(mark) == 0, "a line after the diagnosis was turned off")
+        for k in pairs(ns.db.paths) do assert(not tostring(k):find("diag"), "the diagnosis is saved: " .. tostring(k)) end
+        for k in pairs(ns.db) do assert(not tostring(k):lower():find("pathsdiag"), "the diagnosis is saved: " .. tostring(k)) end
+    end)
+    ns.PathsCommand("diag off")
+    W.Done()
+    if not ok then error(err, 0) end
+end)
 step("Paths: nothing is learned where you are carried, dead, in an instance, teleported or where the client hides values (v0.1.22 W3)", function()
     local W = PathsWorld()
     local SECRET = newproxy(true)
