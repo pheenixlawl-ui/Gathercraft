@@ -16260,7 +16260,7 @@ step("Route 0.2.4: a plan's 2-opt and Untangle in bites - the target at once (as
     advance(1)
     if not ok then error(err, 0) end
 end)
-step("Route 0.2.4: no bite has more than 1.0 ms of planning work - 2-opt's and Untangle's rows, the take-over's lists and Prune's passes go in pieces, a bite may end in the middle of them and the next one goes on there: 2-opt's budget used up beforehand or by itself (Codex' 100 points, seeds 17 and 19), 160 candidates, a run's first plan of 300 points; the time inside Prune, the lists and the lengths is counted, Show's from its first step (0.2.4 r1/r2, Codex H-M1)", function()
+step("Route 0.2.4: no bite has more than 1.0 ms of planning work - 2-opt's and Untangle's rows, the take-over's lists and Prune's passes go in pieces, a bite may end in the middle of them and the next one goes on there: 2-opt's budget used up beforehand or by itself (Codex' 100 points, seeds 17 and 19), 160 candidates, a run's first plan of 300 points; the time inside Prune, the lists and the lengths is counted, Show's from its first step; in pieces the same paths as in whole rows and passes (0.2.4 r1/r2, Codex H-M1)", function()
     local Z = 1441
     local R = ns.RouteRefine()
     local saved = { map = player.map, x = player.x, y = player.y, list = ns.db.nodes[Z], clock = ns.RouteClock, getTime = GetTime,
@@ -16350,6 +16350,53 @@ step("Route 0.2.4: no bite has more than 1.0 ms of planning work - 2-opt's and U
         Case("160 candidates", 160, 17, true)
         -- a first plan: 300 points, rows of 300 (one row is longer than a frame), a budget of 150 ms each
         Case("first plan of 300 points", 300, 23, false, true)
+        -- the same plans with the clock held (no frame cuts anything): in pieces of 16 and in pieces as long as a
+        -- whole row or pass, a new target and a kept one - the same paths (a piece goes on exactly where the one
+        -- before it ended: the rows of 2-opt and Untangle, Prune's sums and its choices)
+        local function Held(n, seed)
+            if ns.run then ns.StopRun(true) end
+            local list = {}
+            local function Rand() seed = (seed * 1103515245 + 12345) % 2147483648 return seed / 2147483648 end
+            for i = 1, n do list[i] = Node(0.3 + 0.6 * Rand(), 0.3 + 0.4 * Rand()) end
+            ns.db.nodes[Z] = list
+            ns.NotifyNodesChanged()
+            player.map, player.x, player.y = Z, 0.2, 0.5
+            FRAME = FRAME + 1
+            ns.StartRun("herb", Z) advance(1)
+            local run = ns.run
+            local out = { points = #run.points }
+            for round = 1, 2 do
+                if round == 1 then run.target, run.targetPoint = nil, nil end
+                FRAME = FRAME + 1
+                ns.RouteReplan()
+                local kept = R.job and R.job.keep
+                local k = 0
+                while R.job and k < 10 do FRAME = FRAME + 1 R.Step() k = k + 1 end
+                assert(not R.job, "test setup: the bites with the clock held are done")
+                local t = {}
+                for i, q in ipairs(run.path) do t[i] = q.node.x .. "," .. q.node.y end
+                out[round], out["kept" .. round] = t, kept
+                player.x = player.x + 0.05
+            end
+            return out
+        end
+        local left = 0
+        for _, seed in ipairs({ 19, 77, 5 }) do
+            local a = Held(100, seed)
+            R.PIECE = 1000000
+            local ok2, b = pcall(Held, 100, seed)
+            R.PIECE = 16
+            assert(ok2, b)
+            assert(not a.kept1 and a.kept2, "test setup: a plan with a new target, then one with the target kept")
+            for round = 1, 2 do
+                assert(#a[round] == #b[round], ("seed %d, plan %d: %d points shown in pieces, %d in whole ones"):format(seed, round, #a[round], #b[round]))
+                for i = 1, #a[round] do
+                    assert(a[round][i] == b[round][i], ("seed %d, plan %d: in pieces another path than in whole ones, at its point %d"):format(seed, round, i))
+                end
+            end
+            left = left + a.points - #a[1]
+        end
+        assert(left >= 5, ("test setup: Prune left out only %d points in the three plans"):format(left))
     end)
     math.sqrt = saved.sqrt
     if ns.run then ns.StopRun(true) end
@@ -16361,7 +16408,7 @@ step("Route 0.2.4: no bite has more than 1.0 ms of planning work - 2-opt's and U
     if not ok then error(err, 0) end
 end)
 
-step("Route 0.2.4: after a new plan the bites' lists hold no node that is gone - 100 points cut to two while the bites work (Codex' case), nodes gone after the improved path was shown and a plan that ends before it looks at the points; the two-point plan works, the lists stay the same tables (0.2.4 r2, Codex H-N1)", function()
+step("Route 0.2.4: after a new plan the bites' lists hold no node that is gone - 100 points cut to two while the bites work (Codex' case) and past their take-over, nodes gone after the improved path was shown and a plan that ends before it looks at the points; the job's lists empty after the improved path, drawn or in the same order; the two-point plan works, the lists stay the same tables (0.2.4 r2, Codex H-N1)", function()
     local Z = 1441
     local R = ns.RouteRefine()
     local H = libs["HereBeDragons-2.0"]
@@ -16415,6 +16462,26 @@ step("Route 0.2.4: after a new plan the bites' lists hold no node that is gone -
         assert(#run.path == 2 and (run.path[1].node == list[1] or run.path[1].node == list[2]) and run.path[1].node ~= run.path[2].node
             and (run.path[2].node == list[1] or run.path[2].node == list[2]) and run.target == run.path[1].node,
             "the plan with the two points left is not a path to them")
+        -- A2. the same, the bites past their take-over (both of the job's lists filled)
+        ns.db.nodes[Z] = list
+        ns.NotifyNodesChanged()
+        run.target, run.targetPoint = nil, nil
+        FRAME = FRAME + 1
+        ns.RouteReplan()
+        FRAME = FRAME + 1
+        R.Step()
+        FRAME = FRAME + 1
+        R.Step()
+        assert(R.job and R.job.phase == 4 and #R.bufs[1] > 50 and #R.bufs[2] > 50, ("test setup: bites past the take-over (lists %s)"):format(Sizes()))
+        ns.db.nodes[Z] = { list[1], list[2] }
+        ns.NotifyNodesChanged()
+        run.target, run.targetPoint = nil, nil
+        FRAME = FRAME + 1
+        ns.RouteReplan()
+        FRAME = FRAME + 1
+        R.Step()
+        assert(not R.job and #run.points == 2, "test setup: two points and no bites")
+        assert(Held(gone) == 0, ("bites past the take-over, then the plan with two points: the lists hold %d points of the 98 nodes that are gone (lists %s)"):format(Held(gone), Sizes()))
         -- B. the 100 points again: bites to the improved path shown; then 98 nodes gone and a plan that ends before
         -- it looks at the points (no position right now)
         ns.db.nodes[Z] = list
@@ -16426,6 +16493,7 @@ step("Route 0.2.4: after a new plan the bites' lists hold no node that is gone -
         local frames = 0
         while R.job and frames < 50 do FRAME = FRAME + 1 R.Step() frames = frames + 1 end
         assert(not R.job and #run.path >= 50, "test setup: the improved path shown")
+        assert(#R.bufs[1] == 0 and #R.bufs[2] == 0, ("the improved path drawn: the job's lists still hold %d / %d points"):format(#R.bufs[1], #R.bufs[2]))
         ns.db.nodes[Z] = { list[1], list[2] }
         ns.NotifyNodesChanged()
         H.GetPlayerWorldPosition = function() return nil end
@@ -16448,6 +16516,20 @@ step("Route 0.2.4: after a new plan the bites' lists hold no node that is gone -
         while R.job and frames < 50 do FRAME = FRAME + 1 R.Step() frames = frames + 1 end
         assert(not R.job and #run.points == 100 and #run.path >= 50, "after the plan with two points the bites of 100 do not come to their end")
         for k = 1, 3 do assert(R.bufs[k] == lists[k], "the bites' list " .. k .. " was made anew") end
+        -- D. six points in a row: the bites keep the quick plan's order (nothing drawn again) - their lists are emptied too
+        local row = {}
+        for i = 1, 6 do row[i] = Node(0.2 + 0.03 * i, 0.5) end
+        ns.db.nodes[Z] = row
+        ns.NotifyNodesChanged()
+        player.x, player.y = 0.2, 0.5
+        run.target, run.targetPoint = nil, nil
+        local same = R.stats.same
+        FRAME = FRAME + 1
+        ns.RouteReplan()
+        frames = 0
+        while R.job and frames < 10 do FRAME = FRAME + 1 R.Step() frames = frames + 1 end
+        assert(not R.job and R.stats.same == same + 1 and #run.path == 6, "test setup: the improved path in the quick one's order")
+        assert(#R.bufs[1] == 0 and #R.bufs[2] == 0, ("the improved path in the quick one's order: the job's lists still hold %d / %d points"):format(#R.bufs[1], #R.bufs[2]))
     end)
     H.GetPlayerWorldPosition = saved.me
     if ns.run then ns.StopRun(true) end
