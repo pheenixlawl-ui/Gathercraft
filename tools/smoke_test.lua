@@ -18582,8 +18582,8 @@ step("Starter data: the new Forever kinds are pins with names, and are never sha
     -- the beta data loaded at login: Poor Copper, Wilted Peacebloom, Stunted Silverleaf
     local data = GathercraftStarterData
     -- (0.2.0 data, 20.11.2026: the spots of the new Forever zones joined the
-    -- beta data; 0.2.2 P1 point 5, 21.11.2026: refreshed from Sven's saved data)
-    assert(data and data.version == "forever-2026-11-21", "starter data version " .. tostring(data and data.version))
+    -- beta data; 0.2.2 P1 point 5, 21.11.2026, and the 0.2.3 release, 25.11.2026: refreshed from Sven's saved data)
+    assert(data and data.version == "forever-2026-11-25", "starter data version " .. tostring(data and data.version))
     local want = { o562111 = "Poor Copper Vein", o656160 = "Wilted Peacebloom", o656161 = "Stunted Silverleaf" }
     local shipped = {}
     for _, list in pairs(data.nodes) do
@@ -27785,12 +27785,14 @@ end
 -- ores, no quest objects); a shipped spot other players confirmed live
 -- counts 1 + their number as its reporters. No player names. Shen'dralas
 -- stays out (10 spots).
-step("Starter data 0.2.2: every spot shipped before stays; new spots in Riverglades, Mount Hyjal and Zephras Isle; confirmed spots count their reporters; kind names only (0.2.2 P1 point 5)", function()
+step("Starter data 0.2.3: every spot shipped before stays; new spots in Riverglades, Mount Hyjal and Zephras Isle; confirmed spots count their reporters; kind names only (0.2.2 P1 point 5, 0.2.3 release)", function()
+    -- 0.2.3 release: refreshed from the saved data of 25.11.2026 (tools/export_starter.py --refresh,
+    -- 04-Sicherungen/2026-11-25_vor-0.2.3-a-6b6782d): 897 -> 1181 rows, none lost
     local data = GathercraftStarterData
-    assert(data and data.version == "forever-2026-11-21", "starter data version " .. tostring(data and data.version))
+    assert(data and data.version == "forever-2026-11-25", "starter data version " .. tostring(data and data.version))
     -- rows per zone and type
-    local want = { [1411] = { o = 1 }, [1412] = { h = 24, o = 30 }, [2482] = { h = 81, o = 59 }, [2521] = { h = 285, o = 151, c = 4 },
-        [2548] = { h = 125, o = 137 } }
+    local want = { [1411] = { o = 1 }, [1412] = { h = 24, o = 30 }, [2482] = { h = 127, o = 130 }, [2521] = { h = 337, o = 176, c = 4 },
+        [2548] = { h = 193, o = 159 } }
     for z, list in pairs(data.nodes) do
         assert(want[z], "a zone that should not be in the starter data: " .. tostring(z))
         local got = {}
@@ -27814,12 +27816,12 @@ step("Starter data 0.2.2: every spot shipped before stays; new spots in Rivergla
             if not have[line] then lost[#lost + 1] = line end
         end
     end
-    assert(rows >= 897 and #lost == 0, ("%d of the %d rows ever shipped are missing, e.g. %s"):format(#lost, rows, tostring(lost[1])))
+    assert(rows >= 1181 and #lost == 0, ("%d of the %d rows ever shipped are missing, e.g. %s"):format(#lost, rows, tostring(lost[1])))
     -- the zones of the beta data (only their counts changed), and the whole file as built (fingerprints)
     local h, n = StarterHash({ [1411] = true, [1412] = true })
-    assert(h == 1776672293 and n == 55, ("Durotar and Mulgore changed: %d (%d rows)"):format(h, n))
+    assert(h == 560572667 and n == 55, ("Durotar and Mulgore changed: %d (%d rows)"):format(h, n))
     h, n = StarterHash()
-    assert(h == 75843913 and n == 897, ("the starter data are not the ones built: %d (%d rows)"):format(h, n))
+    assert(h == 923827983 and n == 1181, ("the starter data are not the ones built: %d (%d rows)"):format(h, n))
     -- every row: a game object, its type, a place on the map, a count of 1 or
     -- more (1 + the players who confirmed it), and the name of its kind
     local kinds, counted = GathercraftQuestieData.kinds, 0
@@ -27836,7 +27838,7 @@ step("Starter data 0.2.2: every spot shipped before stays; new spots in Rivergla
             assert(t ~= "c" or z == 2521, ("zone %d: a chest (only herbs and ores come in)"):format(z))
         end
     end
-    assert(counted == 53, ("%d rows count more than one reporter, 53 were confirmed live"):format(counted))
+    assert(counted == 55, ("%d rows count more than one reporter, 55 were confirmed live"):format(counted))
 end)
 step("Starter data 0.2.0: a fresh profile gets every spot of the new zones; an old profile only what it lacks, once; pins and routes use them; never shared (0.2.0 data)", function()
     local data = GathercraftStarterData
@@ -27936,7 +27938,8 @@ step("Starter data 0.2.2: the changelog says where the new spots are, that every
         assert(point:find(said, 1, true), "CHANGELOG, starter data: nothing about \"" .. said .. "\"")
     end
     -- the data it speaks of: the version of the shipped file is of that day
-    assert(GathercraftStarterData and GathercraftStarterData.version == "forever-2026-11-21", "test setup: the starter data are not those of 21.11.2026")
+    -- (0.2.3: refreshed again on 25.11.2026 - every spot of 21.11.2026 is still in it, see the data step)
+    assert(GathercraftStarterData and GathercraftStarterData.version >= "forever-2026-11-21", "test setup: the starter data are older than 21.11.2026")
     -- no promise of completeness, not parked: no word of it, nor of the self-healing
     local low = changelog:lower()
     for _, said in ipairs({ "complete", "all spots", "every spot in", "park", "self-heal", "self heal", "selfheal" }) do
