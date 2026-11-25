@@ -1295,6 +1295,7 @@ function M.KeepStart(ctx, nav)
     if i < 2 then i = 2 end
     k.nav, k.i, k.done, k.ok = nav, i, false, false
     k.guess, k.yards = 0, 0
+    k.duty = false -- (0.2.4 a7, S1.1 B4) an edge of the rest went from smoothable (OBS, REV) to fixed (CON, GREV) or back
     return k
 end
 
@@ -1309,6 +1310,7 @@ function M.KeepStep(ctx, budget)
     local rk, last = b.rk, b.rawN - 2
     local key, first, to, flag, n = set.key, set.first, set.to, set.flag, set.n
     local i, used, guess, yards = k.i, 0, k.guess, k.yards
+    local ck = k.nav.cf.kind -- (S1.1 B4: the kinds of the centre line shown, point i + 1 has the edge i -> i + 1)
     while i <= last and used < budget do
         local ka, kb = rk[i], rk[i + 1]
         local a, bb = Find(key, n, ka), Find(key, n, kb)
@@ -1325,6 +1327,13 @@ function M.KeepStep(ctx, budget)
             k.done, k.ok = true, false
             return used + 1
         end
+        -- (0.2.4 a7, S1.1 B4, F3 §5, F4.1 §A) the edge's kind in the new net: does it have to stay the straight
+        -- stretch between its middles now, or no longer? The caller lets the thread go at the first change (T1).
+        -- The centre line takes the new kind at once - it is drawn the same whatever the kinds, and a thread
+        -- is only found for them again after the check (T2); a rest not kept is taken back.
+        local old = ck[i + 1]
+        if (old == CON or old == GREV) ~= (kind == CON or kind == GREV) then k.duty = true end
+        ck[i + 1] = kind
         local d = kb - ka
         local len = (d == 1 or d == -1 or d == GRID or d == -GRID) and TILE or DIAG
         yards = yards + len
@@ -1885,8 +1894,10 @@ local read = { state = "none", n = 0, yards = 0, cost = 0, guessed = 0, percent 
 -- own mark: read.pub counts at every change of what is shown (the display revision); the way's
 -- generation (nav.core.gen) only at a way published. The navigation never reads any of it.
 local disp = { buf = nil, seg = 1, pos = 0, gen = -1, kind = "none", mi = 1 }
--- (0.2.4 a7, S1.1 B2/B3) the thread's job: one for all runs, its lists written over and kept
+-- (0.2.4 a7, S1.1 B2/B3) the thread's job: one for all runs, its lists written over and kept.
+-- threadWant: the way generation a thread is wanted for (nil: none) - B5 makes it in pieces.
 local thread = M.NewThread()
+local threadWant = nil
 local function Conv(fx, fy, mapID) return HBD:GetWorldCoordinatesFromZone(fx, fy, mapID) end
 -- (the points the maps put into world yards in one step of the work: 16 at the most, F4.1 §B)
 local MAP_POINTS = 16
@@ -1980,6 +1991,7 @@ end
 local function Withdraw()
     if not nav then return end
     keeping = false
+    threadWant = nil -- (S1.1: no thread for a way taken back)
     if nav.core.state == "net" then
         nav.core.state = "line"
         nav.core.on = false
@@ -2328,7 +2340,7 @@ local function Step()
                 elseif nav.core.state == "net" and q.reason ~= "near" and MarkHolds(true) then
                     -- no new way for the node whose way is shown: the way shown stays, if the net of now allows all of its rest
                     req.stage, keeping = "keep", true
-                    M.KeepStart(ctx, nav.core)
+                    M.KeepStart(ctx, nav.core).early = false
                 else
                     req.active = false
                     if nav.core.state == "net" then Withdraw() end
@@ -2383,11 +2395,22 @@ local function Step()
         else -- "keep"
             local k = ctx.keepJob
             local used = M.KeepStep(ctx, Ops(201, 100))
+            if k.duty and not k.early then
+                -- (0.2.4 a7, S1.1 B4, F4.1 §A T1) the first edge whose anchor duty changed: in this frame the
+                -- thread gives way to the centre line of the way shown - the geometry only; the navigation,
+                -- the percent and the source stay as they were until the check is done. No thread is made
+                -- for the old kinds any more.
+                k.early = true
+                threadWant = nil
+                if disp.kind == "thread" then PublishDisplay(nav.core.cf.view, "centre") end
+            end
             if k.done then
                 req.active, keeping = false, false
                 if k.ok and nav.core.state == "net" and nav.core.on and MarkHolds(true) then
                     nav.core.front.percent = k.percent
                     nav.source = SourceText(k.percent)
+                    -- (T2) percent, source and kinds as in a5; a thread for the new kinds
+                    if k.early then threadWant = nav.core.gen end
                     Told()
                 else
                     Withdraw()
@@ -2548,7 +2571,7 @@ ns.WaysThreadNow = function()
     if state == "done" then PublishDisplay(thread.t.view, "thread") end
     return state, reason
 end
-ns.WaysThread = function() return thread end
+ns.WaysThread = function() return thread, threadWant end
 -- Route.lua's own S1 work outside the steps (hiding a line, starting one) counts for the frame too
 ns.WaysNow = Clock
 -- (0.2.4 r1, Codex S1-N1) not counted twice when it comes inside a call that counts already

@@ -36223,6 +36223,148 @@ step("Ways 0.2.4 S1.1 B3: the display on the thread - d mapped through the pairs
         if not ok then error(err, 0) end
     end
 end)
+step("Ways 0.2.4 S1.1 B4: keeping the rest of the way in two moments - T1 at the first edge whose anchor duty changed: only the geometry (thread -> centre line), percent and source as before; T2 at the end of the check: percent, source and kinds as a5, a thread wanted again; not kept: taken back as a5 (0.2.4 a7, F4.1 §A, Codex R3-M1)", function()
+    local Core = ns.WaysCore
+    local Centre = WAYS.Centre
+    local Ride, Piece = WAYS.Ride, WAYS.Piece
+    -- 1. Codex' three courses (R3-M1) with the real function: three edges of 25 yd, a small budget, the
+    -- first edge newly GREV. After the first call: 25 guessed yards known, the check open, no percent yet.
+    -- Then 33 % (the last edge as it was), 67 % (another GREV), not kept (a sure fall against you).
+    do
+        local function Line4(variant)
+            local e = {}
+            Ride(e, { { 53, 50 }, { 52, 50 }, { 51, 50 }, { 50, 50 } }) -- (ridden back: the way there is REV)
+            if variant then
+                Piece(e, 51, 50, -1, 0, { falls = 1 }) -- (a fall seen once: its way back is guessed, GREV)
+                if variant == "67" then Piece(e, 53, 50, -1, 0, { falls = 1 }) end
+                if variant == "gone" then Piece(e, 53, 50, -1, 0, { falls = 2, count = 2 }) end
+            end
+            return e
+        end
+        for _, v in ipairs({ { "33", true, 33 }, { "67", true, 67 }, { "gone", false } }) do
+            local ctx = Core.New()
+            Core.Build(ctx, Line4())
+            local nav = Core.NewNav()
+            assert(Core.Query(ctx, nav, Centre(50), Centre(50), Centre(53), Centre(50)) == "net", "test setup: the way of 75 yd")
+            assert(nav.cf.kind[3] == Core.REV and nav.cf.kind[4] == Core.REV and nav.cf.kind[5] == Core.REV, "test setup: three REV edges")
+            Core.Build(ctx, Line4(v[1]))
+            local k = Core.KeepStart(ctx, nav)
+            Core.KeepStep(ctx, 3)
+            assert(k.duty and not k.done and k.guess == 25 and k.percent == nil, v[1] .. ": after the first call the change is known, the result not")
+            while not k.done do Core.KeepStep(ctx, 3) end
+            assert(k.ok == v[2] and (not v[2] or k.percent == v[3]), ("%s: kept %s, %s %%"):format(v[1], tostring(k.ok), tostring(k.percent)))
+            assert(nav.cf.kind[3] == Core.GREV, v[1] .. ": the centre line has the new kind")
+        end
+        -- no change of the anchor duty (REV -> OBS): no T1
+        local ctx = Core.New()
+        local e = {}
+        Ride(e, { { 53, 50 }, { 52, 50 }, { 51, 50 }, { 50, 50 } })
+        Core.Build(ctx, e)
+        local nav = Core.NewNav()
+        assert(Core.Query(ctx, nav, Centre(50), Centre(50), Centre(53), Centre(50)) == "net")
+        Ride(e, { { 50, 50 }, { 51, 50 } }) -- (ridden there too: OBS)
+        Core.Build(ctx, e)
+        local k = Core.KeepStart(ctx, nav)
+        while not k.done do Core.KeepStep(ctx, 3) end
+        assert(k.ok and not k.duty and nav.cf.kind[3] == Core.OBS, "REV -> OBS: smoothable both, no change of the duty")
+    end
+    -- 2. in the run, frame by frame: the short way (ridden back: REV) is shown as its thread; a new net makes
+    -- it cost 4 times as much and its first edge guessed - the search takes the long way, too long: the short
+    -- one is checked against the new net (keep). T1 in the first frame of the check, T2 in the next one.
+    local function Pieces(variant)
+        local e = {}
+        local short = { { 60, 50 }, { 60, 51 } }
+        for x = 59, 50, -1 do short[#short + 1] = { x, 51 } end
+        short[#short + 1] = { 50, 50 }
+        local long = { { 50, 50 } }
+        for y = 49, 35, -1 do long[#long + 1] = { 50, y } end
+        for x = 51, 60 do long[#long + 1] = { x, 35 } end
+        for y = 36, 50 do long[#long + 1] = { 60, y } end
+        Ride(e, short, variant and { cost = 400 } or nil)
+        Ride(e, long)
+        if variant then
+            Piece(e, 50, 51, 0, -1, { cost = 400, falls = 1 }) -- (the way there's first edge: GREV)
+            if variant == "two" then Piece(e, 59, 51, -1, 0, { cost = 400, falls = 1 }) end
+            if variant == "gone" then Piece(e, 59, 51, -1, 0, { cost = 400, falls = 2, count = 2 }) end -- (in the second frame of the check)
+        end
+        return e
+    end
+    for _, v in ipairs({ { "one", 8 }, { "two", 17 }, { "gone" } }) do
+        local e = Pieces()
+        local W = WAYS.World(e)
+        local ok, err = pcall(function()
+            W.At(50, 50)
+            local run = W.Run({ W.Node(60, 50) }, 2)
+            local r = W.Read()
+            assert(r.state == "net" and WAYS.Near(r.yards, 300) and r.percent == 0, "test setup: the short way of 300 yd: " .. r.state)
+            assert(ns.WaysThreadNow() == "done" and ns.WaysDisplay().kind == "thread", "test setup: its thread shown")
+            local nav, net, req, ctx = ns.WaysState()
+            local core = nav.core
+            local source = ns.WaysSource(run)
+            local gen, pub = core.gen, r.pub
+            -- (the build and the request at once; the check: 16 operations a step - 6 edges - and each step
+            -- takes 0.8 ms by the work's clock, so a frame has room for one: the 12 edges take two frames)
+            W.Clock("fast")
+            local keepStep = Core.KeepStep
+            Core.KeepStep = function(c, budget)
+                W.extra = W.extra + 0.8
+                return keepStep(c, 16)
+            end
+            W.keepStep = keepStep
+            for kk, vv in pairs(Pieces(v[1])) do if e[kk] ~= vv then e[kk] = vv end end
+            local rev = net.rev
+            for i = 1, 50 do
+                Piece(e, 200 + 2 * i, 200, 1, 0)
+                ns.PathsChanged(W.Z, "new")
+            end
+            -- the frames: until the check has begun (the thread stays meanwhile), then one by one
+            local t, early, last = 0, nil, nil
+            while not (req.active and req.stage == "keep") and t < 4000 do
+                advance(0.01)
+                t = t + 1
+                if not (req.active and req.stage == "keep") then
+                    assert(ns.WaysDisplay().kind == "thread", "the thread went before the check began")
+                end
+            end
+            assert(req.active and req.stage == "keep" and net.rev == rev + 1 and ctx.q.reason == "long", ("test setup: the rest is being checked against the new net (%s %s, %s %s)"):format(tostring(req.active), tostring(req.stage), tostring(ctx.q.result), tostring(ctx.q.reason)))
+            local before = { core.pos, core.rest, core.offD, core.on, core.seg, core.state, core.front, core.have, core.gen }
+            local frames = 0
+            while req.active and req.stage == "keep" and frames < 100 do
+                local k = ctx.keepJob
+                if k.early and not early then
+                    -- T1: the frame after the first change - the geometry only
+                    early = { kind = ns.WaysDisplay().kind, pub = W.Read().pub, percent = W.Read().percent, source = ns.WaysSource(run), done = k.done }
+                end
+                advance(0.01)
+                frames = frames + 1
+            end
+            local k = ctx.keepJob
+            assert(early and frames >= 2, "test setup: the check went over frames (" .. frames .. ")")
+            assert(early.kind == "centre" and early.pub == pub + 1 and not early.done, "T1: the centre line in the frame of the change, the check still open")
+            assert(early.percent == 0 and early.source == source, "T1: percent and source as before: " .. tostring(early.source))
+            local after = { core.pos, core.rest, core.offD, core.on, core.seg, core.state, core.front, core.have, core.gen }
+            local _, want = ns.WaysThread()
+            if v[2] then
+                for i = 1, #before do assert(before[i] == after[i], "T1/T2 changed the navigation (" .. i .. ")") end
+                r = W.Read()
+                assert(k.done and k.ok and r.state == "net" and r.percent == v[2] and ns.WaysSource(run):find(v[2] .. "%", 1, true),
+                    ("T2: percent and source of the new net: %s, %s"):format(tostring(r.percent), tostring(ns.WaysSource(run))))
+                assert(ns.WaysDisplay().kind == "centre" and want == gen and core.gen == gen, "T2: the centre line until the thread for the new kinds")
+                -- the thread for the new kinds: the guessed first edge stays the straight stretch between its middles
+                assert(ns.WaysThreadNow() == "done", "the thread for the new kinds")
+                local th = ns.WaysThread().t
+                assert(th.x[2] == Centre(50) and th.y[2] == Centre(50) and th.x[3] == Centre(50) and th.y[3] == Centre(51),
+                    ("the guessed edge is pulled: (%g, %g) after the first middle"):format(th.x[3], th.y[3]))
+            else
+                -- not kept: as a5, the way is taken back
+                assert(k.done and not k.ok and W.Read().state == "line" and want == nil, "not kept: taken back as a5, no thread wanted")
+            end
+        end)
+        if W.keepStep then Core.KeepStep = W.keepStep end
+        W.Done()
+        if not ok then error(err, 0) end
+    end
+end)
 
 step("Ways donation: canonical own pieces, no private fields, bounds and sliced multipart export", function()
     assert(loadfile(ROOT .. "/tools/ways_donation_test.lua"))()("codec", {ns=ns})
