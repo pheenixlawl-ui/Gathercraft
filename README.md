@@ -2,6 +2,8 @@
   <img src="docs/banner.png" alt="Gathercraft – Gather. Route. Profit." width="100%">
 </p>
 
+**New in 0.2.3:** share your ridden paths (`/gcr shareways`) · smoother farm runs · your best runs per zone · search range ring. Coming soon: routes that follow the ways you ride.
+
 <h3 align="center"><i>Peacebloom fears you now.</i></h3>
 
 <p align="center"><a href="https://discord.gg/Q6kH368qGC"><img src="docs/discord.png" width="390" alt="Join the Gathercraft Discord"></a></p>
@@ -134,15 +136,17 @@ Prices come from your own scan, so they're as fresh as your last visit. Some tra
 
 Node positions only (object, zone, coordinates). Nothing about you or your character. Off with one click.
 
+**"Does Gathercraft record where I ride?"**
+
+Yes – on your own computer only. It notes the ways you ride as rough 25-yard steps, so your routes can follow real paths instead of cutting across cliffs. Nothing is sent automatically. If you want to help, `/gcr shareways` shows your ways as text you can send through a short form – only the ways, no names, no times.
+
 **"What does it cost?"**
 
 Nothing. Free, no paid features, no pop-ups.
 
 ## 🗺️ Roadmap
 
-<p align="center"><img src="docs/roadmap.jpg" width="100%" alt="Gathercraft roadmap"></p>
-
-Gathercraft is **actively developed** – during the Forever launch weeks expect **updates almost every day**. Here's what's coming:
+Gathercraft is **actively developed** – expect **updates every week**. Here's where we are:
 
 **✅ Live now**
 
@@ -151,25 +155,32 @@ Gathercraft is **actively developed** – during the Forever launch weeks expect
 - Live farm routes with the Gathercraft arrow and farm panel – **Smart** or **Loop**
 - **Smart routes** – only nodes you can gather, by skill-ups or gold
 - **Pins in the trainer colour** – see which nodes still give skill-ups
+- **Trainers and recipe vendors on your map** – see where to learn next
 - Own auction house scan, prices in tooltips, price alerts, **gold per hour**
 - **Farm Spots** – best zones by gold per hour
 - **Crafting** – profit of 2,000+ recipes of all professions, and the **skill plan** to your target skill
-- **Skill plan 2.0** – one calculation for every profession: have / need, the chance per step, a range instead of a promise
-- **Nearest trainer and recipe vendor** – named in the skill plan, a click sets a waypoint
-- **Farm for plan** – a farm run for what your skill plan still needs, and the zones to find it in
-- **Item tooltips for herbs, ores and reagents** – the price and its last 14 days, the zone with the most known spots, what uses it
-- **Where to learn every recipe** – trainer, vendor or drop
+- **Skill plan 2.0** – have / need, the chance per step, a range instead of a promise
+- **Farm for plan** – a farm run for what your skill plan still needs
+- **Item tooltips** for herbs, ores and reagents – price history, best zone, what uses it
+- **Map tooltips your way** – always, with Shift, or never on the minimap
+- **Smoother farm runs** – less work for your PC while you ride and after every gather
+- **Your best runs per zone** and a **search range ring** around your target
+- **Skill plan counts what's in your bags** at its market value
+- **Share your ridden paths** – `/gcr shareways` turns your recorded ways into text you can send through a short form, to help build a path network for everyone
 - One-key fishing with its own panel, RARE! announcer, optional node sharing
 - 10 languages, works in every client language
 
-**🔨 Next up (launch weeks)**
+**🔨 Next up**
 
-- **Smoother Loop routes**
+- **Routes that follow the ways you ride** – the route line and arrow lead along paths you have actually ridden instead of straight across cliffs
+- **Ways shared between players automatically** – a path network for every Gathercraft player
+- **A new options window** – every setting explained, pages that scroll, a search box
 - **More spawn points for the new Forever zones** as soon as they are known
 - **Disenchant values**
 
 **🔮 Later**
 
+- **Smarter routes** through the richest part of a zone
 - **Flight paths** on long routes
 - **Skinning spots**
 - **Shared recipe book** – trainer visits of other players fill in yours

@@ -32,11 +32,12 @@ local WHATS_NEW = {
     ["0.2.0"] = "The skill plan is rebuilt: have / need for every material, the chance and the crafts for each step, the nearest trainer or recipe vendor with a waypoint. New: Farm for plan starts a farm run for what your plan still needs, Where to farm lists the zones. Item tooltips of herbs, ores and reagents show the auction price and its last 14 days; hold Shift for the zone with the most spots and what uses it.",
     ["0.2.1"] = "Gathercraft windows such as the skill plan stay open over a loading screen, and the minimap tooltip sits below the game's. The shipped spots of Riverglades, Mount Hyjal and Zephras Isle no longer leave your map after 21 days. Quest objects are no longer recorded as herbs or ore.",
     ["0.2.2"] = "Lighter on the game while you farm: the route line no longer piles up world map pins, and map and minimap pins are only updated where they show. New in Options, Map & minimap: World map tooltip and Minimap tooltip - show them only with Shift, or not at all on the minimap.",
+    ["0.2.3"] = "Share your ridden ways: /gcr shareways turns them into text you can send through a short form - nothing is sent by itself. Also new: smoother farm runs, your best runs per zone in the run summary, and a light-blue ring when the next node of a run is within search range.",
 }
 
 -- What comes next (Sven, 08.11.2026): only what is really planned, no dates;
 -- one key in Locales, changed with each release
-local COMING_NEXT = "Smoother Loop routes · More spawn points for the new Forever zones · Disenchant values"
+local COMING_NEXT = "Routes that follow the ways you ride · More spawn points for the new Forever zones · Disenchant values"
 local FEEDBACK = "Ideas or bugs? Tell us on CurseForge or Discord."
 
 local function Version()
