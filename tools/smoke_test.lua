@@ -33728,6 +33728,14 @@ function WAYS.World(pieces)
         return ns.run
     end
     function W.Read() return ns.WaysRead(ns.run) end
+    -- (0.2.4 a7, S1.1) the navigation's way - the a5 buffer the progress reads - as W.Way gives the way shown
+    function W.NavWay()
+        local nav = ns.WaysState()
+        if not (nav and nav.core.state == "net") then return "none" end
+        local b, t = nav.core.front, {}
+        for i = 1, b.n do t[#t + 1] = ("%.0f,%.0f"):format(b.wx[i] - (Z - 1400) * 6000, b.wy[i]) end
+        return table.concat(t, " ")
+    end
     -- the way shown as text: its points in zone yards, rounded
     function W.Way()
         local r = ns.WaysRead(ns.run)
@@ -34467,14 +34475,16 @@ step("Ways 0.2.4: the line's head follows the way - its own dots at fixed places
             assert(Near(gap / 5, math.floor(gap / 5 + 0.5)) and gap > 0, "at every fifth yard")
         end
         -- at the bend: placed anew too
-        for xx = 13, 20 do
+        for xx = 13, 19 do
             W.At(xx, 10)
             advance(0.2)
         end
         adds = T.adds.mini
-        W.At(20, 10, 0, 10)
+        -- (0.2.4 a7, S1.1 B1: by the forward rule, F4.1 §C, your place on the corner itself belongs to the next
+        -- segment of the line drawn - one tick earlier than a5's projection, which kept the segment before)
+        W.At(20, 10)
         advance(0.3)
-        assert(W.Read().seg == 2 and T.adds.mini > adds, "the next segment: placed anew (" .. W.Read().seg .. ")")
+        assert(W.Read().seg == 2 and wh.seg == 2 and T.adds.mini > adds, "the next segment: placed anew (" .. W.Read().seg .. ", " .. wh.seg .. ")")
         -- 3. the world map opens: the dots on it too, at the same places; it closes: off it in one call
         WorldMapFrame:Show()
         advance(0.3)
@@ -35634,6 +35644,187 @@ step("Ways 0.2.4: riding along a way that is shown makes no new garbage - 600 fr
     ns.db.routeWaysOff = nil
     W.Done()
     if not ok then error(err, 0) end
+end)
+step("Ways 0.2.4 S1.1 B1: the maps and the arrow show the centre line of the way - every square's middle - while the navigation reads the a5 buffer as before; the display has its own place (from the yards you have come), its own revision at every change of what is shown, and its world places only where they are read (0.2.4 a7, F4 §A/§B, F4.1 §B/§C, F4.2)", function()
+    local Near = WAYS.Near
+    local Core = ns.WaysCore
+    local function Tol(a, b, t) return a ~= nil and math.abs(a - b) <= (t or 0.0005) end
+    local function World(squares)
+        local e = {}
+        WAYS.Ride(e, squares)
+        return WAYS.World(e)
+    end
+    local function Nav() return (ns.WaysState()) end
+    local function Shown() return ns.WaysRead(ns.run) end
+    -- 1. Codex' 80 steps (R2, R3): east, then one square diagonally (x + 1, y + 1), from (0,0) to (80,40)
+    do
+        local squares, x, y = { { 0, 0 } }, 0, 0
+        for i = 1, 80 do
+            if i % 2 == 1 then x = x + 1 else x, y = x + 1, y + 1 end
+            squares[#squares + 1] = { x, y }
+        end
+        local W = World(squares)
+        local T = WAYS.Pins()
+        local drawer = ns.RouteWaysDrawer
+        local keepStep = drawer.Step
+        local most, steps = 0, 0
+        local ok, err = pcall(function()
+            -- every step of the maps: how many points of the line it put into world yards
+            drawer.Step = function(ops)
+                local c0 = Core.convs
+                local used = keepStep(ops)
+                if Core.convs > c0 then most, steps = math.max(most, Core.convs - c0), steps + 1 end
+                return used
+            end
+            WorldMapFrame:Show()
+            W.At(0, 0)
+            local run = W.Run({ W.Node(80, 40) }, 2)
+            local r = Shown()
+            assert(r.state == "net" and r.source == "net", "test setup: a way of the net: " .. r.state)
+            local nav = Nav()
+            -- the navigation: the a5 buffer, simplified to two points (15 yd: more than 32 segments at 5 yd);
+            -- at x = 50 it runs through y = 31.25, through the square (1,1) nobody rode
+            local f = nav.core.front
+            assert(f.n == 2 and Near(f.x[1], 12.5) and Near(f.x[2], 2012.5) and Near(f.y[2], 1012.5), "test setup: a5 makes one stretch: " .. f.n)
+            assert(Near(f.y[1] + (50 - f.x[1]) * (f.y[2] - f.y[1]) / (f.x[2] - f.x[1]), 31.25), "test setup: the a5 line at x = 50")
+            -- the centre line: you, the 81 middles, the node (both end bits of no length) - 83 points
+            local c = nav.core.cf
+            assert(c.n == 83, "the centre line has " .. c.n .. " points")
+            for i = 2, 82 do
+                local q = squares[i - 1]
+                assert(Near(c.x[i], (q[1] + 0.5) * 25) and Near(c.y[i], (q[2] + 0.5) * 25), "point " .. i .. " is not the middle of square " .. (i - 1))
+            end
+            -- every diagonal step's corner lies on it (the middle of the stretch between the two middles)
+            local diagonals = 0
+            for i = 2, 81 do
+                local a, q = squares[i - 1], squares[i]
+                if a[1] ~= q[1] and a[2] ~= q[2] then
+                    diagonals = diagonals + 1
+                    assert(Near((c.x[i] + c.x[i + 1]) / 2, (a[1] + 1) * 25) and Near((c.y[i] + c.y[i + 1]) / 2, (a[2] + 1) * 25), "a diagonal corner is missed at step " .. i)
+                end
+            end
+            assert(diagonals == 40, "test setup: 40 diagonal steps, " .. diagonals)
+            assert(Near((c.x[3] + c.x[4]) / 2, 50) and Near((c.y[3] + c.y[4]) / 2, 25), "the first diagonal corner (50 | 25)")
+            -- shown: the centre line as it is drawn - every point but the two that lie on you and on the node
+            -- (every middle here is a bend); its yards are the yards of the way, its end bit a5's
+            local b = r.points
+            assert(b == c.view and r.n == 81 and b.n == 81, "the maps read the centre line: " .. r.n .. " points drawn")
+            local Zx = (W.Z - 1400) * 6000
+            for k = 1, 81 do
+                local q = squares[k]
+                assert(Near(b.wx[k] - Zx, (q[1] + 0.5) * 25) and Near(b.wy[k], (q[2] + 0.5) * 25), "drawn point " .. k .. " is not the middle of square " .. k)
+            end
+            assert(Near(b.len, f.yards) and Near(b.cum[81], f.yards) and Near(b.tail, f.tail), "the centre line's yards: " .. b.len .. " / " .. f.yards)
+            -- 2. world places only where they are read: the maps 16 in a step at the most, the arrow 4 at once
+            assert(steps > 0 and most > 0 and most <= 16, ("the maps took %d points into world yards in one step (%d steps)"):format(most, steps))
+            local before = Core.convs
+            local ax, ay = ns.WaysArrow(run, W.World(12.5, 12.5))
+            assert(ax and Core.convs - before <= 4, ("the arrow's point took %d points into world yards"):format(Core.convs - before))
+            local h = 5 / math.sqrt(2) -- (30 yd on: 25 east, then 5 yd into the first diagonal)
+            assert(Near(ax - (W.Z - 1400) * 6000, 37.5 + h) and Near(ay, 12.5 + h),
+                ("the arrow turns to the point 30 yd along the centre line: %.4f, %.4f"):format(ax - (W.Z - 1400) * 6000, ay))
+        end)
+        drawer.Step = keepStep
+        WorldMapFrame:Hide()
+        T.Done()
+        W.Done()
+        if not ok then error(err, 0) end
+    end
+    -- 3. Codex' L of 100 yd (R1-R3): (0,0) (1,0) (2,0) (2,1) (2,2); you on the first middle, the node on the last
+    do
+        local W = World({ { 0, 0 }, { 1, 0 }, { 2, 0 }, { 2, 1 }, { 2, 2 } })
+        local ok, err = pcall(function()
+            W.At(0, 0)
+            W.Run({ W.Node(2, 2) }, 2)
+            assert(Shown().state == "net", "test setup: the L's way")
+            W.At(1, 0) -- (37.5 | 12.5)
+            advance(0.2)
+            local core = Nav().core
+            local r = Shown()
+            -- the navigation as a5: 25 yd on, 75 yd to go, on the way
+            assert(Tol(core.pos, 25, 0.005) and Tol(core.rest, 75, 0.005) and Tol(math.sqrt(core.offD), 0, 0.005) and core.on,
+                ("the navigation: %.4f / %.4f / %.4f, want 25 / 75 / 0"):format(core.pos, core.rest, math.sqrt(core.offD)))
+            -- the display on the centre line: at the yards you have come, 25
+            assert(Tol(r.pos, 25, 0.005), ("the display's place: %.4f, want 25 on the centre line"):format(r.pos))
+        end)
+        W.Done()
+        if not ok then error(err, 0) end
+    end
+    -- 4. Codex' entry from the side (R2, R3): you at (12.5 | 14.5), the way from the middle (37.5 | 12.5) to (137.5 | 12.5)
+    do
+        local W = World({ { 1, 0 }, { 2, 0 }, { 3, 0 }, { 4, 0 }, { 5, 0 } })
+        local ok, err = pcall(function()
+            W.Yards(12.5, 14.5)
+            W.Run({ W.Node(5, 0) }, 2)
+            assert(Shown().state == "net", "test setup: the way from the side")
+            W.Yards(37.5, 12.5)
+            advance(0.2)
+            local core = Nav().core
+            local r = Shown()
+            -- a5's two points: 100.0383 yd to go, 1.5998 yd off the way - not 100 / 0 of all the middles
+            assert(core.front.n == 2 and Tol(core.rest, 100.0383) and Tol(math.sqrt(core.offD), 1.5998),
+                ("the navigation: %.4f yd to go, %.4f off, want 100.0383 / 1.5998"):format(core.rest, math.sqrt(core.offD)))
+            -- the display: d = the way's yards - the rest = 25.0416, still on the first bit (the middle is at 25.0799)
+            local d = core.front.yards - core.rest
+            assert(Tol(d, 25.0416) and Tol(r.pos, 25.0416) and Tol(r.points.cum[2], 25.0799) and ns.WaysDisplay().seg == 1,
+                ("the display: d %.4f, place %.4f, the middle at %.4f, segment %d"):format(d, r.pos, r.points.cum[2], ns.WaysDisplay().seg))
+        end)
+        W.Done()
+        if not ok then error(err, 0) end
+    end
+    -- 5. the display revision (F4.2): a drawing half done, another geometry for the same way - the maps start
+    -- once on it, a step begun for the old one writes nothing, the navigation is as it was
+    do
+        local e, squares = {}, {}
+        for x = 10, 60 do squares[#squares + 1] = { x, 10 } end
+        WAYS.Ride(e, squares)
+        local W = WAYS.World(e)
+        local T = WAYS.Pins()
+        local _, _, wh = ns.RouteWaysHead()
+        local drawer = ns.RouteWaysDrawer
+        local keepStep = drawer.Step
+        local ok, err = pcall(function()
+            WorldMapFrame:Show()
+            W.At(10, 10)
+            W.Run({ W.Node(60, 10) }, 2)
+            local r = Shown()
+            assert(r.state == "net", "test setup: a way")
+            -- a drawing under way: started anew, three dots of it placed, then the work frame places nothing
+            drawer.Step = function() return 1 end
+            ns.WaysPublishDisplay()
+            advance(0.1)
+            assert(wh.job and wh.pub == r.pub, "test setup: a drawing under way")
+            keepStep(3) -- (the first step takes the world map's dots off in one call)
+            keepStep(3)
+            assert(wh.job and wh.top >= 3 and #T.Seen("world") >= 3, "test setup: a drawing half done")
+            local core = Nav().core
+            local pub, gen = r.pub, core.gen
+            local before = { core.pos, core.rest, core.offD, core.on, core.seg, core.state, core.front, core.cf, core.have }
+            ns.WaysPublishDisplay()
+            assert(r.pub == pub + 1 and core.gen == gen, ("another geometry: the display revision %d -> %d, the way's generation %d -> %d"):format(pub, r.pub, gen, core.gen))
+            local after = { core.pos, core.rest, core.offD, core.on, core.seg, core.state, core.front, core.cf, core.have }
+            for i = 1, #before do assert(before[i] == after[i], "PublishDisplay changed the navigation (" .. i .. ")") end
+            -- in the same frame: no dot of the old drawing on either map, its job given up
+            assert(#T.Seen("world") == 0 and #T.Seen("mini") == 0 and not wh.job, "the old drawing is still seen in the frame of the change")
+            -- a step for the old drawing writes nothing
+            local adds = T.adds.world + T.adds.mini
+            keepStep(50)
+            assert(T.adds.world + T.adds.mini == adds, "a step of the old drawing placed dots")
+            -- the next head ticks start the maps once on the new geometry, and not again with the same revision
+            drawer.Step = keepStep
+            local starts, last = 0, wh.pub
+            for _ = 1, 4 do
+                advance(0.1)
+                if wh.pub ~= last then starts, last = starts + 1, wh.pub end
+            end
+            assert(starts == 1 and wh.pub == r.pub and #T.Seen("world") > 0, ("the maps started %d times on the new geometry"):format(starts))
+        end)
+        drawer.Step = keepStep
+        WorldMapFrame:Hide()
+        T.Done()
+        W.Done()
+        if not ok then error(err, 0) end
+    end
 end)
 
 step("Ways donation: canonical own pieces, no private fields, bounds and sliced multipart export", function()

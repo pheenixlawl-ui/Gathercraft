@@ -864,25 +864,43 @@ QPhase(function(ctx, q, budget) -- back
     elseif q.stage == 3 then -- (the lists of points get their length slot by slot, see Radix)
         local keep = Q.keep
         local cap, n = Q.rawCap, q.rawN
-        while cap < n and used < budget do
-            cap = cap + 1
-            rx[cap], ry[cap], rk[cap], keep[cap] = 0, 0, 0, 0
+        -- (0.2.4 a7, S1.1 B1) the centre line's lists too, the back one of this navigation
+        local c = q.nav.cb
+        local cx, cy, craw, ckey, ckind, ccap = c.x, c.y, c.raw, c.key, c.kind, c.cap or 0
+        local cbx, cby, ccv, cdk, cdcum = c.bx, c.by, c.cv, c.dk, c.dcum
+        while (cap < n or ccap < n) and used < budget do
+            if cap < n then
+                cap = cap + 1
+                rx[cap], ry[cap], rk[cap], keep[cap] = 0, 0, 0, 0
+            end
+            if ccap < n then
+                ccap = ccap + 1
+                cx[ccap], cy[ccap], craw[ccap], ckey[ccap], ckind[ccap] = 0, 0, 0, 0, 0
+                cbx[ccap], cby[ccap], ccv[ccap], cdk[ccap], cdcum[ccap] = 0, 0, -1, 0, 0
+            end
             used = used + 1
         end
-        Q.rawCap = cap
-        if cap < n then return used end
+        Q.rawCap, c.cap = cap, ccap
+        if cap < n or ccap < n then return used end
         q.stage, q.i, q.at = 1, n - 1, q.exit
         q.guessYards = 0
         rx[1], ry[1], rk[1] = q.px, q.py, -1
         rx[n], ry[n], rk[n] = q.tx, q.ty, -1
+        cx[1], cy[1], ckey[1], ckind[1] = q.px, q.py, -1, -1
+        cx[n], cy[n], ckey[n], ckind[n] = q.tx, q.ty, -1, -1
+        c.stamp = c.stamp + 1 -- (a new way in this buffer: no world place put in before counts)
         return used + 1
     elseif q.stage == 1 then -- the points, from the end
         local u, at, guess = q.at, q.i, q.guessYards
+        local c = q.nav.cb
+        local cx, cy, ckey, ckind = c.x, c.y, c.key, c.kind
         while at >= 2 and used < budget do
             rx[at], ry[at], rk[at] = x[u], y[u], key[u]
+            cx[at], cy[at], ckey[at], ckind[at] = x[u], y[u], key[u], -1
             if at > 2 then
                 local p = par[u]
                 local kind = flag[pedge[u]] % 8
+                ckind[at] = kind -- (the edge from the square before into this one)
                 if kind == CON or kind == GREV then
                     -- guessed: a connector, or the guessed way back up a fall seen once
                     local dx, dy = x[u] - x[p], y[u] - y[p]
@@ -896,17 +914,43 @@ QPhase(function(ctx, q, budget) -- back
         q.at, q.i, q.guessYards = u, at, guess
         if at >= 2 then return used end
         q.stage, q.i, q.yards = 2, 1, 0
+        do
+            local c = q.nav.cb
+            c.raw[1], c.dn, c.dk[1], c.dcum[1] = 0, 1, 1, 0
+        end
         return used + 1
     end
     local i, n, yards = q.i, q.rawN, q.yards
+    local c = q.nav.cb
+    local craw, dk, dcum, dn = c.raw, c.dk, c.dcum, c.dn
     while i < n and used < budget do
         local dx, dy = rx[i + 1] - rx[i], ry[i + 1] - ry[i]
+        if i >= 2 then
+            -- (S1.1 B1) the point i is drawn unless it lies on the point drawn before it or on the next one
+            -- (you or the node on a middle: closer than a thousandth of a yard - they come from the map's
+            -- fractions), or exactly on the straight line between them (F4 §B; the middles are exact)
+            local k = dk[dn]
+            local ax, ay = rx[i] - rx[k], ry[i] - ry[k]
+            if not (ax * ax + ay * ay < 1e-6 or dx * dx + dy * dy < 1e-6 or (ax * dy - ay * dx == 0 and ax * dx + ay * dy > 0)) then
+                dn = dn + 1
+                dk[dn], dcum[dn] = i, craw[i]
+            end
+        end
         yards = yards + sqrt(dx * dx + dy * dy)
         i = i + 1
+        craw[i] = yards
         used = used + 1
     end
+    c.dn = dn
     q.i, q.yards = i, yards
     if i < n then return used end
+    do
+        dn = dn + 1
+        dk[dn], dcum[dn], c.dn = n, yards, dn
+        c.n, c.len, c.head, c.tail = n, yards, q.entryD, q.exitD
+        local v = c.view
+        v.n, v.len, v.tail = dn, yards, q.exitD
+    end
     -- The rule of length: three times the straight line at the most; or, for
     -- a new request to the same node, not longer than the rest of the way
     -- shown + your distance to it + 50 yd.
@@ -1057,14 +1101,76 @@ local function NewBuffer()
         yards = 0, cost = 0, guess = 0, netYards = 0, percent = 0, tail = 0, tx = 0, ty = 0 }
 end
 
+---------------------------------------------------------------------------
+-- (0.2.4 a7, S1.1 B1) The centre line of a way: the way of the net as it was
+-- found - you, the middle of every square, the node - with nothing left out.
+-- It is safe to show: a stretch between the middles of two squares side by
+-- side lies in those two squares and crosses the side or the corner between
+-- them, also on a guessed edge. The navigation never reads it (it reads the
+-- a5 buffer, front, as before); the line on the maps and the arrow do.
+--   Written by the way back (phase back) for free: the points, their keys,
+--   the kind of the edge into each point (-1: the first and last bit), and
+--   along the way the yards so far (raw). Two of them, as the a5 buffers:
+--   a request writes into cb, a published way swaps cb and cf.
+--   World yards only when a reader asks for a point (wx, wy fill themselves
+--   from x, y - HereBeDragons is affine within a zone): the arrow needs a few
+--   points at once, the maps the ones they draw.
+---------------------------------------------------------------------------
+M.convs = 0 -- (the tests, /gcr perf: points put into world yards so far)
+local function NewCentre()
+    -- x, y, raw, key, kind: every point of the way (n of them). The line drawn passes over the points
+    -- that lie exactly on the straight line between their neighbours and those on the point before them
+    -- (F4 §B: "kollineare Zwischenpunkte dürfen beim Zeichnen übersprungen werden"): dk[k] is the point
+    -- of the k-th of the dn points drawn, dcum[k] its yards along the way. The readers (the maps, the
+    -- arrow) get `view`: wx, wy, cum, n, len, tail of the line drawn, as the a5 buffer has them.
+    -- bx, by: the world places put in so far (cv[i] == stamp: put in for the way written now).
+    local c = { x = {}, y = {}, raw = {}, key = {}, kind = {}, dk = {}, dcum = {}, dn = 0, bx = {}, by = {}, cv = {}, stamp = 0,
+        n = 0, len = 0, tail = 0, head = 0, conv = nil, map = 0, w = 1, h = 1, pwx = 0, pwy = 0, twx = 0, twy = 0 }
+    local function Fill(i)
+        local x, y
+        if not c.conv then
+            x, y = c.x[i], c.y[i] -- (no conversion given: the tests' zone yards, as M.Query does it)
+        elseif i == 1 then
+            x, y = c.pwx, c.pwy -- (you and the node: their world places as the a5 buffer has them)
+        elseif i == c.n then
+            x, y = c.twx, c.twy
+        else
+            x, y = c.conv(c.x[i] / c.w, c.y[i] / c.h, c.map)
+            M.convs = M.convs + 1
+        end
+        c.bx[i], c.by[i], c.cv[i] = x, y, c.stamp
+    end
+    -- (the view's wx, wy stay empty: every read goes through them - nothing grows while you ride)
+    local v = { wx = {}, wy = {}, cum = c.dcum, n = 0, len = 0, tail = 0, centre = c }
+    setmetatable(v.wx, { __index = function(_, k)
+        if k >= 1 and k <= c.dn then
+            local i = c.dk[k]
+            if c.cv[i] ~= c.stamp then Fill(i) end
+            return c.bx[i]
+        end
+    end })
+    setmetatable(v.wy, { __index = function(_, k)
+        if k >= 1 and k <= c.dn then
+            local i = c.dk[k]
+            if c.cv[i] ~= c.stamp then Fill(i) end
+            return c.by[i]
+        end
+    end })
+    c.view = v
+    return c
+end
+M.NewCentre = NewCentre
+
 -- The state of one navigation: the buffer shown (front) and the one a
 -- request writes into (back), the progress along the way shown, and the rest
--- of the way last shown as two numbers (for the rule of length).
+-- of the way last shown as two numbers (for the rule of length). cf, cb: the
+-- centre lines of front and back (S1.1); gen: counts at every way published.
 function M.NewNav()
     return {
         state = "line", seg = 1, pos = 0, on = false,
         front = NewBuffer(), back = NewBuffer(),
         have = false, rest = 0, offD = 0,
+        cf = NewCentre(), cb = NewCentre(), gen = 0,
     }
 end
 
@@ -1097,6 +1203,9 @@ end
 function M.Publish(nav)
     local b = nav.back
     nav.back, nav.front = nav.front, b
+    -- (0.2.4 a7, S1.1 B1) the centre line of the same way, in the same step: a swap, no copy
+    nav.cb, nav.cf = nav.cf, nav.cb
+    nav.gen = nav.gen + 1
     nav.state, nav.seg, nav.pos, nav.on = "net", 1, 0, true
     nav.have, nav.rest, nav.offD = true, b.yards, 0
 end
@@ -1319,6 +1428,48 @@ local net = { mapID = nil, ready = false, building = false, over = nil, rev = 0,
 local req = { active = false }
 local keeping = false -- the rest of the way shown is being looked at against a new net
 local read = { state = "none", n = 0, yards = 0, cost = 0, guessed = 0, percent = 0, seg = 1, pos = 0, serial = 0, pub = 0 }
+-- (0.2.4 a7, S1.1) What the maps and the arrow show - the display: the centre line of the way
+-- published (B1), later its thread. It has its own place along it (seg, pos), worked out from the
+-- yards of the way you have come (d = the way's yards - its rest, both the navigation's), and its
+-- own mark: read.pub counts at every change of what is shown (the display revision); the way's
+-- generation (nav.core.gen) only at a way published. The navigation never reads any of it.
+local disp = { buf = nil, seg = 1, pos = 0, gen = -1, kind = "none" }
+local function Conv(fx, fy, mapID) return HBD:GetWorldCoordinatesFromZone(fx, fy, mapID) end
+-- (the points the maps put into world yards in one step of the work: 16 at the most, F4.1 §B)
+local MAP_POINTS = 16
+local convStep = 0
+-- The segment of a line for a place along it, forwards from s: on the border of two segments the
+-- next one (the very end of the way: the last one); a segment of no length is passed over.
+local function Locate(b, s, at)
+    local cum, n = b.cum, b.n
+    if not s or s < 1 or s >= n or cum[s] > at then s = 1 end
+    while s < n - 1 and (cum[s + 1] <= at or cum[s + 1] == cum[s]) do s = s + 1 end
+    return s
+end
+-- The display's place for the navigation's progress (once a frame, with Follow)
+local function DisplayFollow()
+    local b = disp.buf
+    if not (b and nav) then return end
+    local core = nav.core
+    local at = core.front.yards - core.rest
+    if at < 0 then at = 0 elseif at > b.len then at = b.len end
+    disp.pos = at
+    disp.seg = Locate(b, disp.seg, at)
+end
+-- Where the arrow turns to on the display: the point 30 yd ahead of its place; nil: the node
+-- itself (the point lies on the last bit to it, as in a5)
+local function DisplayArrow()
+    local b = disp.buf
+    local at = disp.pos + ARROW_YARDS
+    if at >= b.len - b.tail then return end
+    local s = Locate(b, disp.seg, at)
+    local cum, wx, wy = b.cum, b.wx, b.wy
+    local len = cum[s + 1] - cum[s]
+    local t = len > 0 and (at - cum[s]) / len or 0
+    if t > 1 then t = 1 end
+    local ax, ay, bx, by = wx[s], wy[s], wx[s + 1], wy[s + 1]
+    return ax + t * (bx - ax), ay + t * (by - ay)
+end
 -- Route.lua's part: the dots of the way's line. Hide() hides all of them now; Pending() says whether
 -- dots are to be placed or taken off the maps; Step(ops) does up to ops of that and returns how many.
 local drawer = ns.RouteWaysDrawer
@@ -1365,6 +1516,18 @@ local function Withdraw()
         if drawer then drawer.Hide() end
         Told()
     end
+end
+
+-- (0.2.4 a7, S1.1 B1; F4 §B, F4.2) Another geometry shown for the same way: the navigation and its
+-- progress stay as they are (this is never M.Publish); the drawing under way is given up and its
+-- dots hidden in this frame; the display revision counts, so the maps start on the new geometry and
+-- a step begun for the old one writes nothing.
+local function PublishDisplay(buf, kind)
+    if drawer then drawer.Hide() end
+    disp.buf, disp.kind, disp.seg = buf, kind, 1
+    read.pub = read.pub + 1
+    DisplayFollow()
+    read.seg, read.pos = disp.seg, disp.pos
 end
 
 local function SetState(state)
@@ -1443,6 +1606,7 @@ local function Release()
     CancelRequest()
     nav.state = "none"
     nav, navRun = nil, nil
+    disp.buf, disp.kind, disp.gen, disp.seg, disp.pos = nil, "none", -1, 1, 0
     read.state, read.points, read.n, read.source = "none", nil, 0, nil
     ctx = nil
     net.mapID, net.ready, net.building, net.over, net.fresh = nil, false, false, nil, 0
@@ -1507,7 +1671,8 @@ local function Follow(px, py)
     if nav.stamp ~= now then
         nav.stamp = now
         M.Progress(nav.core, px, py)
-        read.seg, read.pos = nav.core.seg, nav.core.pos
+        DisplayFollow()
+        read.seg, read.pos = disp.seg, disp.pos
     end
     return nav.core.on
 end
@@ -1653,7 +1818,10 @@ local function Step()
     if not req.active then
         -- (first a request - below; then the dots of a way that is shown; then a build; last the hidden dots)
         local pending = drawer and drawer.Pending()
-        if pending == 2 then return 202, drawer.Step(Ops(202, 6)) end
+        if pending == 2 then
+            convStep = M.convs -- (the maps' points of this step, see MAP_POINTS)
+            return 202, drawer.Step(Ops(202, 6))
+        end
         if not net.building then
             if pending then return 203, drawer.Step(Ops(203, 20)) end
             return
@@ -1723,6 +1891,11 @@ local function Step()
                     -- published: the buffers change places; what was shown before is hidden first
                     if nav.core.state == "net" and drawer then drawer.Hide() end
                     M.Publish(nav.core)
+                    -- (0.2.4 a7, S1.1 B1) shown: the centre line of this way, from you outwards
+                    local c = nav.core.cf
+                    c.conv, c.map, c.w, c.h = Conv, req.map, net.w, net.h
+                    c.pwx, c.pwy, c.twx, c.twy = req.pwx, req.pwy, req.twx, req.twy
+                    disp.buf, disp.kind, disp.gen, disp.seg, disp.pos = c.view, "centre", nav.core.gen, 1, 0
                     read.pub = read.pub + 1
                     nav.stamp = -1
                     nav.source = SourceText(nav.core.front.percent)
@@ -1820,9 +1993,11 @@ ns.WaysRead = Wrap("Ways", function(run)
     local t0 = Enter()
     if nav and run == navRun and Valid(run) then
         local b = nav.core.front
-        read.state, read.points, read.n, read.yards, read.cost = "net", b, b.n, b.yards, b.cost
+        -- (0.2.4 a7, S1.1) the points and the place are the display's; the numbers the navigation's
+        local d = disp.buf or b
+        read.state, read.points, read.n, read.yards, read.cost = "net", d, d.n, b.yards, b.cost
         read.source, read.guessed, read.percent = "net", b.guess, b.percent
-        read.seg, read.pos = nav.core.seg, nav.core.pos
+        read.seg, read.pos = disp.seg, disp.pos
     else
         local state = nav and run == navRun and nav.state or "none"
         if state == "net" then state = "line" end
@@ -1846,7 +2021,8 @@ ns.WaysArrow = Wrap("Ways", function(run, px, py)
     local x, y
     if Valid(run) and not AnySecret("ways", px, py) and type(px) == "number" and type(py) == "number" then
         if Follow(px, py) then
-            x, y = M.ArrowPoint(nav.core)
+            -- (0.2.4 a7, S1.1) on the display, from its own place
+            if disp.buf then x, y = DisplayArrow() else x, y = M.ArrowPoint(nav.core) end
         else
             Withdraw()
             nav.asked = false
@@ -1886,6 +2062,12 @@ end)
 
 -- Route.lua has dots to place or to take off: the work goes on
 ns.WaysWork = function() work:Show() end
+-- (0.2.4 a7, S1.1 B1) Route.lua's drawing step asks before each dot: 16 points of the line put into
+-- world yards in one step at the most (a dot needs two at the most)
+ns.WaysMapFull = function() return M.convs - convStep > MAP_POINTS - 2 end
+-- (the tests) another geometry for the way shown, without a new way: the centre line again
+ns.WaysPublishDisplay = function(buf, kind) if nav and nav.core.state == "net" then PublishDisplay(buf or nav.core.cf.view, kind or "centre") end end
+ns.WaysDisplay = function() return disp end
 -- Route.lua's own S1 work outside the steps (hiding a line, starting one) counts for the frame too
 ns.WaysNow = Clock
 -- (0.2.4 r1, Codex S1-N1) not counted twice when it comes inside a call that counts already

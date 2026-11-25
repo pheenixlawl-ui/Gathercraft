@@ -1358,6 +1358,8 @@ local function WaysStep(ops)
         local i, arc, s, spacing, stop = wh.i, wh.arc, wh.s, wh.spacing, wh.endArc
         local used = 0
         while used < ops do
+            -- (0.2.4 a7, S1.1 B1) no more points put into world yards in this step than Ways.lua allows (16)
+            if ns.WaysMapFull and ns.WaysMapFull() then break end
             if arc >= stop or i >= HEAD_MAX_DOTS then
                 -- done: what is left of the drawing before goes
                 for j = i + 1, wh.top do
