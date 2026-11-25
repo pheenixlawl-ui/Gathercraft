@@ -1505,6 +1505,7 @@ end
 -- the stretch up to the anchor just written is done: its events next
 local function StretchDone(T)
     T.phase, T.wu, T.wk, T.wt = 2, T.vu[T.sk] + 1, T.sk, 0
+    if M.threadBendTest then M.threadBendTest(T) end -- (the tests: a bend moved off its square)
 end
 
 -- the funnel: one slot
@@ -1637,6 +1638,29 @@ local function Event(T, x, y, u, kind, r, s)
     end
 end
 
+-- (0.2.4 a7, S1.1 B5, F4 §E: the guard) The line from the event before to the point (kb, tb) lies in the
+-- square of middle j (closed, THREAD_TOL): the event before, the points of the thread between and the
+-- point itself - the square is convex, so the pieces between lie in it too. Every piece of the thread
+-- between two events, anchors, its start and end belongs to one square of the way this way.
+local function Within(T, j, kb, tb)
+    local c, t = T.c, T.t
+    local x0, x1 = c.x[j] - HALF - THREAD_TOL, c.x[j] + HALF + THREAD_TOL
+    local y0, y1 = c.y[j] - HALF - THREAD_TOL, c.y[j] + HALF + THREAD_TOL
+    local e = T.en
+    local px, py = T.ex[e], T.ey[e]
+    if px < x0 or px > x1 or py < y0 or py > y1 then return false end
+    local tx, ty = t.x, t.y
+    for k = T.wk + 1, kb do
+        px, py = tx[k], ty[k]
+        if px < x0 or px > x1 or py < y0 or py > y1 then return false end
+    end
+    if kb < t.n then
+        px, py = tx[kb] + tb * (tx[kb + 1] - tx[kb]), ty[kb] + tb * (ty[kb + 1] - ty[kb])
+        if px < x0 or px > x1 or py < y0 or py > y1 then return false end
+    end
+    return true
+end
+
 -- t from lo to hi of p + t d inside [b0, b1]
 local function Clip(p, d, b0, b1, lo, hi)
     if d == 0 then
@@ -1678,7 +1702,8 @@ local function EventSlot(T)
     local j = floor(u / 2)
     if u % 2 == 0 then
         -- the anchor's middle that ends the stretch: its pair
-        T.wu = u + 1
+        if not Within(T, j, ke, 0) then return Fail(T, "guard") end
+        T.wu, T.wk, T.wt = u + 1, ke, 0
         Event(T, t.x[ke], t.y[ke], u, 3, c.raw[j], t.raw[ke])
         return StretchChecked(T)
     end
@@ -1712,11 +1737,20 @@ local function EventSlot(T)
                 lo = 1
             end
             if lo < lo0 then lo = lo0 elseif lo > 1 then lo = 1 end
+            -- (the guard: from the event before to this crossing inside square j; a guessed edge crossed
+            -- at the middle of its side or at its corner - the straight stretch between its middles)
+            if not Within(T, j, k, lo) then return Fail(T, "guard") end
+            if Fixed(c.kind[j + 1]) then
+                local mx, my = (c.x[j] + c.x[j + 1]) / 2, (c.y[j] + c.y[j + 1]) / 2
+                local qx, qy = vx + lo * dx - mx, vy + lo * dy - my
+                if qx * qx + qy * qy > THREAD_TOL * THREAD_TOL then return Fail(T, "guard") end
+            end
             T.wk, T.wt, T.wu = k, lo, u + 1
             Event(T, vx + lo * dx, vy + lo * dy, u, kind, (c.raw[j] + c.raw[j + 1]) / 2, cum[k] + lo * (cum[k + 1] - cum[k]))
             if T.state == "work" and T.phase == 2 and u + 1 == T.vu[ke] and (u + 1) % 2 == 0 then
                 -- (the anchor's middle that ends the stretch right after: its pair in the same piece of work)
-                T.wu = u + 2
+                if not Within(T, j + 1, ke, 0) then return Fail(T, "guard") end
+                T.wu, T.wk, T.wt = u + 2, ke, 0
                 Event(T, t.x[ke], t.y[ke], u + 1, 3, c.raw[j + 1], t.raw[ke])
             end
             return StretchChecked(T)
@@ -1734,9 +1768,13 @@ local function FinishPoint(T)
         -- (the node, and the first point drawn, in the same piece of work as the second point)
         AddPoint(T, c.x[c.n], c.y[c.n], 2 * c.n, 1)
         t.dn, t.dk[1], t.dcum[1] = 1, 1, 0
+        t.bx[1], t.by[1], t.cv[1] = 0, 0, -1
         T.fk = 2
     end
     local k, n = T.fk, t.n
+    -- (S1.1 B5: the world places' lists get their length here, a point at a time - not while you ride,
+    -- when a reader asks for a point further on; the centre line's get it in the way back, phase back)
+    t.bx[k], t.by[k], t.cv[k] = 0, 0, -1
     local x, y, dk, dn = t.x, t.y, t.dk, t.dn
     if k < n then
         -- drawn unless on the point drawn before it or on the next one, or (no anchor) on the straight
@@ -1770,7 +1808,7 @@ function M.ThreadStart(T, c, gen)
     T.stamp = T.stamp + 1
     T.used, T.repairs, T.reason, T.state = 0, 0, nil, "work"
     local n = c.n
-    T.limit = 4 * (n - 3)
+    T.limit = (M.threadFactor or 4) * (n - 3) -- (M.threadFactor: the tests, another counter)
     T.en, T.gs = 0, 1
     if n < 4 then return Fail(T, "short") end -- (one square: nothing to pull tight)
     local t = T.t
@@ -1853,7 +1891,8 @@ local function Clock() return (ns.WaysClock or debugprofilestop)() end
 
 -- The frame sum: what S1 took in the frame going on (a frame is one value of GetTime)
 local frameAt, frameSum = -1, 0
-local diag = { peak = 0, step = 0, requests = 0, cancelled = 0, late = 0, over = 0, builds = 0, invalid = 0, dropped = 0, ops = 0 }
+local diag = { peak = 0, step = 0, requests = 0, cancelled = 0, late = 0, over = 0, builds = 0, invalid = 0, dropped = 0, ops = 0,
+    threads = 0, repaired = 0, fellCount = 0, fellGuard = 0, fellOther = 0, booked = 0 }
 local function Frame()
     local now = GetTime()
     if now ~= frameAt then frameAt, frameSum = now, 0 end
@@ -1898,6 +1937,7 @@ local disp = { buf = nil, seg = 1, pos = 0, gen = -1, kind = "none", mi = 1 }
 -- threadWant: the way generation a thread is wanted for (nil: none) - B5 makes it in pieces.
 local thread = M.NewThread()
 local threadWant = nil
+local threadAsk = 0 -- (counts at every thread wanted: a job begun for an earlier one is begun anew)
 local function Conv(fx, fy, mapID) return HBD:GetWorldCoordinatesFromZone(fx, fy, mapID) end
 -- (the points the maps put into world yards in one step of the work: 16 at the most, F4.1 §B)
 local MAP_POINTS = 16
@@ -2292,6 +2332,44 @@ local function Drop()
     if nav then nav.asked = false end
 end
 
+-- (0.2.4 a7, S1.1 B5, F4 §D, F4.1 §B/§D) The thread of the way shown: a job of its own, wanted at every way
+-- published (and after a check that changed the anchors, T2). It works in steps like the rest, after a
+-- request and after the maps' dots; on the one counter of its job. Done, and the way, its generation and
+-- the centre line shown still the ones it was wanted for: shown (a display revision of its own). Given up
+-- (the counter, the guard, an error): the centre line stays. A way of another generation, a check that
+-- changed the anchors, a way taken back: the job is let go, it never shows anything.
+local function ThreadWork(budget)
+    if not (nav and nav.core.state == "net" and threadWant == nav.core.gen) then
+        threadWant = nil
+        return 0
+    end
+    local T = thread
+    local used = 0
+    if T.ask ~= threadAsk then
+        T.ask = threadAsk
+        M.ThreadStart(T, nav.core.cf, threadWant)
+        used = 1
+    end
+    if T.state == "work" then used = used + M.ThreadStep(T, budget) end
+    if T.state == "done" then
+        threadWant = nil
+        diag.threads, diag.booked = diag.threads + 1, diag.booked + T.used
+        if T.repairs > 0 then diag.repaired = diag.repaired + 1 end
+        if disp.kind == "centre" and disp.gen == nav.core.gen then PublishDisplay(T.t.view, "thread") end
+    elseif T.state == "failed" then
+        threadWant = nil
+        diag.booked = diag.booked + T.used
+        if T.reason == "count" then
+            diag.fellCount = diag.fellCount + 1
+        elseif T.reason == "guard" then
+            diag.fellGuard = diag.fellGuard + 1
+        elseif T.reason ~= "short" then
+            diag.fellOther = diag.fellOther + 1
+        end
+    end
+    return used
+end
+
 -- One step of the work that is due. Returns the kind of work and the
 -- operations used, or nil when there is none.
 --   The order: a request goes first (it is short, and a way is waited for);
@@ -2305,6 +2383,11 @@ local function Step()
         if pending == 2 then
             convStep = M.convs -- (the maps' points of this step, see MAP_POINTS)
             return 202, drawer.Step(Ops(202, 6))
+        end
+        -- (S1.1 B5) the thread of the way shown, after the request and the dots (F4.1 §B: fourth)
+        if threadWant then
+            local used = ThreadWork(Ops(204, 50))
+            if used > 0 then return 204, used end
         end
         if not net.building then
             if pending then return 203, drawer.Step(Ops(203, 20)) end
@@ -2381,6 +2464,8 @@ local function Step()
                     c.pwx, c.pwy, c.twx, c.twy = req.pwx, req.pwy, req.twx, req.twy
                     disp.buf, disp.kind, disp.gen, disp.seg, disp.pos, disp.mi = c.view, "centre", nav.core.gen, 1, 0, 1
                     read.pub = read.pub + 1
+                    -- (S1.1 B5, F4 §D) its thread: a job of its own, after this publication
+                    threadWant, threadAsk = nav.core.gen, threadAsk + 1
                     nav.stamp = -1
                     nav.source = SourceText(nav.core.front.percent)
                     req.active = false
@@ -2410,7 +2495,7 @@ local function Step()
                     nav.core.front.percent = k.percent
                     nav.source = SourceText(k.percent)
                     -- (T2) percent, source and kinds as in a5; a thread for the new kinds
-                    if k.early then threadWant = nav.core.gen end
+                    if k.early then threadWant, threadAsk = nav.core.gen, threadAsk + 1 end
                     Told()
                 else
                     Withdraw()
@@ -2571,7 +2656,7 @@ ns.WaysThreadNow = function()
     if state == "done" then PublishDisplay(thread.t.view, "thread") end
     return state, reason
 end
-ns.WaysThread = function() return thread, threadWant end
+ns.WaysThread = function() return thread, threadWant, threadAsk end
 -- Route.lua's own S1 work outside the steps (hiding a line, starting one) counts for the frame too
 ns.WaysNow = Clock
 -- (0.2.4 r1, Codex S1-N1) not counted twice when it comes inside a call that counts already
@@ -2586,14 +2671,19 @@ ns.WaysSpend = function(ms) if Outside() then Spend(ms) end end
 --   builds: nets built - late (not done in 5 s) counts with the requests' late, over the limits
 --   (more than 8,000 squares or 20,000 edges: no net); taken back at once: a piece changed its
 --   direction, pieces went, other saved data.
+--   (0.2.4 a7, S1.1 B5, F4.1 §D) threads: smooth lines done (of them repaired with protective anchors) and
+--   the ones given up - the centre line stays - by the counter, by the guard, by another error; the work
+--   they booked (a passage or point looked at, a point written).
 ns.WaysPerf = function(reset)
     if reset then
         diag.peak, diag.step, diag.requests, diag.cancelled, diag.late = 0, 0, 0, 0, 0
         diag.over, diag.builds, diag.invalid, diag.dropped = 0, 0, 0, 0
+        diag.threads, diag.repaired, diag.fellCount, diag.fellGuard, diag.fellOther, diag.booked = 0, 0, 0, 0, 0, 0
         return
     end
-    return ("ways: largest frame %.2f ms (limit %.1f), longest step %.2f ms, %d requests (%d given up, %d late, %d dropped), %d builds (%d over the limits), %d taken back at once")
-        :format(diag.peak, FRAME_MS, diag.step, diag.requests, diag.cancelled, diag.late, diag.dropped, diag.builds, diag.over, diag.invalid)
+    return ("ways: largest frame %.2f ms (limit %.1f), longest step %.2f ms, %d requests (%d given up, %d late, %d dropped), %d builds (%d over the limits), %d taken back at once; %d threads (%d repaired), %d on the centre line (%d counter, %d guard, %d other), %d booked")
+        :format(diag.peak, FRAME_MS, diag.step, diag.requests, diag.cancelled, diag.late, diag.dropped, diag.builds, diag.over, diag.invalid,
+            diag.threads, diag.repaired, diag.fellCount + diag.fellGuard + diag.fellOther, diag.fellCount, diag.fellGuard, diag.fellOther, diag.booked)
 end
 
 -- for /gcr perf and the tests: the counters, and what is going on

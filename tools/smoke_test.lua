@@ -33797,217 +33797,223 @@ function WAYS.U()
 end
 
 step("Ways 0.2.4: a farm run asks for its way at one place and shows it only for the run, the node, the node's place, the zone and the net it was found in - a late or stale result is dropped; off the way by more than 25 yd it is taken back and asked anew; what cannot be read is never worked with (S1 W3)", function()
-    local Core, Near = ns.WaysCore, WAYS.Near
-    local W = WAYS.World(WAYS.U())
-    local HBD = LibStub("HereBeDragons-2.0")
-    local ok, err = pcall(function()
-        local diag = ns.WaysDiag()
-        local A, B = W.Node(10, 20), W.Node(20, 15, 0, 0)
-        -- 1. the run starts on the U: the way of the net, the U's three corners
-        W.At(10, 10)
-        local run = W.Run({ A })
-        assert(run and run.target == A, "test setup: the run rides to A")
-        local r = W.Read()
-        assert(r.state == "net" and r.source == "net", "a way of the net is shown: " .. r.state)
-        assert(W.Way() == "263,263 513,263 513,513 263,513", "you, the two corners, the node: " .. W.Way())
-        assert(Near(r.yards, 750) and Near(r.cost, 750) and r.guessed == 0 and r.percent == 0 and r.n == 4, "750 yd, nothing guessed")
-        assert(ns.WaysSource(run) == ns.L["Path: your ridden ways"], "the run window's line: " .. tostring(ns.WaysSource(run)))
-        assert(W.Read() == r, "the same table every time")
-        local nav, net, req, ctx = ns.WaysState()
-        assert(nav and net.mapID == W.Z and net.ready and not req.active and ctx and ctx.active == 1, "one navigation, the net of the zone")
-        local builds, requests = diag.builds, diag.requests
-        -- 2. riding along it: no new request, no new build; the progress goes on
-        for x = 10, 19 do
-            W.At(x, 10)
-            advance(0.3)
-        end
-        r = W.Read()
-        assert(r.state == "net" and diag.requests == requests and diag.builds == builds, "riding the way: nothing is asked again")
-        assert(r.seg == 1 and Near(r.pos, 225), "9 squares along: " .. r.pos)
-        -- 3. more than 25 yd off: taken back at once, asked anew from where you are
-        W.At(19, 10, 0, -26)
-        advance(0.1)
-        r = W.Read()
-        assert(diag.requests == requests + 1, "off the way: a new request")
-        advance(1)
-        r = W.Read()
-        assert(r.state == "net" and W.Way():match("^488,237 "), "the new way starts where you are: " .. W.Way())
-        -- back onto a later part of the way: the old way is not taken up again, the new one is followed
-        requests = diag.requests
-        for _, sq in ipairs({ { 19, 10 }, { 20, 10 }, { 20, 11 }, { 20, 12 } }) do
-            W.At(sq[1], sq[2])
-            advance(0.3)
-        end
-        r = W.Read()
-        assert(r.state == "net" and diag.requests == requests, "on the new way: " .. r.state .. " " .. diag.requests - requests)
-        assert(W.Way():match("^488,237 ") and r.pos > 90, "it is the way asked from off the old one, followed on: " .. r.pos)
-        -- 4. another node: the way to A is gone in the same frame; B gets its own
-        ns.db.nodes[W.Z] = { A, B }
-        run.target, run.targetPoint = nil, nil
-        ns.db.nodes[W.Z] = { B }
-        ns.RouteNodeListChanged()
-        for _, f in ipairs(ns.nodeListeners) do f("add", W.Z, B) end
-        advance(1.5)
-        assert(ns.run.target == B, "test setup: the run rides to B now")
-        W.At(10, 10)
-        advance(1)
-        r = W.Read()
-        assert(r.state == "net" and W.Way():match(" 513,388$"), "the way to B ends at B: " .. W.Way())
-        local toB = W.Way()
-        -- the target is swapped behind the navigation's back (as a plan does): the very next read shows nothing of B's way
-        local tpB = ns.run.targetPoint
-        local wxA, wyA = W.World(262.5, 512.5)
-        ns.run.target, ns.run.targetPoint = A, { node = A, mapID = W.Z, wx = wxA, wy = wyA }
-        ns.run.path[1] = ns.run.targetPoint
-        r = W.Read()
-        assert(r.state == "line" and r.points == nil and r.n == 0, "another node: the way is taken back by the read itself: " .. r.state)
-        assert(ns.WaysSource(ns.run) == ns.L["Path: straight line"], "and the run window says the straight line")
-        advance(1)
-        r = W.Read()
-        assert(r.state == "net" and W.Way():match(" 263,513$"), "A's own way, asked anew: " .. W.Way())
-        -- and back to B: asked anew again (nothing is kept per node)
-        requests = diag.requests
-        ns.run.target, ns.run.targetPoint = B, tpB
-        ns.run.path[1] = tpB
-        advance(1)
-        assert(W.Way() == toB and diag.requests == requests + 1, "back to B: the same way, found anew")
-        -- 5. the same node at another place: its old way is gone, the new one ends at the new place
-        B.x = B.x + 30 / W.w
-        r = W.Read()
-        assert(r.state == "line", "the node moved: the way to its old place is taken back at once")
-        tpB.wx = tpB.wx + 30
-        advance(1)
-        assert(W.Way():match(" 543,388$"), "the way to its new place: " .. W.Way())
-        -- another node at the very same place (an ore where a herb grows): still another node - its way is asked for anew
-        local twin = { id = "o1731", name = "Copper Vein", type = "ore", x = B.x, y = B.y, count = 3, last = 1 }
-        local tpTwin = { node = twin, mapID = W.Z, wx = tpB.wx, wy = tpB.wy }
-        requests = diag.requests
-        ns.run.target, ns.run.targetPoint = twin, tpTwin
-        ns.run.path[1] = tpTwin
-        assert(W.Read().state == "line", "another node at the same place: the way shown was the other node's - taken back")
-        advance(1)
-        assert(W.Read().state == "net" and diag.requests == requests + 1, "and asked anew for this one")
-        ns.run.target, ns.run.targetPoint = B, tpB
-        ns.run.path[1] = tpB
-        advance(1)
-
-        -- 6. a result that comes late is dropped: you moved into another square while it was worked out
-        W.Clock("search")
-        W.At(10, 10)
-        advance(3)
-        assert(W.Read().state == "net", "(a way from (10,10) with the slow clock)")
-        local dropped = diag.dropped
-        W.At(12, 10, 0, -30)
-        advance(0.1)
-        assert(req.active, "off the way: a request is on its way")
-        W.At(14, 10, 0, -30)
-        local t = 0
-        while req.active and req.field ~= 10 * 1024 + 14 - 1024 and t < 50 do
+    -- (0.2.4 a7, S1.1 B5: the thread's job gives up at once here - this step is about S1's work on the line shown, the centre line whenever no thread is done; the thread shown is the S1.1 steps' part)
+    ns.WaysCore.threadFactor = 0
+    local held, heldErr = pcall(function()
+        local Core, Near = ns.WaysCore, WAYS.Near
+        local W = WAYS.World(WAYS.U())
+        local HBD = LibStub("HereBeDragons-2.0")
+        local ok, err = pcall(function()
+            local diag = ns.WaysDiag()
+            local A, B = W.Node(10, 20), W.Node(20, 15, 0, 0)
+            -- 1. the run starts on the U: the way of the net, the U's three corners
+            W.At(10, 10)
+            local run = W.Run({ A })
+            assert(run and run.target == A, "test setup: the run rides to A")
+            local r = W.Read()
+            assert(r.state == "net" and r.source == "net", "a way of the net is shown: " .. r.state)
+            assert(W.Way() == "263,263 513,263 513,513 263,513", "you, the two corners, the node: " .. W.Way())
+            assert(Near(r.yards, 750) and Near(r.cost, 750) and r.guessed == 0 and r.percent == 0 and r.n == 4, "750 yd, nothing guessed")
+            assert(ns.WaysSource(run) == ns.L["Path: your ridden ways"], "the run window's line: " .. tostring(ns.WaysSource(run)))
+            assert(W.Read() == r, "the same table every time")
+            local nav, net, req, ctx = ns.WaysState()
+            assert(nav and net.mapID == W.Z and net.ready and not req.active and ctx and ctx.active == 1, "one navigation, the net of the zone")
+            local builds, requests = diag.builds, diag.requests
+            -- 2. riding along it: no new request, no new build; the progress goes on
+            for x = 10, 19 do
+                W.At(x, 10)
+                advance(0.3)
+            end
+            r = W.Read()
+            assert(r.state == "net" and diag.requests == requests and diag.builds == builds, "riding the way: nothing is asked again")
+            assert(r.seg == 1 and Near(r.pos, 225), "9 squares along: " .. r.pos)
+            -- 3. more than 25 yd off: taken back at once, asked anew from where you are
+            W.At(19, 10, 0, -26)
             advance(0.1)
-            t = t + 1
-        end
-        assert(diag.dropped == dropped + 1, "the result for the square you left is dropped: " .. diag.dropped - dropped)
-        assert(W.Read().state == "line", "and nothing of it is shown")
-        advance(3)
-        assert(W.Way():match("^363,23[23] "), "the next request starts in the square you are in: " .. W.Way())
-        -- 7. stop and start with the same node while a request runs: the old request's result never shows
-        W.At(10, 10, 0, -30)
-        advance(0.1)
-        assert(req.active, "a request is on its way")
-        local cancelled, gen0 = diag.cancelled, select(6, ns.WaysState())
-        ns.StopRun(true)
-        assert(not req.active and diag.cancelled == cancelled + 1 and ns.WaysRead(nil).state == "none", "the run stopped: the request is gone, nothing is shown")
-        assert(select(6, ns.WaysState()) == gen0 + 1 and ns.WaysState() == nil, "the run's number counts at the stop; no navigation is left")
-        W.Clock("fast")
-        run = W.Run({ B }, 0.05)
-        assert(select(6, ns.WaysState()) >= gen0 + 2, "and at the start")
-        advance(2)
-        assert(W.Read().state == "net" and W.Way():match("^263,23[23] "), "the new run's own way: " .. W.Way())
-
-        -- 8. what cannot be read: no error, nothing worked out with it, never an old way
-        local SECRET = setmetatable({}, { __eq = function() error("a hidden value was compared") end, __lt = function() error("a hidden value was compared") end,
-            __add = function() error("a hidden value was used") end, __mul = function() error("a hidden value was used") end,
-            __sub = function() error("a hidden value was used") end, __div = function() error("a hidden value was used") end })
-        issecretvalue = function(v) return rawequal(v, SECRET) end
-        local world, best = W.keep.world, W.keep.best
-        local function Shown() return W.Read().state, ns.WaysSource(ns.run) end
-        local function Normal()
-            HBD.GetPlayerWorldPosition, C_Map.GetBestMapForUnit = world, best
+            r = W.Read()
+            assert(diag.requests == requests + 1, "off the way: a new request")
+            advance(1)
+            r = W.Read()
+            assert(r.state == "net" and W.Way():match("^488,237 "), "the new way starts where you are: " .. W.Way())
+            -- back onto a later part of the way: the old way is not taken up again, the new one is followed
+            requests = diag.requests
+            for _, sq in ipairs({ { 19, 10 }, { 20, 10 }, { 20, 11 }, { 20, 12 } }) do
+                W.At(sq[1], sq[2])
+                advance(0.3)
+            end
+            r = W.Read()
+            assert(r.state == "net" and diag.requests == requests, "on the new way: " .. r.state .. " " .. diag.requests - requests)
+            assert(W.Way():match("^488,237 ") and r.pos > 90, "it is the way asked from off the old one, followed on: " .. r.pos)
+            -- 4. another node: the way to A is gone in the same frame; B gets its own
+            ns.db.nodes[W.Z] = { A, B }
+            run.target, run.targetPoint = nil, nil
+            ns.db.nodes[W.Z] = { B }
+            ns.RouteNodeListChanged()
+            for _, f in ipairs(ns.nodeListeners) do f("add", W.Z, B) end
             advance(1.5)
-            do local nav2, net2, req2, ctx2 = ns.WaysState() assert(W.Read().state == "net", "(readable again: the way of the net) " .. W.Read().state .. " ready=" .. tostring(net2.ready) .. " over=" .. tostring(net2.over) .. " asked=" .. tostring(nav2 and nav2.asked) .. " req=" .. tostring(req2.active) .. " reason=" .. tostring(ctx2 and ctx2.q.reason) .. " map=" .. tostring(net2.mapID)) end
-        end
-        W.At(10, 10)
-        Normal()
-        local cases = {
-            { "no position", function() HBD.GetPlayerWorldPosition = function() return nil end end, "none" },
-            -- (a hidden place in the world is handed to the navigation alone: the run's own checks of today
-            -- work with what HereBeDragons gives them)
-            { "a hidden x", function() local x, y, i = world() ns.WaysTick(ns.run, SECRET, y, i) end, "none", true },
-            { "a hidden y", function() local x, y, i = world() ns.WaysTick(ns.run, x, SECRET, i) end, "none", true },
-            { "a hidden instance", function() local x, y = world() ns.WaysTick(ns.run, x, y, SECRET) end, "none", true },
-            { "another instance", function() HBD.GetPlayerWorldPosition = function() local x, y = world() return x, y, 7 end end, "none" },
-            { "no map", function() C_Map.GetBestMapForUnit = function() return nil end end, "line" },
-            { "a hidden map", function() C_Map.GetBestMapForUnit = function() return SECRET end end, "line" },
-            { "only the continent's map", function() C_Map.GetBestMapForUnit = function() return 1414 end end, "line" },
-            { "a city's map", function() C_Map.GetBestMapForUnit = function() return 1454 end end, "line" },
-        }
-        for _, c in ipairs(cases) do
-            local before = #errors
-            c[2]()
-            if not c[4] then advance(0.5) end
-            local state, source = Shown()
-            assert(#errors == before, c[1] .. ": an error - " .. tostring(errors[#errors]))
-            assert(state == c[3], c[1] .. ": " .. state .. ", want " .. c[3])
-            assert(source == (c[3] == "line" and ns.L["Path: straight line"] or nil), c[1] .. ": the run window says " .. tostring(source))
-            Normal()
-        end
-        -- the node's own coordinates
-        local keepX, keepY = B.x, B.y
-        for _, c in ipairs({ { "the node's x hidden", "x", SECRET }, { "the node's y hidden", "y", SECRET }, { "the node's x missing", "x", "?" } }) do
-            local before = #errors
-            B[c[2]] = c[3]
-            ns.WaysTick(ns.run, world())
-            local state = W.Read().state
-            assert(#errors == before and state == "line", c[1] .. ": " .. state .. " " .. tostring(errors[#errors]))
-            B.x, B.y = keepX, keepY
-            Normal()
-        end
-        -- the node on the map next door: the straight line as before
-        local other = { id = "o1731", name = "Copper Vein", type = "ore", x = 0.02, y = 0.5, count = 3, last = 1 }
-        local wx, wy = HBD:GetWorldCoordinatesFromZone(other.x, other.y, W.Z + 1)
-        local tp = ns.run.targetPoint
-        ns.run.target, ns.run.targetPoint = other, { node = other, mapID = W.Z + 1, wx = wx, wy = wy }
-        ns.run.path[1] = ns.run.targetPoint
-        ns.WaysTick(ns.run, world())
-        assert(W.Read().state == "line" and ns.WaysSource(ns.run) == ns.L["Path: straight line"], "a node in the zone next door: the straight line")
-        assert(not select(3, ns.WaysState()).active, "and nothing is asked for it")
-        ns.run.target, ns.run.targetPoint = B, tp
-        ns.run.path[1] = tp
-        Normal()
-        issecretvalue = W.keep.secret
+            assert(ns.run.target == B, "test setup: the run rides to B now")
+            W.At(10, 10)
+            advance(1)
+            r = W.Read()
+            assert(r.state == "net" and W.Way():match(" 513,388$"), "the way to B ends at B: " .. W.Way())
+            local toB = W.Way()
+            -- the target is swapped behind the navigation's back (as a plan does): the very next read shows nothing of B's way
+            local tpB = ns.run.targetPoint
+            local wxA, wyA = W.World(262.5, 512.5)
+            ns.run.target, ns.run.targetPoint = A, { node = A, mapID = W.Z, wx = wxA, wy = wyA }
+            ns.run.path[1] = ns.run.targetPoint
+            r = W.Read()
+            assert(r.state == "line" and r.points == nil and r.n == 0, "another node: the way is taken back by the read itself: " .. r.state)
+            assert(ns.WaysSource(ns.run) == ns.L["Path: straight line"], "and the run window says the straight line")
+            advance(1)
+            r = W.Read()
+            assert(r.state == "net" and W.Way():match(" 263,513$"), "A's own way, asked anew: " .. W.Way())
+            -- and back to B: asked anew again (nothing is kept per node)
+            requests = diag.requests
+            ns.run.target, ns.run.targetPoint = B, tpB
+            ns.run.path[1] = tpB
+            advance(1)
+            assert(W.Way() == toB and diag.requests == requests + 1, "back to B: the same way, found anew")
+            -- 5. the same node at another place: its old way is gone, the new one ends at the new place
+            B.x = B.x + 30 / W.w
+            r = W.Read()
+            assert(r.state == "line", "the node moved: the way to its old place is taken back at once")
+            tpB.wx = tpB.wx + 30
+            advance(1)
+            assert(W.Way():match(" 543,388$"), "the way to its new place: " .. W.Way())
+            -- another node at the very same place (an ore where a herb grows): still another node - its way is asked for anew
+            local twin = { id = "o1731", name = "Copper Vein", type = "ore", x = B.x, y = B.y, count = 3, last = 1 }
+            local tpTwin = { node = twin, mapID = W.Z, wx = tpB.wx, wy = tpB.wy }
+            requests = diag.requests
+            ns.run.target, ns.run.targetPoint = twin, tpTwin
+            ns.run.path[1] = tpTwin
+            assert(W.Read().state == "line", "another node at the same place: the way shown was the other node's - taken back")
+            advance(1)
+            assert(W.Read().state == "net" and diag.requests == requests + 1, "and asked anew for this one")
+            ns.run.target, ns.run.targetPoint = B, tpB
+            ns.run.path[1] = tpB
+            advance(1)
 
-        -- 9. nothing shown at all: no work. The arrow alone is enough to want the way
-        ns.db.routeLineHidden, ns.db.routeLineMiniHidden = true, true
-        advance(0.5)
-        assert(W.Read().state == "net", "the lines hidden, the arrow shown: the way is still found")
-        ns.db.arrowHidden = true
-        advance(0.5)
-        assert(ns.WaysState() == nil and ns.WaysRead(ns.run).state == "none" and ns.WaysSource(ns.run) == nil, "neither line nor arrow: no navigation, no line in the run window")
-        ns.db.arrowHidden = nil
-        ns.db.routeLineLength = "off"
-        advance(1.5)
-        assert(W.Read().state == "net", "the arrow back: the way again")
-        ns.db.routeLineHidden, ns.db.routeLineMiniHidden, ns.db.routeLineLength = nil, nil, nil
-        -- no run: no navigation; a preview starts none
-        ns.StopRun(true)
-        builds = diag.builds
-        slash("route ore")
-        advance(1)
-        assert(ns.WaysState() == nil and diag.builds == builds and ns.WaysRead(nil).state == "none", "a preview without a run: no S1 work")
-        slash("route")
+            -- 6. a result that comes late is dropped: you moved into another square while it was worked out
+            W.Clock("search")
+            W.At(10, 10)
+            advance(3)
+            assert(W.Read().state == "net", "(a way from (10,10) with the slow clock)")
+            local dropped = diag.dropped
+            W.At(12, 10, 0, -30)
+            advance(0.1)
+            assert(req.active, "off the way: a request is on its way")
+            W.At(14, 10, 0, -30)
+            local t = 0
+            while req.active and req.field ~= 10 * 1024 + 14 - 1024 and t < 50 do
+                advance(0.1)
+                t = t + 1
+            end
+            assert(diag.dropped == dropped + 1, "the result for the square you left is dropped: " .. diag.dropped - dropped)
+            assert(W.Read().state == "line", "and nothing of it is shown")
+            advance(3)
+            assert(W.Way():match("^363,23[23] "), "the next request starts in the square you are in: " .. W.Way())
+            -- 7. stop and start with the same node while a request runs: the old request's result never shows
+            W.At(10, 10, 0, -30)
+            advance(0.1)
+            assert(req.active, "a request is on its way")
+            local cancelled, gen0 = diag.cancelled, select(6, ns.WaysState())
+            ns.StopRun(true)
+            assert(not req.active and diag.cancelled == cancelled + 1 and ns.WaysRead(nil).state == "none", "the run stopped: the request is gone, nothing is shown")
+            assert(select(6, ns.WaysState()) == gen0 + 1 and ns.WaysState() == nil, "the run's number counts at the stop; no navigation is left")
+            W.Clock("fast")
+            run = W.Run({ B }, 0.05)
+            assert(select(6, ns.WaysState()) >= gen0 + 2, "and at the start")
+            advance(2)
+            assert(W.Read().state == "net" and W.Way():match("^263,23[23] "), "the new run's own way: " .. W.Way())
+
+            -- 8. what cannot be read: no error, nothing worked out with it, never an old way
+            local SECRET = setmetatable({}, { __eq = function() error("a hidden value was compared") end, __lt = function() error("a hidden value was compared") end,
+                __add = function() error("a hidden value was used") end, __mul = function() error("a hidden value was used") end,
+                __sub = function() error("a hidden value was used") end, __div = function() error("a hidden value was used") end })
+            issecretvalue = function(v) return rawequal(v, SECRET) end
+            local world, best = W.keep.world, W.keep.best
+            local function Shown() return W.Read().state, ns.WaysSource(ns.run) end
+            local function Normal()
+                HBD.GetPlayerWorldPosition, C_Map.GetBestMapForUnit = world, best
+                advance(1.5)
+                do local nav2, net2, req2, ctx2 = ns.WaysState() assert(W.Read().state == "net", "(readable again: the way of the net) " .. W.Read().state .. " ready=" .. tostring(net2.ready) .. " over=" .. tostring(net2.over) .. " asked=" .. tostring(nav2 and nav2.asked) .. " req=" .. tostring(req2.active) .. " reason=" .. tostring(ctx2 and ctx2.q.reason) .. " map=" .. tostring(net2.mapID)) end
+            end
+            W.At(10, 10)
+            Normal()
+            local cases = {
+                { "no position", function() HBD.GetPlayerWorldPosition = function() return nil end end, "none" },
+                -- (a hidden place in the world is handed to the navigation alone: the run's own checks of today
+                -- work with what HereBeDragons gives them)
+                { "a hidden x", function() local x, y, i = world() ns.WaysTick(ns.run, SECRET, y, i) end, "none", true },
+                { "a hidden y", function() local x, y, i = world() ns.WaysTick(ns.run, x, SECRET, i) end, "none", true },
+                { "a hidden instance", function() local x, y = world() ns.WaysTick(ns.run, x, y, SECRET) end, "none", true },
+                { "another instance", function() HBD.GetPlayerWorldPosition = function() local x, y = world() return x, y, 7 end end, "none" },
+                { "no map", function() C_Map.GetBestMapForUnit = function() return nil end end, "line" },
+                { "a hidden map", function() C_Map.GetBestMapForUnit = function() return SECRET end end, "line" },
+                { "only the continent's map", function() C_Map.GetBestMapForUnit = function() return 1414 end end, "line" },
+                { "a city's map", function() C_Map.GetBestMapForUnit = function() return 1454 end end, "line" },
+            }
+            for _, c in ipairs(cases) do
+                local before = #errors
+                c[2]()
+                if not c[4] then advance(0.5) end
+                local state, source = Shown()
+                assert(#errors == before, c[1] .. ": an error - " .. tostring(errors[#errors]))
+                assert(state == c[3], c[1] .. ": " .. state .. ", want " .. c[3])
+                assert(source == (c[3] == "line" and ns.L["Path: straight line"] or nil), c[1] .. ": the run window says " .. tostring(source))
+                Normal()
+            end
+            -- the node's own coordinates
+            local keepX, keepY = B.x, B.y
+            for _, c in ipairs({ { "the node's x hidden", "x", SECRET }, { "the node's y hidden", "y", SECRET }, { "the node's x missing", "x", "?" } }) do
+                local before = #errors
+                B[c[2]] = c[3]
+                ns.WaysTick(ns.run, world())
+                local state = W.Read().state
+                assert(#errors == before and state == "line", c[1] .. ": " .. state .. " " .. tostring(errors[#errors]))
+                B.x, B.y = keepX, keepY
+                Normal()
+            end
+            -- the node on the map next door: the straight line as before
+            local other = { id = "o1731", name = "Copper Vein", type = "ore", x = 0.02, y = 0.5, count = 3, last = 1 }
+            local wx, wy = HBD:GetWorldCoordinatesFromZone(other.x, other.y, W.Z + 1)
+            local tp = ns.run.targetPoint
+            ns.run.target, ns.run.targetPoint = other, { node = other, mapID = W.Z + 1, wx = wx, wy = wy }
+            ns.run.path[1] = ns.run.targetPoint
+            ns.WaysTick(ns.run, world())
+            assert(W.Read().state == "line" and ns.WaysSource(ns.run) == ns.L["Path: straight line"], "a node in the zone next door: the straight line")
+            assert(not select(3, ns.WaysState()).active, "and nothing is asked for it")
+            ns.run.target, ns.run.targetPoint = B, tp
+            ns.run.path[1] = tp
+            Normal()
+            issecretvalue = W.keep.secret
+
+            -- 9. nothing shown at all: no work. The arrow alone is enough to want the way
+            ns.db.routeLineHidden, ns.db.routeLineMiniHidden = true, true
+            advance(0.5)
+            assert(W.Read().state == "net", "the lines hidden, the arrow shown: the way is still found")
+            ns.db.arrowHidden = true
+            advance(0.5)
+            assert(ns.WaysState() == nil and ns.WaysRead(ns.run).state == "none" and ns.WaysSource(ns.run) == nil, "neither line nor arrow: no navigation, no line in the run window")
+            ns.db.arrowHidden = nil
+            ns.db.routeLineLength = "off"
+            advance(1.5)
+            assert(W.Read().state == "net", "the arrow back: the way again")
+            ns.db.routeLineHidden, ns.db.routeLineMiniHidden, ns.db.routeLineLength = nil, nil, nil
+            -- no run: no navigation; a preview starts none
+            ns.StopRun(true)
+            builds = diag.builds
+            slash("route ore")
+            advance(1)
+            assert(ns.WaysState() == nil and diag.builds == builds and ns.WaysRead(nil).state == "none", "a preview without a run: no S1 work")
+            slash("route")
+        end)
+        W.Done()
+        if not ok then error(err, 0) end
     end)
-    W.Done()
-    if not ok then error(err, 0) end
+    ns.WaysCore.threadFactor = nil
+    if not held then error(heldErr, 0) end
 end)
 
 step("Ways 0.2.4: a piece that changes its fall class, removed pieces and other saved data take the way back in the same frame and build the net anew; a cost alone changes nothing; 50 new pieces build anew while the way stays; the way shown stays if the new net allows its rest (Codex R3-M2) (S1 W3)", function()
@@ -34427,185 +34433,191 @@ function WAYS.Pins()
 end
 
 step("Ways 0.2.4: the line's head follows the way - its own dots at fixed places along it, 150 a map at the most, 32 segments ahead on the minimap and 48 on the world map, on the world map only while it is open; riding hides the dots behind you and places nothing; the straight head is gone meanwhile (S1 W4)", function()
-    local Near = WAYS.Near
-    local W = WAYS.World(WAYS.U())
-    local T = WAYS.Pins()
-    local ok, err = pcall(function()
-        local world, mini, wh = ns.RouteWaysHead()
-        if WorldMapFrame:IsShown() then WorldMapFrame:Hide() end
-        local A = W.Node(10, 20)
-        W.At(10, 10)
-        local run = W.Run({ A }, 2)
-        local way = W.Read()
-        assert(way.state == "net" and Near(way.yards, 750), "test setup: the U is shown")
-        -- 1. the minimap: dots along the way from 4 yd ahead of you to 6 yd before the node, the style's distance apart
-        -- (750 yd at 5 yd a dot - 150 dots would not reach at the style's 4 yd; a few are left out
-        -- where a pin sits on the minimap, as with the straight head)
-        local seen = T.Seen("mini")
-        assert(#seen >= 135 and #seen <= 148 and wh.n == 148 and not wh.job, "a dot every 5 yd: " .. #seen .. " seen, " .. wh.n .. " placed")
-        local last = 0
-        for k, d in ipairs(seen) do
-            local off, along = T.Off(way, d[1], d[2])
-            assert(off < 0.001, "dot " .. k .. " lies " .. off .. " yd off the way")
-            assert(Near(along / 5, math.floor(along / 5 + 0.5)) and along > last, ("dot %d lies %.2f yd along the way: not at a fifth yard"):format(k, along))
-            last = along
-        end
-        assert(Near(select(2, T.Off(way, seen[1][1], seen[1][2])), 5), "the first one 5 yd ahead of you")
-        assert(last <= 750 - 6, "the node's own pin stays clear: the last dot at " .. last)
-        local count = #seen
-        -- the world map is closed: not one dot of the line on it; the straight head has none anywhere
-        assert(T.Known("world") == 0 and T.adds.world == 0 and #T.Seen("world") == 0, "world map closed: no dots on it")
-        assert(T.Known("mini", T.HEAD) == 0 and T.Known("world", T.HEAD) == 0, "the straight head is off both maps")
-        assert(T.Known("mini") == count, "the library knows the dots that are shown: " .. T.Known("mini"))
-        -- 2. riding along it: the dots behind you are hidden, nothing is placed or moved
-        local adds = T.adds.mini
-        W.At(11, 10)
-        advance(0.2)
-        seen = T.Seen("mini")
-        assert(T.adds.mini == adds, "25 yd along: nothing placed anew")
-        assert(#seen == count - 5 and Near(select(2, T.Off(way, seen[1][1], seen[1][2])), 30), "the dots up to 4 yd ahead of you are gone: " .. #seen)
-        -- 50 yd along: placed anew from you outwards - at the same places as before
-        W.At(12, 10, 5, 0)
-        advance(0.3)
-        seen = T.Seen("mini")
-        assert(T.adds.mini > adds and not wh.job, "55 yd along: placed anew")
-        assert(Near(select(2, T.Off(way, seen[1][1], seen[1][2])), 60) and #seen == count - 11, "from 4 yd ahead of you on, at the same fixed places: " .. #seen)
-        for k = 2, #seen do
-            local gap = select(2, T.Off(way, seen[k][1], seen[k][2])) - select(2, T.Off(way, seen[k - 1][1], seen[k - 1][2]))
-            assert(Near(gap / 5, math.floor(gap / 5 + 0.5)) and gap > 0, "at every fifth yard")
-        end
-        -- at the bend: placed anew too
-        for xx = 13, 19 do
-            W.At(xx, 10)
+    -- (0.2.4 a7, S1.1 B5: the thread's job gives up at once here - this step is about S1's work on the line shown, the centre line whenever no thread is done; the thread shown is the S1.1 steps' part)
+    ns.WaysCore.threadFactor = 0
+    local held, heldErr = pcall(function()
+        local Near = WAYS.Near
+        local W = WAYS.World(WAYS.U())
+        local T = WAYS.Pins()
+        local ok, err = pcall(function()
+            local world, mini, wh = ns.RouteWaysHead()
+            if WorldMapFrame:IsShown() then WorldMapFrame:Hide() end
+            local A = W.Node(10, 20)
+            W.At(10, 10)
+            local run = W.Run({ A }, 2)
+            local way = W.Read()
+            assert(way.state == "net" and Near(way.yards, 750), "test setup: the U is shown")
+            -- 1. the minimap: dots along the way from 4 yd ahead of you to 6 yd before the node, the style's distance apart
+            -- (750 yd at 5 yd a dot - 150 dots would not reach at the style's 4 yd; a few are left out
+            -- where a pin sits on the minimap, as with the straight head)
+            local seen = T.Seen("mini")
+            assert(#seen >= 135 and #seen <= 148 and wh.n == 148 and not wh.job, "a dot every 5 yd: " .. #seen .. " seen, " .. wh.n .. " placed")
+            local last = 0
+            for k, d in ipairs(seen) do
+                local off, along = T.Off(way, d[1], d[2])
+                assert(off < 0.001, "dot " .. k .. " lies " .. off .. " yd off the way")
+                assert(Near(along / 5, math.floor(along / 5 + 0.5)) and along > last, ("dot %d lies %.2f yd along the way: not at a fifth yard"):format(k, along))
+                last = along
+            end
+            assert(Near(select(2, T.Off(way, seen[1][1], seen[1][2])), 5), "the first one 5 yd ahead of you")
+            assert(last <= 750 - 6, "the node's own pin stays clear: the last dot at " .. last)
+            local count = #seen
+            -- the world map is closed: not one dot of the line on it; the straight head has none anywhere
+            assert(T.Known("world") == 0 and T.adds.world == 0 and #T.Seen("world") == 0, "world map closed: no dots on it")
+            assert(T.Known("mini", T.HEAD) == 0 and T.Known("world", T.HEAD) == 0, "the straight head is off both maps")
+            assert(T.Known("mini") == count, "the library knows the dots that are shown: " .. T.Known("mini"))
+            -- 2. riding along it: the dots behind you are hidden, nothing is placed or moved
+            local adds = T.adds.mini
+            W.At(11, 10)
             advance(0.2)
-        end
-        adds = T.adds.mini
-        -- (0.2.4 a7, S1.1 B1: by the forward rule, F4.1 §C, your place on the corner itself belongs to the next
-        -- segment of the line drawn - one tick earlier than a5's projection, which kept the segment before)
-        W.At(20, 10)
-        advance(0.3)
-        assert(W.Read().seg == 2 and wh.seg == 2 and T.adds.mini > adds, "the next segment: placed anew (" .. W.Read().seg .. ", " .. wh.seg .. ")")
-        -- 3. the world map opens: the dots on it too, at the same places; it closes: off it in one call
-        WorldMapFrame:Show()
-        advance(0.3)
-        local onMap, onMini = T.Seen("world"), T.Seen("mini")
-        -- (the minimap leaves out the dots at its pins, the world map has them all)
-        assert(#onMap > 50 and #onMap >= #onMini and #onMap - #onMini < 12, "world map open: the line on it too (" .. #onMap .. " / " .. #onMini .. ")")
-        local byDot = {}
-        for _, d in ipairs(onMap) do byDot[d[3]] = d end
-        for _, d in ipairs(onMini) do
-            assert(byDot[d[3]] and byDot[d[3]][1] == d[1] and byDot[d[3]][2] == d[2], "the same places on both maps")
-        end
-        assert(T.Known("world", T.HEAD) == 0, "no dot of the straight head on the world map")
-        local offAll = T.offAll
-        WorldMapFrame:Hide()
-        advance(0.3)
-        assert(T.Known("world") == 0 and T.offAll >= offAll + 1 and #T.Seen("world") == 0, "world map closed: its dots off in one call")
-        assert(#T.Seen("mini") == #onMini, "the minimap keeps its line")
-        -- 4. another look of the line: every dot anew, in the new size and distance
-        ns.db.routeLineStyle = "dots"
-        ns.RedrawRouteLine()
-        assert(T.Known("mini", T.HEAD) == 0 and T.Known("world", T.HEAD) == 0, "the line drawn again while a way is shown: no dot of the straight head, not for a moment")
-        advance(0.3)
-        seen = T.Seen("mini")
-        assert(#seen > 5 and #seen < 30, "big steps of 25 yd: " .. #seen .. " dots")
-        for k = 2, #seen do
-            local gap = select(2, T.Off(way, seen[k][1], seen[k][2])) - select(2, T.Off(way, seen[k - 1][1], seen[k - 1][2]))
-            assert(Near(gap / 25, math.floor(gap / 25 + 0.5)) and gap > 0, "at every 25th yard")
-        end
-        assert(mini[seen[1][3]].__w == 4 and world[seen[1][3]].__w == 5, "the style's sizes")
-        ns.db.routeLineStyle = nil
-        -- the lines hidden: no dot of the way is seen; shown again: the way again
-        ns.db.routeLineHidden, ns.db.routeLineMiniHidden = true, true
-        ns.RedrawRouteLine()
-        assert(#T.Seen("mini") == 0 and #T.Seen("world") == 0, "lines hidden: no dot is seen, at once")
-        advance(0.5)
-        assert(T.Known("mini") == 0 and W.Read().state == "net", "then they are off the maps; the way itself stays (the arrow follows it)")
-        ns.db.routeLineHidden, ns.db.routeLineMiniHidden = nil, nil
-        ns.RedrawRouteLine()
-        advance(0.5)
-        assert(#T.Seen("mini") > 50, "shown again: the line again")
-        ns.StopRun(true)
-        assert(#T.Seen("mini") == 0, "the run stopped: no dot is seen, at once")
-        advance(1)
-        assert(T.Known("mini") == 0 and T.Known("world") == 0, "and they are off the maps")
-
-        -- 5. a long way with many bends: 32 segments ahead on the minimap, 48 on the world map, 150 dots a map
-        local z, squares = {}, {}
-        local x, y = 10, 10
-        for i = 1, 400 do
-            squares[#squares + 1] = { x, y }
-            if i % 4 < 2 then x = x + 1 else y = y + 1 end
-        end
-        WAYS.Ride(z, squares)
-        W.Pieces(z)
-        local lastSq = squares[#squares]
-        WorldMapFrame:Show()
-        W.At(10, 10)
-        run = W.Run({ W.Node(lastSq[1], lastSq[2]) }, 2)
-        way = W.Read()
-        assert(way.state == "net" and way.n - 1 > 48, "test setup: a way of " .. way.n - 1 .. " segments")
-        onMap, onMini = T.Seen("world"), T.Seen("mini")
-        assert(#onMap <= 150 and #onMini <= 150 and #onMap > 100, "150 dots a map at the most: " .. #onMap .. " / " .. #onMini)
-        local endMap, endMini = way.points.cum[1 + 48], way.points.cum[1 + 32]
-        local farMap = select(2, T.Off(way, onMap[#onMap][1], onMap[#onMap][2]))
-        local farMini = select(2, T.Off(way, onMini[#onMini][1], onMini[#onMini][2]))
-        assert(farMap <= endMap + 0.01 and farMap > endMap - 2 * wh.spacing - 0.01, ("the world map's line ends at segment 48: %.0f of %.0f yd"):format(farMap, endMap))
-        assert(farMini <= endMini + 0.01 and farMini > endMini - 2 * wh.spacing - 0.01, ("the minimap's line ends at segment 32: %.0f of %.0f yd"):format(farMini, endMini))
-        for _, d in ipairs(onMap) do assert(T.Off(way, d[1], d[2]) < 0.001, "every dot on the way - no straight bit to the node") end
-        assert(farMap < way.points.len - 500, "(the line ends long before the node: " .. math.floor(way.points.len - farMap) .. " yd)")
-        -- riding on: the rest follows
-        for i = 2, 30 do
-            W.At(squares[i][1], squares[i][2])
+            seen = T.Seen("mini")
+            assert(T.adds.mini == adds, "25 yd along: nothing placed anew")
+            assert(#seen == count - 5 and Near(select(2, T.Off(way, seen[1][1], seen[1][2])), 30), "the dots up to 4 yd ahead of you are gone: " .. #seen)
+            -- 50 yd along: placed anew from you outwards - at the same places as before
+            W.At(12, 10, 5, 0)
             advance(0.3)
-        end
-        way = W.Read()
-        onMap = T.Seen("world")
-        local farther = select(2, T.Off(way, onMap[#onMap][1], onMap[#onMap][2]))
-        assert(way.seg > 5 and farther > farMap + 200, ("further along the line reaches further: %.0f after %.0f yd"):format(farther, farMap))
-        assert(Near(farther <= way.points.cum[math.min(way.n, way.seg + 48)] + 0.01 and 1 or 0, 1), "and still 48 segments ahead at the most")
-        ns.StopRun(true)
+            seen = T.Seen("mini")
+            assert(T.adds.mini > adds and not wh.job, "55 yd along: placed anew")
+            assert(Near(select(2, T.Off(way, seen[1][1], seen[1][2])), 60) and #seen == count - 11, "from 4 yd ahead of you on, at the same fixed places: " .. #seen)
+            for k = 2, #seen do
+                local gap = select(2, T.Off(way, seen[k][1], seen[k][2])) - select(2, T.Off(way, seen[k - 1][1], seen[k - 1][2]))
+                assert(Near(gap / 5, math.floor(gap / 5 + 0.5)) and gap > 0, "at every fifth yard")
+            end
+            -- at the bend: placed anew too
+            for xx = 13, 19 do
+                W.At(xx, 10)
+                advance(0.2)
+            end
+            adds = T.adds.mini
+            -- (0.2.4 a7, S1.1 B1: by the forward rule, F4.1 §C, your place on the corner itself belongs to the next
+            -- segment of the line drawn - one tick earlier than a5's projection, which kept the segment before)
+            W.At(20, 10)
+            advance(0.3)
+            assert(W.Read().seg == 2 and wh.seg == 2 and T.adds.mini > adds, "the next segment: placed anew (" .. W.Read().seg .. ", " .. wh.seg .. ")")
+            -- 3. the world map opens: the dots on it too, at the same places; it closes: off it in one call
+            WorldMapFrame:Show()
+            advance(0.3)
+            local onMap, onMini = T.Seen("world"), T.Seen("mini")
+            -- (the minimap leaves out the dots at its pins, the world map has them all)
+            assert(#onMap > 50 and #onMap >= #onMini and #onMap - #onMini < 12, "world map open: the line on it too (" .. #onMap .. " / " .. #onMini .. ")")
+            local byDot = {}
+            for _, d in ipairs(onMap) do byDot[d[3]] = d end
+            for _, d in ipairs(onMini) do
+                assert(byDot[d[3]] and byDot[d[3]][1] == d[1] and byDot[d[3]][2] == d[2], "the same places on both maps")
+            end
+            assert(T.Known("world", T.HEAD) == 0, "no dot of the straight head on the world map")
+            local offAll = T.offAll
+            WorldMapFrame:Hide()
+            advance(0.3)
+            assert(T.Known("world") == 0 and T.offAll >= offAll + 1 and #T.Seen("world") == 0, "world map closed: its dots off in one call")
+            assert(#T.Seen("mini") == #onMini, "the minimap keeps its line")
+            -- 4. another look of the line: every dot anew, in the new size and distance
+            ns.db.routeLineStyle = "dots"
+            ns.RedrawRouteLine()
+            assert(T.Known("mini", T.HEAD) == 0 and T.Known("world", T.HEAD) == 0, "the line drawn again while a way is shown: no dot of the straight head, not for a moment")
+            advance(0.3)
+            seen = T.Seen("mini")
+            assert(#seen > 5 and #seen < 30, "big steps of 25 yd: " .. #seen .. " dots")
+            for k = 2, #seen do
+                local gap = select(2, T.Off(way, seen[k][1], seen[k][2])) - select(2, T.Off(way, seen[k - 1][1], seen[k - 1][2]))
+                assert(Near(gap / 25, math.floor(gap / 25 + 0.5)) and gap > 0, "at every 25th yard")
+            end
+            assert(mini[seen[1][3]].__w == 4 and world[seen[1][3]].__w == 5, "the style's sizes")
+            ns.db.routeLineStyle = nil
+            -- the lines hidden: no dot of the way is seen; shown again: the way again
+            ns.db.routeLineHidden, ns.db.routeLineMiniHidden = true, true
+            ns.RedrawRouteLine()
+            assert(#T.Seen("mini") == 0 and #T.Seen("world") == 0, "lines hidden: no dot is seen, at once")
+            advance(0.5)
+            assert(T.Known("mini") == 0 and W.Read().state == "net", "then they are off the maps; the way itself stays (the arrow follows it)")
+            ns.db.routeLineHidden, ns.db.routeLineMiniHidden = nil, nil
+            ns.RedrawRouteLine()
+            advance(0.5)
+            assert(#T.Seen("mini") > 50, "shown again: the line again")
+            ns.StopRun(true)
+            assert(#T.Seen("mini") == 0, "the run stopped: no dot is seen, at once")
+            advance(1)
+            assert(T.Known("mini") == 0 and T.Known("world") == 0, "and they are off the maps")
 
-        -- 6. Never more than 150 dots a map, also when the stretch ahead grows after the way was shown:
-        -- 50 short bits of 50 yd first (the dots' distance is set by them), then six legs of 500 yd.
-        local s2, list = {}, { { 10, 10 } }
-        local sx, sy = 10, 10
-        for i = 1, 50 do
-            for _ = 1, 2 do
-                if i % 2 == 1 then sx = sx + 1 else sy = sy + 1 end
-                list[#list + 1] = { sx, sy }
+            -- 5. a long way with many bends: 32 segments ahead on the minimap, 48 on the world map, 150 dots a map
+            local z, squares = {}, {}
+            local x, y = 10, 10
+            for i = 1, 400 do
+                squares[#squares + 1] = { x, y }
+                if i % 4 < 2 then x = x + 1 else y = y + 1 end
             end
-        end
-        for i = 1, 6 do
-            for _ = 1, 20 do
-                if i % 2 == 1 then sx = sx + 1 else sy = sy + 1 end
-                list[#list + 1] = { sx, sy }
+            WAYS.Ride(z, squares)
+            W.Pieces(z)
+            local lastSq = squares[#squares]
+            WorldMapFrame:Show()
+            W.At(10, 10)
+            run = W.Run({ W.Node(lastSq[1], lastSq[2]) }, 2)
+            way = W.Read()
+            assert(way.state == "net" and way.n - 1 > 48, "test setup: a way of " .. way.n - 1 .. " segments")
+            onMap, onMini = T.Seen("world"), T.Seen("mini")
+            assert(#onMap <= 150 and #onMini <= 150 and #onMap > 100, "150 dots a map at the most: " .. #onMap .. " / " .. #onMini)
+            local endMap, endMini = way.points.cum[1 + 48], way.points.cum[1 + 32]
+            local farMap = select(2, T.Off(way, onMap[#onMap][1], onMap[#onMap][2]))
+            local farMini = select(2, T.Off(way, onMini[#onMini][1], onMini[#onMini][2]))
+            assert(farMap <= endMap + 0.01 and farMap > endMap - 2 * wh.spacing - 0.01, ("the world map's line ends at segment 48: %.0f of %.0f yd"):format(farMap, endMap))
+            assert(farMini <= endMini + 0.01 and farMini > endMini - 2 * wh.spacing - 0.01, ("the minimap's line ends at segment 32: %.0f of %.0f yd"):format(farMini, endMini))
+            for _, d in ipairs(onMap) do assert(T.Off(way, d[1], d[2]) < 0.001, "every dot on the way - no straight bit to the node") end
+            assert(farMap < way.points.len - 500, "(the line ends long before the node: " .. math.floor(way.points.len - farMap) .. " yd)")
+            -- riding on: the rest follows
+            for i = 2, 30 do
+                W.At(squares[i][1], squares[i][2])
+                advance(0.3)
             end
-        end
-        WAYS.Ride(s2, list)
-        W.Pieces(s2)
-        W.At(10, 10)
-        run = W.Run({ W.Node(sx, sy) }, 2)
-        way = W.Read()
-        assert(way.state == "net" and way.n - 1 == 56, "test setup: 50 short segments and 6 long ones (" .. way.state .. ", " .. way.n - 1 .. ")")
-        local spacing = wh.spacing
-        assert(#T.Seen("world") <= 150 and spacing > 15 and spacing < 18, ("at first 2,400 yd lie ahead: a dot every %.1f yd"):format(spacing))
-        for i = 2, 81 do
-            W.At(list[i][1], list[i][2])
-            advance(0.2)
-        end
-        way = W.Read()
-        local ahead = way.points.cum[math.min(way.n, way.seg + 48)] - way.pos
-        assert(way.state == "net" and way.seg > 38 and ahead > 150 * spacing, ("40 segments on, %.0f yd lie ahead: more than 150 dots at %.1f yd would need"):format(ahead, spacing))
-        -- (150 were placed the last time; the ones you rode past since are hidden)
-        assert(wh.n == 150 and #T.Seen("world") <= 150 and #T.Seen("world") >= 140 and #T.Seen("mini") <= 150,
-            "150 dots are placed, no more: " .. wh.n .. " placed, " .. #T.Seen("world") .. " / " .. #T.Seen("mini") .. " seen")
-        assert(#world <= 150 and #mini <= 150, "150 dots a map were ever made at the most: " .. #world .. " / " .. #mini)
+            way = W.Read()
+            onMap = T.Seen("world")
+            local farther = select(2, T.Off(way, onMap[#onMap][1], onMap[#onMap][2]))
+            assert(way.seg > 5 and farther > farMap + 200, ("further along the line reaches further: %.0f after %.0f yd"):format(farther, farMap))
+            assert(Near(farther <= way.points.cum[math.min(way.n, way.seg + 48)] + 0.01 and 1 or 0, 1), "and still 48 segments ahead at the most")
+            ns.StopRun(true)
+
+            -- 6. Never more than 150 dots a map, also when the stretch ahead grows after the way was shown:
+            -- 50 short bits of 50 yd first (the dots' distance is set by them), then six legs of 500 yd.
+            local s2, list = {}, { { 10, 10 } }
+            local sx, sy = 10, 10
+            for i = 1, 50 do
+                for _ = 1, 2 do
+                    if i % 2 == 1 then sx = sx + 1 else sy = sy + 1 end
+                    list[#list + 1] = { sx, sy }
+                end
+            end
+            for i = 1, 6 do
+                for _ = 1, 20 do
+                    if i % 2 == 1 then sx = sx + 1 else sy = sy + 1 end
+                    list[#list + 1] = { sx, sy }
+                end
+            end
+            WAYS.Ride(s2, list)
+            W.Pieces(s2)
+            W.At(10, 10)
+            run = W.Run({ W.Node(sx, sy) }, 2)
+            way = W.Read()
+            assert(way.state == "net" and way.n - 1 == 56, "test setup: 50 short segments and 6 long ones (" .. way.state .. ", " .. way.n - 1 .. ")")
+            local spacing = wh.spacing
+            assert(#T.Seen("world") <= 150 and spacing > 15 and spacing < 18, ("at first 2,400 yd lie ahead: a dot every %.1f yd"):format(spacing))
+            for i = 2, 81 do
+                W.At(list[i][1], list[i][2])
+                advance(0.2)
+            end
+            way = W.Read()
+            local ahead = way.points.cum[math.min(way.n, way.seg + 48)] - way.pos
+            assert(way.state == "net" and way.seg > 38 and ahead > 150 * spacing, ("40 segments on, %.0f yd lie ahead: more than 150 dots at %.1f yd would need"):format(ahead, spacing))
+            -- (150 were placed the last time; the ones you rode past since are hidden)
+            assert(wh.n == 150 and #T.Seen("world") <= 150 and #T.Seen("world") >= 140 and #T.Seen("mini") <= 150,
+                "150 dots are placed, no more: " .. wh.n .. " placed, " .. #T.Seen("world") .. " / " .. #T.Seen("mini") .. " seen")
+            assert(#world <= 150 and #mini <= 150, "150 dots a map were ever made at the most: " .. #world .. " / " .. #mini)
+        end)
+        T.Done()
+        ns.db.routeLineStyle = nil
+        W.Done()
+        if not ok then error(err, 0) end
     end)
-    T.Done()
-    ns.db.routeLineStyle = nil
-    W.Done()
-    if not ok then error(err, 0) end
+    ns.WaysCore.threadFactor = nil
+    if not held then error(heldErr, 0) end
 end)
 
 step("Ways 0.2.4: a reader that comes before the head's tick - in another zone, on a world map opened there, in another instance or while your place cannot be read - gets no way: the way shown is taken back by the read itself, in the same frame (0.2.4 r1, Codex S1-M1)", function()
@@ -34665,402 +34677,420 @@ step("Ways 0.2.4: a reader that comes before the head's tick - in another zone, 
     if not ok then error(err, 0) end
 end)
 step("Ways 0.2.4: a way that is taken back is unseen in the same frame, on both maps, however full the frame was (1.0 ms for all of S1, 0.25 ms of it kept back for this); a map opened later shows nothing of it; its dots come off the maps in later frames; a new way is drawn from you outwards (S1 W4, Codex R3-M1 and R4-N2)", function()
-    local Near = WAYS.Near
-    local e, squares = {}, {}
-    do
-        local x, y = 10, 10
-        for i = 1, 400 do
-            squares[#squares + 1] = { x, y }
-            if i % 4 < 2 then x = x + 1 else y = y + 1 end
-        end
-        WAYS.Ride(e, squares)
-    end
-    local W = WAYS.World(e)
-    local T = WAYS.Pins()
-    local keepHide = methods.Hide
-    local ok, err = pcall(function()
-        local frameMs, reserveMs, stepMs = ns.WaysLimits()
-        assert(frameMs == 1.0 and reserveMs == 0.25 and stepMs == 0.25, "the limits: " .. frameMs .. " / " .. reserveMs .. " / " .. stepMs)
-        local world, mini, wh = ns.RouteWaysHead()
-        local diag = ns.WaysDiag()
-        local function FrameSum() return select(2, ns.WaysDiag()) end
-        local last = squares[#squares]
-        local A, B = W.Node(last[1], last[2]), W.Node(squares[200][1], squares[200][2])
-        WorldMapFrame:Show()
-        W.At(10, 10)
-        local run = W.Run({ A }, 2)
-        assert(W.Read().state == "net" and #T.Seen("world") == 150 and #T.Seen("mini") > 90, "test setup: the most dots there can be on the world map, " .. #T.Seen("mini") .. " on the minimap")
-        local shown = #T.Seen("world") + #T.Seen("mini")
-        -- hiding a dot's texture takes time by the test's clock: all 300 of them the whole of what is kept back
-        local hides = 0
-        methods.Hide = function(self)
-            if self.__kind == "Texture" and self.__shown then
-                hides = hides + 1
-                W.extra = W.extra + reserveMs / 300
+    -- (0.2.4 a7, S1.1 B5: the thread's job gives up at once here - this step is about S1's work on the line shown, the centre line whenever no thread is done; the thread shown is the S1.1 steps' part)
+    ns.WaysCore.threadFactor = 0
+    local held, heldErr = pcall(function()
+        local Near = WAYS.Near
+        local e, squares = {}, {}
+        do
+            local x, y = 10, 10
+            for i = 1, 400 do
+                squares[#squares + 1] = { x, y }
+                if i % 4 < 2 then x = x + 1 else y = y + 1 end
             end
-            return keepHide(self)
+            WAYS.Ride(e, squares)
         end
-        -- 1. the frame is full of ordinary work (a build of 50 new pieces), then the node changes
-        local function FullFrame()
-            W.Clock("build")
-            for i = 1, 50 do
-                WAYS.Piece(W.e, 300 + 2 * i + diag.builds * 120, 300, 1, 0)
-                ns.PathsChanged(W.Z, "new")
-            end
-            local _, net = ns.WaysState()
-            assert(net.building, "(a build is on its way)")
-            -- a frame's work, in the frame that is going on: as many steps as the frame has room for
-            local work = select(7, ns.WaysState())
-            work:GetScript("OnUpdate")(work, 0.016)
-            assert(net.building, "(and still is after a frame's work)")
-            local sum = FrameSum()
-            assert(sum > frameMs - reserveMs - stepMs and sum <= frameMs - reserveMs + 1e-9, ("the ordinary work filled its share of the frame: %.3f ms"):format(sum))
-            return sum
-        end
-        diag.peak = 0
-        local before = FullFrame()
-        hides = 0
-        local tp = run.targetPoint
-        local bx, by = W.World((squares[200][1] + 0.5) * 25, (squares[200][2] + 0.5) * 25)
-        run.target, run.targetPoint = B, { node = B, mapID = W.Z, wx = bx, wy = by }
-        run.targetBest, run.progressBest = nil, nil
-        run.path[1] = run.targetPoint
-        ns.RedrawRouteLine() -- (as the plan does when it takes another node)
-        assert(#T.Seen("world") == 0 and #T.Seen("mini") == 0, "another node: not one dot of the old way is seen, in the same frame")
-        assert(hides == shown, "every dot that was seen was hidden: " .. hides .. " of " .. shown)
-        assert(W.Read().state == "line" and ns.WaysSource(run) == ns.L["Path: straight line"], "the state and the run window in the same frame")
-        local sum = FrameSum()
-        assert(sum <= frameMs + 1e-9 and sum >= before + reserveMs * shown / 300 - 1e-9, ("the whole frame: %.3f ms, hiding included"):format(sum))
-        assert(diag.peak <= frameMs + 1e-9, ("the largest frame so far: %.3f ms"):format(diag.peak))
-        -- the dots are still known to the library; a map that opens now shows none of them
-        assert(T.Known("mini") + T.Known("world") >= shown - 150, "(they are taken off later)")
-        WorldMapFrame:Hide()
-        WorldMapFrame:Show()
-        assert(#T.Seen("world") == 0 and #T.Seen("mini") == 0, "the map closed and opened: the hidden dots stay hidden")
-        -- later frames: off the maps in small steps, the new way's dots from you outwards
-        -- (placing a dot on a map takes a hundredth of a millisecond by the test's clock)
-        W.Clock("draw")
-        local addFrames, addsNow, addsMost, addAt = 0, 0, 0, nil
-        T.onAdd = function()
-            W.extra = W.extra + 0.01
-            if GetTime() ~= addAt then addAt, addsNow, addFrames = GetTime(), 0, addFrames + 1 end
-            addsNow = addsNow + 1
-            if addsNow > addsMost then addsMost = addsNow end
-        end
-        local offBefore = T.offOne
-        local firstNew, mixed, t = nil, false, 0
-        while (W.Read().state ~= "net" or wh.job or wh.n == 0) and t < 3000 do
-            advance(0.01)
-            t = t + 1
-            local way = W.Read()
-            local onMini = T.Seen("mini")
-            if way.state == "net" and #onMini > 0 then
-                firstNew = firstNew or #onMini
-                local prev = 0
-                for _, d in ipairs(onMini) do
-                    local off, along = T.Off(way, d[1], d[2])
-                    if off > 0.001 or along <= prev then mixed = true end
-                    prev = along
+        local W = WAYS.World(e)
+        local T = WAYS.Pins()
+        local keepHide = methods.Hide
+        local ok, err = pcall(function()
+            local frameMs, reserveMs, stepMs = ns.WaysLimits()
+            assert(frameMs == 1.0 and reserveMs == 0.25 and stepMs == 0.25, "the limits: " .. frameMs .. " / " .. reserveMs .. " / " .. stepMs)
+            local world, mini, wh = ns.RouteWaysHead()
+            local diag = ns.WaysDiag()
+            local function FrameSum() return select(2, ns.WaysDiag()) end
+            local last = squares[#squares]
+            local A, B = W.Node(last[1], last[2]), W.Node(squares[200][1], squares[200][2])
+            WorldMapFrame:Show()
+            W.At(10, 10)
+            local run = W.Run({ A }, 2)
+            assert(W.Read().state == "net" and #T.Seen("world") == 150 and #T.Seen("mini") > 90, "test setup: the most dots there can be on the world map, " .. #T.Seen("mini") .. " on the minimap")
+            local shown = #T.Seen("world") + #T.Seen("mini")
+            -- hiding a dot's texture takes time by the test's clock: all 300 of them the whole of what is kept back
+            local hides = 0
+            methods.Hide = function(self)
+                if self.__kind == "Texture" and self.__shown then
+                    hides = hides + 1
+                    W.extra = W.extra + reserveMs / 300
                 end
-                -- from you outwards: the dots placed so far are the first ones, none is left out but at a pin
-                if onMini[#onMini][3] > #onMini + 12 then mixed = true end
-            elseif #onMini > 0 then
-                mixed = true
+                return keepHide(self)
             end
-            assert(FrameSum() <= frameMs + 1e-9, "a frame over 1.0 ms")
-        end
-        assert(W.Read().state == "net" and not wh.job, "the way to the new node, drawn: " .. W.Read().state .. " after " .. t)
-        assert(firstNew and addFrames >= 4 and addsMost <= 80, ("it came in pieces: its dots were placed in %d frames, %d placements in a frame at the most"):format(addFrames, addsMost))
-        assert(not mixed, "never a dot off the way that is shown, never a gap in the dots from you outwards")
-        assert(diag.peak <= frameMs + 1e-9, ("the largest frame: %.3f ms"):format(diag.peak))
-        T.onAdd = nil
-        W.Clock("fast")
-        advance(1)
+            -- 1. the frame is full of ordinary work (a build of 50 new pieces), then the node changes
+            local function FullFrame()
+                W.Clock("build")
+                for i = 1, 50 do
+                    WAYS.Piece(W.e, 300 + 2 * i + diag.builds * 120, 300, 1, 0)
+                    ns.PathsChanged(W.Z, "new")
+                end
+                local _, net = ns.WaysState()
+                assert(net.building, "(a build is on its way)")
+                -- a frame's work, in the frame that is going on: as many steps as the frame has room for
+                local work = select(7, ns.WaysState())
+                work:GetScript("OnUpdate")(work, 0.016)
+                assert(net.building, "(and still is after a frame's work)")
+                local sum = FrameSum()
+                assert(sum > frameMs - reserveMs - stepMs and sum <= frameMs - reserveMs + 1e-9, ("the ordinary work filled its share of the frame: %.3f ms"):format(sum))
+                return sum
+            end
+            diag.peak = 0
+            local before = FullFrame()
+            hides = 0
+            local tp = run.targetPoint
+            local bx, by = W.World((squares[200][1] + 0.5) * 25, (squares[200][2] + 0.5) * 25)
+            run.target, run.targetPoint = B, { node = B, mapID = W.Z, wx = bx, wy = by }
+            run.targetBest, run.progressBest = nil, nil
+            run.path[1] = run.targetPoint
+            ns.RedrawRouteLine() -- (as the plan does when it takes another node)
+            assert(#T.Seen("world") == 0 and #T.Seen("mini") == 0, "another node: not one dot of the old way is seen, in the same frame")
+            assert(hides == shown, "every dot that was seen was hidden: " .. hides .. " of " .. shown)
+            assert(W.Read().state == "line" and ns.WaysSource(run) == ns.L["Path: straight line"], "the state and the run window in the same frame")
+            local sum = FrameSum()
+            assert(sum <= frameMs + 1e-9 and sum >= before + reserveMs * shown / 300 - 1e-9, ("the whole frame: %.3f ms, hiding included"):format(sum))
+            assert(diag.peak <= frameMs + 1e-9, ("the largest frame so far: %.3f ms"):format(diag.peak))
+            -- the dots are still known to the library; a map that opens now shows none of them
+            assert(T.Known("mini") + T.Known("world") >= shown - 150, "(they are taken off later)")
+            WorldMapFrame:Hide()
+            WorldMapFrame:Show()
+            assert(#T.Seen("world") == 0 and #T.Seen("mini") == 0, "the map closed and opened: the hidden dots stay hidden")
+            -- later frames: off the maps in small steps, the new way's dots from you outwards
+            -- (placing a dot on a map takes a hundredth of a millisecond by the test's clock)
+            W.Clock("draw")
+            local addFrames, addsNow, addsMost, addAt = 0, 0, 0, nil
+            T.onAdd = function()
+                W.extra = W.extra + 0.01
+                if GetTime() ~= addAt then addAt, addsNow, addFrames = GetTime(), 0, addFrames + 1 end
+                addsNow = addsNow + 1
+                if addsNow > addsMost then addsMost = addsNow end
+            end
+            local offBefore = T.offOne
+            local firstNew, mixed, t = nil, false, 0
+            while (W.Read().state ~= "net" or wh.job or wh.n == 0) and t < 3000 do
+                advance(0.01)
+                t = t + 1
+                local way = W.Read()
+                local onMini = T.Seen("mini")
+                if way.state == "net" and #onMini > 0 then
+                    firstNew = firstNew or #onMini
+                    local prev = 0
+                    for _, d in ipairs(onMini) do
+                        local off, along = T.Off(way, d[1], d[2])
+                        if off > 0.001 or along <= prev then mixed = true end
+                        prev = along
+                    end
+                    -- from you outwards: the dots placed so far are the first ones, none is left out but at a pin
+                    if onMini[#onMini][3] > #onMini + 12 then mixed = true end
+                elseif #onMini > 0 then
+                    mixed = true
+                end
+                assert(FrameSum() <= frameMs + 1e-9, "a frame over 1.0 ms")
+            end
+            assert(W.Read().state == "net" and not wh.job, "the way to the new node, drawn: " .. W.Read().state .. " after " .. t)
+            assert(firstNew and addFrames >= 4 and addsMost <= 80, ("it came in pieces: its dots were placed in %d frames, %d placements in a frame at the most"):format(addFrames, addsMost))
+            assert(not mixed, "never a dot off the way that is shown, never a gap in the dots from you outwards")
+            assert(diag.peak <= frameMs + 1e-9, ("the largest frame: %.3f ms"):format(diag.peak))
+            T.onAdd = nil
+            W.Clock("fast")
+            advance(1)
 
-        -- 2. the same with the option turned off ...
-        run.target, run.targetPoint = A, tp
-        run.targetBest, run.progressBest = nil, nil
-        run.path[1] = tp
-        advance(2)
-        shown = #T.Seen("world") + #T.Seen("mini")
-        assert(W.Read().state == "net" and shown > 200, "(the long way again: " .. shown .. " dots)")
-        diag.peak = 0
-        FullFrame()
-        ns.db.routeWaysOff = true
-        ns.RedrawRouteLine() -- (the option's switch draws the line again)
-        assert(#T.Seen("world") == 0 and #T.Seen("mini") == 0 and ns.WaysSource(run) == nil, "option off: nothing of the way is seen, no line in the run window, in the same frame")
-        assert(FrameSum() <= frameMs + 1e-9 and diag.peak <= frameMs + 1e-9, ("the whole frame: %.3f ms"):format(FrameSum()))
-        assert(T.Known("mini", T.HEAD) > 0, "and the straight head is drawn as it was")
-        W.Clock("fast")
-        advance(1)
-        assert(T.Known("mini") == 0 and T.Known("world") == 0 and ns.WaysState() == nil, "then its dots are off the maps, nothing is held")
-        ns.db.routeWaysOff = nil
-        advance(2)
-        -- 3. ... and with a piece that changes its class
-        shown = #T.Seen("world") + #T.Seen("mini")
-        assert(W.Read().state == "net" and shown > 200, "(option on: the long way again)")
-        diag.peak = 0
-        FullFrame()
-        ns.PathsChanged(W.Z, "class")
-        assert(#T.Seen("world") == 0 and #T.Seen("mini") == 0 and W.Read().state == "line", "a piece changed its class: nothing of the way is seen in the same frame")
-        assert(FrameSum() <= frameMs + 1e-9 and diag.peak <= frameMs + 1e-9, ("the whole frame: %.3f ms"):format(FrameSum()))
-        -- 4. the run ends in a full frame
-        W.Clock("fast")
-        advance(2)
-        assert(W.Read().state == "net", "(the way again)")
-        diag.peak = 0
-        FullFrame()
-        ns.StopRun(true)
-        assert(#T.Seen("world") == 0 and #T.Seen("mini") == 0, "the run stopped: nothing is seen in the same frame")
-        assert(FrameSum() <= frameMs + 1e-9 and diag.peak <= frameMs + 1e-9, ("the whole frame: %.3f ms"):format(FrameSum()))
-        W.Clock("fast")
-        advance(1)
-        assert(T.Known("mini") == 0 and T.Known("world") == 0, "and its dots come off the maps afterwards")
-        assert(#world <= 150 and #mini <= 150, "150 dots a map were ever made at the most: " .. #world .. " / " .. #mini)
+            -- 2. the same with the option turned off ...
+            run.target, run.targetPoint = A, tp
+            run.targetBest, run.progressBest = nil, nil
+            run.path[1] = tp
+            advance(2)
+            shown = #T.Seen("world") + #T.Seen("mini")
+            assert(W.Read().state == "net" and shown > 200, "(the long way again: " .. shown .. " dots)")
+            diag.peak = 0
+            FullFrame()
+            ns.db.routeWaysOff = true
+            ns.RedrawRouteLine() -- (the option's switch draws the line again)
+            assert(#T.Seen("world") == 0 and #T.Seen("mini") == 0 and ns.WaysSource(run) == nil, "option off: nothing of the way is seen, no line in the run window, in the same frame")
+            assert(FrameSum() <= frameMs + 1e-9 and diag.peak <= frameMs + 1e-9, ("the whole frame: %.3f ms"):format(FrameSum()))
+            assert(T.Known("mini", T.HEAD) > 0, "and the straight head is drawn as it was")
+            W.Clock("fast")
+            advance(1)
+            assert(T.Known("mini") == 0 and T.Known("world") == 0 and ns.WaysState() == nil, "then its dots are off the maps, nothing is held")
+            ns.db.routeWaysOff = nil
+            advance(2)
+            -- 3. ... and with a piece that changes its class
+            shown = #T.Seen("world") + #T.Seen("mini")
+            assert(W.Read().state == "net" and shown > 200, "(option on: the long way again)")
+            diag.peak = 0
+            FullFrame()
+            ns.PathsChanged(W.Z, "class")
+            assert(#T.Seen("world") == 0 and #T.Seen("mini") == 0 and W.Read().state == "line", "a piece changed its class: nothing of the way is seen in the same frame")
+            assert(FrameSum() <= frameMs + 1e-9 and diag.peak <= frameMs + 1e-9, ("the whole frame: %.3f ms"):format(FrameSum()))
+            -- 4. the run ends in a full frame
+            W.Clock("fast")
+            advance(2)
+            assert(W.Read().state == "net", "(the way again)")
+            diag.peak = 0
+            FullFrame()
+            ns.StopRun(true)
+            assert(#T.Seen("world") == 0 and #T.Seen("mini") == 0, "the run stopped: nothing is seen in the same frame")
+            assert(FrameSum() <= frameMs + 1e-9 and diag.peak <= frameMs + 1e-9, ("the whole frame: %.3f ms"):format(FrameSum()))
+            W.Clock("fast")
+            advance(1)
+            assert(T.Known("mini") == 0 and T.Known("world") == 0, "and its dots come off the maps afterwards")
+            assert(#world <= 150 and #mini <= 150, "150 dots a map were ever made at the most: " .. #world .. " / " .. #mini)
+        end)
+        methods.Hide = keepHide
+        T.Done()
+        W.Done()
+        if not ok then error(err, 0) end
     end)
-    methods.Hide = keepHide
-    T.Done()
-    W.Done()
-    if not ok then error(err, 0) end
+    ns.WaysCore.threadFactor = nil
+    if not held then error(heldErr, 0) end
 end)
 
 step("Ways 0.2.4: the run window's line may be the first to take a way back - its hiding counts for the frame once, not missing and not twice, also when taking it back tells the run window again (0.2.4 r1, Codex S1-N1)", function()
-    local Near = WAYS.Near
-    local e, squares = {}, {}
-    do
-        local x, y = 10, 10
-        for i = 1, 400 do
-            squares[#squares + 1] = { x, y }
-            if i % 4 < 2 then x = x + 1 else y = y + 1 end
-        end
-        WAYS.Ride(e, squares)
-    end
-    local W = WAYS.World(e)
-    local T = WAYS.Pins()
-    local keepHide = methods.Hide
-    local ok, err = pcall(function()
-        local frameMs, reserveMs, stepMs = ns.WaysLimits()
-        assert(frameMs == 1.0 and reserveMs == 0.25 and stepMs == 0.25, "the limits: " .. frameMs .. " / " .. reserveMs .. " / " .. stepMs)
-        local world, mini, wh = ns.RouteWaysHead()
-        local diag = ns.WaysDiag()
-        local function FrameSum() return select(2, ns.WaysDiag()) end
-        local last = squares[#squares]
-        local A, B = W.Node(last[1], last[2]), W.Node(squares[200][1], squares[200][2])
-        WorldMapFrame:Show()
-        W.At(10, 10)
-        local run = W.Run({ A }, 2)
-        assert(W.Read().state == "net" and #T.Seen("world") == 150 and #T.Seen("mini") > 90, "test setup: the most dots there can be on the world map, " .. #T.Seen("mini") .. " on the minimap")
-        local shown = #T.Seen("world") + #T.Seen("mini")
-        -- hiding a dot's texture takes time by the test's clock: all 300 of them the whole of what is kept back
-        local hides = 0
-        methods.Hide = function(self)
-            if self.__kind == "Texture" and self.__shown then
-                hides = hides + 1
-                W.extra = W.extra + reserveMs / 300
+    -- (0.2.4 a7, S1.1 B5: the thread's job gives up at once here - this step is about S1's work on the line shown, the centre line whenever no thread is done; the thread shown is the S1.1 steps' part)
+    ns.WaysCore.threadFactor = 0
+    local held, heldErr = pcall(function()
+        local Near = WAYS.Near
+        local e, squares = {}, {}
+        do
+            local x, y = 10, 10
+            for i = 1, 400 do
+                squares[#squares + 1] = { x, y }
+                if i % 4 < 2 then x = x + 1 else y = y + 1 end
             end
-            return keepHide(self)
+            WAYS.Ride(e, squares)
         end
-        -- 1. the frame is full of ordinary work (a build of 50 new pieces), then the node changes
-        local function FullFrame()
-            W.Clock("build")
-            for i = 1, 50 do
-                WAYS.Piece(W.e, 300 + 2 * i + diag.builds * 120, 300, 1, 0)
-                ns.PathsChanged(W.Z, "new")
+        local W = WAYS.World(e)
+        local T = WAYS.Pins()
+        local keepHide = methods.Hide
+        local ok, err = pcall(function()
+            local frameMs, reserveMs, stepMs = ns.WaysLimits()
+            assert(frameMs == 1.0 and reserveMs == 0.25 and stepMs == 0.25, "the limits: " .. frameMs .. " / " .. reserveMs .. " / " .. stepMs)
+            local world, mini, wh = ns.RouteWaysHead()
+            local diag = ns.WaysDiag()
+            local function FrameSum() return select(2, ns.WaysDiag()) end
+            local last = squares[#squares]
+            local A, B = W.Node(last[1], last[2]), W.Node(squares[200][1], squares[200][2])
+            WorldMapFrame:Show()
+            W.At(10, 10)
+            local run = W.Run({ A }, 2)
+            assert(W.Read().state == "net" and #T.Seen("world") == 150 and #T.Seen("mini") > 90, "test setup: the most dots there can be on the world map, " .. #T.Seen("mini") .. " on the minimap")
+            local shown = #T.Seen("world") + #T.Seen("mini")
+            -- hiding a dot's texture takes time by the test's clock: all 300 of them the whole of what is kept back
+            local hides = 0
+            methods.Hide = function(self)
+                if self.__kind == "Texture" and self.__shown then
+                    hides = hides + 1
+                    W.extra = W.extra + reserveMs / 300
+                end
+                return keepHide(self)
             end
-            local _, net = ns.WaysState()
-            assert(net.building, "(a build is on its way)")
-            -- a frame's work, in the frame that is going on: as many steps as the frame has room for
-            local work = select(7, ns.WaysState())
-            work:GetScript("OnUpdate")(work, 0.016)
-            assert(net.building, "(and still is after a frame's work)")
+            -- 1. the frame is full of ordinary work (a build of 50 new pieces), then the node changes
+            local function FullFrame()
+                W.Clock("build")
+                for i = 1, 50 do
+                    WAYS.Piece(W.e, 300 + 2 * i + diag.builds * 120, 300, 1, 0)
+                    ns.PathsChanged(W.Z, "new")
+                end
+                local _, net = ns.WaysState()
+                assert(net.building, "(a build is on its way)")
+                -- a frame's work, in the frame that is going on: as many steps as the frame has room for
+                local work = select(7, ns.WaysState())
+                work:GetScript("OnUpdate")(work, 0.016)
+                assert(net.building, "(and still is after a frame's work)")
+                local sum = FrameSum()
+                assert(sum > frameMs - reserveMs - stepMs and sum <= frameMs - reserveMs + 1e-9, ("the ordinary work filled its share of the frame: %.3f ms"):format(sum))
+                return sum
+            end
+            diag.peak = 0
+            local before = FullFrame()
+            hides = 0
+            local tp = run.targetPoint
+            local bx, by = W.World((squares[200][1] + 0.5) * 25, (squares[200][2] + 0.5) * 25)
+            run.target, run.targetPoint = B, { node = B, mapID = W.Z, wx = bx, wy = by }
+            run.targetBest, run.progressBest = nil, nil
+            run.path[1] = run.targetPoint
+            ns.UpdateRunSource() -- (the run window's line reads first: Codex S1-N1's probe)
+            assert(#T.Seen("world") == 0 and #T.Seen("mini") == 0, "another node: not one dot of the old way is seen, in the same frame")
+            assert(hides == shown, "every dot that was seen was hidden: " .. hides .. " of " .. shown)
+            assert(W.Read().state == "line" and ns.WaysSource(run) == ns.L["Path: straight line"], "the state and the run window in the same frame")
             local sum = FrameSum()
-            assert(sum > frameMs - reserveMs - stepMs and sum <= frameMs - reserveMs + 1e-9, ("the ordinary work filled its share of the frame: %.3f ms"):format(sum))
-            return sum
-        end
-        diag.peak = 0
-        local before = FullFrame()
-        hides = 0
-        local tp = run.targetPoint
-        local bx, by = W.World((squares[200][1] + 0.5) * 25, (squares[200][2] + 0.5) * 25)
-        run.target, run.targetPoint = B, { node = B, mapID = W.Z, wx = bx, wy = by }
-        run.targetBest, run.progressBest = nil, nil
-        run.path[1] = run.targetPoint
-        ns.UpdateRunSource() -- (the run window's line reads first: Codex S1-N1's probe)
-        assert(#T.Seen("world") == 0 and #T.Seen("mini") == 0, "another node: not one dot of the old way is seen, in the same frame")
-        assert(hides == shown, "every dot that was seen was hidden: " .. hides .. " of " .. shown)
-        assert(W.Read().state == "line" and ns.WaysSource(run) == ns.L["Path: straight line"], "the state and the run window in the same frame")
-        local sum = FrameSum()
-        local hiding = reserveMs * shown / 300
-        assert(sum >= before + hiding - 1e-9, ("the hiding is missing in the frame's sum: %.3f ms, at least %.3f"):format(sum, before + hiding))
-        assert(sum <= before + hiding + 1e-6, ("the hiding counted twice: %.3f ms, at most %.3f"):format(sum, before + hiding))
-        assert(diag.peak <= frameMs + 1e-9, ("the largest frame so far: %.3f ms"):format(diag.peak))
+            local hiding = reserveMs * shown / 300
+            assert(sum >= before + hiding - 1e-9, ("the hiding is missing in the frame's sum: %.3f ms, at least %.3f"):format(sum, before + hiding))
+            assert(sum <= before + hiding + 1e-6, ("the hiding counted twice: %.3f ms, at most %.3f"):format(sum, before + hiding))
+            assert(diag.peak <= frameMs + 1e-9, ("the largest frame so far: %.3f ms"):format(diag.peak))
+        end)
+        methods.Hide = keepHide
+        T.Done()
+        W.Done()
+        if not ok then error(err, 0) end
     end)
-    methods.Hide = keepHide
-    T.Done()
-    W.Done()
-    if not ok then error(err, 0) end
+    ns.WaysCore.threadFactor = nil
+    if not held then error(heldErr, 0) end
 end)
 step("Ways 0.2.4: only the arrow's angle follows the way - it turns to the point 30 yd ahead along it; the distance, the name and Here! stay with the node; at a hairpin it does not jump ahead; near the node, without a way and with the option off it points at the node as before; the game's waypoint is untouched (S1 W5)", function()
-    local Near = WAYS.Near
-    -- a hairpin: east from (10,10) to (20,10), one square south, back west to (10,11) - and on south to
-    -- the node at (10,31). (What lies between the two legs at the start was ridden around, never across.)
-    local e, squares = {}, {}
-    for x = 10, 20 do squares[#squares + 1] = { x, 10 } end
-    for x = 20, 10, -1 do squares[#squares + 1] = { x, 11 } end
-    for y = 12, 31 do squares[#squares + 1] = { 10, y } end
-    WAYS.Ride(e, squares)
-    local W = WAYS.World(e)
-    local T = WAYS.Pins()
-    local HBD = LibStub("HereBeDragons-2.0")
-    local keepRot, keepText = methods.SetRotation, methods.SetText
-    local ok, err = pcall(function()
-        -- the mock's HereBeDragons gives every direction as 1.0: here the real formula
-        HBD.GetWorldVector = function(_, _, ox, oy, dx, dy)
-            local ddx, ddy = dx - ox, dy - oy
-            return math.atan2(-ddx, ddy), math.sqrt(ddx * ddx + ddy * ddy)
-        end
-        GetPlayerFacing = function() return 0 end
-        local rot, text
-        methods.SetRotation = function(self, r)
-            if self.__parent == GathercraftArrow then rot = r end
-            return keepRot(self, r)
-        end
-        methods.SetText = function(self, s)
-            if self.__parent == GathercraftArrow and type(s) == "string" and (s:match("^%d") or s == ns.L["Here!"]) then text = s end -- (the distance: "525 yd", "525 m", ...)
-            return keepText(self, s)
-        end
-        local function Arrow()
-            rot, text = nil, nil
-            GathercraftArrow:GetScript("OnUpdate")(GathercraftArrow, 0.25)
-            return rot, text
-        end
-        local function Angle(fromX, fromY, toX, toY) return math.atan2(-(toX - fromX), toY - fromY) end
-        local A = W.Node(10, 31, 20, 0)
-        W.At(10, 10)
-        local run = W.Run({ A }, 2)
-        local way = W.Read()
-        -- the way: 250 yd east, 25 south, 250 west, 500 south, and 20 yd from the last square's middle to
-        -- the node - for a node 525 yd south of you
-        assert(way.state == "net" and Near(way.yards, 1045), "test setup: the hairpin is the way (" .. way.state .. ", " .. way.yards .. " yd)")
-        -- 1. at the start: the arrow turns east along the way (30 yd ahead), not south to the node
-        local east, south = Angle(0, 0, 30, 0), Angle(0, 0, 20, 525)
-        local r, s = Arrow()
-        assert(Near(r, east), ("the arrow turns along the way: %.3f, east is %.3f, the node lies at %.3f"):format(r, east, south))
-        assert(s == (ns.L["%d yd"]):format(525), "the number is the node's distance: " .. tostring(s))
-        assert(math.floor(ns.DistanceToTarget()) == 525, "DistanceToTarget is the node's: " .. ns.DistanceToTarget())
-        -- the point 30 yd ahead is near, the node far: no Here!
-        assert(s ~= ns.L["Here!"], "no Here! for a point of the way")
-        -- 2. the hairpin: the leg back runs 25 yd south of you - the arrow stays on your leg
-        for x = 11, 15 do
-            W.At(x, 10)
-            advance(0.2)
+    -- (0.2.4 a7, S1.1 B5: the thread's job gives up at once here - this step is about S1's work on the line shown, the centre line whenever no thread is done; the thread shown is the S1.1 steps' part)
+    ns.WaysCore.threadFactor = 0
+    local held, heldErr = pcall(function()
+        local Near = WAYS.Near
+        -- a hairpin: east from (10,10) to (20,10), one square south, back west to (10,11) - and on south to
+        -- the node at (10,31). (What lies between the two legs at the start was ridden around, never across.)
+        local e, squares = {}, {}
+        for x = 10, 20 do squares[#squares + 1] = { x, 10 } end
+        for x = 20, 10, -1 do squares[#squares + 1] = { x, 11 } end
+        for y = 12, 31 do squares[#squares + 1] = { 10, y } end
+        WAYS.Ride(e, squares)
+        local W = WAYS.World(e)
+        local T = WAYS.Pins()
+        local HBD = LibStub("HereBeDragons-2.0")
+        local keepRot, keepText = methods.SetRotation, methods.SetText
+        local ok, err = pcall(function()
+            -- the mock's HereBeDragons gives every direction as 1.0: here the real formula
+            HBD.GetWorldVector = function(_, _, ox, oy, dx, dy)
+                local ddx, ddy = dx - ox, dy - oy
+                return math.atan2(-ddx, ddy), math.sqrt(ddx * ddx + ddy * ddy)
+            end
+            GetPlayerFacing = function() return 0 end
+            local rot, text
+            methods.SetRotation = function(self, r)
+                if self.__parent == GathercraftArrow then rot = r end
+                return keepRot(self, r)
+            end
+            methods.SetText = function(self, s)
+                if self.__parent == GathercraftArrow and type(s) == "string" and (s:match("^%d") or s == ns.L["Here!"]) then text = s end -- (the distance: "525 yd", "525 m", ...)
+                return keepText(self, s)
+            end
+            local function Arrow()
+                rot, text = nil, nil
+                GathercraftArrow:GetScript("OnUpdate")(GathercraftArrow, 0.25)
+                return rot, text
+            end
+            local function Angle(fromX, fromY, toX, toY) return math.atan2(-(toX - fromX), toY - fromY) end
+            local A = W.Node(10, 31, 20, 0)
+            W.At(10, 10)
+            local run = W.Run({ A }, 2)
+            local way = W.Read()
+            -- the way: 250 yd east, 25 south, 250 west, 500 south, and 20 yd from the last square's middle to
+            -- the node - for a node 525 yd south of you
+            assert(way.state == "net" and Near(way.yards, 1045), "test setup: the hairpin is the way (" .. way.state .. ", " .. way.yards .. " yd)")
+            -- 1. at the start: the arrow turns east along the way (30 yd ahead), not south to the node
+            local east, south = Angle(0, 0, 30, 0), Angle(0, 0, 20, 525)
+            local r, s = Arrow()
+            assert(Near(r, east), ("the arrow turns along the way: %.3f, east is %.3f, the node lies at %.3f"):format(r, east, south))
+            assert(s == (ns.L["%d yd"]):format(525), "the number is the node's distance: " .. tostring(s))
+            assert(math.floor(ns.DistanceToTarget()) == 525, "DistanceToTarget is the node's: " .. ns.DistanceToTarget())
+            -- the point 30 yd ahead is near, the node far: no Here!
+            assert(s ~= ns.L["Here!"], "no Here! for a point of the way")
+            -- 2. the hairpin: the leg back runs 25 yd south of you - the arrow stays on your leg
+            for x = 11, 15 do
+                W.At(x, 10)
+                advance(0.2)
+                r = Arrow()
+                assert(Near(r, east), "riding east on the first leg at square " .. x .. ": the arrow turns east (" .. r .. ")")
+            end
+            way = W.Read()
+            assert(way.seg == 1 and Near(way.pos, 125), "the progress is on the first leg: " .. way.pos)
+            -- the head and the arrow read the same way, whoever looks first in a frame
+            advance(0.07)
+            W.At(16, 10)
+            local world = HBD.GetPlayerWorldPosition
             r = Arrow()
-            assert(Near(r, east), "riding east on the first leg at square " .. x .. ": the arrow turns east (" .. r .. ")")
-        end
-        way = W.Read()
-        assert(way.seg == 1 and Near(way.pos, 125), "the progress is on the first leg: " .. way.pos)
-        -- the head and the arrow read the same way, whoever looks first in a frame
-        advance(0.07)
-        W.At(16, 10)
-        local world = HBD.GetPlayerWorldPosition
-        r = Arrow()
-        local pos1 = W.Read().pos
-        ns.WaysTick(run, world())
-        assert(Near(W.Read().pos, pos1) and Near(pos1, 150), "the arrow first, then the head's tick: one progress (" .. pos1 .. ")")
-        advance(0.07)
-        W.At(17, 10)
-        ns.WaysTick(run, world())
-        local pos2 = W.Read().pos
-        local r2 = Arrow()
-        assert(Near(W.Read().pos, pos2) and Near(pos2, 175) and Near(r2, east), "the head's tick first, then the arrow: the same")
-        local ax, ay = ns.WaysArrow(run, world())
-        local off, along = T.Off(W.Read(), ax, ay)
-        assert(off < 0.001 and Near(along, pos2 + 30), "the arrow's point lies on the way that is shown, 30 yd ahead of you")
-        -- around the bend: at the corner it turns south, then west
-        for x = 18, 20 do
-            W.At(x, 10)
-            advance(0.2)
-        end
-        r = Arrow()
-        assert(r ~= east and Near(r, Angle(0, 0, -5, 25)), "at the east end: around the bend (5 yd of the leg back are in the 30)")
-        W.At(20, 11)
-        advance(0.3)
-        assert(Near(Arrow(), Angle(0, 0, -30, 0)), "on the leg back: west")
-        -- 3. near the end: the rest is shorter than 30 yd, or the point lies on the last bit - the node itself
-        for x = 19, 10, -1 do
-            W.At(x, 11)
-            advance(0.2)
-        end
-        for y = 12, 30 do
-            W.At(10, y)
-            advance(0.2)
-        end
-        -- (one square before the last: 25 yd of way and the 20 yd to the node are left - the point 30 yd
-        -- ahead lies on that last bit)
-        way = W.Read()
-        r, s = Arrow()
-        assert(way.state == "net" and Near(way.points.len - way.pos, 45), "the way is still shown, 45 yd of it are left: " .. way.state)
-        assert(Near(r, Angle(0, 0, 20, 25)), ("the arrow points at the node itself, not along the way: %.3f (the way's point lies at %.3f)"):format(r, Angle(0, 0, 5, 25)))
-        assert(s == (ns.L["%d yd"]):format(32), "and the number is its distance: " .. tostring(s))
-        -- 4. the lines hidden, the arrow shown: it still follows the way; nothing is drawn
-        ns.StopRun(true)
-        ns.db.routeLineHidden, ns.db.routeLineMiniHidden = true, true
-        W.At(10, 10)
-        run = W.Run({ A }, 2)
-        assert(W.Read().state == "net" and T.Known("mini") == 0 and T.Known("world") == 0, "lines hidden: the way is found, no dot is placed")
-        assert(Near(Arrow(), east), "and the arrow follows it")
-        ns.db.routeLineHidden, ns.db.routeLineMiniHidden = nil, nil
-        advance(0.5)
-        -- 5. another node: the very next look of the arrow is the new node's straight direction
-        local B = W.Node(20, 31)
-        local bx, by = W.World((20 + 0.5) * 25, (31 + 0.5) * 25)
-        local tp = run.targetPoint
-        run.target, run.targetPoint = B, { node = B, mapID = W.Z, wx = bx, wy = by }
-        run.targetBest, run.progressBest = nil, nil
-        run.path[1] = run.targetPoint
-        r, s = Arrow()
-        assert(Near(r, Angle(0, 0, 250, 525)), "another node: straight at it, nothing of the old way's direction (" .. r .. ")")
-        run.target, run.targetPoint = A, tp
-        run.path[1] = tp
-        advance(2)
-        assert(Near(Arrow(), east), "(A again: along its way)")
-        -- 6. the option off: the angle is the node's, as it was before S1
-        ns.db.routeWaysOff = true
-        r, s = Arrow()
-        assert(Near(r, south) and s == (ns.L["%d yd"]):format(525), "option off: straight at the node at once")
-        ns.db.routeWaysOff = nil
-        advance(2)
-        -- 7. the game's waypoint: yours stays yours; with our arrow off the run sets it at the node as before
-        local mine = { m = W.Z, x = 0.9, y = 0.9 }
-        USER_WP = mine
-        local sets, clears = WP_SETS or 0, WP_CLEARS or 0
-        for x = 11, 14 do
-            W.At(x, 10)
+            local pos1 = W.Read().pos
+            ns.WaysTick(run, world())
+            assert(Near(W.Read().pos, pos1) and Near(pos1, 150), "the arrow first, then the head's tick: one progress (" .. pos1 .. ")")
+            advance(0.07)
+            W.At(17, 10)
+            ns.WaysTick(run, world())
+            local pos2 = W.Read().pos
+            local r2 = Arrow()
+            assert(Near(W.Read().pos, pos2) and Near(pos2, 175) and Near(r2, east), "the head's tick first, then the arrow: the same")
+            local ax, ay = ns.WaysArrow(run, world())
+            local off, along = T.Off(W.Read(), ax, ay)
+            assert(off < 0.001 and Near(along, pos2 + 30), "the arrow's point lies on the way that is shown, 30 yd ahead of you")
+            -- around the bend: at the corner it turns south, then west
+            for x = 18, 20 do
+                W.At(x, 10)
+                advance(0.2)
+            end
+            r = Arrow()
+            assert(r ~= east and Near(r, Angle(0, 0, -5, 25)), "at the east end: around the bend (5 yd of the leg back are in the 30)")
+            W.At(20, 11)
             advance(0.3)
-            Arrow()
-        end
-        assert(USER_WP == mine and (WP_SETS or 0) == sets and (WP_CLEARS or 0) == clears, "a waypoint of your own (or another addon's) is not touched while the way is followed")
+            assert(Near(Arrow(), Angle(0, 0, -30, 0)), "on the leg back: west")
+            -- 3. near the end: the rest is shorter than 30 yd, or the point lies on the last bit - the node itself
+            for x = 19, 10, -1 do
+                W.At(x, 11)
+                advance(0.2)
+            end
+            for y = 12, 30 do
+                W.At(10, y)
+                advance(0.2)
+            end
+            -- (one square before the last: 25 yd of way and the 20 yd to the node are left - the point 30 yd
+            -- ahead lies on that last bit)
+            way = W.Read()
+            r, s = Arrow()
+            assert(way.state == "net" and Near(way.points.len - way.pos, 45), "the way is still shown, 45 yd of it are left: " .. way.state)
+            assert(Near(r, Angle(0, 0, 20, 25)), ("the arrow points at the node itself, not along the way: %.3f (the way's point lies at %.3f)"):format(r, Angle(0, 0, 5, 25)))
+            assert(s == (ns.L["%d yd"]):format(32), "and the number is its distance: " .. tostring(s))
+            -- 4. the lines hidden, the arrow shown: it still follows the way; nothing is drawn
+            ns.StopRun(true)
+            ns.db.routeLineHidden, ns.db.routeLineMiniHidden = true, true
+            W.At(10, 10)
+            run = W.Run({ A }, 2)
+            assert(W.Read().state == "net" and T.Known("mini") == 0 and T.Known("world") == 0, "lines hidden: the way is found, no dot is placed")
+            assert(Near(Arrow(), east), "and the arrow follows it")
+            ns.db.routeLineHidden, ns.db.routeLineMiniHidden = nil, nil
+            advance(0.5)
+            -- 5. another node: the very next look of the arrow is the new node's straight direction
+            local B = W.Node(20, 31)
+            local bx, by = W.World((20 + 0.5) * 25, (31 + 0.5) * 25)
+            local tp = run.targetPoint
+            run.target, run.targetPoint = B, { node = B, mapID = W.Z, wx = bx, wy = by }
+            run.targetBest, run.progressBest = nil, nil
+            run.path[1] = run.targetPoint
+            r, s = Arrow()
+            assert(Near(r, Angle(0, 0, 250, 525)), "another node: straight at it, nothing of the old way's direction (" .. r .. ")")
+            run.target, run.targetPoint = A, tp
+            run.path[1] = tp
+            advance(2)
+            assert(Near(Arrow(), east), "(A again: along its way)")
+            -- 6. the option off: the angle is the node's, as it was before S1
+            ns.db.routeWaysOff = true
+            r, s = Arrow()
+            assert(Near(r, south) and s == (ns.L["%d yd"]):format(525), "option off: straight at the node at once")
+            ns.db.routeWaysOff = nil
+            advance(2)
+            -- 7. the game's waypoint: yours stays yours; with our arrow off the run sets it at the node as before
+            local mine = { m = W.Z, x = 0.9, y = 0.9 }
+            USER_WP = mine
+            local sets, clears = WP_SETS or 0, WP_CLEARS or 0
+            for x = 11, 14 do
+                W.At(x, 10)
+                advance(0.3)
+                Arrow()
+            end
+            assert(USER_WP == mine and (WP_SETS or 0) == sets and (WP_CLEARS or 0) == clears, "a waypoint of your own (or another addon's) is not touched while the way is followed")
+            USER_WP = nil
+            ns.db.arrowHidden = true
+            ns.RouteArrowChanged()
+            advance(0.3)
+            assert(USER_WP and Near(USER_WP.x, A.x) and Near(USER_WP.y, A.y), "our arrow off: the game's waypoint at the node itself, as before")
+            assert(W.Read().state == "net", "(the line still follows the way)")
+            ns.db.arrowHidden = nil
+            ns.RouteArrowChanged()
+            -- no run: the arrow asks nothing of the ways
+            ns.StopRun(true)
+            local d = ns.WaysDiag()
+            local requests = d.requests
+            assert(ns.WaysArrow(nil, 1, 2) == nil and ns.WaysArrow(run, 1, 2) == nil and d.requests == requests, "no run: nothing")
+            local src = io.open(ROOT .. "/Ways.lua"):read("*a"):gsub("%-%-[^\n]*", "")
+            assert(not src:find("Waypoint") and not src:find("SuperTrack"), "Ways.lua does not know the game's waypoint")
+        end)
+        methods.SetRotation, methods.SetText = keepRot, keepText
         USER_WP = nil
-        ns.db.arrowHidden = true
-        ns.RouteArrowChanged()
-        advance(0.3)
-        assert(USER_WP and Near(USER_WP.x, A.x) and Near(USER_WP.y, A.y), "our arrow off: the game's waypoint at the node itself, as before")
-        assert(W.Read().state == "net", "(the line still follows the way)")
-        ns.db.arrowHidden = nil
-        ns.RouteArrowChanged()
-        -- no run: the arrow asks nothing of the ways
-        ns.StopRun(true)
-        local d = ns.WaysDiag()
-        local requests = d.requests
-        assert(ns.WaysArrow(nil, 1, 2) == nil and ns.WaysArrow(run, 1, 2) == nil and d.requests == requests, "no run: nothing")
-        local src = io.open(ROOT .. "/Ways.lua"):read("*a"):gsub("%-%-[^\n]*", "")
-        assert(not src:find("Waypoint") and not src:find("SuperTrack"), "Ways.lua does not know the game's waypoint")
+        T.Done()
+        W.Done()
+        if not ok then error(err, 0) end
     end)
-    methods.SetRotation, methods.SetText = keepRot, keepText
-    USER_WP = nil
-    T.Done()
-    W.Done()
-    if not ok then error(err, 0) end
+    ns.WaysCore.threadFactor = nil
+    if not held then error(heldErr, 0) end
 end)
 
 step("Ways 0.2.4: the run window says what the line follows - your ridden ways, with the guessed share in percent, or the straight line; only in the whole window; the option is on unless turned off, off it ends everything in the same frame and the window and the line are what they were; nine languages (S1 W6)", function()
@@ -35199,10 +35229,16 @@ step("Ways 0.2.4: /gcr perf on has a part 'Ways' and, at the end of its line, th
         end
         local function Ways(line)
             local peak, limit, step, requests, given, late, dropped, builds, over, back = line:match(
-                "; ways: largest frame ([%d%.]+) ms %(limit ([%d%.]+)%), longest step ([%d%.]+) ms, (%d+) requests %((%d+) given up, (%d+) late, (%d+) dropped%), (%d+) builds %((%d+) over the limits%), (%d+) taken back at once$")
-            assert(peak, "the line does not end with the ways' numbers: " .. line:sub(-220))
+                "; ways: largest frame ([%d%.]+) ms %(limit ([%d%.]+)%), longest step ([%d%.]+) ms, (%d+) requests %((%d+) given up, (%d+) late, (%d+) dropped%), (%d+) builds %((%d+) over the limits%), (%d+) taken back at once; ")
+            assert(peak, "the line does not end with the ways' numbers: " .. line:sub(-320))
+            -- (0.2.4 a7, S1.1 B5) and the threads': done (repaired), on the centre line (by the counter, the guard, another error), booked
+            local threads, repaired, fell, count, guard, other, booked = line:match(
+                "; (%d+) threads %((%d+) repaired%), (%d+) on the centre line %((%d+) counter, (%d+) guard, (%d+) other%), (%d+) booked$")
+            assert(threads, "the line does not end with the threads' numbers: " .. line:sub(-160))
             return { peak = tonumber(peak), limit = tonumber(limit), step = tonumber(step), requests = tonumber(requests), given = tonumber(given),
-                late = tonumber(late), dropped = tonumber(dropped), builds = tonumber(builds), over = tonumber(over), back = tonumber(back) }
+                late = tonumber(late), dropped = tonumber(dropped), builds = tonumber(builds), over = tonumber(over), back = tonumber(back),
+                threads = tonumber(threads), repaired = tonumber(repaired), fell = tonumber(fell), count = tonumber(count), guard = tonumber(guard),
+                other = tonumber(other), booked = tonumber(booked) }
         end
         slash("perf off")
         -- a run on the U, measured: one build, one request, the way shown
@@ -35231,6 +35267,9 @@ step("Ways 0.2.4: /gcr perf on has a part 'Ways' and, at the end of its line, th
         assert(w.step > 0 and w.step <= 0.5, ("the longest step: %.2f ms"):format(w.step))
         assert(w.requests == 3 and w.builds == 2 and w.back == 1, ("3 requests, 2 builds, 1 taken back at once: %d / %d / %d"):format(w.requests, w.builds, w.back))
         assert(w.given == 0 and w.late == 0 and w.dropped == 0 and w.over == 0, "nothing given up, late, dropped or over the limits")
+        -- (S1.1) a thread for every way shown, none given up, the work they booked
+        assert(w.threads >= 1 and w.threads <= w.requests and w.fell == w.count + w.guard + w.other and w.fell == 0 and w.booked > 0,
+            ("the threads: %d done, %d on the centre line, %d booked"):format(w.threads, w.fell, w.booked))
         -- the next minute starts from nothing; a zone above the limits and a search given up are counted
         ns.StopRun(true)
         W.Pieces(WAYS.Snake({}, 40, 40, 100, 81))
@@ -35239,7 +35278,7 @@ step("Ways 0.2.4: /gcr perf on has a part 'Ways' and, at the end of its line, th
         W.At(40, 40)
         run = W.Run({ W.Node(60, 40) }, 2)
         w = Ways(Result())
-        assert(w.requests == 0 and w.builds == 1 and w.over == 1 and w.back == 0, ("a new minute, a zone of 8,100 squares: %d requests, %d builds, %d over the limits"):format(w.requests, w.builds, w.over))
+        assert(w.requests == 0 and w.builds == 1 and w.over == 1 and w.back == 0 and w.threads == 0 and w.booked == 0, ("a new minute, a zone of 8,100 squares: %d requests, %d builds, %d over the limits, %d threads"):format(w.requests, w.builds, w.over, w.threads))
         ns.StopRun(true)
         W.Pieces(WAYS.U())
         W.At(10, 10)
@@ -35646,185 +35685,191 @@ step("Ways 0.2.4: riding along a way that is shown makes no new garbage - 600 fr
     if not ok then error(err, 0) end
 end)
 step("Ways 0.2.4 S1.1 B1: the maps and the arrow show the centre line of the way - every square's middle - while the navigation reads the a5 buffer as before; the display has its own place (from the yards you have come), its own revision at every change of what is shown, and its world places only where they are read (0.2.4 a7, F4 §A/§B, F4.1 §B/§C, F4.2)", function()
-    local Near = WAYS.Near
-    local Core = ns.WaysCore
-    local function Tol(a, b, t) return a ~= nil and math.abs(a - b) <= (t or 0.0005) end
-    local function World(squares)
-        local e = {}
-        WAYS.Ride(e, squares)
-        return WAYS.World(e)
-    end
-    local function Nav() return (ns.WaysState()) end
-    local function Shown() return ns.WaysRead(ns.run) end
-    -- 1. Codex' 80 steps (R2, R3): east, then one square diagonally (x + 1, y + 1), from (0,0) to (80,40)
-    do
-        local squares, x, y = { { 0, 0 } }, 0, 0
-        for i = 1, 80 do
-            if i % 2 == 1 then x = x + 1 else x, y = x + 1, y + 1 end
-            squares[#squares + 1] = { x, y }
+    -- (0.2.4 a7, S1.1 B5: the thread's job gives up at once here - this step is about the centre line, shown until a thread is done and whenever none is)
+    ns.WaysCore.threadFactor = 0
+    local held, heldErr = pcall(function()
+        local Near = WAYS.Near
+        local Core = ns.WaysCore
+        local function Tol(a, b, t) return a ~= nil and math.abs(a - b) <= (t or 0.0005) end
+        local function World(squares)
+            local e = {}
+            WAYS.Ride(e, squares)
+            return WAYS.World(e)
         end
-        local W = World(squares)
-        local T = WAYS.Pins()
-        local drawer = ns.RouteWaysDrawer
-        local keepStep = drawer.Step
-        local most, steps = 0, 0
-        local ok, err = pcall(function()
-            -- every step of the maps: how many points of the line it put into world yards
-            drawer.Step = function(ops)
-                local c0 = Core.convs
-                local used = keepStep(ops)
-                if Core.convs > c0 then most, steps = math.max(most, Core.convs - c0), steps + 1 end
-                return used
+        local function Nav() return (ns.WaysState()) end
+        local function Shown() return ns.WaysRead(ns.run) end
+        -- 1. Codex' 80 steps (R2, R3): east, then one square diagonally (x + 1, y + 1), from (0,0) to (80,40)
+        do
+            local squares, x, y = { { 0, 0 } }, 0, 0
+            for i = 1, 80 do
+                if i % 2 == 1 then x = x + 1 else x, y = x + 1, y + 1 end
+                squares[#squares + 1] = { x, y }
             end
-            WorldMapFrame:Show()
-            W.At(0, 0)
-            local run = W.Run({ W.Node(80, 40) }, 2)
-            local r = Shown()
-            assert(r.state == "net" and r.source == "net", "test setup: a way of the net: " .. r.state)
-            local nav = Nav()
-            -- the navigation: the a5 buffer, simplified to two points (15 yd: more than 32 segments at 5 yd);
-            -- at x = 50 it runs through y = 31.25, through the square (1,1) nobody rode
-            local f = nav.core.front
-            assert(f.n == 2 and Near(f.x[1], 12.5) and Near(f.x[2], 2012.5) and Near(f.y[2], 1012.5), "test setup: a5 makes one stretch: " .. f.n)
-            assert(Near(f.y[1] + (50 - f.x[1]) * (f.y[2] - f.y[1]) / (f.x[2] - f.x[1]), 31.25), "test setup: the a5 line at x = 50")
-            -- the centre line: you, the 81 middles, the node (both end bits of no length) - 83 points
-            local c = nav.core.cf
-            assert(c.n == 83, "the centre line has " .. c.n .. " points")
-            for i = 2, 82 do
-                local q = squares[i - 1]
-                assert(Near(c.x[i], (q[1] + 0.5) * 25) and Near(c.y[i], (q[2] + 0.5) * 25), "point " .. i .. " is not the middle of square " .. (i - 1))
-            end
-            -- every diagonal step's corner lies on it (the middle of the stretch between the two middles)
-            local diagonals = 0
-            for i = 2, 81 do
-                local a, q = squares[i - 1], squares[i]
-                if a[1] ~= q[1] and a[2] ~= q[2] then
-                    diagonals = diagonals + 1
-                    assert(Near((c.x[i] + c.x[i + 1]) / 2, (a[1] + 1) * 25) and Near((c.y[i] + c.y[i + 1]) / 2, (a[2] + 1) * 25), "a diagonal corner is missed at step " .. i)
+            local W = World(squares)
+            local T = WAYS.Pins()
+            local drawer = ns.RouteWaysDrawer
+            local keepStep = drawer.Step
+            local most, steps = 0, 0
+            local ok, err = pcall(function()
+                -- every step of the maps: how many points of the line it put into world yards
+                drawer.Step = function(ops)
+                    local c0 = Core.convs
+                    local used = keepStep(ops)
+                    if Core.convs > c0 then most, steps = math.max(most, Core.convs - c0), steps + 1 end
+                    return used
                 end
-            end
-            assert(diagonals == 40, "test setup: 40 diagonal steps, " .. diagonals)
-            assert(Near((c.x[3] + c.x[4]) / 2, 50) and Near((c.y[3] + c.y[4]) / 2, 25), "the first diagonal corner (50 | 25)")
-            -- shown: the centre line as it is drawn - every point but the two that lie on you and on the node
-            -- (every middle here is a bend); its yards are the yards of the way, its end bit a5's
-            local b = r.points
-            assert(b == c.view and r.n == 81 and b.n == 81, "the maps read the centre line: " .. r.n .. " points drawn")
-            local Zx = (W.Z - 1400) * 6000
-            for k = 1, 81 do
-                local q = squares[k]
-                assert(Near(b.wx[k] - Zx, (q[1] + 0.5) * 25) and Near(b.wy[k], (q[2] + 0.5) * 25), "drawn point " .. k .. " is not the middle of square " .. k)
-            end
-            assert(Near(b.len, f.yards) and Near(b.cum[81], f.yards) and Near(b.tail, f.tail), "the centre line's yards: " .. b.len .. " / " .. f.yards)
-            -- 2. world places only where they are read: the maps 16 in a step at the most, the arrow 4 at once
-            assert(steps > 0 and most > 0 and most <= 16, ("the maps took %d points into world yards in one step (%d steps)"):format(most, steps))
-            local before = Core.convs
-            local ax, ay = ns.WaysArrow(run, W.World(12.5, 12.5))
-            assert(ax and Core.convs - before <= 4, ("the arrow's point took %d points into world yards"):format(Core.convs - before))
-            local h = 5 / math.sqrt(2) -- (30 yd on: 25 east, then 5 yd into the first diagonal)
-            assert(Near(ax - (W.Z - 1400) * 6000, 37.5 + h) and Near(ay, 12.5 + h),
-                ("the arrow turns to the point 30 yd along the centre line: %.4f, %.4f"):format(ax - (W.Z - 1400) * 6000, ay))
-        end)
-        drawer.Step = keepStep
-        WorldMapFrame:Hide()
-        T.Done()
-        W.Done()
-        if not ok then error(err, 0) end
-    end
-    -- 3. Codex' L of 100 yd (R1-R3): (0,0) (1,0) (2,0) (2,1) (2,2); you on the first middle, the node on the last
-    do
-        local W = World({ { 0, 0 }, { 1, 0 }, { 2, 0 }, { 2, 1 }, { 2, 2 } })
-        local ok, err = pcall(function()
-            W.At(0, 0)
-            W.Run({ W.Node(2, 2) }, 2)
-            assert(Shown().state == "net", "test setup: the L's way")
-            W.At(1, 0) -- (37.5 | 12.5)
-            advance(0.2)
-            local core = Nav().core
-            local r = Shown()
-            -- the navigation as a5: 25 yd on, 75 yd to go, on the way
-            assert(Tol(core.pos, 25, 0.005) and Tol(core.rest, 75, 0.005) and Tol(math.sqrt(core.offD), 0, 0.005) and core.on,
-                ("the navigation: %.4f / %.4f / %.4f, want 25 / 75 / 0"):format(core.pos, core.rest, math.sqrt(core.offD)))
-            -- the display on the centre line: at the yards you have come, 25
-            assert(Tol(r.pos, 25, 0.005), ("the display's place: %.4f, want 25 on the centre line"):format(r.pos))
-        end)
-        W.Done()
-        if not ok then error(err, 0) end
-    end
-    -- 4. Codex' entry from the side (R2, R3): you at (12.5 | 14.5), the way from the middle (37.5 | 12.5) to (137.5 | 12.5)
-    do
-        local W = World({ { 1, 0 }, { 2, 0 }, { 3, 0 }, { 4, 0 }, { 5, 0 } })
-        local ok, err = pcall(function()
-            W.Yards(12.5, 14.5)
-            W.Run({ W.Node(5, 0) }, 2)
-            assert(Shown().state == "net", "test setup: the way from the side")
-            W.Yards(37.5, 12.5)
-            advance(0.2)
-            local core = Nav().core
-            local r = Shown()
-            -- a5's two points: 100.0383 yd to go, 1.5998 yd off the way - not 100 / 0 of all the middles
-            assert(core.front.n == 2 and Tol(core.rest, 100.0383) and Tol(math.sqrt(core.offD), 1.5998),
-                ("the navigation: %.4f yd to go, %.4f off, want 100.0383 / 1.5998"):format(core.rest, math.sqrt(core.offD)))
-            -- the display: d = the way's yards - the rest = 25.0416, still on the first bit (the middle is at 25.0799)
-            local d = core.front.yards - core.rest
-            assert(Tol(d, 25.0416) and Tol(r.pos, 25.0416) and Tol(r.points.cum[2], 25.0799) and ns.WaysDisplay().seg == 1,
-                ("the display: d %.4f, place %.4f, the middle at %.4f, segment %d"):format(d, r.pos, r.points.cum[2], ns.WaysDisplay().seg))
-        end)
-        W.Done()
-        if not ok then error(err, 0) end
-    end
-    -- 5. the display revision (F4.2): a drawing half done, another geometry for the same way - the maps start
-    -- once on it, a step begun for the old one writes nothing, the navigation is as it was
-    do
-        local e, squares = {}, {}
-        for x = 10, 60 do squares[#squares + 1] = { x, 10 } end
-        WAYS.Ride(e, squares)
-        local W = WAYS.World(e)
-        local T = WAYS.Pins()
-        local _, _, wh = ns.RouteWaysHead()
-        local drawer = ns.RouteWaysDrawer
-        local keepStep = drawer.Step
-        local ok, err = pcall(function()
-            WorldMapFrame:Show()
-            W.At(10, 10)
-            W.Run({ W.Node(60, 10) }, 2)
-            local r = Shown()
-            assert(r.state == "net", "test setup: a way")
-            -- a drawing under way: started anew, three dots of it placed, then the work frame places nothing
-            drawer.Step = function() return 1 end
-            ns.WaysPublishDisplay()
-            advance(0.1)
-            assert(wh.job and wh.pub == r.pub, "test setup: a drawing under way")
-            keepStep(3) -- (the first step takes the world map's dots off in one call)
-            keepStep(3)
-            assert(wh.job and wh.top >= 3 and #T.Seen("world") >= 3, "test setup: a drawing half done")
-            local core = Nav().core
-            local pub, gen = r.pub, core.gen
-            local before = { core.pos, core.rest, core.offD, core.on, core.seg, core.state, core.front, core.cf, core.have }
-            ns.WaysPublishDisplay()
-            assert(r.pub == pub + 1 and core.gen == gen, ("another geometry: the display revision %d -> %d, the way's generation %d -> %d"):format(pub, r.pub, gen, core.gen))
-            local after = { core.pos, core.rest, core.offD, core.on, core.seg, core.state, core.front, core.cf, core.have }
-            for i = 1, #before do assert(before[i] == after[i], "PublishDisplay changed the navigation (" .. i .. ")") end
-            -- in the same frame: no dot of the old drawing on either map, its job given up
-            assert(#T.Seen("world") == 0 and #T.Seen("mini") == 0 and not wh.job, "the old drawing is still seen in the frame of the change")
-            -- a step for the old drawing writes nothing
-            local adds = T.adds.world + T.adds.mini
-            keepStep(50)
-            assert(T.adds.world + T.adds.mini == adds, "a step of the old drawing placed dots")
-            -- the next head ticks start the maps once on the new geometry, and not again with the same revision
+                WorldMapFrame:Show()
+                W.At(0, 0)
+                local run = W.Run({ W.Node(80, 40) }, 2)
+                local r = Shown()
+                assert(r.state == "net" and r.source == "net", "test setup: a way of the net: " .. r.state)
+                local nav = Nav()
+                -- the navigation: the a5 buffer, simplified to two points (15 yd: more than 32 segments at 5 yd);
+                -- at x = 50 it runs through y = 31.25, through the square (1,1) nobody rode
+                local f = nav.core.front
+                assert(f.n == 2 and Near(f.x[1], 12.5) and Near(f.x[2], 2012.5) and Near(f.y[2], 1012.5), "test setup: a5 makes one stretch: " .. f.n)
+                assert(Near(f.y[1] + (50 - f.x[1]) * (f.y[2] - f.y[1]) / (f.x[2] - f.x[1]), 31.25), "test setup: the a5 line at x = 50")
+                -- the centre line: you, the 81 middles, the node (both end bits of no length) - 83 points
+                local c = nav.core.cf
+                assert(c.n == 83, "the centre line has " .. c.n .. " points")
+                for i = 2, 82 do
+                    local q = squares[i - 1]
+                    assert(Near(c.x[i], (q[1] + 0.5) * 25) and Near(c.y[i], (q[2] + 0.5) * 25), "point " .. i .. " is not the middle of square " .. (i - 1))
+                end
+                -- every diagonal step's corner lies on it (the middle of the stretch between the two middles)
+                local diagonals = 0
+                for i = 2, 81 do
+                    local a, q = squares[i - 1], squares[i]
+                    if a[1] ~= q[1] and a[2] ~= q[2] then
+                        diagonals = diagonals + 1
+                        assert(Near((c.x[i] + c.x[i + 1]) / 2, (a[1] + 1) * 25) and Near((c.y[i] + c.y[i + 1]) / 2, (a[2] + 1) * 25), "a diagonal corner is missed at step " .. i)
+                    end
+                end
+                assert(diagonals == 40, "test setup: 40 diagonal steps, " .. diagonals)
+                assert(Near((c.x[3] + c.x[4]) / 2, 50) and Near((c.y[3] + c.y[4]) / 2, 25), "the first diagonal corner (50 | 25)")
+                -- shown: the centre line as it is drawn - every point but the two that lie on you and on the node
+                -- (every middle here is a bend); its yards are the yards of the way, its end bit a5's
+                local b = r.points
+                assert(b == c.view and r.n == 81 and b.n == 81, "the maps read the centre line: " .. r.n .. " points drawn")
+                local Zx = (W.Z - 1400) * 6000
+                for k = 1, 81 do
+                    local q = squares[k]
+                    assert(Near(b.wx[k] - Zx, (q[1] + 0.5) * 25) and Near(b.wy[k], (q[2] + 0.5) * 25), "drawn point " .. k .. " is not the middle of square " .. k)
+                end
+                assert(Near(b.len, f.yards) and Near(b.cum[81], f.yards) and Near(b.tail, f.tail), "the centre line's yards: " .. b.len .. " / " .. f.yards)
+                -- 2. world places only where they are read: the maps 16 in a step at the most, the arrow 4 at once
+                assert(steps > 0 and most > 0 and most <= 16, ("the maps took %d points into world yards in one step (%d steps)"):format(most, steps))
+                local before = Core.convs
+                local ax, ay = ns.WaysArrow(run, W.World(12.5, 12.5))
+                assert(ax and Core.convs - before <= 4, ("the arrow's point took %d points into world yards"):format(Core.convs - before))
+                local h = 5 / math.sqrt(2) -- (30 yd on: 25 east, then 5 yd into the first diagonal)
+                assert(Near(ax - (W.Z - 1400) * 6000, 37.5 + h) and Near(ay, 12.5 + h),
+                    ("the arrow turns to the point 30 yd along the centre line: %.4f, %.4f"):format(ax - (W.Z - 1400) * 6000, ay))
+            end)
             drawer.Step = keepStep
-            local starts, last = 0, wh.pub
-            for _ = 1, 4 do
+            WorldMapFrame:Hide()
+            T.Done()
+            W.Done()
+            if not ok then error(err, 0) end
+        end
+        -- 3. Codex' L of 100 yd (R1-R3): (0,0) (1,0) (2,0) (2,1) (2,2); you on the first middle, the node on the last
+        do
+            local W = World({ { 0, 0 }, { 1, 0 }, { 2, 0 }, { 2, 1 }, { 2, 2 } })
+            local ok, err = pcall(function()
+                W.At(0, 0)
+                W.Run({ W.Node(2, 2) }, 2)
+                assert(Shown().state == "net", "test setup: the L's way")
+                W.At(1, 0) -- (37.5 | 12.5)
+                advance(0.2)
+                local core = Nav().core
+                local r = Shown()
+                -- the navigation as a5: 25 yd on, 75 yd to go, on the way
+                assert(Tol(core.pos, 25, 0.005) and Tol(core.rest, 75, 0.005) and Tol(math.sqrt(core.offD), 0, 0.005) and core.on,
+                    ("the navigation: %.4f / %.4f / %.4f, want 25 / 75 / 0"):format(core.pos, core.rest, math.sqrt(core.offD)))
+                -- the display on the centre line: at the yards you have come, 25
+                assert(Tol(r.pos, 25, 0.005), ("the display's place: %.4f, want 25 on the centre line"):format(r.pos))
+            end)
+            W.Done()
+            if not ok then error(err, 0) end
+        end
+        -- 4. Codex' entry from the side (R2, R3): you at (12.5 | 14.5), the way from the middle (37.5 | 12.5) to (137.5 | 12.5)
+        do
+            local W = World({ { 1, 0 }, { 2, 0 }, { 3, 0 }, { 4, 0 }, { 5, 0 } })
+            local ok, err = pcall(function()
+                W.Yards(12.5, 14.5)
+                W.Run({ W.Node(5, 0) }, 2)
+                assert(Shown().state == "net", "test setup: the way from the side")
+                W.Yards(37.5, 12.5)
+                advance(0.2)
+                local core = Nav().core
+                local r = Shown()
+                -- a5's two points: 100.0383 yd to go, 1.5998 yd off the way - not 100 / 0 of all the middles
+                assert(core.front.n == 2 and Tol(core.rest, 100.0383) and Tol(math.sqrt(core.offD), 1.5998),
+                    ("the navigation: %.4f yd to go, %.4f off, want 100.0383 / 1.5998"):format(core.rest, math.sqrt(core.offD)))
+                -- the display: d = the way's yards - the rest = 25.0416, still on the first bit (the middle is at 25.0799)
+                local d = core.front.yards - core.rest
+                assert(Tol(d, 25.0416) and Tol(r.pos, 25.0416) and Tol(r.points.cum[2], 25.0799) and ns.WaysDisplay().seg == 1,
+                    ("the display: d %.4f, place %.4f, the middle at %.4f, segment %d"):format(d, r.pos, r.points.cum[2], ns.WaysDisplay().seg))
+            end)
+            W.Done()
+            if not ok then error(err, 0) end
+        end
+        -- 5. the display revision (F4.2): a drawing half done, another geometry for the same way - the maps start
+        -- once on it, a step begun for the old one writes nothing, the navigation is as it was
+        do
+            local e, squares = {}, {}
+            for x = 10, 60 do squares[#squares + 1] = { x, 10 } end
+            WAYS.Ride(e, squares)
+            local W = WAYS.World(e)
+            local T = WAYS.Pins()
+            local _, _, wh = ns.RouteWaysHead()
+            local drawer = ns.RouteWaysDrawer
+            local keepStep = drawer.Step
+            local ok, err = pcall(function()
+                WorldMapFrame:Show()
+                W.At(10, 10)
+                W.Run({ W.Node(60, 10) }, 2)
+                local r = Shown()
+                assert(r.state == "net", "test setup: a way")
+                -- a drawing under way: started anew, three dots of it placed, then the work frame places nothing
+                drawer.Step = function() return 1 end
+                ns.WaysPublishDisplay()
                 advance(0.1)
-                if wh.pub ~= last then starts, last = starts + 1, wh.pub end
-            end
-            assert(starts == 1 and wh.pub == r.pub and #T.Seen("world") > 0, ("the maps started %d times on the new geometry"):format(starts))
-        end)
-        drawer.Step = keepStep
-        WorldMapFrame:Hide()
-        T.Done()
-        W.Done()
-        if not ok then error(err, 0) end
-    end
+                assert(wh.job and wh.pub == r.pub, "test setup: a drawing under way")
+                keepStep(3) -- (the first step takes the world map's dots off in one call)
+                keepStep(3)
+                assert(wh.job and wh.top >= 3 and #T.Seen("world") >= 3, "test setup: a drawing half done")
+                local core = Nav().core
+                local pub, gen = r.pub, core.gen
+                local before = { core.pos, core.rest, core.offD, core.on, core.seg, core.state, core.front, core.cf, core.have }
+                ns.WaysPublishDisplay()
+                assert(r.pub == pub + 1 and core.gen == gen, ("another geometry: the display revision %d -> %d, the way's generation %d -> %d"):format(pub, r.pub, gen, core.gen))
+                local after = { core.pos, core.rest, core.offD, core.on, core.seg, core.state, core.front, core.cf, core.have }
+                for i = 1, #before do assert(before[i] == after[i], "PublishDisplay changed the navigation (" .. i .. ")") end
+                -- in the same frame: no dot of the old drawing on either map, its job given up
+                assert(#T.Seen("world") == 0 and #T.Seen("mini") == 0 and not wh.job, "the old drawing is still seen in the frame of the change")
+                -- a step for the old drawing writes nothing
+                local adds = T.adds.world + T.adds.mini
+                keepStep(50)
+                assert(T.adds.world + T.adds.mini == adds, "a step of the old drawing placed dots")
+                -- the next head ticks start the maps once on the new geometry, and not again with the same revision
+                drawer.Step = keepStep
+                local starts, last = 0, wh.pub
+                for _ = 1, 4 do
+                    advance(0.1)
+                    if wh.pub ~= last then starts, last = starts + 1, wh.pub end
+                end
+                assert(starts == 1 and wh.pub == r.pub and #T.Seen("world") > 0, ("the maps started %d times on the new geometry"):format(starts))
+            end)
+            drawer.Step = keepStep
+            WorldMapFrame:Hide()
+            T.Done()
+            W.Done()
+            if not ok then error(err, 0) end
+        end
+    end)
+    ns.WaysCore.threadFactor = nil
+    if not held then error(heldErr, 0) end
 end)
 step("Ways 0.2.4 S1.1 B2: the thread - the line pulled tight through the passages of the way in order, anchored at the end middles, guessed edges and diagonal corners; no U cut short, no square skipped; events checked over the stretches' borders, repaired with protective anchors; one counter of 4 times the passages (0.2.4 a7, F3 §3, F4 §C/§F)", function()
     local Core = ns.WaysCore
@@ -36339,7 +36384,7 @@ step("Ways 0.2.4 S1.1 B4: keeping the rest of the way in two moments - T1 at the
                 frames = frames + 1
             end
             local k = ctx.keepJob
-            assert(early and frames >= 2, "test setup: the check went over frames (" .. frames .. ")")
+            assert(early and frames >= 1, "test setup: the check went over frames (" .. frames .. ")")
             assert(early.kind == "centre" and early.pub == pub + 1 and not early.done, "T1: the centre line in the frame of the change, the check still open")
             assert(early.percent == 0 and early.source == source, "T1: percent and source as before: " .. tostring(early.source))
             local after = { core.pos, core.rest, core.offD, core.on, core.seg, core.state, core.front, core.have, core.gen }
@@ -36361,6 +36406,291 @@ step("Ways 0.2.4 S1.1 B4: keeping the rest of the way in two moments - T1 at the
             end
         end)
         if W.keepStep then Core.KeepStep = W.keepStep end
+        W.Done()
+        if not ok then error(err, 0) end
+    end
+end)
+step("Ways 0.2.4 S1.1 B5: the thread's own job - after the way is published (the centre line first), in steps after a request and the dots, one counter, the guard; shown only for the way and generation it was wanted for; given up, the centre line stays; counted in /gcr perf (0.2.4 a7, F4 §D/§E, F4.1 §A/§B/§D/§E)", function()
+    local Core = ns.WaysCore
+    local Near = WAYS.Near
+    local function World(squares)
+        local e = {}
+        WAYS.Ride(e, squares)
+        return WAYS.World(e), e
+    end
+    local function Shown() return ns.WaysRead(ns.run) end
+    -- the job's steps slow: 16 pieces each, 0.8 ms by the work's clock - a frame has room for one
+    local function SlowThread(W)
+        local keep = Core.ThreadStep
+        Core.ThreadStep = function(T, budget)
+            W.extra = W.extra + 0.8
+            return keep(T, 16)
+        end
+        return function() Core.ThreadStep = keep end
+    end
+    local function Stair(n, ox, oy)
+        local sq, x, y = { { ox, oy } }, ox, oy
+        for i = 1, n do
+            if i % 3 == 0 then x, y = x + 1, y + 1 else x = x + 1 end
+            sq[#sq + 1] = { x, y }
+        end
+        return sq
+    end
+    -- 1. in a run, frame by frame with a slow clock: the way is published with its centre line (the arrow's
+    -- point from it in that frame), then the job works over frames - never while a request works - and
+    -- shows the thread with a display revision of its own; the way's generation stays
+    do
+        local sq = Stair(60, 10, 10)
+        local W = World(sq)
+        local undo
+        local ok, err = pcall(function()
+            W.Clock("draw")
+            undo = SlowThread(W)
+            local d = ns.WaysDiag()
+            local threads = d.threads
+            W.At(10, 10)
+            ns.db.nodes[W.Z] = { W.Node(70, 30) }
+            ns.StartRun("ore", W.Z)
+            local nav, net, req = ns.WaysState()
+            local seen, published, shown, workedDuringRequest = {}, nil, nil, false
+            for f = 1, 3000 do
+                advance(0.01)
+                nav, net, req = ns.WaysState()
+                local disp, r = ns.WaysDisplay(), Shown()
+                local T, want = ns.WaysThread()
+                if req.active and T.state == "work" and want then workedDuringRequest = workedDuringRequest or T.used > (seen.used or 0) end
+                seen.used = T.used
+                if r.state == "net" and not published then
+                    published = { pub = r.pub, gen = nav.core.gen, kind = disp.kind, frames = f }
+                    assert(disp.kind == "centre" and r.points == nav.core.cf.view, "the first frame of the way: its centre line")
+                    assert(ns.WaysArrow(ns.run, W.World(262.5, 262.5)) ~= nil, "the first frame of the way: the arrow's point")
+                end
+                if disp.kind == "thread" then
+                    shown = { pub = r.pub, gen = nav.core.gen, frames = f, tgen = T.gen }
+                    break
+                end
+            end
+            assert(published and shown, "the way and then its thread were shown")
+            assert(shown.frames - published.frames >= 3, ("the job went over frames: %d"):format(shown.frames - published.frames))
+            assert(shown.pub == published.pub + 1 and shown.gen == published.gen and shown.tgen == shown.gen, "the thread: one display revision more, the same way generation")
+            assert(not workedDuringRequest and d.threads == threads + 1, "the job never worked while a request did")
+        end)
+        if undo then undo() end
+        W.Done()
+        if not ok then error(err, 0) end
+    end
+    -- 2. a second way to the same node while the job works (asked anew from where you are): the job waits for
+    -- the request, is begun anew for the new way; the old thread never shows; generation and d are the new way's
+    do
+        local W = World(Stair(60, 10, 10))
+        local undo
+        local ok, err = pcall(function()
+            W.Clock("draw")
+            undo = SlowThread(W)
+            W.At(10, 10)
+            ns.db.nodes[W.Z] = { W.Node(70, 30) }
+            ns.StartRun("ore", W.Z)
+            local nav, net, req = ns.WaysState()
+            local T = ns.WaysThread()
+            local f = 0
+            while not (nav and nav.core.state == "net" and T.state == "work" and T.used > 0) and f < 3000 do
+                advance(0.01)
+                f = f + 1
+                nav, net, req = ns.WaysState()
+            end
+            assert(T.state == "work" and T.used > 0, "test setup: the first way's job under way")
+            local gen, used = nav.core.gen, T.used
+            nav.asked = false -- (a new request for the same node, from where you are)
+            local during = false
+            for _ = 1, 3000 do
+                advance(0.01)
+                local disp = ns.WaysDisplay()
+                if req.active then
+                    during = true
+                    assert(disp.kind == "centre" and T.used == used, "the job worked or showed while the request did")
+                end
+                if disp.kind == "thread" then break end
+            end
+            local disp = ns.WaysDisplay()
+            -- (the request may be done within one frame: then there is no frame "during" it to look at)
+            assert(nav.core.gen == gen + 1 and disp.kind == "thread" and T.gen == gen + 1 and disp.gen == gen + 1,
+                ("the new way's thread: generation %d, the thread's %d"):format(nav.core.gen, T.gen))
+            -- the place on it: from the new way's d (you stand on its first middle: 0), its first segment
+            local r = ns.WaysRead(ns.run)
+            assert(r.points == T.t.view and Near(nav.core.front.yards - nav.core.rest, 0) and r.pos < 1e-6 and r.seg == 1, ("the new thread's place: %.4f, segment %d"):format(r.pos, r.seg))
+        end)
+        if undo then undo() end
+        W.Done()
+        if not ok then error(err, 0) end
+    end
+    -- 3. the guard: a bend moved off its square in a stretch (the passages can still be crossed) - given up,
+    -- the centre line stays, counted; the same way without it: the thread
+    do
+        local W = World({ { 10, 10 }, { 11, 10 }, { 12, 10 }, { 13, 10 } })
+        local ok, err = pcall(function()
+            local d = ns.WaysDiag()
+            local guard = d.fellGuard
+            Core.threadBendTest = function(T)
+                local t = T.t
+                if t.n ~= 3 then return end
+                t.x[4], t.y[4], T.vu[4], T.va[4] = t.x[3], t.y[3], T.vu[3], T.va[3]
+                t.x[3], t.y[3], T.vu[3], T.va[3] = 287.5, 248, 5, 0 -- (in square (11,9): 2 yd off (11,10))
+                for k = 3, 4 do
+                    local dx, dy = t.x[k] - t.x[k - 1], t.y[k] - t.y[k - 1]
+                    t.raw[k] = t.raw[k - 1] + math.sqrt(dx * dx + dy * dy)
+                end
+                t.n = 4
+                Core.threadBendTest = nil
+            end
+            W.At(10, 10)
+            W.Run({ W.Node(13, 10) }, 2)
+            assert(Shown().state == "net" and ns.WaysDisplay().kind == "centre" and d.fellGuard == guard + 1, "the bend off its square: the guard gives the thread up")
+            assert(ns.WaysPerf():find("1 guard", 1, true), "/gcr perf: " .. ns.WaysPerf())
+            Core.threadBendTest = nil
+            assert(ns.WaysThreadNow() == "done", "the same way without the bend: its thread")
+        end)
+        Core.threadBendTest = nil
+        W.Done()
+        if not ok then error(err, 0) end
+    end
+    -- 4. the counter spent: the centre line stays, readable for the maps and the arrow, counted
+    do
+        local W = World(Stair(30, 10, 10))
+        local ok, err = pcall(function()
+            local d = ns.WaysDiag()
+            local fell = d.fellCount
+            Core.threadFactor = 1
+            W.At(10, 10)
+            W.Run({ W.Node(40, 20) }, 2)
+            Core.threadFactor = nil
+            local r = Shown()
+            assert(r.state == "net" and ns.WaysDisplay().kind == "centre" and d.fellCount == fell + 1, "the counter spent: the centre line")
+            assert(r.points == select(1, ns.WaysState()).core.cf.view and ns.WaysArrow(ns.run, W.World(262.5, 262.5)) ~= nil, "the centre line stays readable")
+        end)
+        Core.threadFactor = nil
+        W.Done()
+        if not ok then error(err, 0) end
+    end
+    -- 5. another node, another zone before the thread is done: nothing of the old way, no thread for it
+    for _, change in ipairs({ "node", "zone" }) do
+        local W = World(Stair(60, 10, 10))
+        local undo
+        local ok, err = pcall(function()
+            W.At(10, 10)
+            W.Run({ W.Node(70, 30) }, 2)
+            local nav = ns.WaysState()
+            W.Clock("draw")
+            undo = SlowThread(W)
+            nav.asked = false -- (a new way from here: its job starts anew and works over frames)
+            local started = false
+            for _ = 1, 3000 do
+                advance(0.01)
+                local T, want = ns.WaysThread()
+                if want and T.state == "work" and T.used > 0 then started = true break end
+            end
+            assert(started, "test setup: a thread's job under way")
+            if change == "node" then
+                local B = W.Node(10, 30)
+                local wx, wy = W.World(262.5, 762.5)
+                ns.run.target, ns.run.targetPoint = B, { node = B, mapID = W.Z, wx = wx, wy = wy }
+                ns.run.path[1] = ns.run.targetPoint
+                assert(Shown().state == "line", "another node: the old way is taken back at once")
+            else
+                W.Yards(10, 10)
+                player.map = 1471
+                advance(0.2)
+                assert(Shown().state ~= "net", "another zone: the old way is gone")
+            end
+            local _, want = ns.WaysThread()
+            assert(want == nil and ns.WaysDisplay().kind ~= "thread", change .. ": no thread for the old way")
+        end)
+        if undo then undo() end
+        W.Done()
+        if not ok then error(err, 0) end
+    end
+    -- 6. the next request writes the back centre line: the one shown stays as it is, every point, while the
+    -- request works in small pieces (its lists reused); published, the two change places
+    do
+        local e = {}
+        WAYS.Ride(e, Stair(60, 10, 10))
+        local Centre = WAYS.Centre
+        local ctx = Core.New()
+        Core.Build(ctx, e)
+        local nav = Core.NewNav()
+        assert(Core.Query(ctx, nav, Centre(10), Centre(10), Centre(70), Centre(30)) == "net", "test setup: a way")
+        local cf = nav.cf
+        local function Snap(c)
+            local t = {}
+            for i = 1, c.n do t[#t + 1] = ("%.6f %.6f %.6f %d %d"):format(c.x[i], c.y[i], c.raw[i], c.key[i], c.kind[i]) end
+            return table.concat(t, "|")
+        end
+        local before = Snap(cf)
+        for round = 1, 2 do
+            local q = Core.QueryStart(ctx, nav, Centre(12), Centre(10), Centre(70), Centre(30), true)
+            local pieces = 0
+            while not q.done do
+                Core.QueryStep(ctx, 5)
+                pieces = pieces + 1
+                assert(Snap(cf) == before, "the centre line shown changed while a request wrote (piece " .. pieces .. ")")
+            end
+            assert(q.result == "net" and pieces > 20 and nav.cb.n > 0 and nav.cb ~= cf, "test setup: the request wrote the back lists in pieces")
+        end
+        Core.Publish(nav)
+        assert(nav.cf ~= cf and nav.cb == cf and nav.cf.x[1] == Centre(12), "published: the two change places, no copy")
+    end
+    -- 7. the budget (the mock's clock: an operation 0.0001 ms - the steps set by it, as in the game by the
+    -- real clock): the longest way of a net at the limit (8,000 squares) and a zigzag (the funnel starts
+    -- again at every corner): every step 0.25 ms at the most, every frame 1.0 ms with
+    -- the drawing, the thread done and shown; what was booked
+    for _, case in ipairs({ "longest", "zigzag" }) do
+        local e, from, to = {}, nil, nil
+        if case == "longest" then
+            -- 40 rows of 199 squares ridden as a snake, and a stair over all of them: 8,000 squares in the net
+            WAYS.Snake(e, 0, 0, 199, 40)
+            local sq, x, y = { { 0, 0 } }, 0, 0
+            while y < 39 do
+                if x % 5 == 4 then y = y + 1 end
+                x = x + 1
+                sq[#sq + 1] = { x, y }
+            end
+            WAYS.Ride(e, sq)
+            from, to = sq[1], sq[#sq]
+        else
+            -- a square wave: 3 east, 2 north, 3 east, 2 south, ... (an L at every turn, no U: the funnel turns
+            -- and starts again at every corner)
+            local wave = { 1, 1, 1, "n", "n", 1, 1, 1, "s", "s" }
+            local sq, x, y = { { 10, 20 } }, 10, 20
+            for i = 1, 300 do
+                local m = wave[(i - 1) % 10 + 1]
+                if m == "n" then y = y + 1 elseif m == "s" then y = y - 1 else x = x + 1 end
+                sq[#sq + 1] = { x, y }
+            end
+            WAYS.Ride(e, sq)
+            from, to = sq[1], sq[#sq]
+        end
+        local W = WAYS.World(e)
+        local ok, err = pcall(function()
+            W.Clock("draw")
+            local d = ns.WaysDiag()
+            ns.WaysPerf(true)
+            WorldMapFrame:Show()
+            W.At(from[1], from[2])
+            W.Run({ W.Node(to[1], to[2]) }, 1)
+            -- (the build of the net at the limit goes over many frames: up to its 5 s)
+            for _ = 1, 50 do
+                if W.Read().state == "net" and ns.WaysDisplay().kind == "thread" then break end
+                advance(0.1)
+            end
+            local nav, net, _, ctx = ns.WaysState()
+            local T = ns.WaysThread()
+            local squares = ctx and ctx.active ~= 0 and ctx.sets[ctx.active].n or -1
+            assert(net.ready and W.Read().state == "net", ("%s: test setup: a way of the net (%s; ready %s, over %s, building %s, late %d, %s %s, %s yd)"):format(case, W.Read().state, tostring(net.ready), tostring(net.over), tostring(net.building), d.late, tostring(ctx and ctx.q.result), tostring(ctx and ctx.q.reason), tostring(ctx and ctx.q.yards)))
+            assert(ns.WaysDisplay().kind == "thread" and d.threads == 1, ("%s: the thread done and shown (%s, %s)"):format(case, tostring(T.state), tostring(T.reason)))
+            assert(d.step <= 0.25 + 1e-9 and d.peak <= 1.0 + 1e-9, ("%s: the longest step %.3f ms, the largest frame %.3f ms"):format(case, d.step, d.peak))
+            note("MEASURE S1.1 thread " .. case, ("step %.3f ms, frame %.3f ms (mock); %d booked of %d; %d squares in the net, %d passages, %d points of the thread, %d drawn, %d repairs"):format(
+                d.step, d.peak, T.used, T.limit, squares, nav.core.cf.n - 3, T.t.n, T.t.dn, T.repairs))
+        end)
+        WorldMapFrame:Hide()
         W.Done()
         if not ok then error(err, 0) end
     end
