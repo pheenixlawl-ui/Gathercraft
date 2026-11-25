@@ -1343,6 +1343,454 @@ function M.KeepStep(ctx, budget)
     return used + 1
 end
 
+---------------------------------------------------------------------------
+-- (0.2.4 a7, S1.1 B2) The thread: the line of a way pulled tight through its
+-- squares, as a thread through a tube (F3 §3, F4 §C, §F). Only the maps and
+-- the arrow show it; the navigation never reads it.
+--   Between two squares of the way lies their passage: the side they share
+--   (a straight step) or the corner they share (a diagonal step).
+--   Anchors are points the thread goes through: the middles of the first and
+--   the last square (the bits from you and to the node stay straight), both
+--   middles of a guessed edge (CON, GREV: it stays the straight stretch from
+--   middle to middle), the corner of every diagonal step, and protective
+--   anchors (below). From anchor to anchor the shortest line through the
+--   passages in their order is found with a funnel (an apex and the left and
+--   the right side of what can be seen from it through the passages so far;
+--   when a side crosses the other one, that side's point is a point of the
+--   thread and the funnel starts again from it). A side that runs through the
+--   apex is passed there.
+--   Events: where the thread crosses each passage, the first point on it
+--   after the event before, with the yards along the thread (s) and along
+--   the way of the net (r: the middle of the side, the corner). Two passages
+--   at one point are only allowed at a corner the thread turns around: two
+--   straight steps on two sides at right angles (an L). Three or more (a U
+--   cut short), a diagonal's corner with another passage, the same side
+--   crossed back: the middles of the squares between the first and the last
+--   of them become protective anchors and the thread is found anew from the
+--   anchor before them. The events are checked as each stretch is done, the
+--   group of the stretch before included (the check goes over the borders).
+--   Every piece of work is booked on one counter before it is done: a
+--   passage or point looked at by the funnel or for the events, a square made
+--   an anchor, a point of the thread given back or written. At 4 times the
+--   passages the thread is given up (the centre line stays).
+--   No table is made: the job's lists are written over and kept.
+---------------------------------------------------------------------------
+local THREAD_TOL = 0.01 -- yards: two events at one point (F4.1 §C)
+local ON_EPS = 1e-7     -- yards: a point on a passage (the thread's points are exact, its crossings nearly)
+local HALF = TILE / 2
+
+-- One job per navigation. t: the thread as a line (x, y, raw = yards along the thread; the points drawn
+-- and the view as the centre line has them). Per point: vu its slot (2j: the middle of square j, 2j + 1:
+-- the step from square j to j + 1; 2: you, 2n: the node), va 1 for an anchor. Per event: s, r, its point
+-- (ex, ey), its slot (eu) and kind (ek 0: a corner, 1: a side across x, 2: a side across y, 3: an anchor's
+-- middle - the anchors' pairs (r, s) are in the list too, B3 maps with them).
+function M.NewThread()
+    return {
+        t = NewCentre(), vu = {}, va = {},
+        es = {}, er = {}, ex = {}, ey = {}, eu = {}, ek = {}, en = 0, gs = 1,
+        prot = {}, stamp = 0,
+        c = nil, gen = -1, state = "none", reason = nil, used = 0, limit = 0, repairs = 0,
+        phase = 0, u = 0, ax = 0, ay = 0, au = 0, lx = 0, ly = 0, lu = 0, rx = 0, ry = 0, ru = 0,
+        sk = 0, wu = 0, wk = 0, wt = 0, fk = 0,
+    }
+end
+
+local function Fixed(kind) return kind == CON or kind == GREV end
+local function IsAnchor(T, j)
+    local c = T.c
+    local kind = c.kind
+    return j == 2 or j == c.n - 1 or T.prot[j] == T.stamp or Fixed(kind[j]) or Fixed(kind[j + 1])
+end
+M.ThreadAnchor = IsAnchor
+
+-- What lies at slot u: 0 nothing to pass (a middle that is no anchor); 1 a point to pass, x, y (an anchor's
+-- middle, a diagonal's corner); 2 a side, its left and its right end looking along the way; -1 the two
+-- squares are not side by side (the thread is not made, the centre line stays)
+local function Slot(T, u)
+    local c = T.c
+    local x, y = c.x, c.y
+    local j = floor(u / 2)
+    if u % 2 == 0 then
+        if IsAnchor(T, j) then return 1, x[j], y[j] end
+        return 0
+    end
+    local dx, dy = x[j + 1] - x[j], y[j + 1] - y[j]
+    if (dx ~= 0 and dx ~= TILE and dx ~= -TILE) or (dy ~= 0 and dy ~= TILE and dy ~= -TILE) or (dx == 0 and dy == 0) then return -1 end
+    local mx, my = x[j] + dx / 2, y[j] + dy / 2
+    if dx ~= 0 and dy ~= 0 then return 1, mx, my end
+    -- left of the way: (-dy, dx), half a side
+    local hx, hy = -dy / 2, dx / 2
+    return 2, mx + hx, my + hy, mx - hx, my - hy
+end
+
+-- The two ends of the passage of step j (a corner: twice the same point); nil past the way's net part
+local function Ends(c, j)
+    if j < 2 or j > c.n - 2 then return end
+    local x, y = c.x, c.y
+    local dx, dy = x[j + 1] - x[j], y[j + 1] - y[j]
+    local mx, my = x[j] + dx / 2, y[j] + dy / 2
+    if dx ~= 0 and dy ~= 0 then return mx, my, mx, my, dx, dy end
+    local hx, hy = -dy / 2, dx / 2
+    return mx + hx, my + hy, mx - hx, my - hy, dx, dy
+end
+
+-- (looked ahead from step j, in the funnel's piece of work for it) The thread could pass two passages
+-- of the way at one point they share - and then the square between them with no length. Allowed is
+-- only the L (two sides at right angles around a corner); a diagonal's corner on another passage, the
+-- same side or corner passed back, three sides around one point (a U) are not (F4 §C). Their squares
+-- become protective anchors before the funnel gets to them, so the events find nothing to repair
+-- (that would find the stretch anew, and the counter would rarely do for it). The events are checked
+-- all the same.
+local function Ahead(T, j)
+    local c = T.c
+    local ax, ay, bx, by, adx, ady = Ends(c, j)
+    local cx, cy, dx2, dy2, cdx, cdy = Ends(c, j + 1)
+    if not (ax and cx) then return end
+    local px, py -- the point the two share
+    if ax == cx and ay == cy or ax == dx2 and ay == dy2 then px, py = ax, ay
+    elseif bx == cx and by == cy or bx == dx2 and by == dy2 then px, py = bx, by
+    else return end
+    local straightA, straightC = adx == 0 or ady == 0, cdx == 0 or cdy == 0
+    if not (straightA and straightC and adx * cdx + ady * cdy == 0) then
+        -- not an L: the square between them
+        T.prot[j + 1] = T.stamp
+        return
+    end
+    -- an L around (px, py): and the next side around the same point too (a U)?
+    local ex, ey, fx, fy, edx, edy = Ends(c, j + 2)
+    if ex and (edx == 0 or edy == 0) and cdx * edx + cdy * edy == 0 and (ex == px and ey == py or fx == px and fy == py) then
+        T.prot[j + 1], T.prot[j + 2] = T.stamp, T.stamp
+    end
+end
+
+local function Fail(T, reason)
+    T.state, T.reason = "failed", reason
+end
+
+-- book n pieces of work; false: the counter is spent (the thread is given up)
+local function Book(T, n)
+    local used = T.used + n
+    if used > T.limit then
+        Fail(T, "count")
+        return false
+    end
+    T.used = used
+    return true
+end
+
+local function AddPoint(T, x, y, u, anchor)
+    local t = T.t
+    local k = t.n + 1
+    local dx, dy = x - t.x[k - 1], y - t.y[k - 1]
+    t.x[k], t.y[k], t.raw[k] = x, y, t.raw[k - 1] + sqrt(dx * dx + dy * dy)
+    T.vu[k], T.va[k] = u, anchor
+    t.n = k
+end
+
+local function Restart(T, x, y, u)
+    T.ax, T.ay, T.au = x, y, u
+    T.lx, T.ly, T.lu, T.rx, T.ry, T.ru = x, y, u, x, y, u
+    T.u = u + 1
+end
+
+-- the stretch up to the anchor just written is done: its events next
+local function StretchDone(T)
+    T.phase, T.wu, T.wk, T.wt = 2, T.vu[T.sk] + 1, T.sk, 0
+end
+
+-- the funnel: one slot
+local function FunnelSlot(T)
+    local u = T.u
+    local what, a1, a2, a3, a4 = Slot(T, u)
+    if what == 0 then
+        -- (a middle that is no anchor: the step after it, in the same piece of work)
+        u = u + 1
+        T.u = u
+        what, a1, a2, a3, a4 = Slot(T, u)
+    end
+    if what == -1 then return Fail(T, "step") end
+    if u % 2 == 1 and M.threadAhead ~= false then Ahead(T, (u - 1) / 2) end
+    local ax, ay = T.ax, T.ay
+    local nlx, nly, nrx, nry
+    if what == 1 then
+        if a1 == ax and a2 == ay then
+            -- the anchor on the apex itself (a corner passed back): a stretch of no length
+            AddPoint(T, a1, a2, u, 1)
+            Restart(T, a1, a2, u)
+            return StretchDone(T)
+        end
+        nlx, nly, nrx, nry = a1, a2, a1, a2
+    else
+        nlx, nly, nrx, nry = a1, a2, a3, a4
+        if (nlx == ax and nly == ay) or (nrx == ax and nry == ay) then
+            -- a side through the apex: the thread passes it there
+            T.u = u + 1
+            return
+        end
+    end
+    local lx, ly, rx, ry = T.lx, T.ly, T.rx, T.ry
+    -- the right side: narrower (or the same), unless it crosses the left one
+    if (rx - ax) * (nry - ay) - (ry - ay) * (nrx - ax) >= 0 then
+        if (rx == ax and ry == ay) or (lx - ax) * (nry - ay) - (ly - ay) * (nrx - ax) < 0 then
+            T.rx, T.ry, T.ru = nrx, nry, u
+            rx, ry = nrx, nry
+        else
+            AddPoint(T, lx, ly, T.lu, 0)
+            return Restart(T, lx, ly, T.lu)
+        end
+    end
+    -- the left side
+    if (lx - ax) * (nly - ay) - (ly - ay) * (nlx - ax) <= 0 then
+        if (lx == ax and ly == ay) or (rx - ax) * (nly - ay) - (ry - ay) * (nlx - ax) > 0 then
+            T.lx, T.ly, T.lu = nlx, nly, u
+        else
+            local ru = T.ru
+            local anchor = what == 1 and ru == u -- (the anchor itself: the stretch ends on it)
+            AddPoint(T, rx, ry, ru, anchor and 1 or 0)
+            Restart(T, rx, ry, ru)
+            if anchor then return StretchDone(T) end
+            return
+        end
+    end
+    if what == 1 then
+        -- the anchor is seen from the apex: the stretch ends on it
+        AddPoint(T, a1, a2, u, 1)
+        Restart(T, a1, a2, u)
+        return StretchDone(T)
+    end
+    T.u = u + 1
+end
+
+-- The group of events at one point, from a to b: true when it breaks the rules
+local function Broken(T, a, b)
+    local g = b - a + 1
+    if g < 2 then return false end
+    local ek = T.ek
+    if g >= 3 then return true end
+    return ek[a] == 0 or ek[b] == 0 or ek[a] == ek[b]
+end
+
+local function Repair(T, a, b)
+    local ja, jb = floor(T.eu[a] / 2), floor(T.eu[b] / 2)
+    if not Book(T, jb - ja) then return end
+    local added = 0
+    local anchor = M.threadAnchorTest or IsAnchor -- (the tests: a square taken for an anchor already)
+    for j = ja + 1, jb do
+        if not anchor(T, j) then
+            T.prot[j] = T.stamp
+            added = added + 1
+        end
+    end
+    -- (none new: the same would be found again - the centre line stays)
+    if added == 0 then return Fail(T, "repair") end
+    T.repairs = T.repairs + 1
+    -- back to the last anchor of the thread before the first new one; its events and the ones before stay
+    local first = 2 * (ja + 1)
+    local t, vu, va = T.t, T.vu, T.va
+    local k = t.n
+    while k > 2 and not (va[k] == 1 and vu[k] < first) do
+        if not Book(T, 1) then return end
+        k = k - 1
+    end
+    t.n = k
+    local e, eu = T.en, T.eu
+    while e > 1 and eu[e] > vu[k] do e = e - 1 end
+    T.en = e
+    local es, ek, gs = T.es, T.ek, e
+    while gs > 1 and ek[gs] ~= 3 and ek[gs - 1] ~= 3 and es[e] - es[gs - 1] <= THREAD_TOL do gs = gs - 1 end
+    T.gs = gs
+    Restart(T, t.x[k], t.y[k], vu[k])
+    T.sk, T.phase = k, 1
+end
+
+-- an event; the group before it is checked when it is closed by one further on
+local function Event(T, x, y, u, kind, r, s)
+    local e = T.en + 1
+    local es = T.es
+    if e > 1 then
+        if s < es[e - 1] - THREAD_TOL then return Fail(T, "order") end
+        -- (F4 §F: the same r with another s cannot be mapped)
+        if r <= T.er[e - 1] and s - es[e - 1] > THREAD_TOL then return Fail(T, "pairs") end
+    end
+    es[e], T.er[e], T.ex[e], T.ey[e], T.eu[e], T.ek[e] = s, r, x, y, u, kind
+    T.en = e
+    local gs = T.gs
+    if kind == 3 or s - es[gs] > THREAD_TOL or T.ek[gs] == 3 then
+        if Broken(T, gs, e - 1) then
+            -- (the event that closed the group goes again: it is found anew with the thread)
+            T.en = e - 1
+            return Repair(T, gs, e - 1)
+        end
+        T.gs = e
+    end
+end
+
+-- t from lo to hi of p + t d inside [b0, b1]
+local function Clip(p, d, b0, b1, lo, hi)
+    if d == 0 then
+        if p < b0 or p > b1 then return 1, 0 end
+        return lo, hi
+    end
+    local t1, t2 = (b0 - p) / d, (b1 - p) / d
+    if t1 > t2 then t1, t2 = t2, t1 end
+    if t1 > lo then lo = t1 end
+    if t2 < hi then hi = t2 end
+    return lo, hi
+end
+
+-- the stretch is checked (its last event written): the next one, or the end
+local function StretchChecked(T)
+    if T.state ~= "work" or T.phase ~= 2 then return end
+    local t = T.t
+    if T.wu <= T.vu[t.n] then return end
+    if T.vu[t.n] >= 2 * (T.c.n - 1) then
+        T.phase, T.fk = 3, 0
+    else
+        T.sk, T.phase = t.n, 1
+    end
+end
+
+-- the events of the stretch just done: one slot
+local function EventSlot(T)
+    local t, c = T.t, T.c
+    local ke = t.n
+    local u = T.wu
+    local what, a1, a2, a3, a4 = Slot(T, u)
+    if what == 0 then
+        -- (a middle that is no anchor: the step after it, in the same piece of work)
+        u = u + 1
+        T.wu = u
+        what, a1, a2, a3, a4 = Slot(T, u)
+    end
+    if what == -1 then return Fail(T, "step") end
+    local j = floor(u / 2)
+    if u % 2 == 0 then
+        -- the anchor's middle that ends the stretch: its pair
+        T.wu = u + 1
+        Event(T, t.x[ke], t.y[ke], u, 3, c.raw[j], t.raw[ke])
+        return StretchChecked(T)
+    end
+    local x0, x1, y0, y1, kind
+    if what == 1 then
+        x0, x1, y0, y1, kind = a1, a1, a2, a2, 0
+    else
+        x0, x1, y0, y1 = a1, a3, a2, a4
+        if x0 > x1 then x0, x1 = x1, x0 end
+        if y0 > y1 then y0, y1 = y1, y0 end
+        kind = x0 == x1 and 1 or 2
+    end
+    -- the first point of the thread on the passage from the event before
+    local tx, ty, cum = t.x, t.y, t.raw
+    local k, lo0 = T.wk, T.wt
+    while true do
+        if k >= ke then return Fail(T, "event") end
+        local vx, vy = tx[k], ty[k]
+        local dx, dy = tx[k + 1] - vx, ty[k + 1] - vy
+        local lo, hi = Clip(vx, dx, x0 - ON_EPS, x1 + ON_EPS, lo0, 1)
+        if lo <= hi then lo, hi = Clip(vy, dy, y0 - ON_EPS, y1 + ON_EPS, lo, hi) end
+        if lo <= hi then
+            -- (the crossing itself, not where the line comes within ON_EPS of the passage)
+            if kind == 1 then
+                if dx ~= 0 then lo = (x0 - vx) / dx else lo = Clip(vy, dy, y0, y1, lo0, 1) end
+            elseif kind == 2 then
+                if dy ~= 0 then lo = (y0 - vy) / dy else lo = Clip(vx, dx, x0, x1, lo0, 1) end
+            elseif vx == x0 and vy == y0 then
+                lo = lo0
+            elseif tx[k + 1] == x0 and ty[k + 1] == y0 then
+                lo = 1
+            end
+            if lo < lo0 then lo = lo0 elseif lo > 1 then lo = 1 end
+            T.wk, T.wt, T.wu = k, lo, u + 1
+            Event(T, vx + lo * dx, vy + lo * dy, u, kind, (c.raw[j] + c.raw[j + 1]) / 2, cum[k] + lo * (cum[k + 1] - cum[k]))
+            if T.state == "work" and T.phase == 2 and u + 1 == T.vu[ke] and (u + 1) % 2 == 0 then
+                -- (the anchor's middle that ends the stretch right after: its pair in the same piece of work)
+                T.wu = u + 2
+                Event(T, t.x[ke], t.y[ke], u + 1, 3, c.raw[j + 1], t.raw[ke])
+            end
+            return StretchChecked(T)
+        end
+        -- (going on along the thread to the passage belongs to its check: bounded by the thread's
+        -- points, each booked once when it is written)
+        k, lo0 = k + 1, 0
+    end
+end
+
+-- the end: the node, then the points drawn (one a piece)
+local function FinishPoint(T)
+    local t, c = T.t, T.c
+    if T.fk == 0 then
+        -- (the node, and the first point drawn, in the same piece of work as the second point)
+        AddPoint(T, c.x[c.n], c.y[c.n], 2 * c.n, 1)
+        t.dn, t.dk[1], t.dcum[1] = 1, 1, 0
+        T.fk = 2
+    end
+    local k, n = T.fk, t.n
+    local x, y, dk, dn = t.x, t.y, t.dk, t.dn
+    if k < n then
+        -- drawn unless on the point drawn before it or on the next one, or (no anchor) on the straight
+        -- line between them, between them (F3 §3.6, F4 §F: a turn back stays)
+        local p = dk[dn]
+        local ax, ay = x[k] - x[p], y[k] - y[p]
+        local dx, dy = x[k + 1] - x[k], y[k + 1] - y[k]
+        if not (ax * ax + ay * ay < 1e-6 or dx * dx + dy * dy < 1e-6 or (T.va[k] ~= 1 and ax * dy - ay * dx == 0 and ax * dx + ay * dy > 0)) then
+            dn = dn + 1
+            dk[dn], t.dcum[dn] = k, t.raw[k]
+            t.dn = dn
+        end
+        T.fk = k + 1
+        return
+    end
+    dn = dn + 1
+    dk[dn], t.dcum[dn], t.dn = n, t.raw[n], dn
+    t.len, t.tail, t.head = t.raw[n], c.tail, c.head
+    t.conv, t.map, t.w, t.h = c.conv, c.map, c.w, c.h
+    t.pwx, t.pwy, t.twx, t.twy = c.pwx, c.pwy, c.twx, c.twy
+    t.stamp = t.stamp + 1 -- (a new line: no world place put in before counts)
+    local v = t.view
+    v.n, v.len, v.tail = dn, t.len, t.tail
+    T.state = "done"
+end
+
+-- A thread for the centre line c (of the way generation gen). In pieces of work: ThreadStep(T, budget)
+-- until T.state is "done" (T.t is the thread) or "failed" (T.reason; the centre line stays).
+function M.ThreadStart(T, c, gen)
+    T.c, T.gen = c, gen
+    T.stamp = T.stamp + 1
+    T.used, T.repairs, T.reason, T.state = 0, 0, nil, "work"
+    local n = c.n
+    T.limit = 4 * (n - 3)
+    T.en, T.gs = 0, 1
+    if n < 4 then return Fail(T, "short") end -- (one square: nothing to pull tight)
+    local t = T.t
+    -- you and the first square's middle: the bit from you stays straight
+    t.n = 1
+    t.x[1], t.y[1], t.raw[1] = c.x[1], c.y[1], 0
+    T.vu[1], T.va[1] = 2, 1
+    AddPoint(T, c.x[2], c.y[2], 4, 1)
+    Event(T, c.x[2], c.y[2], 4, 3, c.raw[2], t.raw[2])
+    Restart(T, c.x[2], c.y[2], 4)
+    T.sk, T.phase = 2, 1
+end
+
+function M.ThreadStep(T, budget)
+    local used = 0
+    while used < budget and T.state == "work" do
+        if not Book(T, 1) then break end
+        used = used + 1
+        local phase = T.phase
+        if phase == 1 then FunnelSlot(T) elseif phase == 2 then EventSlot(T) else FinishPoint(T) end
+    end
+    return used
+end
+
+-- (the tests) in one go
+function M.Thread(T, c, gen)
+    M.ThreadStart(T, c, gen or 0)
+    while T.state == "work" do M.ThreadStep(T, huge) end
+    return T.state, T.reason
+end
+M.THREAD_TOL = THREAD_TOL
+
 ns.WaysCore = M
 
 ---------------------------------------------------------------------------
