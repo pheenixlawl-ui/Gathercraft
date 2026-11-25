@@ -319,8 +319,9 @@ end
 -- different prices are sorted: the answer is the same as from sorting every
 -- offer (offers of one price lie side by side there, and the answer is a
 -- price), with far less work where many offers share few prices.
--- pause (optional): see Sorted.
-local function MarketPrice(list, pause)
+-- pause (optional): see Sorted. lowest: the cheapest price instead, with all
+-- the stock (gear, see IsGear below).
+local function MarketPrice(list, pause, lowest)
     -- list = { unitPrice, count, unitPrice, count, ... }
     local stock, prices, n, total = {}, {}, 0, 0
     for i = 1, #list, 2 do
@@ -338,7 +339,7 @@ local function MarketPrice(list, pause)
     end
     prices = Sorted(prices, n, pause)
     -- with less stock than that, what is there counts: the loop runs out
-    local want, seen = math.max(MARKET_MIN, total * MARKET_SHARE), 0
+    local want, seen = lowest and 1 or math.max(MARKET_MIN, total * MARKET_SHARE), 0
     for i = 1, n do
         seen = seen + stock[prices[i]]
         if seen >= want then return math.floor(prices[i] + 0.5), total end
@@ -352,6 +353,19 @@ local function IsTradeGood(itemID)
     if not (C_Item and C_Item.GetItemInfoInstant) then return true end
     local classID = select(6, C_Item.GetItemInfoInstant(itemID))
     return classID == nil or classID == TRADE_GOODS
+end
+
+-- (0.2.4 a6; Sven's Boots of Avoidance, 25.11.2026, Codex' diagnosis) Gear -
+-- weapons and armour, by the game's item class - is priced by its cheapest
+-- buyout, stored as a lowest offer with the number listed: one piece is what
+-- you buy, and the market price's five items against a lure named the dearest
+-- of five single offers. Trade goods and everything else keep the market
+-- price; so does an item whose class the game does not tell.
+local WEAPON, ARMOR = 2, 4
+local function IsGear(itemID)
+    if not (itemID and C_Item and C_Item.GetItemInfoInstant) then return false end
+    local classID = select(6, C_Item.GetItemInfoInstant(itemID))
+    return classID == WEAPON or classID == ARMOR
 end
 
 -- history: "day:price;day:price;..." (one value per day, newest last), only
@@ -456,8 +470,10 @@ end
 local function PriceAll(mine)
     local p = PriceDB()
     for itemID, list in pairs(mine.acc) do
-        local price, total = MarketPrice(list, Rest)
+        local gear = IsGear(itemID)
+        local price, total = MarketPrice(list, Rest, gear)
         mine.items[itemID], mine.qty[itemID] = price, total
+        if gear then mine.kind[itemID] = LOWEST end
         mine.hist[itemID] = HistoryWith(p, itemID, price) or false
         mine.count = mine.count + 1
         Rest()
@@ -505,7 +521,7 @@ FinishScan = function()
         -- The prices read are real and replace the old ones of their items;
         -- every other price stays, and it does not count as a full scan.
         for itemID, price in pairs(items) do
-            p.items[itemID], p.qty[itemID], p.seen[itemID], p.meta[itemID] = price, qty[itemID], now, MARKET
+            p.items[itemID], p.qty[itemID], p.seen[itemID], p.meta[itemID] = price, qty[itemID], now, scan.kind[itemID] or MARKET
         end
         ns.Print((L["Scan incomplete: %d auctions could not be read, old prices kept (%d updated)."]):format(scan.readErrors, count))
         FlushIgnored()
@@ -516,7 +532,7 @@ FinishScan = function()
     end
     -- a full scan shows everything: items no longer listed have no price now
     local meta = {}
-    for itemID in pairs(items) do meta[itemID] = MARKET end
+    for itemID in pairs(items) do meta[itemID] = scan.kind[itemID] or MARKET end
     p.items, p.qty, p.seen, p.meta, p.scanned = items, qty, seen, meta, now
     ns.Print((L["Auction house scanned: %d auctions, prices for %d items."]):format(scan.total, count))
     FlushIgnored()
@@ -573,7 +589,7 @@ local function ReadStep()
     ns.Debug(("SCAN step: %d of %d read"):format(scan.index, scan.total))
     if scan.index >= scan.total then
         -- all read: from here on the auction house is not needed any more
-        scan.state, scan.items, scan.qty, scan.hist, scan.count = "pricing", {}, {}, {}, 0
+        scan.state, scan.items, scan.qty, scan.hist, scan.count, scan.kind = "pricing", {}, {}, {}, 0, {}
         PriceStep(true)
     else
         C_Timer.After(0, ReadStep)
@@ -822,9 +838,10 @@ local function OnItemResults(itemKey)
         ns.Debug(("AH item search %d: not stored, no results with a buyout"):format(itemKey.itemID))
         return
     end
-    local price, total = MarketPrice(list)
-    StorePrice(itemKey.itemID, price, total, MARKET)
-    ns.Debug(("AH item search %d: %d results, stored %d (%d listed)"):format(itemKey.itemID, #list / 2, price, total))
+    local gear = IsGear(itemKey.itemID)
+    local price, total = MarketPrice(list, nil, gear)
+    StorePrice(itemKey.itemID, price, total, gear and LOWEST or MARKET)
+    ns.Debug(("AH item search %d: %d results, stored %d (%d listed%s)"):format(itemKey.itemID, #list / 2, price, total, gear and ", gear: the cheapest" or ""))
     Learned()
 end
 

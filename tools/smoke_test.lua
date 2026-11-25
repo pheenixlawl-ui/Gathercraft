@@ -26929,6 +26929,130 @@ step("Item tooltip: the auction house scan that starts on opening (0.1.23) gives
     fire("AUCTION_HOUSE_CLOSED") advance(1)
     if not ok then error(err, 0) end
 end)
+step("Auction house 0.2.4: gear gets its cheapest buyout, as a lowest offer with the number listed; trade goods keep the five-item rule - Sven's Boots of Avoidance (14549), five single offers 10g 47s to 20g 48s: 10g 47s, 5 listed; in the scan and in an item search, the offers in either order, a bid apart; offers of several items are divided; a trade good with the same offers, and one with a lure, as before (0.2.4 a6, Codex' AH diagnosis 25.11.2026)", function()
+    -- Sven, 25.11.2026: the tooltip of the Boots of Avoidance said 20g 48s (own scan, 5 listed) while the
+    -- cheapest of the five offers was 10g 47s. The market price is the lowest price with five items behind
+    -- it (against a lure); with five single offers that is the dearest one. One piece of gear is what you
+    -- buy: weapons and armour (the game's item class) get their cheapest buyout.
+    local L, AHX = ns.L, C_AuctionHouse
+    ns.GetPrice(2447)
+    local p = ns.db.prices[next(ns.db.prices)]
+    local BOOTS, GEAR2, GOOD, LURE, NOCLASS = 14549, 9206, 9205, 9207, 9208 -- armour; armour sold in stacks; trade goods; an item the game tells no class of
+    local keep = { rep = AHX.ReplicateItems, num = AHX.GetNumReplicateItems, info = AHX.GetReplicateItemInfo, off = ns.db.autoScanOff,
+        last = p.lastScanStart, scanned = p.scanned, items = p.items, qty = p.qty, seen = p.seen, meta = p.meta, option = ns.db.tooltipPrices,
+        shift = IsShiftKeyDown, atr = Auctionator, tsm = TSM_API, instant = C_Item.GetItemInfoInstant,
+        nres = AHX.GetNumItemSearchResults, res = AHX.GetItemSearchResultInfo }
+    keep.history = {}
+    for id, text in pairs(p.history) do keep.history[id] = text end
+    local before = #errors
+    local SVEN = { 104700, 104800, 104800, 107900, 204800 } -- copper: 10g 47s, 10g 48s, 10g 48s, 10g 79s, 20g 48s
+    local ok, err = pcall(function()
+        Auctionator, TSM_API = nil, nil
+        ns.db.tooltipPrices, ns.db.autoScanOff = true, nil
+        IsShiftKeyDown = function() return false end
+        C_Item.GetItemInfoInstant = function(id, ...)
+            if id == BOOTS or id == GEAR2 then return id, nil, nil, nil, nil, 4, 2 end -- armour
+            if id == GOOD or id == LURE then return id, nil, nil, nil, nil, 7, 9 end   -- trade goods
+            if id == NOCLASS then return nil end
+            return keep.instant(id, ...)
+        end
+        local fx = TT.Load("tdp", true)
+        fx.Event("PLAYER_LOGIN") advance(10)
+        assert(fx.State() == "ready", "test setup: the tooltip is not ready: " .. fx.State())
+        local tip = fx.game
+        local function Line(id)
+            -- (herbs, ores and reagents: "AH price = ..."; any other item with a price of ours: "Gathercraft AH ...")
+            for _, l in ipairs(fx.Hover(tip, id)) do
+                local plain = TT.Plain(l)
+                if plain:find(L["AH price"], 1, true) or plain:find(TT.Plain(L["|cffffd060Gathercraft|r AH"]), 1, true) then return plain end
+            end
+        end
+        local function Expect(id, price, kind, qty, label)
+            local info = ns.PriceInfo(id)
+            assert(info and info.own == price and info.kind == kind and info.qty == qty,
+                ("%s: %s (%s, %s listed), want %d (%s, %d listed)"):format(label, tostring(info and info.own), tostring(info and info.kind),
+                    tostring(info and info.qty), price, kind, qty))
+            local used = ns.GetPrice(id)
+            assert(used == price, ("%s: the price used is %s, want %d"):format(label, tostring(used), price))
+        end
+        -- the scan: Sven's five boots, a bid of 25,000 copper on each (never the price); armour in stacks;
+        -- a trade good with the same five offers; a trade good with one lure and twenty normal offers
+        local function Scan(reverse)
+            local auctions = {}
+            for _, u in ipairs(SVEN) do auctions[#auctions + 1] = { id = BOOTS, count = 1, buyout = u } end
+            auctions[#auctions + 1] = { id = GEAR2, count = 2, buyout = 300000 } -- 15g each
+            auctions[#auctions + 1] = { id = GEAR2, count = 1, buyout = 160000 }
+            for _, u in ipairs(SVEN) do auctions[#auctions + 1] = { id = GOOD, count = 1, buyout = u } end
+            for _, u in ipairs(SVEN) do auctions[#auctions + 1] = { id = NOCLASS, count = 1, buyout = u } end
+            auctions[#auctions + 1] = { id = LURE, count = 1, buyout = 50 }
+            for _ = 1, 20 do auctions[#auctions + 1] = { id = LURE, count = 1, buyout = 1000 } end
+            if reverse then
+                local r = {}
+                for i = #auctions, 1, -1 do r[#r + 1] = auctions[i] end
+                auctions = r
+            end
+            AHX.ReplicateItems = function() end
+            AHX.GetNumReplicateItems = function() return #auctions end
+            AHX.GetReplicateItemInfo = function(i)
+                local a = auctions[i + 1]
+                if not a then return nil end
+                return "Item", 1, a.count, 1, true, 1, 0, 25000, 0, a.buyout, 25000, false, nil, "Seller", nil, 0, a.id, true
+            end
+            AuctionHouseFrame = AuctionHouseFrame or CreateFrame("Frame", "AuctionHouseFrame", UIParent)
+            fire("AUCTION_HOUSE_CLOSED") advance(1)
+            p.lastScanStart = 0
+            fire("AUCTION_HOUSE_SHOW") advance(1)
+            p.scanned = 0
+            fire("REPLICATE_ITEM_LIST_UPDATE") advance(3)
+            assert(p.scanned and p.scanned > 0 and p.items[BOOTS], "test setup: the scan's answer was not read")
+        end
+        for _, reverse in ipairs({ false, true }) do
+            local how = reverse and "the scan, offers the other way round" or "the scan"
+            Scan(reverse)
+            Expect(BOOTS, 104700, "lowest", 5, how .. ", Boots of Avoidance")
+            Expect(GEAR2, 150000, "lowest", 3, how .. ", armour in stacks")
+            Expect(GOOD, 204800, "market", 5, how .. ", a trade good with the boots' offers")
+            Expect(LURE, 1000, "market", 21, how .. ", a trade good with a lure")
+            Expect(NOCLASS, 204800, "market", 5, how .. ", an item without a class from the game")
+            local line = Line(BOOTS)
+            assert(line and line:find(TT.Plain(ns.Money(104700)), 1, true) and line:find("(" .. L["lowest offer"] .. ", " .. L["just now"], 1, true)
+                and line:find((L["%s listed"]):format("5"), 1, true), how .. ": the tooltip of the boots: " .. tostring(line))
+            line = Line(GOOD)
+            assert(line and line:find(TT.Plain(ns.Money(204800)), 1, true) and line:find("(" .. L["own scan"] .. ", ", 1, true), how .. ": the tooltip of the trade good: " .. tostring(line))
+        end
+        -- an item search: the same offers, as the game gives them for one item, a bid apart
+        local function Search(id, units, reverse)
+            local list = {}
+            for _, u in ipairs(units) do list[#list + 1] = { buyoutAmount = u, quantity = 1, bidAmount = 25000 } end
+            if reverse then
+                local r = {}
+                for i = #list, 1, -1 do r[#r + 1] = list[i] end
+                list = r
+            end
+            AHX.GetNumItemSearchResults = function(key) return key and key.itemID == id and #list or 0 end
+            AHX.GetItemSearchResultInfo = function(key, i) return key and key.itemID == id and list[i] or nil end
+            p.items[id], p.qty[id], p.seen[id], p.meta[id] = 1, 1, 0, 1
+            fire("ITEM_SEARCH_RESULTS_UPDATED", { itemID = id })
+        end
+        for _, reverse in ipairs({ false, true }) do
+            local how = reverse and "an item search, the other way round" or "an item search"
+            Search(BOOTS, SVEN, reverse)
+            Expect(BOOTS, 104700, "lowest", 5, how .. ", Boots of Avoidance")
+            Search(GOOD, SVEN, reverse)
+            Expect(GOOD, 204800, "market", 5, how .. ", a trade good")
+        end
+        assert(#errors == before, "an error: " .. tostring(errors[#errors]))
+    end)
+    AHX.ReplicateItems, AHX.GetNumReplicateItems, AHX.GetReplicateItemInfo = keep.rep, keep.num, keep.info
+    AHX.GetNumItemSearchResults, AHX.GetItemSearchResultInfo = keep.nres, keep.res
+    C_Item.GetItemInfoInstant = keep.instant
+    ns.db.autoScanOff, p.lastScanStart, p.scanned, p.items, p.qty, p.seen, p.meta = keep.off, keep.last, keep.scanned, keep.items, keep.qty, keep.seen, keep.meta
+    for id in pairs(p.history) do p.history[id] = nil end
+    for id, text in pairs(keep.history) do p.history[id] = text end
+    ns.db.tooltipPrices, IsShiftKeyDown, Auctionator, TSM_API = keep.option, keep.shift, keep.atr, keep.tsm
+    fire("AUCTION_HOUSE_CLOSED") advance(1)
+    if not ok then error(err, 0) end
+end)
 step("Farm for plan: a plan run and the list of zones of another profession do not set each other off (v0.2 B3 R1-M1)", function()
     -- Codex round 1 of block 3, M1: a Mining run and the list of zones of
     -- Alchemy, the skill plan closed - every plan the one gave out began the
