@@ -1217,6 +1217,17 @@ local function Build()
     AddHint("Uses the ways you have ridden yourself. Gaps between them are guessed.")
     AddHint("The run window shows the guessed share, without the first and last yards (always straight).")
     AddHint("Without height, a way may cross under a bridge or into a cave.")
+    AddCheck("Donation hint in chat",
+        function() return not ns.db.waysDonationHintOff end,
+        function(on) ns.WaysDonationHintSet(on) end)
+    local share = CreateFrame("Button", nil, page, "UIPanelButtonTemplate")
+    share:SetSize(240, 24)
+    share:SetPoint("TOPLEFT", colX + 6, nextY)
+    ns.LText(share, "Share my ways...")
+    share:SetScript("OnClick", function() ns.OpenWaysDonation() end)
+    share:SetShown(ns.WaysDonationLink() ~= nil)
+    page:HookScript("OnShow", function() share:SetShown(ns.WaysDonationLink() ~= nil) end)
+    nextY = nextY - 28
     -- what sharing did so far, kept up to date while the section is open
     nextY = nextY - 10
     AddHeader("Right now")

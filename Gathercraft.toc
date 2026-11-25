@@ -39,6 +39,8 @@ Sync.lua
 Skills.lua
 Fishing.lua
 Rares.lua
+WaysDonation.lua
+WaysDonationUI.lua
 Options.lua
 Quest.lua
 Advisor.lua

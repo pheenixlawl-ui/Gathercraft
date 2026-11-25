@@ -1,0 +1,125 @@
+return function(c)
+    local ns = c.ns
+    assert(ns.OpenWaysDonation, "donation window missing")
+    local oldURL, oldPaths, oldCreate = ns.WaysDonationFormURL, ns.db.paths, CreateFrame
+    local oldDBHints, oldOff = ns.db.waysDonationHints, ns.db.waysDonationHintOff
+    local oldPlayer, oldCombat, oldTime = ns.PlayerKey, InCombatLockdown, GetTime
+    local function Restore()
+        if _G.GathercraftWaysDonation then _G.GathercraftWaysDonation:Hide() end
+        ns.WaysDonationFormURL, ns.db.paths, CreateFrame = oldURL, oldPaths, oldCreate
+        ns.db.waysDonationHints, ns.db.waysDonationHintOff = oldDBHints, oldOff
+        ns.PlayerKey, InCombatLockdown, GetTime = oldPlayer, oldCombat, oldTime
+        ns.WaysDonationHintRefresh()
+    end
+    local ok, err = pcall(function()
+        ns.WaysDonationFormURL = ""
+        if c.slash then c.slash("shareways") else ns.OpenWaysDonation() end
+        assert(not _G.GathercraftWaysDonation or not _G.GathercraftWaysDonation:IsShown(), "window without link")
+        assert(not ns.WaysDonationLink(), "empty link accepted")
+        ns.WaysDonationFormURL = "https://example.invalid/manual-form"
+        CreateFrame = function(kind,...)
+            local f = oldCreate(kind,...)
+            if kind == "EditBox" then
+                f.SetFocus=function(self)
+                    self.focus=true
+                    self.focusCalls=(rawget(self,"focusCalls") or 0)+1
+                end
+                f.ClearFocus=function(self) self.focus=false end
+                f.HighlightText=function(self)
+                    self.highlight=true
+                    self.selectionCalls=(rawget(self,"selectionCalls") or 0)+1
+                end
+            end
+            return f
+        end
+        local e={}
+        for i=1,4000 do e[((math.floor(i/100)+1)*1024+2*(i%100)+1)*9+5] = (100*256+1)*16384+600 end
+        ns.db.paths={zones={[1412]={e=e}},total=4000}
+        e["broken"] = false
+        local sent=#c.sent
+        ns.OpenWaysDonation()
+        local f=assert(_G.GathercraftWaysDonation)
+        assert(f:IsShown() and f.job and not f.job.done, "did not open immediately preparing")
+        for _=1,10000 do
+            local update=f:GetScript("OnUpdate")
+            if not update then break end
+            assert(not rawget(f.edit,"focus") and not rawget(f.edit,"selectionCalls"),
+                "export took keyboard focus or selected text during preparation")
+            assert(not f.edit:IsShown(), "empty export field can receive clicks")
+            update(f,1/60)
+        end
+        assert(f.parts and #f.parts>1 and not f.job, "did not finish/release job")
+        local function Skipped(n)
+            return ns.L["Skipped damaged path pieces: %d"]:format(n)
+        end
+        assert(f.skipped:GetText() == Skipped(1), "skipped count missing")
+        local text=f.edit:GetText()
+        assert(f.edit:IsShown() and text:match('^GCWAYS2|') and #text<=20000 and f.edit.focus and f.edit.highlight)
+        f.edit:SetText("tampered") f.edit:GetScript("OnTextChanged")(f.edit,true)
+        assert(f.edit:GetText()==text, "editable export")
+        f.next:GetScript("OnClick")(f.next)
+        assert(f.skipped:GetText() == Skipped(1), "lost skipped count on next part")
+        assert(f.part==2 and f.edit:GetText()~=text and f.edit.highlight, "next part")
+        f.previous:GetScript("OnClick")(f.previous)
+        assert(f.part==1 and f.edit:GetText()==text, "previous part")
+        f.link:GetScript("OnMouseUp")(f.link)
+        assert(f.link.focus and f.link.highlight, "link not copyable")
+        f.link:GetScript("OnEscapePressed")(f.link)
+        assert(not f:IsShown() and not f.edit.focus and not f.link.focus, "Escape/focus")
+        assert(not f.parts and not f.job and f.edit:GetText()=="" and f.link:GetText()=="", "retained export")
+        local calls, selections = f.edit.focusCalls, f.edit.selectionCalls
+        ns.OpenWaysDonation()
+        assert(not f.edit.focus and not f.edit:IsShown() and f.edit.focusCalls == calls
+            and f.edit.selectionCalls == selections, "reopening took focus before the export was ready")
+        f.edit:GetScript("OnEscapePressed")(f.edit)
+        assert(not f.job and not f:GetScript("OnUpdate"), "preparing cannot cancel")
+        assert(#c.sent==sent,"donation sent channel traffic")
+        assert(ns.db.paths.zones[1412].e==e and ns.db.paths.total==4000,"changed paths")
+        ns.db.paths = {zones={[1412]={e={broken=false}}}}
+        ns.OpenWaysDonation()
+        while f:GetScript("OnUpdate") do f:GetScript("OnUpdate")(f,1/60) end
+        assert(not f.edit.focus and not f.edit:IsShown() and f.edit.focusCalls == calls, "failed export took focus")
+        assert(not f.parts and f.skipped:GetText() == Skipped(1) and
+            f.status:GetText() == ns.L["No valid path pieces."], "all-invalid feedback")
+        f:Hide()
+        ns.db.paths = {zones={[1412]={e={}}}}
+        ns.OpenWaysDonation()
+        while f:GetScript("OnUpdate") do f:GetScript("OnUpdate")(f,1/60) end
+        assert(f.skipped:GetText() == "" and f.status:GetText() == ns.L["No paths recorded yet."],
+            "clean empty export retained a warning")
+        f:Hide()
+        ns.db.paths = {zones={[1412]={e=e}}, total=4000}
+        -- Login clock, two characters, reload, combat, switch and link gating.
+        local now, combat, who=0,false,"Player-TEST-A"
+        GetTime=function() return now end InCombatLockdown=function() return combat end
+        ns.PlayerKey=function() return who end
+        ns.db.waysDonationHints=nil ns.db.waysDonationHintOff=nil
+        local lines=0;local oldPrint=ns.Print
+        ns.Print=function(s) if s:find('/gcr shareways',1,true) then lines=lines+1 end end
+        local good, why=pcall(function()
+            c.fire("PLAYER_LOGIN")
+            local hint=assert(ns.WaysDonationHintFrame)
+            local function tick(t) now=t local fn=hint:GetScript("OnUpdate") if fn then fn(hint,5) end end
+            tick(59) assert(lines==0,"early hint")
+            combat=true tick(60) assert(lines==0,"combat hint")
+            combat=false tick(65) assert(lines==1,"missing hint")
+            assert(not hint:GetScript("OnUpdate"), "hint poll still installed after printing")
+            tick(100) assert(lines==1,"repeated hint")
+            c.fire("PLAYER_LOGIN") tick(170) assert(lines==1,"reload repeat")
+            who="Player-TEST-B" c.fire("PLAYER_LOGIN")
+            ns.WaysDonationHintSet(false) tick(240) assert(lines==1,"hint despite off")
+            ns.WaysDonationHintSet(true) tick(245) assert(lines==2,"other character hint")
+            who="Player-TEST-C" ns.WaysDonationFormURL="" c.fire("PLAYER_LOGIN")
+            tick(1000) assert(lines==2 and not hint:GetScript("OnUpdate"),"no-link hint/idle work")
+            ns.WaysDonationFormURL="https://example.invalid/manual-form"
+            c.fire("PLAYER_LOGIN")
+            ns.db.paths.total=1999
+            tick(1060) assert(lines==2,"hint before 2000 pieces")
+            ns.db.paths.total=2000
+            tick(1065) assert(lines==3,"hint at 2000 pieces")
+        end)
+        ns.Print=oldPrint assert(good,why)
+    end)
+    Restore()
+    assert(ok,err)
+end
