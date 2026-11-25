@@ -16260,64 +16260,96 @@ step("Route 0.2.4: a plan's 2-opt and Untangle in bites - the target at once (as
     advance(1)
     if not ok then error(err, 0) end
 end)
-step("Route 0.2.4: a bite decides by the time of now - after 2-opt the take-over with Prune, and Untangle's first row, start only while a row still fits the frame; time that goes by inside Prune, the lists and the lengths is counted, Show's from its first step (0.2.4 r1, Codex H-M1)", function()
+step("Route 0.2.4: no bite has more than 1.0 ms of planning work - 2-opt's and Untangle's rows, the take-over's lists and Prune's passes go in pieces, a bite may end in the middle of them and the next one goes on there: 2-opt's budget used up beforehand or by itself (Codex' 100 points, seeds 17 and 19), 160 candidates, a run's first plan of 300 points; the time inside Prune, the lists and the lengths is counted, Show's from its first step (0.2.4 r1/r2, Codex H-M1)", function()
     local Z = 1441
     local R = ns.RouteRefine()
     local saved = { map = player.map, x = player.x, y = player.y, list = ns.db.nodes[Z], clock = ns.RouteClock, getTime = GetTime,
         refine = ns.RouteTune.refine, sqrt = math.sqrt }
     local CLK, COST, FRAME = 0, 0.0015, 5000
     local function Node(x, y) return { name = "Peacebloom", type = "herb", id = "o1618", x = x, y = y, count = 1, last = time() - 86400 } end
-    local ok, err = pcall(function()
-        -- 100 points on a band to the east, in an order with crossings for 2-opt and Untangle
+    -- from the moment it is hooked every square root costs the test's clock 0.0015 ms: Prune, the rows
+    -- of 2-opt and Untangle and Show's lengths take time where they work, not where the clock is read
+    local function Hook() math.sqrt = function(x) CLK = CLK + COST return saved.sqrt(x) end end
+    -- n points on a band to the east, in an order with crossings for 2-opt and Untangle; their plan's bites,
+    -- a frame each, up to the improved path shown
+    local function Case(label, n, seed, preset, first)
+        math.sqrt = saved.sqrt
+        if ns.run then ns.StopRun(true) end
         local list = {}
-        local seed = 17
         local function Rand() seed = (seed * 1103515245 + 12345) % 2147483648 return seed / 2147483648 end
-        for i = 1, 100 do list[i] = Node(0.3 + 0.6 * Rand(), 0.3 + 0.4 * Rand()) end
+        for i = 1, n do list[i] = Node(0.3 + 0.6 * Rand(), 0.3 + 0.4 * Rand()) end
         ns.db.nodes[Z] = list
         ns.NotifyNodesChanged()
         player.map, player.x, player.y = Z, 0.2, 0.5
-        ns.RouteTune.refine = true
-        GetTime = function() return FRAME end
-        ns.RouteClock = function() return CLK end -- (the plan itself takes no time here)
+        FRAME = FRAME + 1
+        -- a run's first plan: its bites from the start (the plan itself, in its own frame, is no bite)
+        if first then Hook() end
         ns.StartRun("herb", Z) advance(1)
         local run = ns.run
-        assert(run and #run.points == 100, "test setup: a run with the 100 points")
-        run.target, run.targetPoint = nil, nil
-        ns.RouteReplan()
+        assert(run and #run.points == n, ("%s: test setup: a run with the %d points"):format(label, n))
+        if not first then
+            run.target, run.targetPoint = nil, nil
+            FRAME = FRAME + 1
+            ns.RouteReplan()
+            Hook()
+        end
         local job = R.job
-        assert(job and job.phase == 1 and #job.opt.t >= 50, "test setup: bites to come")
-        -- from now on every square root costs the test's clock 0.0015 ms: Prune, the rows of 2-opt
-        -- and Untangle and Show's lengths take time where they work, not where the clock is read
-        math.sqrt = function(x) CLK = CLK + COST return saved.sqrt(x) end
-        -- 1. 2-opt at the end of its budget: its next row ends it, then the take-over and Untangle
-        job.opt.used = job.opt.budget
+        assert(job and job.phase == 1 and #job.opt.t >= 50, label .. ": test setup: bites to come")
+        assert(job.opt.budget == (first and 150 or 10), ("%s: test setup: a budget of %s ms"):format(label, tostring(job.opt.budget)))
+        -- (the old test: 2-opt's next row ends it, then the take-over and Untangle)
+        if preset then job.opt.used = job.opt.budget end
+        local most, bites, used, before, after = 0, 0, nil, #job.opt.t, nil
+        while R.job == job and job.phase ~= 4 and bites < 3000 do
+            FRAME = FRAME + 1
+            local phase = job.phase
+            local t0 = CLK
+            R.Step()
+            local spent = CLK - t0
+            bites = bites + 1
+            if spent > most then most = spent end
+            if phase == 1 and job.phase ~= 1 then used = job.opt.used end
+            if job.phase == 3 and not after then after = #job.opt.t end
+            assert(spent <= R.FRAME_MS + 1e-9, ("%s: bite %d (phase %d to %d) had %.4f ms of planning work, at most %.1f (Codex' probes: 1.0365 and 1.7730 ms)"):format(label, bites, phase, job.phase, spent, R.FRAME_MS))
+            assert(R.frameAt == FRAME and R.frameMs <= R.FRAME_MS + 1e-9, ("%s: a frame had %.4f ms of planning work"):format(label, R.frameMs))
+        end
+        assert(R.job == job and job.phase == 4, ("%s: test setup: Untangle is done: phase %s after %d bites"):format(label, tostring(job.phase), bites))
+        assert(used and used > job.budget, ("%s: test setup: 2-opt ends at its budget (%s ms of %d)"):format(label, tostring(used), job.budget))
+        -- Show, in a frame of its own: all of its work is counted - the lists and the lengths too
         FRAME = FRAME + 1
         local t0 = CLK
         R.Step()
-        local first = CLK - t0
-        assert(R.lastRow > 0.05, ("test setup: a row takes time (%.3f ms)"):format(R.lastRow))
-        assert(first <= R.FRAME_MS + 1e-9, ("a bite went on after its frame's limit: %.3f ms (Codex' probe: 1.476 ms)"):format(first))
-        -- 2. every later bite keeps to the limit too (with the time of a row known, nothing starts that
-        -- would not fit), up to the improved path being shown
-        local most, bites = first, 1
-        while R.job and job.phase ~= 4 and bites < 400 do
-            FRAME = FRAME + 1
-            t0 = CLK
-            R.Step()
-            local spent = CLK - t0
-            if spent > most then most = spent end
-            bites = bites + 1
-        end
-        assert(R.job and job.phase == 4, "test setup: Untangle is done: " .. tostring(job.phase) .. " after " .. bites .. " bites")
-        assert(most <= R.FRAME_MS + 1e-9, ("a bite over the frame's limit: %.3f ms"):format(most))
-        -- 3. Show, in a frame of its own: all of its work is counted - the lists and the lengths too
-        FRAME = FRAME + 1
-        t0 = CLK
-        R.Step()
         local show = CLK - t0
-        assert(not R.job, "test setup: shown")
-        assert(R.frameAt == FRAME and R.frameMs >= show - 1e-9, ("Show's work not all counted: %.3f ms of %.3f"):format(R.frameAt == FRAME and R.frameMs or -1, show))
-        assert(R.frameMs <= show + 1e-9, ("Show counted more than it did: %.3f ms of %.3f"):format(R.frameMs, show))
+        assert(not R.job, label .. ": test setup: shown")
+        assert(R.frameAt == FRAME and R.frameMs >= show - 1e-9, ("%s: Show's work not all counted: %.3f ms of %.3f"):format(label, R.frameAt == FRAME and R.frameMs or -1, show))
+        assert(R.frameMs <= show + 1e-9, ("%s: Show counted more than it did: %.3f ms of %.3f"):format(label, R.frameMs, show))
+        math.sqrt = saved.sqrt
+        local shown = {}
+        for i, q in ipairs(ns.run.path) do shown[i] = q.node.x .. "," .. q.node.y end -- (each case has nodes of its own)
+        return { most = most, bites = bites, used = used, before = before, after = after, shown = shown }
+    end
+    local ok, err = pcall(function()
+        ns.RouteTune.refine = true
+        GetTime = function() return FRAME end
+        ns.RouteClock = function() return CLK end
+        Case("100 points, budget used up", 100, 17, true)
+        -- Codex' probes (review of 0.2.4-a4): 2-opt reaches its budget by itself; the first row of
+        -- Untangle is longer than the last of 2-opt (17), the take-over with three passes of Prune
+        -- alone is longer than a frame (19)
+        Case("100 points, seed 17", 100, 17)
+        local c = Case("100 points, seed 19", 100, 19)
+        assert(c.after < c.before - 1, ("test setup: Prune left out no point (%d of %d)"):format(c.after, c.before))
+        -- where a bite ends changes nothing: the same plan in bites with no limit (so in one go) shows the same path
+        R.FRAME_MS = 1000
+        local ok2, one = pcall(Case, "100 points, seed 19, in one go", 100, 19)
+        R.FRAME_MS = 1.0
+        assert(ok2, one)
+        assert(one.bites < c.bites and #one.shown == #c.shown and #c.shown > 50, ("test setup: %d bites, %d in one go"):format(c.bites, one.bites))
+        for i = 1, #c.shown do
+            assert(c.shown[i] == one.shown[i], ("the path in bites is another than in one go at its point %d"):format(i))
+        end
+        Case("160 candidates", 160, 17, true)
+        -- a first plan: 300 points, rows of 300 (one row is longer than a frame), a budget of 150 ms each
+        Case("first plan of 300 points", 300, 23, false, true)
     end)
     math.sqrt = saved.sqrt
     if ns.run then ns.StopRun(true) end

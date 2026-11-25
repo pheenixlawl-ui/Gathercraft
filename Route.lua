@@ -1711,6 +1711,13 @@ end
 -- (one local only: Route.lua's main chunk is near Lua's 200 locals)
 local Refine = {
     FRAME_MS = 1.0,
+    -- (0.2.4 r2, Codex H-M1) the work of the bites goes in pieces of PIECE steps: the j of a row
+    -- of 2-opt and Untangle, the points of Prune's passes and of the take-over's lists. A piece
+    -- starts only while twice the time of the last whole piece of its kind still fits before
+    -- the frame's limit (FIRST_MS before a job has one; the first piece of a frame with no other
+    -- planning work always, so the work goes on): a bite ends where it must, also in the middle
+    -- of a row or of Prune, and the next one goes on there - the same moves, the same choices
+    PIECE = 16, FIRST_MS = 0.1,
     job = nil,             -- the bites under way
     frameAt = nil, frameMs = 0, depth = 0, -- the planning work of the frame now
     stats = { started = 0, done = 0, same = 0, dropped = 0, slices = 0, maxSlice = 0, maxFrame = 0, firstRow = 0 }, -- (the tests)
@@ -1735,8 +1742,10 @@ end
 
 -- One row of 2-opt for the point t[i] - TwoOptOpen's inner loop: the same
 -- moves in the same order, the distances worked out here as PDist does it
--- (the same numbers, without two calls for each of them)
-function Refine.Row(t, i, n)
+-- (the same numbers, without two calls for each of them). from, to: a piece
+-- of the row, its j (a row in pieces makes the same moves as in one go: what
+-- it goes on with is in t itself, the point after t[i])
+function Refine.Row(t, i, n, from, to)
     local sqrt = math.sqrt
     local a, b = t[i], t[i + 1]
     local ax, ay = a.wx, a.wy
@@ -1744,7 +1753,7 @@ function Refine.Row(t, i, n)
     local dx, dy = bx - ax, by - ay
     local dab = sqrt(dx * dx + dy * dy)
     local improved = false
-    for j = i + 2, n do
+    for j = from or i + 2, to or n do
         local c, e = t[j], t[j + 1]
         local cx, cy = c.wx, c.wy
         dx, dy = cx - ax, cy - ay
@@ -1809,30 +1818,44 @@ function Refine.FastPath(points, px, py, _, maxNodes)
     return path, length
 end
 
--- One bite of TwoOptOpen: the same moves in the same order, row by row,
--- until the procedure's budget (time spent in its bites) is used, or before
--- a row that would end after the deadline (as long as the row before)
-function Refine.Opt(o, deadline)
+-- (0.2.4 r2, Codex H-M1) Whether a piece of this kind may start now (see PIECE above),
+-- and the time of a piece done: kept when it was a whole one
+function Refine.Fits(job, kind, now, deadline)
+    if job.first then
+        job.first = false
+        return true
+    end
+    return now + 2 * (job.ms[kind] or Refine.FIRST_MS) < deadline
+end
+function Refine.Took(job, kind, steps, ms)
+    if steps >= Refine.PIECE then job.ms[kind] = ms end
+end
+
+-- Bites of TwoOptOpen: the same moves in the same order, its rows in pieces
+-- (a row cut where a bite ends goes on at its j in the next one), until the
+-- procedure's budget (the time of its pieces, looked at after each piece) is
+-- used. true: done; false: the deadline
+function Refine.Opt(job, o, deadline)
     local t, n = o.t, #o.t
     if n < 4 then return true end
     local clock = Refine.Clock
-    local t0 = clock()
-    local row = 0
+    local now = clock()
     while true do
         if o.i > n - 2 then
             if not o.improved then return true end
             o.improved, o.i = false, o.first
         end
+        if not Refine.Fits(job, "row", now, deadline) then return false end
         local i = o.i
-        if Refine.Row(t, i, n) then o.improved = true end
-        o.i = i + 1
-        local now = clock()
-        row = now - t0
-        o.used = o.used + row
-        t0 = now
-        Refine.lastNow, Refine.lastRow = now, row
+        local from = o.j or i + 2
+        local to = math.min(n, from + Refine.PIECE - 1)
+        if Refine.Row(t, i, n, from, to) then o.improved = true end
+        if to < n then o.j = to + 1 else o.i, o.j = i + 1, nil end
+        local t1 = clock()
+        Refine.Took(job, "row", to - from + 1, t1 - now)
+        o.used = o.used + (t1 - now)
+        now = t1
         if o.used > o.budget then return true end
-        if now + row >= deadline then return false end
     end
 end
 
@@ -1865,7 +1888,7 @@ function Refine.Start(run, path, keep, px, py, instance, quick)
     Refine.job = nil
     if #path < 3 then return end
     local job = { run = run, gen = run.planGen, instance = instance, px = px, py = py, keep = keep and true or false,
-        budget = quick and QUICK_BUDGET_MS or OPT_BUDGET_MS, phase = 1 }
+        budget = quick and QUICK_BUDGET_MS or OPT_BUDGET_MS, phase = 1, ms = {} }
     -- the 2-opt of PlanPath: from the kept target over the rest, or from you
     -- with the target fixed (in lists kept from plan to plan: no new garbage)
     job.me = { wx = px, wy = py }
@@ -1907,24 +1930,18 @@ function Refine.Step()
     local clock = Refine.Clock
     local t0 = clock()
     local deadline = t0 + avail
-    Refine.lastNow, Refine.lastRow = t0, 0
-    -- (0.2.4 r1, Codex H-M1) What comes next is decided by the time of now, against the last
-    -- row's time (job.row, kept for the job): the take-over with Prune is work of its own
-    -- (phase 2), at the start of a bite (it costs about two rows; a guess of its time would be
-    -- one more thing to go wrong); Untangle's first row after it only while a row still fits.
+    -- (0.2.4 r2, Codex H-M1) all of it in pieces (see PIECE above): 2-opt; the take-over with
+    -- Prune at the start of a bite of its own, as before, then Untangle while its pieces fit
+    job.first = Refine.frameMs == 0
     while true do
         if job.phase == 1 then
-            local done = Refine.Opt(job.opt, deadline)
-            job.row = Refine.lastRow > 0 and Refine.lastRow or job.row or 0
-            if done then job.phase = 2 end
+            if Refine.Opt(job, job.opt, deadline) then job.phase = 2 end
             break
         elseif job.phase == 2 then
-            Refine.TakeOver(job)
+            if not Refine.TakeOver(job, deadline) then break end
             job.phase = 3
-            if clock() + (job.row or 0) >= deadline then break end
         elseif job.phase == 3 then
-            if Refine.Opt(job.opt, deadline) then job.phase = 4 end
-            job.row = Refine.lastRow > 0 and Refine.lastRow or job.row or 0
+            if Refine.Opt(job, job.opt, deadline) then job.phase = 4 end
             break
         else
             break
@@ -1939,22 +1956,112 @@ end
 
 -- Prune, as after PlanPath's 2-opt: what follows the kept target from it,
 -- or the whole path from you; then Untangle's list, from you, the target
--- fixed. (0.2.4 r1, Codex H-M1) a piece of work of its own, phase 2.
-function Refine.TakeOver(job)
-    local t = job.opt.t
-    local list = Refine.Take(2)
-    for i = 2, #t do list[#list + 1] = t[i] end
-    local u = Refine.Take(1)
-    u[1] = job.me
-    if job.keep then
-        list = Prune(list, job.target.wx, job.target.wy)
-        u[2] = job.target
-        for i = 1, #list do u[i + 2] = list[i] end
-    else
-        list = Prune(list, job.px, job.py)
-        for i = 1, #list do u[i + 1] = list[i] end
+-- fixed. Phase 2. (0.2.4 r2, Codex H-M1) in pieces, each stage going on
+-- where the last bite left it: "copy" the list after the start, Prune's
+-- passes ("sum" of the lengths and chances, "keep": the same sums in the
+-- same order and the same choices as Prune in one go), "fill" Untangle's
+-- list. true: done; false: the deadline
+function Refine.TakeOver(job, deadline)
+    local k = job.take
+    if not k then
+        k = { stage = "copy", i = 2, path = Refine.Take(2) }
+        if job.keep then k.sx, k.sy = job.target.wx, job.target.wy else k.sx, k.sy = job.px, job.py end
+        job.take = k
     end
-    job.opt = { t = u, first = 2, i = 2, improved = false, used = 0, budget = job.budget }
+    local clock = Refine.Clock
+    local now = clock()
+    while k.stage do
+        local kind = k.stage
+        if not Refine.Fits(job, kind, now, deadline) then return false end
+        local steps = Refine.Piece[kind](job, k)
+        local t1 = clock()
+        Refine.Took(job, kind, steps, t1 - now)
+        now = t1
+    end
+    job.take = nil
+    return true
+end
+Refine.Piece = {}
+-- (each piece: its steps from k.i on; at the end of its stage the next one; the number of steps)
+function Refine.Piece.copy(job, k)
+    local t, path = job.opt.t, k.path
+    local first, last = k.i, math.min(#t, k.i + Refine.PIECE - 1)
+    for i = first, last do path[#path + 1] = t[i] end
+    k.i = last + 1
+    if k.i > #t then
+        if TUNE.prune <= 0 or #path < 4 then k.stage, k.i = "fill", 1 else k.pass = 1 Refine.PassStart(k) end
+    end
+    return last - first + 1
+end
+-- a pass of Prune starts: its sums from the start
+function Refine.PassStart(k)
+    k.stage, k.i, k.length, k.expected, k.cx, k.cy = "sum", 1, 0, 0, k.sx, k.sy
+end
+function Refine.Piece.sum(_, k)
+    local path = k.path
+    local first, last = k.i, math.min(#path, k.i + Refine.PIECE - 1)
+    local length, expected, cx, cy = k.length, k.expected, k.cx, k.cy
+    for i = first, last do
+        local p = path[i]
+        length = length + WDist(cx, cy, p.wx, p.wy)
+        expected = expected + (p.chance or 1)
+        cx, cy = p.wx, p.wy
+    end
+    k.length, k.expected, k.cx, k.cy = length, expected, cx, cy
+    k.i = last + 1
+    if k.i > #path then
+        if expected <= 0 then
+            k.stage, k.i = "fill", 1
+        else
+            k.limit = TUNE.prune * length / expected
+            k.keep, k.removed, k.maxRemove, k.px, k.py = {}, 0, math.floor(#path / 4), k.sx, k.sy
+            k.stage, k.i = "keep", 1
+        end
+    end
+    return last - first + 1
+end
+function Refine.Piece.keep(_, k)
+    local path, keep = k.path, k.keep
+    local n = #path
+    local first, last = k.i, math.min(n, k.i + Refine.PIECE - 1)
+    local removed, maxRemove, limit, px, py = k.removed, k.maxRemove, k.limit, k.px, k.py
+    for i = first, last do
+        local p, nx = path[i], path[i + 1]
+        local detour = WDist(px, py, p.wx, p.wy)
+        if nx then detour = detour + PDist(p, nx) - WDist(px, py, nx.wx, nx.wy) end
+        if removed < maxRemove and i > 1 and detour / math.max(p.chance or 1, 0.01) > limit then
+            removed = removed + 1 -- skip it: the next point is reached from px, py
+        else
+            keep[#keep + 1] = p
+            px, py = p.wx, p.wy
+        end
+    end
+    k.removed, k.px, k.py = removed, px, py
+    k.i = last + 1
+    if k.i > n then
+        k.path, k.keep = keep, nil
+        if removed == 0 or k.pass == 3 then k.stage, k.i = "fill", 1 else k.pass = k.pass + 1 Refine.PassStart(k) end
+    end
+    return last - first + 1
+end
+function Refine.Piece.fill(job, k)
+    local u = k.u
+    if not u then
+        -- (the 2-opt list is copied: Untangle's list is made in its table)
+        u = Refine.Take(1)
+        u[1] = job.me
+        if job.keep then u[2] = job.target end
+        k.u, k.base = u, #u
+    end
+    local path, base = k.path, k.base
+    local first, last = k.i, math.min(#path, k.i + Refine.PIECE - 1)
+    for i = first, last do u[base + i] = path[i] end
+    k.i = last + 1
+    if k.i > #path then
+        job.opt = { t = u, first = 2, i = 2, improved = false, used = 0, budget = job.budget }
+        k.stage = nil
+    end
+    return last - first + 1
 end
 
 -- The improved path replaces the quick one: one change of the line.
