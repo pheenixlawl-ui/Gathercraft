@@ -35537,7 +35537,7 @@ step("Ways donation: no form hides the button, all nine translations and unchang
     end
     local keep=ns.WaysDonationFormURL
     ns.WaysDonationFormURL=""
-    ns.ShowOptionsSection("general") ns.ShowOptionsSection("sync")
+    ns.ShowOptionsSection("general") ns.ShowOptionsSection("fishing")
     local found
     for _, f in ipairs(allFrames) do
         if f.__kind=="Button" and f:GetText()==ns.L["Share my ways..."] and f:GetParent()~=GathercraftWaysDonation then
@@ -35547,10 +35547,10 @@ step("Ways donation: no form hides the button, all nine translations and unchang
     assert(found,"options button missing")
     assert(not found:IsShown(),"button visible without a form")
     ns.WaysDonationFormURL="https://example.invalid/manual-form"
-    ns.ShowOptionsSection("general") ns.ShowOptionsSection("sync")
+    ns.ShowOptionsSection("general") ns.ShowOptionsSection("fishing")
     assert(found:IsShown(),"button absent with a form")
     ns.WaysDonationFormURL=keep
-    ns.ShowOptionsSection("general") ns.ShowOptionsSection("sync")
+    ns.ShowOptionsSection("general") ns.ShowOptionsSection("fishing")
     ns.WaysDonationHintRefresh()
     if not keep or keep=="" then assert(not ns.WaysDonationHintFrame:GetScript("OnUpdate"),"idle polling without form") end
 end)

@@ -234,6 +234,7 @@ local function AddHeader(text)
     local fs = page:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     fs:SetPoint("TOPLEFT", colX + 2, nextY)
     ns.LText(fs, text)
+    if page.rows then page.rows[#page.rows + 1] = { holder = fs, x = colX + 2, h = 26 } end
     nextY = nextY - 20
 end
 
@@ -1217,17 +1218,6 @@ local function Build()
     AddHint("Uses the ways you have ridden yourself. Gaps between them are guessed.")
     AddHint("The run window shows the guessed share, without the first and last yards (always straight).")
     AddHint("Without height, a way may cross under a bridge or into a cave.")
-    AddCheck("Donation hint in chat",
-        function() return not ns.db.waysDonationHintOff end,
-        function(on) ns.WaysDonationHintSet(on) end)
-    local share = CreateFrame("Button", nil, page, "UIPanelButtonTemplate")
-    share:SetSize(240, 24)
-    share:SetPoint("TOPLEFT", colX + 6, nextY)
-    ns.LText(share, "Share my ways...")
-    share:SetScript("OnClick", function() ns.OpenWaysDonation() end)
-    share:SetShown(ns.WaysDonationLink() ~= nil)
-    page:HookScript("OnShow", function() share:SetShown(ns.WaysDonationLink() ~= nil) end)
-    nextY = nextY - 28
     -- what sharing did so far, kept up to date while the section is open
     nextY = nextY - 10
     AddHeader("Right now")
@@ -1301,6 +1291,22 @@ local function Build()
         function() return ns.db.fishLoudSplash end,
         function(on) ns.db.fishLoudSplash = on or nil end)
     AddHint("Sound effects at full volume, music and ambience quiet, while your line is out. Afterwards your volumes are back.")
+
+    -- (0.2.4 a6) the donation of the ways (0.2.3): here, not on Sharing - S1's block and the
+    -- donation's need 464 of 440 px there together (as decided for S4a-1, 24.11.2026)
+    AddHeader("Ways")
+    AddCheck("Donation hint in chat",
+        function() return not ns.db.waysDonationHintOff end,
+        function(on) ns.WaysDonationHintSet(on) end)
+    local share = CreateFrame("Button", nil, page, "UIPanelButtonTemplate")
+    share:SetSize(240, 24)
+    share:SetPoint("TOPLEFT", colX + 6, nextY)
+    ns.LText(share, "Share my ways...")
+    share:SetScript("OnClick", function() ns.OpenWaysDonation() end)
+    share:SetShown(ns.WaysDonationLink() ~= nil)
+    page:HookScript("OnShow", function() share:SetShown(ns.WaysDonationLink() ~= nil) end)
+    page.rows[#page.rows + 1] = { holder = share, x = colX + 6, h = 28 }
+    nextY = nextY - 28
 
     Section("general")
     AddHeader("Language")
