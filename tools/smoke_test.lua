@@ -35832,6 +35832,9 @@ step("Ways 0.2.4 S1.1 B1: the maps and the arrow show the centre line of the way
                 W.Run({ W.Node(60, 10) }, 2)
                 local r = Shown()
                 assert(r.state == "net", "test setup: a way")
+                -- (a straight way of 51 middles is drawn as one stretch: the middles on the straight line between
+                -- their neighbours are no bend, F4 §B)
+                assert(r.n == 2 and r.points.n == 2 and select(1, ns.WaysState()).core.cf.n == 53, "the straight centre line drawn with " .. r.n .. " points")
                 -- a drawing under way: started anew, three dots of it placed, then the work frame places nothing
                 drawer.Step = function() return 1 end
                 ns.WaysPublishDisplay()
@@ -36692,6 +36695,49 @@ step("Ways 0.2.4 S1.1 B5: the thread's own job - after the way is published (the
                 d.step, d.peak, T.used, T.limit, squares, nav.core.cf.n - 3, T.t.n, T.t.dn, T.repairs))
         end)
         WorldMapFrame:Hide()
+        W.Done()
+        if not ok then error(err, 0) end
+    end
+    -- 8. the guard's tolerance (F4.1 §C/§E): a bend 0.009 yd off its square is inside it, 0.011 yd off is not;
+    -- and a run with the line hidden on both maps (only the arrow): the job makes the thread, the arrow turns along it
+    for _, case in ipairs({ { 0.009, true }, { 0.011, false } }) do
+        local W = World({ { 10, 10 }, { 11, 10 }, { 12, 10 }, { 13, 10 } })
+        local ok, err = pcall(function()
+            local d = ns.WaysDiag()
+            local guard = d.fellGuard
+            Core.threadBendTest = function(T)
+                local t = T.t
+                if t.n ~= 3 then return end
+                t.x[4], t.y[4], T.vu[4], T.va[4] = t.x[3], t.y[3], T.vu[3], T.va[3]
+                t.x[3], t.y[3], T.vu[3], T.va[3] = 287.5, 250 - case[1], 5, 0 -- (below the side y = 250 of (11,10))
+                for k = 3, 4 do
+                    local dx, dy = t.x[k] - t.x[k - 1], t.y[k] - t.y[k - 1]
+                    t.raw[k] = t.raw[k - 1] + math.sqrt(dx * dx + dy * dy)
+                end
+                t.n = 4
+                Core.threadBendTest = nil
+            end
+            W.At(10, 10)
+            W.Run({ W.Node(13, 10) }, 2)
+            local kind = ns.WaysDisplay().kind
+            assert(kind == (case[2] and "thread" or "centre") and d.fellGuard == guard + (case[2] and 0 or 1),
+                ("a bend %.3f yd off its square: %s, the guard %d"):format(case[1], kind, d.fellGuard - guard))
+        end)
+        Core.threadBendTest = nil
+        W.Done()
+        if not ok then error(err, 0) end
+    end
+    do
+        local W = World(Stair(30, 10, 10))
+        local ok, err = pcall(function()
+            ns.db.routeLineHidden, ns.db.routeLineMiniHidden = true, true
+            W.At(10, 10)
+            W.Run({ W.Node(40, 20) }, 2)
+            local r = Shown()
+            assert(r.state == "net" and ns.WaysDisplay().kind == "thread" and r.points == ns.WaysThread().t.view, "only the arrow: the thread is made and shown to it")
+            assert(ns.WaysArrow(ns.run, W.World(262.5, 262.5)) ~= nil, "only the arrow: it turns along the thread")
+        end)
+        ns.db.routeLineHidden, ns.db.routeLineMiniHidden = nil, nil
         W.Done()
         if not ok then error(err, 0) end
     end
