@@ -36057,6 +36057,172 @@ step("Ways 0.2.4 S1.1 B2: the thread - the line pulled tight through the passage
         assert(Points() == whole and T.used == used and steps == used, ("in pieces of 1: %d steps, %d booked, %d in one go"):format(steps, T.used, used))
     end
 end)
+step("Ways 0.2.4 S1.1 B3: the display on the thread - d mapped through the pairs (r, s), never falling, still at an L's corner; its own segment by the forward rule; the arrow 30 yd ahead on it; the navigation the same (0.2.4 a7, F3 §4, F4 §A/§F/§G, F4.1 §C)", function()
+    local Near = WAYS.Near
+    local function Tol(a, b, t) return a ~= nil and math.abs(a - b) <= (t or 0.0005) end
+    local function World(squares)
+        local e = {}
+        WAYS.Ride(e, squares)
+        return WAYS.World(e)
+    end
+    local function Nav() return (ns.WaysState()) end
+    local function Shown() return ns.WaysRead(ns.run) end
+    -- 1. Codex' 75/70 (R2, R3): the L of 100 yd, you on the middle (37.5 | 12.5): the navigation 25 / 75 / 0,
+    -- the display on the thread at 26.3523 yd (on the centre line: 25)
+    do
+        local W = World({ { 0, 0 }, { 1, 0 }, { 2, 0 }, { 2, 1 }, { 2, 2 } })
+        local ok, err = pcall(function()
+            W.At(0, 0)
+            W.Run({ W.Node(2, 2) }, 2)
+            assert(Shown().state == "net", "test setup: the L's way")
+            local state, reason = ns.WaysThreadNow()
+            assert(state == "done", "test setup: the L's thread: " .. tostring(reason))
+            W.At(1, 0)
+            advance(0.2)
+            local core, r, disp = Nav().core, Shown(), ns.WaysDisplay()
+            assert(Tol(core.pos, 25, 0.005) and Tol(core.rest, 75, 0.005) and Tol(math.sqrt(core.offD), 0, 0.005) and core.on,
+                ("the navigation with the thread shown: %.4f / %.4f / %.4f"):format(core.pos, core.rest, math.sqrt(core.offD)))
+            assert(disp.kind == "thread" and r.points == ns.WaysThread().t.view and Tol(r.pos, 26.3523),
+                ("the display on the thread: %s at %.4f, want 26.3523"):format(disp.kind, r.pos))
+            -- its own segment: the thread drawn is (12.5|12.5) (50|25) (62.5|62.5); 26.35 yd is on the first
+            assert(r.seg == 1 and disp.seg == 1, "the display's segment: " .. r.seg)
+            -- the arrow: 30 yd ahead on the thread, from 26.3523: 16.8238 yd into the second stretch
+            local ax, ay = ns.WaysArrow(ns.run, W.World(37.5, 12.5))
+            local u = (26.3523 + 30 - 39.5285) / math.sqrt(12.5 ^ 2 + 37.5 ^ 2)
+            assert(ax and Tol(ax - (W.Z - 1400) * 6000, 50 + 12.5 * u, 0.002) and Tol(ay, 25 + 37.5 * u, 0.002),
+                ("the arrow on the thread: %.4f, %.4f"):format((ax or 0) - (W.Z - 1400) * 6000, ay or 0))
+            -- the same place with the centre line shown: the place is d itself; and the thread again
+            ns.WaysPublishDisplay()
+            assert(ns.WaysDisplay().kind == "centre" and Tol(Shown().pos, 25, 0.005), ("on the centre line: %.4f, want 25"):format(Shown().pos))
+            assert(ns.WaysThreadNow() == "done" and Tol(Shown().pos, 26.3523), ("the thread again: %.4f"):format(Shown().pos))
+            -- the corner of the L: d from 37.5 to 62.5 (two passages at one point) - the place stands still
+            W.At(2, 0)
+            advance(0.2)
+            assert(Tol(Shown().pos, 39.5285), ("at the L's corner: %.4f, want 39.5285"):format(Shown().pos))
+        end)
+        W.Done()
+        if not ok then error(err, 0) end
+    end
+    -- 2. Codex' entry from the side (R2, R3): d = 25.0416 lies on the bit from you - the thread's place is d
+    do
+        local W = World({ { 1, 0 }, { 2, 0 }, { 3, 0 }, { 4, 0 }, { 5, 0 } })
+        local ok, err = pcall(function()
+            W.Yards(12.5, 14.5)
+            W.Run({ W.Node(5, 0) }, 2)
+            local state = ns.WaysThreadNow()
+            assert(state == "done", "test setup: the thread from the side")
+            W.Yards(37.5, 12.5)
+            advance(0.2)
+            local core, r = Nav().core, Shown()
+            assert(Tol(core.rest, 100.0383) and Tol(math.sqrt(core.offD), 1.5998), ("the navigation: %.4f / %.4f"):format(core.rest, math.sqrt(core.offD)))
+            assert(Tol(r.pos, 25.0416) and r.seg == 1, ("the display: %.4f on segment %d, want 25.0416 on 1"):format(r.pos, r.seg))
+        end)
+        W.Done()
+        if not ok then error(err, 0) end
+    end
+    -- 3. riding along a winding way with the thread shown: the place never falls, it ends at the thread's
+    -- end; the navigation's numbers are the ones of the same ride with the centre line shown
+    do
+        local squares = { { 0, 0 }, { 1, 0 }, { 2, 1 }, { 3, 1 }, { 4, 1 }, { 4, 2 }, { 5, 3 }, { 6, 3 }, { 7, 3 }, { 8, 4 }, { 9, 4 } }
+        local function Ride(withThread)
+            local W = World(squares)
+            local seen = {}
+            local ok, err = pcall(function()
+                W.At(0, 0)
+                W.Run({ W.Node(9, 4) }, 2)
+                assert(Shown().state == "net", "test setup: the winding way")
+                if withThread then assert(ns.WaysThreadNow() == "done", "test setup: its thread") end
+                local last = -1
+                for _, q in ipairs(squares) do
+                    for f = 0, 4 do
+                        W.At(q[1], q[2], f * 5 - 10, 0)
+                        advance(0.1)
+                        local nav, r = Nav(), Shown()
+                        if not nav or r.state ~= "net" then break end -- (at the node the run goes on: the way's end)
+                        local core = nav.core
+                        seen[#seen + 1] = ("%.6f %.6f %.6f %s %d"):format(core.pos, core.rest, core.offD, tostring(core.on), core.seg)
+                        if withThread then
+                            assert(r.pos >= last - 1e-9, ("the place fell: %.4f after %.4f"):format(r.pos, last))
+                            assert(r.pos <= r.points.len + 1e-9, "the place is past the thread's end")
+                            last = r.pos
+                        end
+                    end
+                end
+            end)
+            W.Done()
+            if not ok then error(err, 0) end
+            return table.concat(seen, "\n"), #seen
+        end
+        local a, n = Ride(false)
+        local b = Ride(true)
+        assert(n > 30 and a == b, "the navigation is not the same with the thread shown")
+    end
+    -- 4. the bits of no length (you and the node on the middles) and the forward rule: on the border of two
+    -- segments the place belongs to the next one; at the very end to the last one
+    do
+        local W = World({ { 0, 0 }, { 1, 0 }, { 2, 0 }, { 2, 1 }, { 2, 2 } })
+        local ok, err = pcall(function()
+            W.At(0, 0)
+            W.Run({ W.Node(2, 2) }, 2)
+            assert(ns.WaysThreadNow() == "done", "test setup: the L's thread")
+            local r = Shown()
+            local b = r.points
+            -- (the points drawn: you, the corner, the node; you on the first middle - no bit drawn for it)
+            assert(b.n == 3 and Near(b.cum[2], 39.5284707521) and r.seg == 1, ("the L drawn: %d points, segment %d"):format(b.n, r.seg))
+            -- the corner itself: d = 37.5 maps to 39.5285 = the border of segments 1 and 2 -> segment 2
+            W.At(1, 0, 12.5, 0) -- (50 | 12.5): on the way at d = 37.5
+            advance(0.2)
+            r = Shown()
+            assert(Tol(r.pos, b.cum[2], 1e-6) and r.seg == 2, ("on the border: %.6f, segment %d"):format(r.pos, r.seg))
+            W.At(2, 2)
+            advance(0.2)
+            r = Shown()
+            assert(Tol(r.pos, b.len, 1e-6) and r.seg == 2, ("at the end: %.6f of %.6f, segment %d"):format(r.pos, b.len, r.seg))
+            -- the arrow: the point 30 yd ahead is on the last bit (here of no length): the node
+            assert(ns.WaysArrow(ns.run, W.World(62.5, 62.5)) == nil, "the arrow at the end turns to a point, not the node")
+        end)
+        W.Done()
+        if not ok then error(err, 0) end
+    end
+    -- 5. the arrow with the node 30 yd off the last square: the node once the point 30 yd ahead is on that bit
+    do
+        local W = World({ { 0, 0 }, { 1, 0 }, { 2, 0 }, { 3, 0 }, { 4, 0 }, { 5, 1 }, { 6, 1 } })
+        local ok, err = pcall(function()
+            W.At(0, 0)
+            local node = W.Node(6, 1)
+            node.y = node.y + 30 / W.h -- (30 yd off the middle of the last square)
+            W.Run({ node }, 2)
+            assert(Shown().state == "net" and ns.WaysThreadNow() == "done", "test setup: the thread to a node off the squares")
+            local b = Shown().points
+            assert(Tol(b.tail, 30, 0.01), "test setup: the last bit is 30 yd: " .. b.tail)
+            for _, q in ipairs({ { 1, 0 }, { 2, 0 }, { 3, 0 } }) do
+                W.At(q[1], q[2])
+                advance(0.1)
+            end
+            -- (on (3,0) the point 30 yd ahead is not on the last bit yet: the arrow turns to a point of the thread)
+            local r = Shown()
+            assert(r.state == "net" and r.pos + 30 < b.len - b.tail and ns.WaysArrow(ns.run, W.World(87.5, 12.5)) ~= nil, "on (3,0): the arrow turns to the node already")
+            W.At(4, 0)
+            advance(0.1)
+            W.At(5, 1)
+            advance(0.2)
+            r = Shown()
+            assert(r.state == "net", "test setup: still on the way")
+            local turn = r.pos + 30 >= b.len - b.tail
+            assert(turn, ("test setup: the point 30 yd ahead (%.2f) on the last bit (from %.2f)"):format(r.pos + 30, b.len - b.tail))
+            local ax = ns.WaysArrow(ns.run, W.World(137.5, 37.5))
+            assert((ax == nil) == turn, ("the arrow: the point 30 yd ahead at %.2f, the last bit from %.2f"):format(r.pos + 30, b.len - b.tail))
+            -- (with the line hidden the arrow reads the same)
+            ns.db.routeLineHidden, ns.db.routeLineMiniHidden = true, true
+            local ax2 = ns.WaysArrow(ns.run, W.World(137.5, 37.5))
+            ns.db.routeLineHidden, ns.db.routeLineMiniHidden = nil, nil
+            assert(ax2 == ax, "the arrow with the line hidden")
+        end)
+        ns.db.routeLineHidden, ns.db.routeLineMiniHidden = nil, nil
+        W.Done()
+        if not ok then error(err, 0) end
+    end
+end)
 
 step("Ways donation: canonical own pieces, no private fields, bounds and sliced multipart export", function()
     assert(loadfile(ROOT .. "/tools/ways_donation_test.lua"))()("codec", {ns=ns})

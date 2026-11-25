@@ -1608,9 +1608,12 @@ local function Event(T, x, y, u, kind, r, s)
     local e = T.en + 1
     local es = T.es
     if e > 1 then
-        if s < es[e - 1] - THREAD_TOL then return Fail(T, "order") end
-        -- (F4 §F: the same r with another s cannot be mapped)
-        if r <= T.er[e - 1] and s - es[e - 1] > THREAD_TOL then return Fail(T, "pairs") end
+        local before = es[e - 1]
+        if s < before - THREAD_TOL then return Fail(T, "order") end
+        -- (F4 §F: the same r with another s cannot be mapped; the pairs never fall - a crossing found a
+        -- rounding before the one before, at one point, is taken at it)
+        if r <= T.er[e - 1] and s - before > THREAD_TOL then return Fail(T, "pairs") end
+        if s < before then s = before end
     end
     es[e], T.er[e], T.ex[e], T.ey[e], T.eu[e], T.ek[e] = s, r, x, y, u, kind
     T.en = e
@@ -1881,7 +1884,9 @@ local read = { state = "none", n = 0, yards = 0, cost = 0, guessed = 0, percent 
 -- yards of the way you have come (d = the way's yards - its rest, both the navigation's), and its
 -- own mark: read.pub counts at every change of what is shown (the display revision); the way's
 -- generation (nav.core.gen) only at a way published. The navigation never reads any of it.
-local disp = { buf = nil, seg = 1, pos = 0, gen = -1, kind = "none" }
+local disp = { buf = nil, seg = 1, pos = 0, gen = -1, kind = "none", mi = 1 }
+-- (0.2.4 a7, S1.1 B2/B3) the thread's job: one for all runs, its lists written over and kept
+local thread = M.NewThread()
 local function Conv(fx, fy, mapID) return HBD:GetWorldCoordinatesFromZone(fx, fy, mapID) end
 -- (the points the maps put into world yards in one step of the work: 16 at the most, F4.1 §B)
 local MAP_POINTS = 16
@@ -1894,12 +1899,31 @@ local function Locate(b, s, at)
     while s < n - 1 and (cum[s + 1] <= at or cum[s + 1] == cum[s]) do s = s + 1 end
     return s
 end
--- The display's place for the navigation's progress (once a frame, with Follow)
+-- (S1.1 B3, F3 §4, F4 §A/§F) Where the yards d along the way of the net lie on the thread: between the
+-- pairs (r, s) of its passages and anchors, in a straight line; never falling (two passages at one corner:
+-- the place stands still); the bits from you and to the node are the centre line's (s = r there, moved by
+-- what the thread is shorter). Forwards from the pair found the last time (disp.mi).
+local function ThreadAt(d)
+    local T = thread
+    local er, es, en = T.er, T.es, T.en
+    if d <= er[1] then return es[1] - (er[1] - d) end
+    if d >= er[en] then return es[en] + (d - er[en]) end
+    local i = disp.mi
+    if i < 1 or i >= en or er[i] > d then i = 1 end
+    while i < en - 1 and er[i + 1] <= d do i = i + 1 end
+    disp.mi = i
+    local r0, r1 = er[i], er[i + 1]
+    if r1 <= r0 then return es[i + 1] end
+    return es[i] + (d - r0) * (es[i + 1] - es[i]) / (r1 - r0)
+end
+-- The display's place for the navigation's progress (once a frame, with Follow): the yards of the way you
+-- have come (d), on the centre line the same yards, on the thread where they lie on it
 local function DisplayFollow()
     local b = disp.buf
     if not (b and nav) then return end
     local core = nav.core
     local at = core.front.yards - core.rest
+    if disp.kind == "thread" then at = ThreadAt(at) end
     if at < 0 then at = 0 elseif at > b.len then at = b.len end
     disp.pos = at
     disp.seg = Locate(b, disp.seg, at)
@@ -1972,7 +1996,7 @@ end
 -- a step begun for the old one writes nothing.
 local function PublishDisplay(buf, kind)
     if drawer then drawer.Hide() end
-    disp.buf, disp.kind, disp.seg = buf, kind, 1
+    disp.buf, disp.kind, disp.seg, disp.mi = buf, kind, 1, 1
     read.pub = read.pub + 1
     DisplayFollow()
     read.seg, read.pos = disp.seg, disp.pos
@@ -2054,7 +2078,7 @@ local function Release()
     CancelRequest()
     nav.state = "none"
     nav, navRun = nil, nil
-    disp.buf, disp.kind, disp.gen, disp.seg, disp.pos = nil, "none", -1, 1, 0
+    disp.buf, disp.kind, disp.gen, disp.seg, disp.pos, disp.mi = nil, "none", -1, 1, 0, 1
     read.state, read.points, read.n, read.source = "none", nil, 0, nil
     ctx = nil
     net.mapID, net.ready, net.building, net.over, net.fresh = nil, false, false, nil, 0
@@ -2343,7 +2367,7 @@ local function Step()
                     local c = nav.core.cf
                     c.conv, c.map, c.w, c.h = Conv, req.map, net.w, net.h
                     c.pwx, c.pwy, c.twx, c.twy = req.pwx, req.pwy, req.twx, req.twy
-                    disp.buf, disp.kind, disp.gen, disp.seg, disp.pos = c.view, "centre", nav.core.gen, 1, 0
+                    disp.buf, disp.kind, disp.gen, disp.seg, disp.pos, disp.mi = c.view, "centre", nav.core.gen, 1, 0, 1
                     read.pub = read.pub + 1
                     nav.stamp = -1
                     nav.source = SourceText(nav.core.front.percent)
@@ -2516,6 +2540,15 @@ ns.WaysMapFull = function() return M.convs - convStep > MAP_POINTS - 2 end
 -- (the tests) another geometry for the way shown, without a new way: the centre line again
 ns.WaysPublishDisplay = function(buf, kind) if nav and nav.core.state == "net" then PublishDisplay(buf or nav.core.cf.view, kind or "centre") end end
 ns.WaysDisplay = function() return disp end
+-- (the tests, S1.1 B3) the thread of the way shown, in one go, and shown when it is done
+ns.WaysThreadNow = function()
+    if not (nav and nav.core.state == "net") then return "none" end
+    if disp.kind == "thread" then PublishDisplay(nav.core.cf.view, "centre") end
+    local state, reason = M.Thread(thread, nav.core.cf, nav.core.gen)
+    if state == "done" then PublishDisplay(thread.t.view, "thread") end
+    return state, reason
+end
+ns.WaysThread = function() return thread end
 -- Route.lua's own S1 work outside the steps (hiding a line, starting one) counts for the frame too
 ns.WaysNow = Clock
 -- (0.2.4 r1, Codex S1-N1) not counted twice when it comes inside a call that counts already
