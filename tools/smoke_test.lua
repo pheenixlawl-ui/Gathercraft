@@ -16361,6 +16361,104 @@ step("Route 0.2.4: no bite has more than 1.0 ms of planning work - 2-opt's and U
     if not ok then error(err, 0) end
 end)
 
+step("Route 0.2.4: after a new plan the bites' lists hold no node that is gone - 100 points cut to two while the bites work (Codex' case), nodes gone after the improved path was shown and a plan that ends before it looks at the points; the two-point plan works, the lists stay the same tables (0.2.4 r2, Codex H-N1)", function()
+    local Z = 1441
+    local R = ns.RouteRefine()
+    local H = libs["HereBeDragons-2.0"]
+    local saved = { map = player.map, x = player.x, y = player.y, list = ns.db.nodes[Z], clock = ns.RouteClock, getTime = GetTime,
+        refine = ns.RouteTune.refine, me = H.GetPlayerWorldPosition }
+    local FRAME = 7000
+    local function Node(x, y) return { name = "Peacebloom", type = "herb", id = "o1618", x = x, y = y, count = 1, last = time() - 86400 } end
+    -- the points of the lists whose node is one of these (a point of a run is a table with its node)
+    local function Held(gone)
+        local n = 0
+        for k = 1, 3 do
+            for _, q in ipairs(R.bufs[k]) do
+                if gone[q] or q.node and gone[q.node] then n = n + 1 end
+            end
+        end
+        return n
+    end
+    local function Sizes() return ("%d / %d / %d"):format(#R.bufs[1], #R.bufs[2], #R.bufs[3]) end
+    local ok, err = pcall(function()
+        local list = {}
+        local seed = 17
+        local function Rand() seed = (seed * 1103515245 + 12345) % 2147483648 return seed / 2147483648 end
+        for i = 1, 100 do list[i] = Node(0.3 + 0.6 * Rand(), 0.3 + 0.4 * Rand()) end
+        local gone = {}
+        for i = 3, 100 do gone[list[i]] = true end
+        ns.db.nodes[Z] = list
+        ns.NotifyNodesChanged()
+        player.map, player.x, player.y = Z, 0.2, 0.5
+        ns.RouteTune.refine = true
+        GetTime = function() return FRAME end
+        ns.RouteClock = function() return 0 end -- (the bites of a plan in one frame)
+        ns.StartRun("herb", Z) advance(1)
+        local run = ns.run
+        assert(run and #run.points == 100, "test setup: a run with the 100 points")
+        local lists = { R.bufs[1], R.bufs[2], R.bufs[3] }
+        -- A. Codex' case: bites under way, 98 of the nodes gone, a new plan with the two left, the next frame
+        run.target, run.targetPoint = nil, nil
+        FRAME = FRAME + 1
+        ns.RouteReplan()
+        assert(R.job and R.job.phase == 1 and Held(gone) > 0, "test setup: bites under way with the 100 points")
+        ns.db.nodes[Z] = { list[1], list[2] }
+        ns.NotifyNodesChanged()
+        run.target, run.targetPoint = nil, nil
+        FRAME = FRAME + 1
+        ns.RouteReplan()
+        FRAME = FRAME + 1
+        R.Step()
+        assert(not R.job and #run.points == 2, ("test setup: two points and no bites (%d points)"):format(#run.points))
+        assert(Held(gone) == 0, ("after the plan with two points the lists hold %d points of the 98 nodes that are gone (lists %s)"):format(Held(gone), Sizes()))
+        -- the plan with two points works: its path goes to the two nodes left
+        assert(#run.path == 2 and (run.path[1].node == list[1] or run.path[1].node == list[2]) and run.path[1].node ~= run.path[2].node
+            and (run.path[2].node == list[1] or run.path[2].node == list[2]) and run.target == run.path[1].node,
+            "the plan with the two points left is not a path to them")
+        -- B. the 100 points again: bites to the improved path shown; then 98 nodes gone and a plan that ends before
+        -- it looks at the points (no position right now)
+        ns.db.nodes[Z] = list
+        ns.NotifyNodesChanged()
+        run.target, run.targetPoint = nil, nil
+        FRAME = FRAME + 1
+        ns.RouteReplan()
+        assert(R.job and #run.points == 100, "test setup: bites with the 100 points again")
+        local frames = 0
+        while R.job and frames < 50 do FRAME = FRAME + 1 R.Step() frames = frames + 1 end
+        assert(not R.job and #run.path >= 50, "test setup: the improved path shown")
+        ns.db.nodes[Z] = { list[1], list[2] }
+        ns.NotifyNodesChanged()
+        H.GetPlayerWorldPosition = function() return nil end
+        FRAME = FRAME + 1
+        ns.RouteReplan()
+        H.GetPlayerWorldPosition = saved.me
+        FRAME = FRAME + 1
+        R.Step()
+        assert(Held(gone) == 0, ("nodes gone after the improved path was shown, a plan with no position: the lists hold %d points of them (lists %s)"):format(Held(gone), Sizes()))
+        -- C. and with the position back the plan with the two points, then the 100 again in bites: the same lists
+        FRAME = FRAME + 1
+        ns.RouteReplan()
+        assert(#run.points == 2 and #run.path == 2 and not R.job, "test setup: the plan with the two points")
+        ns.db.nodes[Z] = list
+        ns.NotifyNodesChanged()
+        run.target, run.targetPoint = nil, nil
+        FRAME = FRAME + 1
+        ns.RouteReplan()
+        frames = 0
+        while R.job and frames < 50 do FRAME = FRAME + 1 R.Step() frames = frames + 1 end
+        assert(not R.job and #run.points == 100 and #run.path >= 50, "after the plan with two points the bites of 100 do not come to their end")
+        for k = 1, 3 do assert(R.bufs[k] == lists[k], "the bites' list " .. k .. " was made anew") end
+    end)
+    H.GetPlayerWorldPosition = saved.me
+    if ns.run then ns.StopRun(true) end
+    GetTime, ns.RouteClock, ns.RouteTune.refine = saved.getTime, saved.clock, saved.refine
+    ns.db.nodes[Z] = saved.list
+    ns.NotifyNodesChanged()
+    player.map, player.x, player.y = saved.map, saved.x, saved.y
+    advance(1)
+    if not ok then error(err, 0) end
+end)
+
 step("Settings: no game setting is changed in combat - the gathering help and the bobber settings follow at the end of the fight (v0.1.22 R1, combat)", function()
     -- Sven, 13.11.2026 (live, 0.1.22 a62cefe): the questing mode switched on
     -- in a fight - "[ADDON_ACTION_BLOCKED] AddOn 'Gathercraft' tried to call

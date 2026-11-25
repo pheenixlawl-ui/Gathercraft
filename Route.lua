@@ -1868,10 +1868,13 @@ function Refine.Drop(why)
     if Refine.frame then Refine.frame:Hide() end
     -- (0.2.4 r1, Codex H-N1) nothing works with the lists any more (a new plan fills them
     -- anew when it takes them): they keep no points or nodes, the tables themselves stay
-    for k = 1, #Refine.bufs do
-        local b = Refine.bufs[k]
-        for i = #b, 1, -1 do b[i] = nil end
-    end
+    Refine.Free(1, 3)
+end
+-- (0.2.4 r2, Codex H-N1) Lists nothing works with any more keep no points (the tables stay):
+-- the job's two (1, 2) when a new plan comes, also one with no bites, and when the improved
+-- path is shown; the open points (3) after the plan; all three at a drop
+function Refine.Free(first, last)
+    for k = first, last do Refine.Take(k) end
 end
 
 -- The plan's own work counts for its frame (Plan's wrapper)
@@ -1886,6 +1889,7 @@ end
 -- target was kept from before (2-opt then orders what follows it, from it)
 function Refine.Start(run, path, keep, px, py, instance, quick)
     Refine.job = nil
+    Refine.Free(1, 2)
     if #path < 3 then return end
     local job = { run = run, gen = run.planGen, instance = instance, px = px, py = py, keep = keep and true or false,
         budget = quick and QUICK_BUDGET_MS or OPT_BUDGET_MS, phase = 1, ms = {} }
@@ -2089,6 +2093,7 @@ function Refine.Show(job)
     for i = old, n + 1, -1 do path[i] = nil end
     if same then
         Refine.stats.done, Refine.stats.same = Refine.stats.done + 1, Refine.stats.same + 1
+        Refine.Free(1, 2)
         Refine.Note(Refine.Clock() - t0)
         return
     end
@@ -2102,6 +2107,7 @@ function Refine.Show(job)
     run.targetPoint = path[1]
     DrawLine(path, length, job.instance, job.px, job.py)
     Refine.stats.done = Refine.stats.done + 1
+    Refine.Free(1, 2)
     Refine.Note(Refine.Clock() - t0)
 end
 Refine.frame = CreateFrame("Frame")
@@ -2294,7 +2300,8 @@ Plan = function(quick)
     for _, c in ipairs(run.checking) do run.checkingSet[c.node] = true end
 
     -- (0.2.4 a2 part B) the open points in a list kept from plan to plan:
-    -- nothing keeps it after the plan (a plan that plans again returns at once)
+    -- nothing keeps it after the plan (a plan that plans again returns at once;
+    -- 0.2.4 r2: emptied after the plan, see Plan's wrapper)
     local open, now = Refine.Take(3), time()
     for _, p in ipairs(points) do
         if Available(p, run, now, true) then open[#open + 1] = p end
@@ -2509,7 +2516,11 @@ do
         Refine.depth = Refine.depth + 1
         local t0 = Refine.depth == 1 and Refine.Clock()
         local ok, err = pcall(body, quick)
-        if t0 then Refine.Note(Refine.Clock() - t0) end
+        -- (0.2.4 r2, Codex H-N1) the open points are the plan's own: nothing keeps them after it
+        if t0 then
+            Refine.Free(3, 3)
+            Refine.Note(Refine.Clock() - t0)
+        end
         Refine.depth = Refine.depth - 1
         if not ok then error(err, 0) end
     end
