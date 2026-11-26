@@ -38314,7 +38314,8 @@ step("Ways 0.2.4 S1.1 a9 R1 M1: a call of the core does 32 pieces of work at the
     for w, c in ipairs(ways) do
         local first
         for _, budget in ipairs({ 32, 1, 5 }) do
-            Run(c, budget)
+            local m, mu, mw = Run(c, budget)
+            assert(m <= budget and mu <= budget and mw <= budget, ("way %d at %d a call: a call returned %d, booked %d, worked %d"):format(w, budget, m, mu, mw))
             local d = T.state .. " " .. Drawing()
             first = first or d
             assert(d == first, ("way %d: the drawing at %d a call is not the one at 32"):format(w, budget))
@@ -38523,7 +38524,7 @@ step("Ways 0.2.4 S1.1 a9 R1 M2: the work of a step is set per kind of work and p
     end
     assert(stage4 >= 2, ("test setup: the radix sorts' spreading (stage 4) seen in %d phases"):format(stage4))
 end)
-step("Ways 0.2.4 S1.1 a9 measure: the real clock on Codex' two 800 ways in a net of 8,000 squares (only with GC_MEASURE_A9 set)", function()
+step("Ways 0.2.4 S1.1 a9 measure: the real clock on Codex' two kinds of an 800 way and his way with arcs in a net of 8,000 squares, each cell on its own (only with GC_MEASURE_A9 set)", function()
     if not os.getenv("GC_MEASURE_A9") then return end
     local Core = ns.WaysCore
     local ffi = require("ffi")
@@ -38550,11 +38551,33 @@ step("Ways 0.2.4 S1.1 a9 measure: the real clock on Codex' two 800 ways in a net
     local jitOff = os.getenv("GC_MEASURE_A9_JIT") == "off" and jit ~= nil
     if jitOff then jit.off() jit.flush() end
     note("MEASURE a9 setup", ("clock %s, LuaJIT compiler %s"):format(cpu and "the thread's CPU time" or "wall", jitOff and "off" or "on"))
-    local way, x, y = { { 5, 5 } }, 5, 5
-    for i = 1, 800 do
-        if i % 4 == 0 then x, y = x + 1, y + 1 else x = x + 1 end
-        way[#way + 1] = { x, y }
+    -- the two load ways of 800 edges: Codex' stairs (three east, one north-east: its diagonals' corners stay points -
+    -- no arc) and (0.2.4 a9 R1, Codex N1) his way with arcs (eight east, four north, eight east, four south)
+    local WAYS800 = {}
+    do
+        local stairs, x, y = { { 5, 5 } }, 5, 5
+        for i = 1, 800 do
+            if i % 4 == 0 then x, y = x + 1, y + 1 else x = x + 1 end
+            stairs[#stairs + 1] = { x, y }
+        end
+        local arcs = { { 5, 5 } }
+        x, y = 5, 5
+        local pattern = { { 1, 0, 8 }, { 0, 1, 4 }, { 1, 0, 8 }, { 0, -1, 4 } }
+        local n, p = 0, 1
+        while n < 800 do
+            local d = pattern[p]
+            for _ = 1, d[3] do
+                if n < 800 then
+                    x, y = x + d[1], y + d[2]
+                    arcs[#arcs + 1] = { x, y }
+                    n = n + 1
+                end
+            end
+            p = p % 4 + 1
+        end
+        WAYS800 = { { name = "stairs", way = stairs }, { name = "arcs", way = arcs } }
     end
+    local way
     local filler, row = {}, 0
     while #filler < 7199 do
         local r = {}
@@ -38588,7 +38611,9 @@ step("Ways 0.2.4 S1.1 a9 measure: the real clock on Codex' two 800 ways in a net
     end
     local results = {}
     local ok, err = pcall(function()
-        for _, kind in ipairs({ "GREV", "OBS" }) do
+        for _, w8 in ipairs(WAYS800) do
+          way = w8.way
+          for _, kind in ipairs({ "GREV", "OBS" }) do
             for _, temp in ipairs({ "cold", "warm" }) do
                 local runs = {}
                 local W
@@ -38638,8 +38663,9 @@ step("Ways 0.2.4 S1.1 a9 measure: the real clock on Codex' two 800 ways in a net
                     advance(0.1)
                 end
                 if W then W.Done() end
-                results[#results + 1] = { kind = kind, temp = temp, runs = runs }
+                results[#results + 1] = { way = w8.name, kind = kind, temp = temp, runs = runs }
             end
+          end
         end
     end)
     Core.ThreadStep, ns.WaysClock = keepStep, keepClock
@@ -38647,26 +38673,37 @@ step("Ways 0.2.4 S1.1 a9 measure: the real clock on Codex' two 800 ways in a net
     HBD.GetWorldCoordinatesFromZone, HBD.GetPlayerWorldPosition, HBD.GetZoneCoordinatesFromWorld, HBD.GetZoneDistance = keepHBD[1], keepHBD[2], keepHBD[3], keepHBD[4]
     WorldMapFrame:Hide()
     if not ok then error(err, 0) end
-    local coreMax = 0
+    -- (0.2.4 a9 R1, Codex M2) each cell on its own: its runs over 0.25 ms a step or 1.0 ms a frame, its runs not drawn,
+    -- (the way with arcs) its runs without an arc. Not drawn or no arc: a failure whatever the clock. Over the limits:
+    -- a failure with the thread's CPU time and LuaJIT's compiler off (as the game: no compiler; a compiler's trace is
+    -- translated in the call that runs it) - with the wall clock or the compiler on noted only.
+    local fails = {}
     for _, r in ipairs(results) do
-        local c, s, p, fp, fr, over, miss = 0, 0, 0, 0, 0, 0, 0
+        local c, s, p, fp, fr, overStep, overFrame, miss, noArc, minArcs = 0, 0, 0, 0, 0, 0, 0, 0, 0, math.huge
         for _, x in ipairs(r.runs) do
             c, s, p = math.max(c, x.core), math.max(s, x.step), math.max(p, x.peak)
             if x.fromPub then fp, fr = math.max(fp, x.fromPub), math.max(fr, x.drawn) else miss = miss + 1 end
-            if x.step > 0.25 then over = over + 1 end
+            if x.step > 0.25 then overStep = overStep + 1 end
+            if x.peak > 1.0 then overFrame = overFrame + 1 end
+            if (x.arcs or 0) < 1 then noArc = noArc + 1 end
+            if (x.arcs or 0) < minArcs then minArcs = x.arcs or 0 end
         end
-        if c > coreMax then coreMax = c end
-        note("MEASURE a9 " .. r.kind .. " " .. r.temp, ("core %.4f ms, step %.4f ms (%d runs over 0.25), frame %.4f ms; published -> drawn %d frames (%.2f s), start -> drawn %d frames; %d runs not drawn; arcs %d")
-            :format(c, s, over, p, fp, fp / 60, fr, miss, r.runs[1].arcs or -1))
+        local cell = r.way .. " " .. r.kind .. " " .. r.temp
+        note("MEASURE a9 " .. cell, ("core %.4f ms, step %.4f ms (%d runs over 0.25), frame %.4f ms (%d runs over 1.0); published -> drawn %d frames (%.2f s), start -> drawn %d frames; %d runs not drawn; arcs %d at the least")
+            :format(c, s, overStep, p, overFrame, fp, fp / 60, fr, miss, minArcs))
         for i, x in ipairs(r.runs) do
-            note("MEASURE a9 run", ("%s %s %d: core %.4f step %.4f frame %.4f pub %s drawn %s (late %s, cancelled %s, over the limits %s)"):format(r.kind, r.temp, i, x.core, x.step,
-                x.peak, tostring(x.pub), tostring(x.drawn), tostring(x.late), tostring(x.given), tostring(x.over)))
+            note("MEASURE a9 run", ("%s %d: core %.4f step %.4f frame %.4f pub %s drawn %s arcs %s (late %s, cancelled %s, over the limits %s)"):format(cell, i, x.core, x.step,
+                x.peak, tostring(x.pub), tostring(x.drawn), tostring(x.arcs), tostring(x.late), tostring(x.given), tostring(x.over)))
+        end
+        if miss > 0 then fails[#fails + 1] = ("%s: %d runs not drawn"):format(cell, miss) end
+        if r.way == "arcs" and noArc > 0 then fails[#fails + 1] = ("%s: %d runs without an arc"):format(cell, noArc) end
+        if cpu and jitOff then
+            if c > 0.25 then fails[#fails + 1] = ("%s: a call of the thread's core of %.4f ms (0.25 at the most)"):format(cell, c) end
+            if overStep > 0 then fails[#fails + 1] = ("%s: %d runs with a step over 0.25 ms (%.4f at the most)"):format(cell, overStep, s) end
+            if overFrame > 0 then fails[#fails + 1] = ("%s: %d runs with a frame over 1.0 ms (%.4f at the most)"):format(cell, overFrame, p) end
         end
     end
-    -- (the thread's own part: its core's call; the step and the frame sum hold the whole S1 work - noted above)
-    if cpu and jitOff then
-        assert(coreMax <= 0.25, ("the thread's core: a call of %.4f ms of CPU time (0.25 at the most)"):format(coreMax))
-    end
+    assert(#fails == 0, table.concat(fails, "; "))
 end)
 
 step("Ways donation: canonical own pieces, no private fields, bounds and sliced multipart export", function()
