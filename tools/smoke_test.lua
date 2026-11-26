@@ -38598,7 +38598,9 @@ step("Ways 0.2.4 S1.1 a9 R1 M2: the work of a step is set per kind of work and p
 end)
 -- (0.2.4 a9 R1, Codex M2: the spikes that stayed were the garbage collector's steps - a build of a net of 8,000 squares
 -- made its lists anew in every run, about 2 MB: the run's end let them go)
-step("Ways 0.2.4 S1.1 a9 R1 M2: the build's and the search's lists stay from run to run (the option off lets them go) - a second run's build takes no memory (less than 16 KB with the collector stopped; the first run's S1 work about 2.8 MB, the second run's search, keep, thread and map dots noted): the way the same", function()
+-- A second run's build takes no memory (less than 16 KB with the collector stopped; the first run's S1 work about 2.8 MB,
+-- the second run's search, keep, thread and map dots noted); the way the same.
+step("Ways 0.2.4 S1.1 a9 R1 M2: the lists stay from run to run (the option off lets them go)", function()
     local Core = ns.WaysCore
     local drawer = ns.RouteWaysDrawer
     local filler, row = {}, 0
@@ -38636,8 +38638,14 @@ step("Ways 0.2.4 S1.1 a9 R1 M2: the build's and the search's lists stay from run
         W.Clock("fast") -- (the mock's clock: the steps and frames the same whatever the computer's load)
         local function Run()
             W.At(5, 20)
-            W.Run({ W.Node(60, 20) }, 3)
+            W.Run({ W.Node(60, 20) }, 1)
+            -- (until the way and its thread are there: the run's own start - the route's planning - goes by the real clock)
             local r = W.Read()
+            for _ = 1, 600 do
+                r = W.Read()
+                if r.state == "net" and ns.WaysDisplay().kind == "thread" then break end
+                advance(0.1)
+            end
             assert(r.state == "net" and ns.WaysDisplay().kind == "thread", "test setup: a way in the net of 8,000 squares, its thread shown: " .. tostring(r.state))
             local way = W.Way()
             ns.StopRun(true)
