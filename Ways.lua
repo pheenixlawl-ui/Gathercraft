@@ -2542,6 +2542,8 @@ local function Release()
     nav.state = "none"
     nav, navRun = nil, nil
     disp.buf, disp.kind, disp.gen, disp.seg, disp.pos, disp.mi = nil, "none", -1, 1, 0, 1
+    -- (0.2.4 a8, Codex N1) the thread's job lets the last centre line go; its own lists stay for the next run
+    thread.c, threadWant = nil, nil
     read.state, read.points, read.n, read.source = "none", nil, 0, nil
     ctx = nil
     net.mapID, net.ready, net.building, net.over, net.fresh = nil, false, false, nil, 0

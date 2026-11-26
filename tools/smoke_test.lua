@@ -37118,7 +37118,46 @@ step("Ways 0.2.4 S1.1 R1 M3: a late change of what is shown finds its place by a
         if not ok then error(err, 0) end
     end
 end)
-
+-- (0.2.4 a8, Codex' check of a6/a7, N1) The thread's job is one for the session: it kept the last centre line it
+-- was made for (thread.c) when the run ended or the option went off - Codex: a 422-point buffer, 42.4 KiB.
+step("Ways 0.2.4 S1.1 R1 N1: the run's last centre line is let go when the run ends and when the option goes off - after two garbage collections it is gone; the thread's own lists stay (0.2.4 a8, Codex N1)", function()
+    for _, how in ipairs({ "stop", "off" }) do
+        local sq, x, y = { { 10, 10 } }, 10, 10
+        for i = 1, 60 do
+            if i % 3 == 0 then x, y = x + 1, y + 1 else x = x + 1 end
+            sq[#sq + 1] = { x, y }
+        end
+        local e = {}
+        WAYS.Ride(e, sq)
+        local W = WAYS.World(e)
+        local ok, err = pcall(function()
+            W.At(10, 10)
+            W.Run({ W.Node(x, y) }, 2)
+            assert(ns.WaysThreadNow() == "done", how .. ": test setup: the thread")
+            local weak = setmetatable({}, { __mode = "v" })
+            do
+                local nav = ns.WaysState()
+                weak[1] = nav.core.cf
+                assert(ns.WaysThread().c == nav.core.cf, how .. ": test setup: the thread's job was made for the centre line shown")
+            end
+            if how == "stop" then
+                ns.StopRun(true)
+            else
+                ns.db.routeWaysOff = true
+                ns.WaysOptionChanged()
+            end
+            advance(1)
+            collectgarbage("collect")
+            collectgarbage("collect")
+            assert(weak[1] == nil, how .. ": the last centre line is still held after two garbage collections")
+            local T = ns.WaysThread()
+            assert(T.t and T.t.x and T.sv, how .. ": the thread's own lists are kept")
+        end)
+        ns.db.routeWaysOff = nil
+        W.Done()
+        if not ok then error(err, 0) end
+    end
+end)
 step("Ways donation: canonical own pieces, no private fields, bounds and sliced multipart export", function()
     assert(loadfile(ROOT .. "/tools/ways_donation_test.lua"))()("codec", {ns=ns})
 end)
