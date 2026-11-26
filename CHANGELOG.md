@@ -9,5 +9,6 @@
 
 ### Changed
 - **Smoother farm runs:** less work and less memory while you ride. The route line's head no longer makes garbage around the minimap pins, a run keeps its points from plan to plan, and gathering a run's points again after a harvest skips the zones on other continents and the kind checks where nothing is unticked.
-- **The skill plan counts your stock:** materials you already have count at their market value, and of two steps that cost the same, the one that uses your stock comes first.
+- **The skill plan counts your stock:** materials you already have count at their market value. When two recipes cost the same per skill point, the plan prefers the one that uses less of your stock's value.
 - **`/gcr perf on`** also shows how much garbage each part of the addon makes, next to its time, and the addon's memory at the start and at the end.
+- **More starter spots:** 284 new gathering spots in three zones, from a player's saved gathers and confirmed shared spots.
