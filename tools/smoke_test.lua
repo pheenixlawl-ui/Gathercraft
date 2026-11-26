@@ -33860,6 +33860,7 @@ end
 step("Ways 0.2.4: a farm run asks for its way at one place and shows it only for the run, the node, the node's place, the zone and the net it was found in - a late or stale result is dropped; off the way by more than 25 yd it is taken back and asked anew; what cannot be read is never worked with (S1 W3)", function()
     -- (0.2.4 a7, S1.1 B5: the thread's job gives up at once here - this step is about S1's work on the line shown, the centre line whenever no thread is done; the thread shown is the S1.1 steps' part)
     ns.WaysCore.threadFactor = 0
+    ns.WaysCore.displayCentreTest = true -- (0.2.4 a9: the dots along the centre line, as these steps were written; the game shows the straight line)
     local held, heldErr = pcall(function()
         local Core, Near = ns.WaysCore, WAYS.Near
         local W = WAYS.World(WAYS.U())
@@ -34074,6 +34075,7 @@ step("Ways 0.2.4: a farm run asks for its way at one place and shows it only for
         if not ok then error(err, 0) end
     end)
     ns.WaysCore.threadFactor = nil
+    ns.WaysCore.displayCentreTest = nil
     if not held then error(heldErr, 0) end
 end)
 
@@ -34496,6 +34498,7 @@ end
 step("Ways 0.2.4: the line's head follows the way - its own dots at fixed places along it, 150 a map at the most, 32 segments ahead on the minimap and 48 on the world map, on the world map only while it is open; riding hides the dots behind you and places nothing; the straight head is gone meanwhile (S1 W4)", function()
     -- (0.2.4 a7, S1.1 B5: the thread's job gives up at once here - this step is about S1's work on the line shown, the centre line whenever no thread is done; the thread shown is the S1.1 steps' part)
     ns.WaysCore.threadFactor = 0
+    ns.WaysCore.displayCentreTest = true -- (0.2.4 a9: the dots along the centre line, as these steps were written; the game shows the straight line)
     local held, heldErr = pcall(function()
         local Near = WAYS.Near
         local W = WAYS.World(WAYS.U())
@@ -34678,6 +34681,7 @@ step("Ways 0.2.4: the line's head follows the way - its own dots at fixed places
         if not ok then error(err, 0) end
     end)
     ns.WaysCore.threadFactor = nil
+    ns.WaysCore.displayCentreTest = nil
     if not held then error(heldErr, 0) end
 end)
 
@@ -34740,6 +34744,7 @@ end)
 step("Ways 0.2.4: a way that is taken back is unseen in the same frame, on both maps, however full the frame was (1.0 ms for all of S1, 0.25 ms of it kept back for this); a map opened later shows nothing of it; its dots come off the maps in later frames; a new way is drawn from you outwards (S1 W4, Codex R3-M1 and R4-N2)", function()
     -- (0.2.4 a7, S1.1 B5: the thread's job gives up at once here - this step is about S1's work on the line shown, the centre line whenever no thread is done; the thread shown is the S1.1 steps' part)
     ns.WaysCore.threadFactor = 0
+    ns.WaysCore.displayCentreTest = true -- (0.2.4 a9: the dots along the centre line, as these steps were written; the game shows the straight line)
     local held, heldErr = pcall(function()
         local Near = WAYS.Near
         local e, squares = {}, {}
@@ -34900,12 +34905,14 @@ step("Ways 0.2.4: a way that is taken back is unseen in the same frame, on both 
         if not ok then error(err, 0) end
     end)
     ns.WaysCore.threadFactor = nil
+    ns.WaysCore.displayCentreTest = nil
     if not held then error(heldErr, 0) end
 end)
 
 step("Ways 0.2.4: the run window's line may be the first to take a way back - its hiding counts for the frame once, not missing and not twice, also when taking it back tells the run window again (0.2.4 r1, Codex S1-N1)", function()
     -- (0.2.4 a7, S1.1 B5: the thread's job gives up at once here - this step is about S1's work on the line shown, the centre line whenever no thread is done; the thread shown is the S1.1 steps' part)
     ns.WaysCore.threadFactor = 0
+    ns.WaysCore.displayCentreTest = true -- (0.2.4 a9: the dots along the centre line, as these steps were written; the game shows the straight line)
     local held, heldErr = pcall(function()
         local Near = WAYS.Near
         local e, squares = {}, {}
@@ -34983,11 +34990,13 @@ step("Ways 0.2.4: the run window's line may be the first to take a way back - it
         if not ok then error(err, 0) end
     end)
     ns.WaysCore.threadFactor = nil
+    ns.WaysCore.displayCentreTest = nil
     if not held then error(heldErr, 0) end
 end)
 step("Ways 0.2.4: only the arrow's angle follows the way - it turns to the point 30 yd ahead along it; the distance, the name and Here! stay with the node; at a hairpin it does not jump ahead; near the node, without a way and with the option off it points at the node as before; the game's waypoint is untouched (S1 W5)", function()
     -- (0.2.4 a7, S1.1 B5: the thread's job gives up at once here - this step is about S1's work on the line shown, the centre line whenever no thread is done; the thread shown is the S1.1 steps' part)
     ns.WaysCore.threadFactor = 0
+    ns.WaysCore.displayCentreTest = true -- (0.2.4 a9: the dots along the centre line, as these steps were written; the game shows the straight line)
     local held, heldErr = pcall(function()
         local Near = WAYS.Near
         -- a hairpin: east from (10,10) to (20,10), one square south, back west to (10,11) - and on south to
@@ -35151,6 +35160,7 @@ step("Ways 0.2.4: only the arrow's angle follows the way - it turns to the point
         if not ok then error(err, 0) end
     end)
     ns.WaysCore.threadFactor = nil
+    ns.WaysCore.displayCentreTest = nil
     if not held then error(heldErr, 0) end
 end)
 
@@ -35749,6 +35759,7 @@ end)
 step("Ways 0.2.4 S1.1 B1: the maps and the arrow show the centre line of the way - every square's middle - while the navigation reads the a5 buffer as before; the display has its own place (from the yards you have come), its own revision at every change of what is shown, and its world places only where they are read (0.2.4 a7, F4 §A/§B, F4.1 §B/§C, F4.2)", function()
     -- (0.2.4 a7, S1.1 B5: the thread's job gives up at once here - this step is about the centre line, shown until a thread is done and whenever none is)
     ns.WaysCore.threadFactor = 0
+    ns.WaysCore.displayCentreTest = true -- (0.2.4 a9: the dots along the centre line, as these steps were written; the game shows the straight line)
     local held, heldErr = pcall(function()
         local Near = WAYS.Near
         local Core = ns.WaysCore
@@ -35934,6 +35945,7 @@ step("Ways 0.2.4 S1.1 B1: the maps and the arrow show the centre line of the way
         end
     end)
     ns.WaysCore.threadFactor = nil
+    ns.WaysCore.displayCentreTest = nil
     if not held then error(heldErr, 0) end
 end)
 step("Ways 0.2.4 S1.1 B2: the thread - the line pulled tight through the passages of the way in order, anchored at the end middles, guessed edges and diagonal corners; no U cut short, no square skipped; events checked over the stretches' borders, repaired with protective anchors; one counter of 4 times the passages (0.2.4 a7, F3 §3, F4 §C/§F)", function()
@@ -36221,9 +36233,11 @@ step("Ways 0.2.4 S1.1 B3: the display on the thread - d mapped through the pairs
             end
             assert(ax and Tol(ax - (W.Z - 1400) * 6000, wx, 0.002) and Tol(ay, wy, 0.002),
                 ("the arrow on the thread: %.4f, %.4f"):format((ax or 0) - (W.Z - 1400) * 6000, ay or 0))
-            -- the same place with the centre line shown: the place is d itself; and the thread again
+            -- (0.2.4 a9, F4.3 §1) the straight line shown instead: no points of the way read, the arrow to the node,
+            -- the navigation the same; and the thread again
             ns.WaysPublishDisplay()
-            assert(ns.WaysDisplay().kind == "centre" and Tol(Shown().pos, 25, 0.005), ("on the centre line: %.4f, want 25"):format(Shown().pos))
+            assert(ns.WaysDisplay().kind == "straight" and Shown().straight and ns.WaysArrow(ns.run, W.World(37.5, 12.5)) == nil and Tol(Nav().core.pos, 25, 0.005),
+                "the straight line shown: the navigation at " .. Nav().core.pos)
             assert(ns.WaysThreadNow() == "done" and Tol(Shown().pos, 25.4702), ("the thread again: %.4f"):format(Shown().pos))
             -- the corner of the L: d from 37.5 to 62.5 - (0.2.4 a9) the corner cut 6 yd off, the two sides 8.4853 yd
             -- apart along the thread: the place goes along the cut, half way at d = 50
@@ -36564,8 +36578,9 @@ step("Ways 0.2.4 S1.1 B5: the thread's own job - after the way is published (the
                 seen.used = T.used
                 if r.state == "net" and not published then
                     published = { pub = r.pub, gen = nav.core.gen, kind = disp.kind, frames = f }
-                    assert(disp.kind == "centre" and r.points == nav.core.cf.view, "the first frame of the way: its centre line")
-                    assert(ns.WaysArrow(ns.run, W.World(262.5, 262.5)) ~= nil, "the first frame of the way: the arrow's point")
+                    -- (0.2.4 a9, F4.3 §1: the straight line as with the option off, the arrow to the node)
+                    assert(disp.kind == "straight" and r.straight, "the first frame of the way: the straight line")
+                    assert(ns.WaysArrow(ns.run, W.World(262.5, 262.5)) == nil, "the first frame of the way: the arrow turns to the node")
                 end
                 if disp.kind == "thread" then
                     shown = { pub = r.pub, gen = nav.core.gen, frames = f, tgen = T.gen }
@@ -36649,7 +36664,7 @@ step("Ways 0.2.4 S1.1 B5: the thread's own job - after the way is published (the
             end
             W.At(10, 10)
             W.Run({ W.Node(13, 10) }, 2)
-            assert(Shown().state == "net" and ns.WaysDisplay().kind == "centre" and d.fellGuard == guard + 1, "the bend off its square: the guard gives the thread up")
+            assert(Shown().state == "net" and ns.WaysDisplay().kind == "straight" and d.fellGuard == guard + 1, "the bend off its square: the guard gives the thread up, the straight line stays")
             assert(ns.WaysPerf():find("1 guard", 1, true), "/gcr perf: " .. ns.WaysPerf())
             Core.threadBendTest = nil
             assert(ns.WaysThreadNow() == "done", "the same way without the bend: its thread")
@@ -36669,8 +36684,8 @@ step("Ways 0.2.4 S1.1 B5: the thread's own job - after the way is published (the
             W.Run({ W.Node(40, 20) }, 2)
             Core.threadFactor = nil
             local r = Shown()
-            assert(r.state == "net" and ns.WaysDisplay().kind == "centre" and d.fellCount == fell + 1, "the counter spent: the centre line")
-            assert(r.points == select(1, ns.WaysState()).core.cf.view and ns.WaysArrow(ns.run, W.World(262.5, 262.5)) ~= nil, "the centre line stays readable")
+            assert(r.state == "net" and ns.WaysDisplay().kind == "straight" and r.straight and d.fellCount == fell + 1, "the counter spent: the straight line")
+            assert(ns.WaysArrow(ns.run, W.World(262.5, 262.5)) == nil, "the counter spent: the arrow turns to the node")
         end)
         Core.threadFactor = nil
         W.Done()
@@ -36823,7 +36838,7 @@ step("Ways 0.2.4 S1.1 B5: the thread's own job - after the way is published (the
             W.At(10, 10)
             W.Run({ W.Node(13, 10) }, 2)
             local kind = ns.WaysDisplay().kind
-            assert(kind == (case[2] and "thread" or "centre") and d.fellGuard == guard + (case[2] and 0 or 1),
+            assert(kind == (case[2] and "thread" or "straight") and d.fellGuard == guard + (case[2] and 0 or 1),
                 ("a bend %.3f yd off its square: %s, the guard %d"):format(case[1], kind, d.fellGuard - guard))
         end)
         Core.threadBendTest = nil
@@ -37174,7 +37189,7 @@ step("Ways 0.2.4 S1.1 R1 M2: the guard checks a guessed edge (CON, GREV) as a wh
                     assert(shown == "thread" and d.fellGuard == guard and d.fellCount == count, ("%s without a bend: %s, %d guard"):format(kind[1], shown, d.fellGuard - guard))
                 else
                     assert(Core.threadBendTest == nil, kind[1] .. ", " .. where .. ": test setup: the bend was not put in")
-                    assert(shown == "centre" and d.fellGuard == guard + 1 and d.fellCount == count and d.fellOther == other,
+                    assert(shown == "straight" and d.fellGuard == guard + 1 and d.fellCount == count and d.fellOther == other,
                         ("%s, a bend %s the crossing: %s, %d guard, %d counter, %d other"):format(kind[1], where, shown, d.fellGuard - guard, d.fellCount - count, d.fellOther - other))
                 end
             end)
@@ -37611,7 +37626,7 @@ step("Ways 0.2.4 S1.1 a9 part 3: a GREV edge is smoothed like OBS and REV, only 
         end
         local k = ctx.keepJob
         local _, want = ns.WaysThread()
-        assert(early and early.kind == "centre" and early.pub == pub + 1 and not early.done, "CON -> REV: T1 in the frame of the change, the check still open")
+        assert(early and early.kind == "straight" and early.pub == pub + 1 and not early.done, "CON -> REV: T1 in the frame of the change (the straight line), the check still open")
         r = W.Read()
         assert(k.done and k.ok and r.percent == 0 and want == gen and core.gen == gen, ("CON -> REV: T2, the new kinds (%s %%), a thread wanted for them"):format(tostring(r.percent)))
         -- the thread for the new kinds: the former connector smoothed, its middles no points of it
@@ -37871,6 +37886,88 @@ step("Ways 0.2.4 S1.1 a9 part 5a: the pairs (r, s) found anew on the finished dr
         assert(ax and wx and math.abs(ax - (W.Z - 1400) * 6000 - wx) < 0.002 and math.abs(ay - wy) < 0.002,
             ("the arrow: (%.4f, %.4f), the drawing 30 yd ahead (%.4f, %.4f)"):format((ax or 0) - (W.Z - 1400) * 6000, ay or 0, wx or 0, wy or 0))
     end)
+    W.Done()
+    if not ok then error(err, 0) end
+end)
+
+step("Ways 0.2.4 S1.1 a9 parts 1 and 6: the centre line is never shown - until the thread is done and after it is given up the maps show the straight line as with the option off, pin for pin, and the arrow turns to the node; the navigation goes on; after a give-up the straight line stays until the next valid order, with no new try between (0.2.4 a9, F4.3 §1, F4.4 §3)", function()
+    local Core = ns.WaysCore
+    -- the straight head's pins on both maps, as text (sorted)
+    local function Head(P)
+        local out = {}
+        for _, kind in ipairs({ "world", "mini" }) do
+            local list = {}
+            for _, at in pairs(P[kind][P.HEAD] or {}) do list[#list + 1] = ("%.6f,%.6f"):format(at[1], at[2]) end
+            table.sort(list)
+            out[#out + 1] = kind .. ": " .. table.concat(list, " ")
+        end
+        return table.concat(out, " | ")
+    end
+    local function Shot(off, factor)
+        local P = WAYS.Pins()
+        local W = WAYS.World(WAYS.U())
+        local shot
+        local ok, err = pcall(function()
+            WorldMapFrame:Show()
+            ns.db.routeWaysOff = off or nil
+            Core.threadFactor = factor
+            W.At(10, 10)
+            W.Run({ W.Node(10, 20) }, 2)
+            local frames, centre = 0, 0
+            for _ = 1, 20 do
+                advance(0.05)
+                frames = frames + 1
+                local d = ns.WaysDisplay()
+                if d.kind == "centre" then centre = centre + 1 end
+            end
+            W.At(12, 10)
+            advance(0.2)
+            local r = W.Read()
+            local nav = ns.WaysState()
+            shot = { head = Head(P), kind = ns.WaysDisplay().kind, straight = r.straight, state = r.state, arrow = ns.WaysArrow(ns.run, W.World(312.5, 262.5)),
+                centre = centre, pos = nav and nav.core and nav.core.pos, dots = #P.Seen("world") + #P.Seen("mini") }
+        end)
+        Core.threadFactor = nil
+        ns.db.routeWaysOff = nil
+        WorldMapFrame:Hide()
+        P.Done()
+        W.Done()
+        if not ok then error(err, 0) end
+        return shot
+    end
+    -- the thread given up at once (a counter of 0): the straight line, the arrow to the node, the navigation on
+    local on = Shot(false, 0)
+    assert(on.state == "net" and on.kind == "straight" and on.straight and on.arrow == nil and on.dots == 0 and on.centre == 0,
+        ("the thread given up: %s, %s, %s dots, arrow %s, %d frames of the centre line"):format(on.state, on.kind, on.dots, tostring(on.arrow), on.centre))
+    assert(on.pos and on.pos > 40, "the navigation follows you on the way: " .. tostring(on.pos))
+    local off = Shot(true)
+    assert(off.head ~= "world:  | mini: " and on.head == off.head, "the straight line with the option on and the thread given up is not the one with the option off:\n" .. on.head .. "\n" .. off.head)
+    -- (F4.4 §3) after the give-up: no new try in any frame - the counter's give-up counted once; a new node (a
+    -- valid order) brings a thread, shown
+    local W = WAYS.World(WAYS.U())
+    local ok, err = pcall(function()
+        local d = ns.WaysDiag()
+        local fell = d.fellCount
+        Core.threadFactor = 0
+        W.At(10, 10)
+        W.Run({ W.Node(10, 20) }, 2)
+        local T = ns.WaysThread()
+        local ask = T.ask
+        for _ = 1, 40 do
+            advance(0.05)
+            assert(ns.WaysDisplay().kind == "straight", "after the give-up: " .. ns.WaysDisplay().kind)
+        end
+        local _, want = ns.WaysThread()
+        assert(d.fellCount == fell + 1 and T.ask == ask and want == nil, ("after the give-up: %d give-ups, the job asked %s -> %s, wanted %s"):format(d.fellCount - fell, tostring(ask), tostring(T.ask), tostring(want)))
+        Core.threadFactor = nil
+        -- (a valid order: 30 yd off the way - it is taken back and asked anew from there, a new way, its thread)
+        local gen = select(1, ns.WaysState()).core.gen
+        W.At(12, 11, 0, 5)
+        for _ = 1, 40 do advance(0.05) end
+        assert(select(1, ns.WaysState()).core.gen > gen, "test setup: a new way")
+        assert(ns.WaysDisplay().kind == "thread" and not W.Read().straight, "the next valid order: its thread shown (" .. ns.WaysDisplay().kind .. ")")
+    end)
+    Core.threadFactor = nil
     W.Done()
     if not ok then error(err, 0) end
 end)

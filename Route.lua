@@ -1338,7 +1338,7 @@ local function WaysStep(ops)
     if wh.job then
         local run = ns.run
         local way = run and ns.WaysRead(run)
-        if not (way and way.state == "net" and way.pub == wh.pub) then
+        if not (way and way.state == "net" and not way.straight and way.pub == wh.pub) then
             wh.job = false
             return 1
         end
@@ -1492,7 +1492,8 @@ local function DrawHead(px, py, instance)
     -- (0.2.4 S1) a way along your own paths is shown (Ways.lua): its dots
     -- instead of the straight ones. Otherwise everything below is as it was.
     local way = ns.WaysRead and ns.WaysRead(run)
-    if way and way.state == "net" then
+    -- (0.2.4 a9: while the way's thread is made, Ways.lua shows the straight line - drawn here as before)
+    if way and way.state == "net" and not way.straight then
         local t0 = ns.WaysNow()
         ClearStraight()
         WaysStart(way, instance)
@@ -1554,7 +1555,7 @@ local function UpdateHead()
     if not px or instance ~= run.instance then return end
     -- (0.2.4 S1) a way is shown: its dots are looked after instead of the straight head
     local way = ns.WaysRead and ns.WaysRead(run)
-    if way and way.state == "net" then
+    if way and way.state == "net" and not way.straight then
         local t0 = ns.WaysNow()
         WaysUpdate(run, way, px, py, instance)
         ns.WaysSpend(ns.WaysNow() - t0)

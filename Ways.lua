@@ -2556,7 +2556,7 @@ local gen = 0    -- counts at every start and stop of a run
 local net = { mapID = nil, ready = false, building = false, over = nil, rev = 0, epoch = 0, fresh = 0, t0 = 0, w = 0, h = 0 }
 local req = { active = false }
 local keeping = false -- the rest of the way shown is being looked at against a new net
-local read = { state = "none", n = 0, yards = 0, cost = 0, guessed = 0, percent = 0, seg = 1, pos = 0, serial = 0, pub = 0 }
+local read = { state = "none", n = 0, yards = 0, cost = 0, guessed = 0, percent = 0, seg = 1, pos = 0, serial = 0, pub = 0, straight = false }
 -- (0.2.4 a7, S1.1) What the maps and the arrow show - the display: the centre line of the way
 -- published (B1), later its thread. It has its own place along it (seg, pos), worked out from the
 -- yards of the way you have come (d = the way's yards - its rest, both the navigation's), and its
@@ -3056,7 +3056,7 @@ local function ThreadWork(budget)
         diag.threads, diag.booked = diag.threads + 1, diag.booked + T.used
         if T.repairs > 0 then diag.repaired = diag.repaired + 1 end
         -- (0.2.4 a9, F4.6 §4) shown: the finished drawing with its arcs - the maps and the arrow read this one list
-        if disp.kind == "centre" and disp.gen == nav.core.gen then used = used + PublishDisplay(T.f.view, "thread") end
+        if (disp.kind == "straight" or disp.kind == "centre") and disp.gen == nav.core.gen then used = used + PublishDisplay(T.f.view, "thread") end
     elseif T.state == "failed" then
         threadWant = nil
         diag.booked = diag.booked + T.used
@@ -3159,11 +3159,15 @@ local function Step()
                     -- published: the buffers change places; what was shown before is hidden first
                     if nav.core.state == "net" and drawer then drawer.Hide() end
                     M.Publish(nav.core)
-                    -- (0.2.4 a7, S1.1 B1) shown: the centre line of this way, from you outwards
+                    -- (0.2.4 a9, F4.3 §1) shown: the straight line, as with the option off, until its thread is done
+                    -- (the centre line stays inside: the thread is made from it, it is never drawn)
                     local c = nav.core.cf
                     c.conv, c.map, c.w, c.h = Conv, req.map, net.w, net.h
                     c.pwx, c.pwy, c.twx, c.twy = req.pwx, req.pwy, req.twx, req.twy
-                    disp.buf, disp.kind, disp.gen, disp.seg, disp.pos, disp.mi = c.view, "centre", nav.core.gen, 1, 0, 1
+                    -- (M.displayCentreTest: only the pre-S1.1 steps that test the dots along a way shown - the centre
+                    -- line as a8 showed it; the game never sets it)
+                    local centre = M.displayCentreTest
+                    disp.buf, disp.kind, disp.gen, disp.seg, disp.pos, disp.mi = centre and c.view or nil, centre and "centre" or "straight", nav.core.gen, 1, 0, 1
                     read.pub = read.pub + 1
                     -- (S1.1 B5, F4 §D) its thread: a job of its own, after this publication
                     threadWant, threadAsk = nav.core.gen, threadAsk + 1
@@ -3188,7 +3192,8 @@ local function Step()
                 -- for the old kinds any more.
                 k.early = true
                 threadWant = nil
-                if disp.kind == "thread" then used = used + PublishDisplay(nav.core.cf.view, "centre") end
+                -- (0.2.4 a9, F4.3 §1) the straight line, as with the option off - not the centre line
+                if disp.kind == "thread" then used = used + PublishDisplay(nil, "straight") end
             end
             if k.done then
                 req.active, keeping = false, false
@@ -3275,15 +3280,19 @@ ns.WaysRead = Wrap("Ways", function(run)
     if nav and run == navRun and Valid(run) then
         local b = nav.core.front
         -- (0.2.4 a7, S1.1) the points and the place are the display's; the numbers the navigation's
+        -- (0.2.4 a9, F4.3 §1) straight: the way of the net is the navigation's, the maps draw the straight line as
+        -- with the option off (Route.lua draws its own straight head when this is set) and the arrow turns to the node
         local d = disp.buf or b
         read.state, read.points, read.n, read.yards, read.cost = "net", d, d.n, b.yards, b.cost
         read.source, read.guessed, read.percent = "net", b.guess, b.percent
         read.seg, read.pos = disp.seg, disp.pos
+        read.straight = disp.kind == "straight"
     else
         local state = nav and run == navRun and nav.state or "none"
         if state == "net" then state = "line" end
         read.state, read.points, read.n, read.yards, read.cost = state, nil, 0, 0, 0
         read.source, read.guessed, read.percent = state == "line" and "line" or nil, 0, 0
+        read.straight = false
     end
     Leave(t0)
     return read
@@ -3303,7 +3312,14 @@ ns.WaysArrow = Wrap("Ways", function(run, px, py)
     if Valid(run) and not AnySecret("ways", px, py) and type(px) == "number" and type(py) == "number" then
         if Follow(px, py) then
             -- (0.2.4 a7, S1.1) on the display, from its own place
-            if disp.buf then x, y = DisplayArrow() else x, y = M.ArrowPoint(nav.core) end
+            -- (0.2.4 a9, F4.3 §1: the straight line shown - the arrow turns to the node, as with the option off)
+            if disp.kind == "straight" then
+                x, y = nil, nil
+            elseif disp.buf then
+                x, y = DisplayArrow()
+            else
+                x, y = M.ArrowPoint(nav.core)
+            end
         else
             Withdraw()
             nav.asked = false
@@ -3347,12 +3363,17 @@ ns.WaysWork = function() work:Show() end
 -- world yards in one step at the most (a dot needs two at the most)
 ns.WaysMapFull = function() return M.convs - convStep > MAP_POINTS - 2 end
 -- (the tests) another geometry for the way shown, without a new way: the centre line again
-ns.WaysPublishDisplay = function(buf, kind) if nav and nav.core.state == "net" then PublishDisplay(buf or nav.core.cf.view, kind or "centre") end end
+ns.WaysPublishDisplay = function(buf, kind)
+    if nav and nav.core.state == "net" then
+        if not kind and M.displayCentreTest then buf, kind = nav.core.cf.view, "centre" end
+        PublishDisplay(buf, kind or "straight")
+    end
+end
 ns.WaysDisplay = function() return disp end
 -- (the tests, S1.1 B3) the thread of the way shown, in one go, and shown when it is done
 ns.WaysThreadNow = function()
     if not (nav and nav.core.state == "net") then return "none" end
-    if disp.kind == "thread" then PublishDisplay(nav.core.cf.view, "centre") end
+    if disp.kind == "thread" then PublishDisplay(nil, "straight") end
     local state, reason = M.Thread(thread, nav.core.cf, nav.core.gen)
     if state == "done" then PublishDisplay(thread.f.view, "thread") end
     return state, reason
