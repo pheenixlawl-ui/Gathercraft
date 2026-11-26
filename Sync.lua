@@ -166,9 +166,9 @@ local function Perf()
     if ns.MiniPinCounts then near, inZone = ns.MiniPinCounts() end
     -- (own messages heard back: since login - does this realm send our own
     -- messages back to us? AnswerStops counts on it and has a rule without it)
-    ns.Print(("perf (%s): sync messages received %d, send attempts %d; nodes announced %d (before any check); refused: %d messages over the budget, %d nodes over the limit per player; refused by the game when sending: %d throttled, %d channel throttled, %d channel not valid; other addons' messages %d; time in the receive and send handlers %.1f ms; own messages heard back %d of %d send attempts since login; %s; minimap pins: %d near / %d in zone"):format(
+    ns.Print(("perf (%s): sync messages received %d, send attempts %d; nodes announced %d (before any check); refused: %d messages over the budget, %d nodes over the limit per player; refused by the game when sending: %d throttled, %d channel throttled, %d channel not valid; other addons' messages %d; time in the receive and send handlers %.1f ms; own messages heard back %d of %d send attempts since login; refused for where they came from since login: %d from another channel, %d of unknown origin; %s; minimap pins: %d near / %d in zone"):format(
         what, b.msgIn, b.msgOut, b.nodes, b.overBudget, b.overLimit, b.throttled or 0, b.chanThrottled or 0, b.badChannel or 0, b.other, b.ms,
-        perf.back or 0, perf.sent or 0, kb and ("memory %.1f MB"):format(kb / 1024) or "memory not readable in this client", near, inZone))
+        perf.back or 0, perf.sent or 0, perf.otherChannel or 0, perf.unknownOrigin or 0, kb and ("memory %.1f MB"):format(kb / 1024) or "memory not readable in this client", near, inZone))
 end
 
 ---------------------------------------------------------------------------
@@ -200,6 +200,14 @@ local function LearnSelf(sender, text)
         return true
     end
     return false
+end
+
+-- (0.2.4 a12) whether LearnSelf would take the sender for oneself (the same rule) - nothing learned
+local function SelfLike(sender, text)
+    local t = sentAt[text]
+    if not t or time() - t > 10 then return false end
+    local short, me = ShortName(sender), ns.Readable(UnitName("player"), "sync")
+    return me ~= nil and short:sub(1, #me + 1) == me .. " "
 end
 
 local function IsFriend(sender)
@@ -426,6 +434,12 @@ local function Out(item, target)
     if item.answer then AnswerSent(item.answer, item.text) end
     Debug(("sent [%s] %s -> %s%s"):format(item.target, item.text:sub(1, 60), tostring(ok),
         err and (" (" .. tostring(err) .. ")") or ""))
+end
+
+-- (0.2.4 a12, the same as 0.2.5 a5's for P and W, R2-M1) only whether the sender is blocked - nothing learned: asked
+-- before the node receiving knows where a message came from (LearnSelf comes only after that)
+ns.SyncSenderBlocked = function(sender)
+    return DB().blocked[ShortName(sender)] == true
 end
 
 local function SendNext()
@@ -1120,7 +1134,37 @@ local function WithinBudget()
     return true
 end
 
-local function Receive(prefix, text, distribution, sender, dry)
+-- (0.2.4 a12, the same as WaysSend's in 0.2.5 a4/a5) Where a channel message came from, by the fields of the event
+-- (its channel's number, the 7th; its name, the 8th): "sync" from GathercraftSync (number `channel`), "other" from
+-- another channel, "unknown" when the event does not say
+local function Origin(channel, localID, name)
+    if ns.AnySecret("sync heard origin", localID, name) then return "unknown" end
+    local byNumber, byName
+    if type(localID) == "number" and localID > 0 then byNumber = localID == channel end
+    if type(name) == "string" and name ~= "" then
+        local n, base = name:match("^(%d+)%.%s*(.+)$")
+        if base then
+            byName = base:lower() == "gathercraftsync" and tonumber(n) == channel
+        else
+            byName = name:lower() == "gathercraftsync"
+        end
+    end
+    if byNumber == false or byName == false then return "other" end
+    if byNumber or byName then return "sync" end
+    return "unknown"
+end
+
+-- (0.2.4 a12) where a node message came from: the guild; a channel as Origin says ("unknown" too while the number
+-- GathercraftSync has now is not known); "direct" for a whisper, the party or the raid - never an own message back
+local function From(distribution, localID, name)
+    if distribution == "GUILD" then return "guild" end
+    if distribution ~= "CHANNEL" then return "direct" end
+    local channel = WayChannel()
+    if not channel then return "unknown" end
+    return Origin(channel, localID, name)
+end
+
+local function Receive(prefix, text, distribution, sender, dry, localID, name)
     if prefix ~= PREFIX then
         -- (every addon's messages pass this handler)
         if not dry then
@@ -1133,8 +1177,29 @@ local function Receive(prefix, text, distribution, sender, dry)
     local msgKind, msgMap = text:match("^(%u):(%d+)")
     msgMap = tonumber(msgMap)
     if not dry then
+        -- (0.2.4 a12, as WaysSend in 0.2.5 a5, R2-M1) the kind, where it came from and whether the sender is blocked
+        -- before anything that learns who oneself is: a node message from another channel - or one the event does not
+        -- say where from, or from a blocked player - right after the own one with the same text never makes its
+        -- sender oneself. Only GathercraftSync and the guild, where the own messages come back, teach an own
+        -- two-part name. A message from another channel is refused; one of unknown origin only if it looks like the
+        -- own echo (own or not: nobody can tell - neither learned nor taken as somebody else's), the others as before.
+        local kind = text:match("^(%u):")
+        local from = From(distribution, localID, name)
+        if from == "other" then
+            perf.otherChannel = (perf.otherChannel or 0) + 1
+            return
+        end
+        local mine = IsSelf(sender)
+        if not mine and (kind == "N" or kind == "Q" or kind == "V") and not ns.SyncSenderBlocked(sender) then
+            if from == "sync" or from == "guild" then
+                mine = LearnSelf(sender, text)
+            elseif from == "unknown" and SelfLike(sender, text) then
+                perf.unknownOrigin = (perf.unknownOrigin or 0) + 1
+                return
+            end
+        end
         -- our own messages come back from the channel: not worth a debug line
-        if IsSelf(sender) or LearnSelf(sender, text) then
+        if mine then
             perf.back = (perf.back or 0) + 1
             AnswerEcho(text)
             return
@@ -1476,10 +1541,10 @@ frame:SetScript("OnEvent", function(self, event, ...)
             C_Timer.After(2, CurrentZoneQuery)
         end)
     elseif event == "CHAT_MSG_ADDON" then
-        local prefix, text, distribution, sender = ...
+        local prefix, text, distribution, sender, _, _, localID, name = ...
         if ns.AnySecret("CHAT_MSG_ADDON", prefix, text, distribution, sender) then return end
         local t0 = debugprofilestop()
-        Receive(prefix, text, distribution, sender, false)
+        Receive(prefix, text, distribution, sender, false, localID, name)
         PerfTime(t0)
     elseif event == "ZONE_CHANGED_NEW_AREA" then
         if ns.db and ns.db.sync then

@@ -20053,6 +20053,126 @@ step("Sync 0.2.4 a10: node messages go to the number GathercraftSync has right n
     advance(10)
     if not ok then error(err, 0) end
 end)
+-- (0.2.4 a12, as WaysSend's P and W in 0.2.5 a5, R2-M1) Where a node message came from and whether its sender is
+-- blocked are asked before anything that learns who oneself is: a node message from another channel, one the event
+-- does not say where from, or one from a blocked player moments after the own one with the same text never makes its
+-- sender oneself. Codex' case through the real handler: the own short name "Test"; the own node message on
+-- GathercraftSync (7), at once the same text from "Test Fern-Forever" on Trade (5) - refused and counted, nothing
+-- learned; 12 s later a node message of the same player on 7 - heard as somebody else's, not as the own echo. The
+-- control "Test Elm-Forever" on 7: heard. The same with no channel fields (unknown origin) and for a blocked player
+-- within the 10 s. The own echo of a two-part name on GathercraftSync and in the guild: learned, as before. And the
+-- code: no call that learns before where the message came from is known.
+step("Sync 0.2.4 a12: where a node message came from is asked before anything that learns who oneself is - from another channel, of unknown origin or from a blocked player right after the own one it never makes its sender oneself", function()
+    local keep = { chan = GetChannelName, name = UnitName, debug = ns.db.debug, public = ns.db.sync.public, enabled = ns.db.sync.enabled }
+    local made = {}
+    local ASH = "Test Ash"
+    local ASHKEY = Ambiguate(ASH .. "-Forever", "none") -- (the key the block list has)
+    local ok, err = pcall(function()
+        GetChannelName = function(name)
+            if name == "GathercraftSync" then return 7, name end
+            return 0
+        end
+        UnitName = function(u) if u == "player" then return "Test" end return keep.name(u) end
+        ns.db.debug = true
+        ns.db.sync.enabled, ns.db.sync.public = true, true
+        slash("sync on") -- (joined: the number kept is 7)
+        advance(15)
+        local function Perf()
+            local mark = #log
+            slash("perf")
+            local line
+            for i = mark + 1, #log do if log[i]:find("^PRINT") and log[i]:find("perf (", 1, true) then line = log[i] end end
+            assert(line, "/gcr perf printed no line")
+            return line
+        end
+        local function Number(line, pattern)
+            local v = line:match(pattern)
+            assert(v, "not in the line (" .. pattern .. "): " .. line)
+            return tonumber(v)
+        end
+        local function Heard(who)
+            local c = 0
+            for _, l in ipairs(log) do
+                if l:find("recv [CHANNEL] " .. who .. "-", 1, true) or l:find("recv [GUILD] " .. who .. "-", 1, true) then c = c + 1 end
+            end
+            return c
+        end
+        -- what a message did: refused for another channel, refused for an unknown origin, heard back as the own,
+        -- heard as somebody else's
+        local function Did(fn, who)
+            local line = Perf()
+            local o, u, b, h = Number(line, "(%d+) from another channel"), Number(line, "(%d+) of unknown origin"), Number(line, "own messages heard back (%d+)"), Heard(who)
+            fn()
+            line = Perf()
+            return ("other %+d unknown %+d own %+d heard %+d"):format(Number(line, "(%d+) from another channel") - o, Number(line, "(%d+) of unknown origin") - u,
+                Number(line, "own messages heard back (%d+)") - b, Heard(who) - h)
+        end
+        local function expect(got, want, what) assert(got == want, ("%s: %s (wanted %s)"):format(what, got, want)) end
+        local function Channel(text, who, localID, name)
+            return function() fire("CHAT_MSG_ADDON", "Gathercraft", text, "CHANNEL", who .. "-Forever", nil, nil, localID, name) end
+        end
+        -- the own node message as it went to the channel (a harvest shared): its text
+        local function Own(x)
+            local node = { id = "o1619", name = "Earthroot", type = "herb", x = x, y = 0.63, count = 1, last = time(), item = 2449 }
+            table.insert(ns.db.nodes[1412], node)
+            made[#made + 1] = node
+            local n0 = #sentMessages
+            ns.SyncShare(1412, node)
+            advance(3)
+            assert(#sentMessages > n0, "test setup: the own node message did not go out")
+            return sentMessages[#sentMessages]
+        end
+        local ASK = "Q:1412:999" -- (a node question nobody can add to: nothing answered)
+        -- 1./2. Codex' case: the own message on 7, at once the same text from Test Fern on Trade (5)
+        local text = Own(0.3111)
+        expect(Did(Channel(text, "Test Fern", 5, "Trade"), "Test Fern"), "other +1 unknown +0 own +0 heard +0", "the own node message's text from Test Fern on Trade right after it")
+        -- 3. 12 s later a node message of the same player on GathercraftSync: somebody else's, not the own echo
+        advance(12)
+        expect(Did(Channel(ASK, "Test Fern", 7, "GathercraftSync"), "Test Fern"), "other +0 unknown +0 own +0 heard +1", "a node message of Test Fern on GathercraftSync 12 s later")
+        -- 4. the control: Test Elm on 7
+        expect(Did(Channel(ASK, "Test Elm", 7, "GathercraftSync"), "Test Elm"), "other +0 unknown +0 own +0 heard +1", "the control: Test Elm on GathercraftSync")
+        -- 5. an unknown origin right after the own message (no channel fields): the same
+        text = Own(0.3222)
+        expect(Did(Channel(text, "Test Oak"), "Test Oak"), "other +0 unknown +1 own +0 heard +0", "the own node message's text from Test Oak, no channel fields, right after it")
+        advance(12)
+        expect(Did(Channel(ASK, "Test Oak", 7, "GathercraftSync"), "Test Oak"), "other +0 unknown +0 own +0 heard +1", "a node message of Test Oak on GathercraftSync 12 s later")
+        --    (a message of unknown origin that is no own echo is heard, as before)
+        expect(Did(Channel(ASK, "Test Birch"), "Test Birch"), "other +0 unknown +0 own +0 heard +1", "a node question of Test Birch, no channel fields")
+        -- 6. a blocked player within the 10 s on GathercraftSync: nothing learned (refused as blocked, as before)
+        text = Own(0.3333)
+        ns.db.sync.blocked[ASHKEY] = true
+        expect(Did(Channel(text, ASH, 7, "GathercraftSync"), ASH), "other +0 unknown +0 own +0 heard +1", "the own node message's text from the blocked Test Ash right after it")
+        ns.db.sync.blocked[ASHKEY] = nil
+        advance(12)
+        expect(Did(Channel(ASK, ASH, 7, "GathercraftSync"), ASH), "other +0 unknown +0 own +0 heard +1", "a node message of Test Ash, no longer blocked, 12 s later")
+        -- 7. the own echo of a two-part name: learned on GathercraftSync, and in the guild, as before
+        text = Own(0.3444)
+        expect(Did(Channel(text, "Test Own", 7, "GathercraftSync"), "Test Own"), "other +0 unknown +0 own +1 heard +0", "the own message back under a two-part name on GathercraftSync")
+        expect(Did(Channel(ASK, "Test Own", 7, "GathercraftSync"), "Test Own"), "other +0 unknown +0 own +1 heard +0", "a later message of the learned own two-part name")
+        text = Own(0.3555)
+        expect(Did(function() fire("CHAT_MSG_ADDON", "Gathercraft", text, "GUILD", "Test Kin-Forever") end, "Test Kin"), "other +0 unknown +0 own +1 heard +0", "the own message back under a two-part name in the guild")
+        -- the code: in the node receiving no call that learns before where the message came from is decided
+        local src = assert(io.open(ROOT .. "/Sync.lua", "r")):read("*a")
+        local a = src:find("local function Receive(", 1, true)
+        local b = a and src:find("\nend\n", a, true)
+        assert(a and b, "Sync.lua: Receive not found")
+        local body = src:sub(a, b)
+        local learn = body:find("LearnSelf(", 1, true)
+        local from = body:find("From(", 1, true)
+        assert(from and learn and from < learn, ("Sync.lua Receive: LearnSelf at %s, the origin (From) at %s - the origin first"):format(tostring(learn), tostring(from)))
+        assert(not body:find("LearnSelf(", learn + 1, true), "Sync.lua Receive: LearnSelf twice")
+    end)
+    GetChannelName, UnitName = keep.chan, keep.name
+    ns.db.debug = keep.debug
+    ns.db.sync.blocked[ASHKEY] = nil
+    ns.db.sync.enabled, ns.db.sync.public = keep.enabled, keep.public
+    for _, n in ipairs(made) do
+        for i, x in ipairs(ns.db.nodes[1412]) do if x == n then table.remove(ns.db.nodes[1412], i) break end end
+    end
+    slash("sync on") -- (joined again at the mock's number)
+    advance(10)
+    if not ok then error(err, 0) end
+end)
 step("Crafting: /gcr crafttest marks unknown costs like the list (v0.1.14)", function()
     -- every reagent without a price for a moment: the diagnosis says ?, not 0c
     local oldPrice, oldVendor = ns.GetPrice, ns.db.vendorPrices
