@@ -395,20 +395,27 @@ local function Send(...)
     return false, result
 end
 
-local function SendNext()
-    local item
-    repeat
-        -- (the packets of a stopped answer cost no turn: what waits behind them goes out now)
-        item = table.remove(queue, 1)
-        if not item then return end
-    until not (item.answer and AnswerStops(item.answer, item))
+-- (0.2.4 a10; the same function as 0.2.5 a4's for P and W, R1 H1) The number GathercraftSync has right now, read at
+-- the send: the game can give the channel another number while it runs, without a new join - the number kept at
+-- the join (channelID) may be another channel's by then. nil when it is not known (no number, or one that cannot be
+-- read): then nothing goes to the channel.
+local function WayChannel()
+    if not GetChannelName then return end
+    local id = GetChannelName(CHANNEL)
+    if ns.AnySecret("ways channel number", id) or type(id) ~= "number" or id <= 0 then return end
+    return id
+end
+ns.SyncWayChannel = WayChannel -- (the tests)
+
+-- one message out (a channel message to the number `target`; without one it is let go, as before)
+local function Out(item, target)
     local ok, err
     if item.target == "GUILD" then
         if IsInGuild() then
             ok, err = Send(PREFIX, item.text, "GUILD")
         end
-    elseif channelID and channelID > 0 then
-        ok, err = Send(PREFIX, item.text, "CHANNEL", channelID)
+    elseif target then
+        ok, err = Send(PREFIX, item.text, "CHANNEL", target)
     end
     if item.target ~= "GUILD" then
         sentAt[item.text] = time()
@@ -419,6 +426,35 @@ local function SendNext()
     if item.answer then AnswerSent(item.answer, item.text) end
     Debug(("sent [%s] %s -> %s%s"):format(item.target, item.text:sub(1, 60), tostring(ok),
         err and (" (" .. tostring(err) .. ")") or ""))
+end
+
+local function SendNext()
+    local item
+    repeat
+        -- (the packets of a stopped answer cost no turn: what waits behind them goes out now)
+        item = table.remove(queue, 1)
+        if not item then return end
+    until not (item.answer and AnswerStops(item.answer, item))
+    if item.target == "GUILD" or not (channelID and channelID > 0) then
+        -- (the guild's; a channel message after the channel was left: let go, as before)
+        return Out(item)
+    end
+    -- (0.2.4 a10) in the channel: to the number it has right now
+    local target = WayChannel()
+    if target then return Out(item, target) end
+    -- not known: nothing goes to the channel, the message waits in front; a guild message behind it goes in this
+    -- turn (one message a turn, as before - the guild's do not wait for the channel)
+    table.insert(queue, 1, item)
+    local i = 2
+    while i <= #queue do
+        local g = queue[i]
+        if g.target == "GUILD" then
+            table.remove(queue, i)
+            if not (g.answer and AnswerStops(g.answer, g)) then return Out(g) end
+        else
+            i = i + 1
+        end
+    end
 end
 
 local function Coord(v)

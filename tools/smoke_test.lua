@@ -19973,6 +19973,85 @@ step("Sync: a refused or failing send is dropped, the queue goes on", function()
     ns.db.debug = wasDebug
     assert(ok, err)
 end)
+-- (0.2.4 a10, order 2026-11-26_claude_auftrag_0.2.4-node-kanal-fix, Codex' H1 of S4a-2 for the node messages) The game
+-- can give GathercraftSync another number while it runs, without a new join: the number kept at the join may be
+-- another channel's by then.
+step("Sync 0.2.4 a10: node messages go to the number GathercraftSync has right now - renumbered 5 -> 7 they go to 7; no number known, nothing goes to the channel and the message waits while the guild's go on; the number back, it goes out once; left on purpose, nothing waits", function()
+    slash("sync on")
+    local keep = { send = C_ChatInfo.SendAddonMessage, chan = GetChannelName, public = ns.db.sync.public }
+    local number = 5
+    local sends = {}
+    GetChannelName = function(name)
+        if name == "GathercraftSync" then return number, name end
+        return 0
+    end
+    C_ChatInfo.SendAddonMessage = function(prefix, msg, chan, target)
+        sends[#sends + 1] = { prefix = prefix, msg = msg, chan = chan, target = target }
+        return 0
+    end
+    local function Share(x)
+        local node = { id = "o1619", name = "Earthroot", type = "herb", x = x, y = 0.62, count = 1, last = time(), item = 2449 }
+        table.insert(ns.db.nodes[1412], node)
+        ns.SyncShare(1412, node)
+        return node, (",%d,"):format(math.floor(x * 10000 + 0.5))
+    end
+    local function Of(mark, chan)
+        local t = {}
+        for _, s in ipairs(sends) do
+            if s.prefix == "Gathercraft" and s.chan == chan and s.msg:find(mark, 1, true) then t[#t + 1] = s end
+        end
+        return t
+    end
+    local made = {}
+    local ok, err = pcall(function()
+        ns.db.sync.public = true
+        slash("sync on") -- (joined: the number kept is 5)
+        advance(15)
+        -- renumbered 5 -> 7: the node message goes to 7, none to 5
+        number = 7
+        sends = {}
+        local n, mark = Share(0.4011)
+        made[#made + 1] = n
+        advance(6)
+        local ch = Of(mark, "CHANNEL")
+        assert(#ch == 1 and ch[1].target == 7, ("renumbered 5 -> 7: %d channel sends, to %s (want one, to 7)"):format(#ch, tostring(ch[1] and ch[1].target)))
+        -- no number known: nothing goes to the channel, the message waits; the guild's goes on
+        number = 0
+        sends = {}
+        n, mark = Share(0.4122)
+        made[#made + 1] = n
+        advance(8)
+        assert(#Of(mark, "CHANNEL") == 0, "no number known: a node message went to the channel")
+        assert(#Of(mark, "GUILD") == 1, "no number known: the guild's message did not go out")
+        -- the number back (7): the waiting message goes out, once, to 7
+        number = 7
+        advance(6)
+        ch = Of(mark, "CHANNEL")
+        assert(#ch == 1 and ch[1].target == 7, ("the number back: %d channel sends of the waiting message, to %s (want one, to 7)"):format(#ch, tostring(ch[1] and ch[1].target)))
+        advance(6)
+        assert(#Of(mark, "CHANNEL") == 1, "the number back: the waiting message went out twice")
+        -- left on purpose (public off): a message that waits is let go, it does not go out after the next join
+        number = 0
+        sends = {}
+        n, mark = Share(0.4233)
+        made[#made + 1] = n
+        advance(3)
+        slash("sync public") -- (off)
+        advance(6)
+        number = 7
+        slash("sync public") -- (on again: joined at 7)
+        advance(10)
+        assert(#Of(mark, "CHANNEL") == 0, "left on purpose: the message that waited went out after the next join")
+    end)
+    GetChannelName, C_ChatInfo.SendAddonMessage = keep.chan, keep.send
+    ns.db.sync.public = keep.public
+    for _, n in ipairs(made) do
+        for i, x in ipairs(ns.db.nodes[1412]) do if x == n then table.remove(ns.db.nodes[1412], i) break end end
+    end
+    slash("sync on") -- (joined again at the mock's number)
+    advance(10)
+    if not ok then error(err, 0) end
+end)
 step("Crafting: /gcr crafttest marks unknown costs like the list (v0.1.14)", function()
     -- every reagent without a price for a moment: the diagnosis says ?, not 0c
     local oldPrice, oldVendor = ns.GetPrice, ns.db.vendorPrices
