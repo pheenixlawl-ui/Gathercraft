@@ -38023,6 +38023,11 @@ end)
 -- build, search, thread, drawing) and 20 warm (the net built). Per run: the longest call of the thread's core, the
 -- longest S1 step and the largest S1 frame sum (the addon's own sums, by the real clock), the frames from the way
 -- published (and from the run's start) to the world map's drawing done - at 60 frames a second.
+--   Two switches for the cause of long steps: GC_MEASURE_A9_CLOCK=cpu - the thread's own CPU time instead of the wall
+-- clock (Windows' QueryThreadCycleTime, calibrated on a busy loop: time the program was not run in is not counted),
+-- for the core and for the addon's own sums; GC_MEASURE_A9_JIT=off - LuaJIT's compiler off, as in the game, which
+-- has none (with it on, compiling a trace falls into the call that runs the code: 1.5-2.4 ms in one core call).
+-- With both: the core's call at 0.25 ms at the most, asserted (the step and the frame sum are noted).
 step("Ways 0.2.4 S1.1 a9 measure: the real clock on Codex' two 800 ways in a net of 8,000 squares (only with GC_MEASURE_A9 set)", function()
     if not os.getenv("GC_MEASURE_A9") then return end
     local Core = ns.WaysCore
@@ -38031,7 +38036,25 @@ step("Ways 0.2.4 S1.1 a9 measure: the real clock on Codex' two 800 ways in a net
     local qc = ffi.new("int64_t[1]")
     ffi.C.QueryPerformanceFrequency(qc)
     local freq = tonumber(qc[0])
-    local function Now() ffi.C.QueryPerformanceCounter(qc) return tonumber(qc[0]) * 1000 / freq end
+    local function Wall() ffi.C.QueryPerformanceCounter(qc) return tonumber(qc[0]) * 1000 / freq end
+    local Now, cpu = Wall, os.getenv("GC_MEASURE_A9_CLOCK") == "cpu"
+    if cpu then
+        pcall(ffi.cdef, "void *GetCurrentThread(void); int QueryThreadCycleTime(void *, uint64_t *);")
+        local cyc, me = ffi.new("uint64_t[1]"), ffi.C.GetCurrentThread()
+        local function Cycles() ffi.C.QueryThreadCycleTime(me, cyc) return tonumber(cyc[0]) end
+        -- (the most cycles a wall-clock ms of a busy loop gave in 10 tries: a try the thread was not run in gives fewer)
+        local perMs = 0
+        for _ = 1, 10 do
+            local w0, c0 = Wall(), Cycles()
+            while Wall() - w0 < 20 do end
+            local r = (Cycles() - c0) / (Wall() - w0)
+            if r > perMs then perMs = r end
+        end
+        Now = function() return Cycles() / perMs end
+    end
+    local jitOff = os.getenv("GC_MEASURE_A9_JIT") == "off" and jit ~= nil
+    if jitOff then jit.off() jit.flush() end
+    note("MEASURE a9 setup", ("clock %s, LuaJIT compiler %s"):format(cpu and "the thread's CPU time" or "wall", jitOff and "off" or "on"))
     local way, x, y = { { 5, 5 } }, 5, 5
     for i = 1, 800 do
         if i % 4 == 0 then x, y = x + 1, y + 1 else x = x + 1 end
@@ -38059,7 +38082,7 @@ step("Ways 0.2.4 S1.1 a9 measure: the real clock on Codex' two 800 ways in a net
     local HBD = LibStub("HereBeDragons-2.0")
     local OFF = 30000
     local keepHBD = { HBD.GetWorldCoordinatesFromZone, HBD.GetPlayerWorldPosition, HBD.GetZoneCoordinatesFromWorld, HBD.GetZoneDistance }
-    local keepStep = Core.ThreadStep
+    local keepStep, keepClock = Core.ThreadStep, ns.WaysClock
     local core = 0
     Core.ThreadStep = function(T, budget)
         local t0 = Now()
@@ -38115,7 +38138,7 @@ step("Ways 0.2.4 S1.1 a9 measure: the real clock on Codex' two 800 ways in a net
                     end
                     local d = ns.WaysDiag()
                     runs[#runs + 1] = { core = core, step = d.step, peak = d.peak, pub = published, drawn = drawn, fromPub = drawn and published and drawn - published,
-                        arcs = ns.WaysThread().arcs }
+                        arcs = ns.WaysThread().arcs, late = d.late, given = d.cancelled, over = d.over }
                     ns.StopRun(true)
                     advance(0.1)
                 end
@@ -38124,10 +38147,12 @@ step("Ways 0.2.4 S1.1 a9 measure: the real clock on Codex' two 800 ways in a net
             end
         end
     end)
-    Core.ThreadStep = keepStep
+    Core.ThreadStep, ns.WaysClock = keepStep, keepClock
+    if jitOff then jit.on() end
     HBD.GetWorldCoordinatesFromZone, HBD.GetPlayerWorldPosition, HBD.GetZoneCoordinatesFromWorld, HBD.GetZoneDistance = keepHBD[1], keepHBD[2], keepHBD[3], keepHBD[4]
     WorldMapFrame:Hide()
     if not ok then error(err, 0) end
+    local coreMax = 0
     for _, r in ipairs(results) do
         local c, s, p, fp, fr, over, miss = 0, 0, 0, 0, 0, 0, 0
         for _, x in ipairs(r.runs) do
@@ -38135,11 +38160,17 @@ step("Ways 0.2.4 S1.1 a9 measure: the real clock on Codex' two 800 ways in a net
             if x.fromPub then fp, fr = math.max(fp, x.fromPub), math.max(fr, x.drawn) else miss = miss + 1 end
             if x.step > 0.25 then over = over + 1 end
         end
+        if c > coreMax then coreMax = c end
         note("MEASURE a9 " .. r.kind .. " " .. r.temp, ("core %.4f ms, step %.4f ms (%d runs over 0.25), frame %.4f ms; published -> drawn %d frames (%.2f s), start -> drawn %d frames; %d runs not drawn; arcs %d")
             :format(c, s, over, p, fp, fp / 60, fr, miss, r.runs[1].arcs or -1))
         for i, x in ipairs(r.runs) do
-            note("MEASURE a9 run", ("%s %s %d: core %.4f step %.4f frame %.4f pub %s drawn %s"):format(r.kind, r.temp, i, x.core, x.step, x.peak, tostring(x.pub), tostring(x.drawn)))
+            note("MEASURE a9 run", ("%s %s %d: core %.4f step %.4f frame %.4f pub %s drawn %s (late %s, cancelled %s, over the limits %s)"):format(r.kind, r.temp, i, x.core, x.step,
+                x.peak, tostring(x.pub), tostring(x.drawn), tostring(x.late), tostring(x.given), tostring(x.over)))
         end
+    end
+    -- (the thread's own part: its core's call; the step and the frame sum hold the whole S1 work - noted above)
+    if cpu and jitOff then
+        assert(coreMax <= 0.25, ("the thread's core: a call of %.4f ms of CPU time (0.25 at the most)"):format(coreMax))
     end
 end)
 
