@@ -2341,22 +2341,22 @@ local function ThreadAt(d)
     end
     -- (0.2.4 a8, Codex M3) the pair before the first one beyond d: a few forwards from the last one, else by
     -- halves (d lies before the last pair's r, so there is one beyond it)
-    local i, lo = disp.mi, 1
+    local i, lo, found = disp.mi, 1, false
     if i >= 1 and i < en then
         seen = seen + 1
         if er[i] <= d then
             for _ = 1, WALK do
                 seen = seen + 1
                 if er[i + 1] > d then
-                    lo = nil
+                    found = true
                     break
                 end
                 i = i + 1
             end
-            if lo then lo = i end
+            lo = i
         end
     end
-    if lo then
+    if not found then
         local a, z = lo + 1, en
         while a < z do
             local m = floor((a + z) / 2)
