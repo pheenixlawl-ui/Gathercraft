@@ -468,10 +468,7 @@ local function ArrowTarget()
 end
 
 local elapsedArrow = 0
-arrowFrame:SetScript("OnUpdate", function(self, elapsed)
-    elapsedArrow = elapsedArrow + elapsed
-    if elapsedArrow < 0.03 then return end
-    elapsedArrow = 0
+local function ArrowTick(self)
     local rot, dist, node = ArrowTarget()
     if not rot then
         self:Hide()
@@ -486,7 +483,21 @@ arrowFrame:SetScript("OnUpdate", function(self, elapsed)
         arrowDist:SetText((L["%d yd"]):format(math.floor(dist)))
     end
     arrowName:SetText(node.name)
+end
+arrowFrame:SetScript("OnUpdate", function(self, elapsed)
+    elapsedArrow = elapsedArrow + elapsed
+    if elapsedArrow < 0.03 then return end
+    elapsedArrow = 0
+    ArrowTick(self)
 end)
+-- (0.2.4 a8, Codex N2, S1.1 F4.2) Ways.lua shows another geometry for the way (a change of what is shown): the
+-- arrow takes the new direction in this frame, not at its next tick - the maps and the arrow show one display
+ns.ArrowNow = function()
+    if arrowFrame:IsShown() then
+        elapsedArrow = 0
+        ArrowTick(arrowFrame)
+    end
+end
 
 local function UpdateArrow()
     if ArrowTarget() then

@@ -2391,8 +2391,10 @@ local function DisplayArrow()
     if at >= b.len - b.tail then return end
     local s = Locate(b, disp.seg, at)
     local cum, wx, wy = b.cum, b.wx, b.wy
-    local len = cum[s + 1] - cum[s]
-    local t = len > 0 and (at - cum[s]) / len or 0
+    seen = seen + 2
+    local c0, c1 = cum[s], cum[s + 1]
+    local len = c1 - c0
+    local t = len > 0 and (at - c0) / len or 0
     if t > 1 then t = 1 end
     local ax, ay, bx, by = wx[s], wy[s], wx[s + 1], wy[s + 1]
     return ax + t * (bx - ax), ay + t * (by - ay)
@@ -2452,7 +2454,7 @@ end
 -- a step begun for the old one writes nothing.
 -- (0.2.4 a8, Codex M3) Its place on the new geometry by a bounded search (Locate, ThreadAt: O(log n) from the
 -- way's start), never by going along the way from the start. The distances it read are counted (/gcr perf)
--- and returned: the step it is done in books them.
+-- and returned: the step it is done in books them. (Codex N2) The arrow takes the new direction in this frame.
 local function PublishDisplay(buf, kind)
     if drawer then drawer.Hide() end
     disp.buf, disp.kind, disp.seg, disp.mi = buf, kind, 1, 1
@@ -2460,6 +2462,7 @@ local function PublishDisplay(buf, kind)
     seen = 0
     DisplayFollow()
     read.seg, read.pos = disp.seg, disp.pos
+    if ns.ArrowNow then ns.ArrowNow() end
     diag.pubReads = seen
     if seen > diag.pubPeak then diag.pubPeak = seen end
     return seen

@@ -37158,6 +37158,56 @@ step("Ways 0.2.4 S1.1 R1 N1: the run's last centre line is let go when the run e
         if not ok then error(err, 0) end
     end
 end)
+-- (0.2.4 a8, Codex' check of a6/a7, N2) The arrow's texture took the new direction only at the next UI tick (every
+-- 30 ms): in the frame of a change of what is shown the maps showed the new line, the arrow the old direction (L:
+-- the reader -90 degrees, the texture -71.565 degrees). F4.2 No. 3: one display in that frame.
+step("Ways 0.2.4 S1.1 R1 N2: at a change of what is shown the arrow's texture takes the new direction in that frame - the thread -> the centre line and back on an L, the angle set as the reader gives it (0.2.4 a8, F4.2, Codex N2)", function()
+    local e = {}
+    WAYS.Ride(e, { { 10, 10 }, { 11, 10 }, { 12, 10 }, { 13, 10 }, { 13, 11 }, { 13, 12 }, { 13, 13 } })
+    local W = WAYS.World(e)
+    local HBD = LibStub("HereBeDragons-2.0")
+    local keepRot, keepVector, keepFacing = methods.SetRotation, HBD.GetWorldVector, GetPlayerFacing
+    local ok, err = pcall(function()
+        -- (the mock's HereBeDragons gives every direction as 1.0: here the real formula)
+        HBD.GetWorldVector = function(_, _, ox, oy, dx, dy)
+            local ddx, ddy = dx - ox, dy - oy
+            return math.atan2(-ddx, ddy), math.sqrt(ddx * ddx + ddy * ddy)
+        end
+        GetPlayerFacing = function() return 0 end
+        local rot
+        methods.SetRotation = function(self, r)
+            if self.__parent == GathercraftArrow then rot = r end
+            return keepRot(self, r)
+        end
+        W.At(11, 10, 5, 0)
+        W.Run({ W.Node(13, 13) }, 2)
+        assert(ns.WaysThreadNow() == "done" and ns.WaysDisplay().kind == "thread", "test setup: the thread shown")
+        assert(GathercraftArrow:IsShown(), "test setup: the arrow shown")
+        local px, py = HBD:GetPlayerWorldPosition()
+        local function Want()
+            local ax, ay = ns.WaysArrow(ns.run, px, py)
+            assert(ax, "test setup: the arrow turns along the way")
+            return math.atan2(-(ax - px), ay - py)
+        end
+        GathercraftArrow:GetScript("OnUpdate")(GathercraftArrow, 0.25)
+        local onThread = rot
+        assert(onThread and math.abs(onThread - Want()) < 1e-9, "test setup: the arrow along the thread")
+        -- the change: the texture's angle in that frame, no UI tick between
+        rot = nil
+        ns.WaysPublishDisplay(nil, "centre")
+        local want = Want()
+        assert(math.abs(want - onThread) > 0.05, ("test setup: the centre line turns the arrow otherwise (%.3f / %.3f)"):format(want, onThread))
+        assert(rot and math.abs(rot - want) < 1e-9, ("the change to the centre line: the texture at %s, the reader %.4f"):format(tostring(rot), want))
+        rot = nil
+        ns.WaysPublishDisplay(ns.WaysThread().t.view, "thread")
+        assert(rot and math.abs(rot - onThread) < 1e-9, ("the change back to the thread: the texture at %s, the reader %.4f"):format(tostring(rot), onThread))
+        note("MEASURE S1.1 R1 N2", ("the arrow on the L: %.3f degrees along the thread, %.3f along the centre line, set in the frame of the change"):format(math.deg(onThread), math.deg(want)))
+    end)
+    methods.SetRotation, HBD.GetWorldVector, GetPlayerFacing = keepRot, keepVector, keepFacing
+    W.Done()
+    if not ok then error(err, 0) end
+end)
+
 step("Ways donation: canonical own pieces, no private fields, bounds and sliced multipart export", function()
     assert(loadfile(ROOT .. "/tools/ways_donation_test.lua"))()("codec", {ns=ns})
 end)
