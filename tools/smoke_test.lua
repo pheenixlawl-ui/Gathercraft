@@ -38633,6 +38633,7 @@ step("Ways 0.2.4 S1.1 a9 R1 M2: the build's and the search's lists stay from run
         Wrap(Core, "KeepStep")
         Wrap(Core, "ThreadStep")
         if drawer then Wrap(drawer, "Step") end
+        W.Clock("fast") -- (the mock's clock: the steps and frames the same whatever the computer's load)
         local function Run()
             W.At(5, 20)
             W.Run({ W.Node(60, 20) }, 3)
