@@ -18854,9 +18854,40 @@ step("What's new: 0.2.3 after an update, in this language and all translations; 
         "**`/gcr mapdiag`:** switches for testing map performance",
         -- lauf-last, the skill plan, perf
         "**Smoother farm runs:**", "less work and less memory while you ride", "a run keeps its points from plan to plan",
-        "**The skill plan counts your stock:**", "count at their market value", "the one that uses your stock comes first",
-        "**`/gcr perf on`**", "how much garbage each part of the addon makes" }) do
+        "**The skill plan counts your stock:**", "count at their market value",
+        "When two recipes cost the same per skill point, the plan prefers the one that uses less of your stock's value.",
+        "**`/gcr perf on`**", "how much garbage each part of the addon makes",
+        -- the starter spots (Sven 26.11.2026; the number and the zones are the data's: the starter data's changelog step)
+        "- **More starter spots:** 284 new gathering spots in three zones, from a player's saved gathers and confirmed shared spots.\n" }) do
         assert(changelog:find(said, 1, true), "CHANGELOG: nothing about \"" .. said .. "\"")
+    end
+    -- (Codex, release check 26.11.2026, M1) the 14eef34 notes said the step that uses your stock comes
+    -- first - the plan does the opposite. Not that again, and what the notes say of a tie is what the plan
+    -- does: two recipes, one point each, one material of 8c each, the material of one in the bags and the
+    -- other's bought - the plan takes the one that uses less of your stock's value (PlanCore's Prefer)
+    assert(not changelog:find("uses your stock comes first", 1, true) and not changelog:find("of two steps that cost the same", 1, true),
+        "CHANGELOG: the skill plan's tie the wrong way round")
+    do
+        local core = ns.PlanCore
+        local function Known(copper) return { status = "known", copper = copper } end
+        local function Tie(inBags) -- the material in the bags: 11 (A's) or 21 (B's); the other one is bought
+            local recipes = {}
+            for _, r in ipairs({ { "A", 10, 11 }, { "B", 20, 21 } }) do
+                recipes[#recipes + 1] = { prof = "Testing", key = r[1], name = r[1], product = r[2], made = 1, req = 1, yellow = 2, grey = 2,
+                    reagents = { { id = r[3], n = 1 } }, learn = "known" }
+            end
+            local plan = core.Compute({ prof = "Testing", skill = 1, target = 2, recipes = { Testing = recipes }, stock = { [inBags] = 5 },
+                prices = { [11] = Known(8), [21] = Known(8) }, values = { [inBags] = Known(8) }, professions = {}, recipeItemPrices = {}, caps = {} })
+            local okB, whyB = core.CheckBalance(plan)
+            assert(okB, "the books do not balance: " .. tostring(whyB))
+            local keys = {}
+            for _, s in ipairs(plan.steps) do keys[#keys + 1] = s.recipe.key end
+            return table.concat(keys, ",") .. " " .. tostring(plan.total)
+        end
+        local says = Tie(11)
+        assert(says == "B 8", "a tie, A's material in the bags: the plan takes " .. says .. ", the notes say B (less of your stock's value)")
+        says = Tie(21)
+        assert(says == "A 8", "a tie, B's material in the bags: the plan takes " .. says .. ", the notes say A (less of your stock's value)")
     end
     -- what the changelog must not promise: no frame rates (Codex), no "no lag"
     for _, said in ipairs({ "cheapest", "fastest", "FPS", "fps", "frames per second", "no lag", "lag-free", "always", "the best", "all nodes", "forever", "for ever", "automatically" }) do
@@ -28738,14 +28769,41 @@ end)
 -- import, also in zones never visited (the first spots on 11 December), and
 -- it is gone (A1). It does not say starter spots are parked: the sync
 -- self-healing parks spots that came by sync only, never a starter spot.
-step("Starter data: the changelog makes no promise of completeness and says nothing of parking (0.2.2, 0.2.3)", function()
+step("Starter data: the changelog gives the new spots and their zones as the data have them, makes no promise of completeness and says nothing of parking (0.2.2, 0.2.3)", function()
     -- 0.2.2 P1 point 5: the starter data refreshed from the saved data of 21.11.2026, 797 -> 897 rows;
     -- the 0.2.3 release again, from 25.11.2026, 897 -> 1181 rows, none lost (tools/starter_shipped.txt).
-    -- What 0.2.2 said of it is in the history (tag v0.2.2); the changelog of 0.2.3 is Sven's list of
-    -- 25.11.2026, without a point on it.
+    -- What 0.2.2 said of it is in the history (tag v0.2.2); the changelog of 0.2.3 has Sven's line of
+    -- 26.11.2026 (after Codex' release check): how many new spots, in how many zones, from where.
     local f = assert(io.open(ROOT .. "/CHANGELOG.md"))
     local changelog = f:read("*a") f:close()
     assert(GathercraftStarterData and GathercraftStarterData.version >= "forever-2026-11-21", "test setup: the starter data are older than 21.11.2026")
+    -- the line's number and zones are the data's: the rows of 0.2.2 (897, per zone and type) against the
+    -- rows now; new rows only herbs and ores (gathering spots), only in the new Forever zones, none lost
+    assert(GathercraftStarterData.version == "forever-2026-11-25", "the starter data changed since the line was written: count again")
+    local before = { [1411] = { o = 1 }, [1412] = { h = 24, o = 30 }, [2482] = { h = 81, o = 59 }, [2521] = { h = 285, o = 151, c = 4 },
+        [2548] = { h = 125, o = 137 } }
+    local new, zones, count = 0, {}, 0
+    for z, list in pairs(GathercraftStarterData.nodes) do
+        local got = {}
+        for _, e in ipairs(list) do got[e[2]] = (got[e[2]] or 0) + 1 end
+        for t, was in pairs(before[z] or {}) do assert((got[t] or 0) >= was, ("zone %d type %s: fewer rows than 0.2.2"):format(z, t)) end
+        for t, n in pairs(got) do
+            local was = before[z] and before[z][t] or 0
+            if n > was then
+                assert(t == "h" or t == "o", ("zone %d: %d new rows of type %s - no gathering spots"):format(z, n - was, t))
+                new = new + n - was
+                if not zones[z] then zones[z], count = true, count + 1 end
+            end
+        end
+    end
+    for z in pairs(zones) do assert(FOREVER_ZONES[z], ("new starter spots in zone %d, not a new Forever zone"):format(z)) end
+    local line = changelog:match("\n%- %*%*More starter spots:%*%* ([^\n]*)")
+    assert(line, "CHANGELOG: no line on the starter spots")
+    local n, w = line:match("^(%d+) new gathering spots in (%a+) zones, from a player's saved gathers and confirmed shared spots%.$")
+    local words = { "one", "two", "three", "four", "five" }
+    assert(n and tonumber(n) == new and w == words[count],
+        ("CHANGELOG: \"%s\" - the data have %d new spots in %d zones"):format(line, new, count))
+    assert(new == 284 and count == 3, ("test setup: %d new spots in %d zones, the data commit 16634c0 has 284 in 3"):format(new, count))
     -- no promise of completeness, not parked: no word of it, nor of the self-healing
     local low = changelog:lower()
     for _, said in ipairs({ "complete", "all spots", "every spot in", "park", "self-heal", "self heal", "selfheal" }) do
