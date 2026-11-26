@@ -36755,15 +36755,16 @@ end)
 step("Ways 0.2.4 S1.1 R1 M1: the look ahead only proposes - protective anchors only where the thread's events really break the rules; Codex' nine squares 135.3553 yd; the thread the one found without a look ahead, found anew from the proposal (0.2.4 a8, F4 §C, Codex M1)", function()
     local Core = ns.WaysCore
     local Near = WAYS.Near
-    local function Centre(squares)
+    -- a centre line made by hand: you, the squares' middles, the node; kinds of the edges into the squares 2..
+    local function Centre(squares, kinds, player, node)
         local c = Core.NewCentre()
-        local pts = { { (squares[1][1] + 0.5) * 25, (squares[1][2] + 0.5) * 25 } }
+        local pts = { player or { (squares[1][1] + 0.5) * 25, (squares[1][2] + 0.5) * 25 } }
         for _, q in ipairs(squares) do pts[#pts + 1] = { (q[1] + 0.5) * 25, (q[2] + 0.5) * 25 } end
-        pts[#pts + 1] = { pts[#pts][1], pts[#pts][2] }
+        pts[#pts + 1] = node or { pts[#pts][1], pts[#pts][2] }
         local raw = 0
         for i, p in ipairs(pts) do
             c.x[i], c.y[i] = p[1], p[2]
-            c.kind[i] = (i <= 2 or i == #pts) and -1 or Core.OBS
+            c.kind[i] = (i <= 2 or i == #pts) and -1 or (kinds and kinds[i - 2] or Core.OBS)
             if i > 1 then
                 local dx, dy = p[1] - pts[i - 1][1], p[2] - pts[i - 1][2]
                 raw = raw + math.sqrt(dx * dx + dy * dy)
@@ -36776,10 +36777,10 @@ step("Ways 0.2.4 S1.1 R1 M1: the look ahead only proposes - protective anchors o
     end
     local T = Core.NewThread()
     -- the thread of the squares; ahead false: no look ahead; factor: the counter at factor times the passages
-    local function Thread(squares, ahead, factor)
+    local function Thread(squares, ahead, factor, kinds, player, node)
         if ahead == false then Core.threadAhead = false else Core.threadAhead = nil end
         local ok, state, reason = pcall(function()
-            local c = Centre(squares)
+            local c = Centre(squares, kinds, player, node)
             Core.ThreadStart(T, c, 1)
             if factor and T.state == "work" then T.limit = factor * (c.n - 3) end
             while T.state == "work" do Core.ThreadStep(T, 7) end
@@ -36923,6 +36924,68 @@ step("Ways 0.2.4 S1.1 R1 M1: the look ahead only proposes - protective anchors o
         assert(same + shorter >= 200 and repaired >= 20 and done4 >= doneOff4, ("the ways: %d the same, %d shorter, %d repaired; %d done within 4 times the passages, %d without the look ahead"):format(same, shorter, repaired, done4, doneOff4))
         note("MEASURE S1.1 R1 M1", ("240 ways: %d threads the same with and without the look ahead, %d shorter with it, none longer; %d repaired; within 4 times the passages %d done, %d without it"):format(same, shorter, repaired, done4, doneOff4))
     end
+    -- 5. as the checker's ways (tools/thread_check.py): ways with every kind of edge (ridden, ridden back, guessed:
+    -- CON, GREV), you and the node off the end middles, straight only or with diagonals - with a counter that does
+    -- not stop both done (no guard, no error), the thread with the look ahead never longer than the events' alone
+    -- and on the way's squares; within 4 times the passages done at least as often, and most ways ridden straight
+    -- only done (a8: 85 %, the events alone 9 %)
+    do
+        local seed = 2611
+        local function Rand(n)
+            seed = (seed * 16807) % 2147483647
+            return seed % n
+        end
+        local D4 = { { 1, 0 }, { 0, 1 }, { -1, 0 }, { 0, -1 } }
+        local D8 = { { 1, 0 }, { 1, 1 }, { 0, 1 }, { -1, 1 }, { -1, 0 }, { -1, -1 }, { 0, -1 }, { 1, -1 } }
+        local KINDS = { Core.OBS, Core.OBS, Core.OBS, Core.OBS, Core.OBS, Core.OBS, Core.REV, Core.REV, Core.CON, Core.GREV }
+        local ways, shorter, done4, doneOff4, straight, straight4 = 0, 0, 0, 0, 0, 0
+        for w = 1, 600 do
+            local dirs = w % 3 == 0 and D8 or D4
+            local sq, seen, x, y = { { 0, 0 } }, { ["0,0"] = true }, 0, 0
+            for _ = 1, 3 + Rand(50) do
+                local moved = false
+                for _ = 1, 8 do
+                    local d = dirs[Rand(#dirs) + 1]
+                    local nx, ny = x + d[1], y + d[2]
+                    if not seen[nx .. "," .. ny] then
+                        x, y, moved = nx, ny, true
+                        seen[x .. "," .. y] = true
+                        sq[#sq + 1] = { x, y }
+                        break
+                    end
+                end
+                if not moved then break end
+            end
+            local kinds = {}
+            for i = 1, #sq - 1 do kinds[i] = KINDS[Rand(#KINDS) + 1] end
+            local player = { 12.5 + Rand(25) - 12, 12.5 + Rand(25) - 12 }
+            local node = { (x + 0.5) * 25 + Rand(25) - 12, (y + 0.5) * 25 + Rand(25) - 12 }
+            local s1, r1 = Thread(sq, nil, 100, kinds, player, node)
+            local len, t = T.t.len, T.t
+            assert(s1 == "done", ("way %d: with the look ahead %s %s"):format(w, s1, tostring(r1)))
+            for k = 2, t.n - 1 do
+                local inside = false
+                for _, q in ipairs(sq) do
+                    if t.x[k] >= q[1] * 25 - 1e-6 and t.x[k] <= (q[1] + 1) * 25 + 1e-6 and t.y[k] >= q[2] * 25 - 1e-6 and t.y[k] <= (q[2] + 1) * 25 + 1e-6 then inside = true break end
+                end
+                assert(inside, ("way %d: point %d (%g, %g) off the squares"):format(w, k, t.x[k], t.y[k]))
+            end
+            local s2, r2 = Thread(sq, false, 100, kinds, player, node)
+            assert(s2 == "done", ("way %d: the events alone %s %s"):format(w, s2, tostring(r2)))
+            assert(len <= T.t.len + 1e-6, ("way %d: %.4f yd with the look ahead, %.4f by the events alone"):format(w, len, T.t.len))
+            if len < T.t.len - 1e-6 then shorter = shorter + 1 end
+            ways = ways + 1
+            local a4 = Thread(sq, nil, nil, kinds, player, node) == "done"
+            if a4 then done4 = done4 + 1 end
+            if Thread(sq, false, nil, kinds, player, node) == "done" then doneOff4 = doneOff4 + 1 end
+            if dirs == D4 then
+                straight = straight + 1
+                if a4 then straight4 = straight4 + 1 end
+            end
+        end
+        assert(done4 >= doneOff4 and straight4 >= 0.7 * straight, ("within 4 times the passages: %d of %d done (%d by the events alone); ridden straight only %d of %d"):format(done4, ways, doneOff4, straight4, straight))
+        note("MEASURE S1.1 R1 M1 kinds", ("%d ways of every kind: none longer with the look ahead, %d shorter; within 4 times the passages %d done (the events alone %d), ridden straight only %d of %d"):format(ways, shorter, done4, doneOff4, straight4, straight))
+    end
 end)
 -- (0.2.4 a8, Codex' check of a6/a7, M2) The guard looked at a guessed edge (CON, GREV) only where it crosses its
 -- side or corner - a bend inside the right square passed it, though the edge is to stay the straight stretch
@@ -36944,39 +37007,54 @@ step("Ways 0.2.4 S1.1 R1 M2: the guard checks a guessed edge (CON, GREV) as a wh
         WAYS.Ride(e, { { 11, 10 }, { 12, 10 }, { 13, 10 }, { 14, 10 }, { 15, 10 } })
         return e, { 15, 10 }, { 6, 10 }, { 287.5, 262.5 }, { 262.5, 262.5 }
     end
+    -- a diagonal CON edge: the second ride a row lower, (17,10) -> (18,11) guessed over the corner (450, 275) - a
+    -- stretch to the corner (an anchor) and one from it
+    local function Diagonal()
+        local e = {}
+        WAYS.Ride(e, { { 14, 10 }, { 15, 10 }, { 16, 10 }, { 17, 10 } })
+        WAYS.Ride(e, { { 18, 11 }, { 19, 11 }, { 20, 11 }, { 21, 11 } })
+        return e, { 14, 10 }, { 21, 11 }, { 437.5, 262.5 }, { 462.5, 287.5 }, { 450, 275 }
+    end
     -- the bend: put into the thread between the guessed edge's middles, when the stretch that ends on the second
     -- middle is done (B5's hook) - "before": off the line in the first square, then the crossing at the side's
     -- middle; "after": the crossing, then off the line in the second square
-    local function Bend(a, b, where)
-        local mx, my = (a[1] + b[1]) / 2, (a[2] + b[2]) / 2
-        local dx = b[1] > a[1] and 1 or -1
-        local off = where == "before" and { a[1] + 5 * dx, a[2] + 3 } or { b[1] - 5 * dx, b[2] - 3 }
+    -- (the points put in between the thread's points p and q - when the stretch that ends on q is done)
+    local function Put(p, q, pts)
         return function(T)
             local t = T.t
             local k = t.n
-            if not (t.x[k] == b[1] and t.y[k] == b[2] and t.x[k - 1] == a[1] and t.y[k - 1] == a[2]) then return end
-            local slot = T.vu[k] - 1 -- (the passage between the two middles)
-            local p1, p2 = off, { mx, my }
-            if where == "after" then p1, p2 = { mx, my }, off end
-            t.x[k + 2], t.y[k + 2], T.vu[k + 2], T.va[k + 2] = t.x[k], t.y[k], T.vu[k], T.va[k]
-            t.x[k], t.y[k], T.vu[k], T.va[k] = p1[1], p1[2], slot, 0
-            t.x[k + 1], t.y[k + 1], T.vu[k + 1], T.va[k + 1] = p2[1], p2[2], slot, 0
-            for q = k, k + 2 do
-                local ex, ey = t.x[q] - t.x[q - 1], t.y[q] - t.y[q - 1]
-                t.raw[q] = t.raw[q - 1] + math.sqrt(ex * ex + ey * ey)
+            if not (t.x[k] == q[1] and t.y[k] == q[2] and t.x[k - 1] == p[1] and t.y[k - 1] == p[2]) then return end
+            local m = #pts
+            local slot = T.vu[k] - 1
+            t.x[k + m], t.y[k + m], T.vu[k + m], T.va[k + m] = t.x[k], t.y[k], T.vu[k], T.va[k]
+            for i, pt in ipairs(pts) do t.x[k + i - 1], t.y[k + i - 1], T.vu[k + i - 1], T.va[k + i - 1] = pt[1], pt[2], slot, 0 end
+            for i = k, k + m do
+                local ex, ey = t.x[i] - t.x[i - 1], t.y[i] - t.y[i - 1]
+                t.raw[i] = t.raw[i - 1] + math.sqrt(ex * ex + ey * ey)
             end
-            t.n = k + 2
+            t.n = k + m
             Core.threadBendTest = nil
         end
     end
-    for _, kind in ipairs({ { "CON", Connector }, { "GREV", WayBack } }) do
+    local function Bend(a, b, where, corner)
+        if corner then
+            -- diagonal: 2.1 yd off the line to the corner in the first square, or from it in the second
+            if where == "before" then return Put(a, corner, { { a[1] + 5, a[2] + 2 } }) end
+            return Put(corner, b, { { b[1] - 5, b[2] - 2 } })
+        end
+        local mx, my = (a[1] + b[1]) / 2, (a[2] + b[2]) / 2
+        local dx = b[1] > a[1] and 1 or -1
+        if where == "before" then return Put(a, b, { { a[1] + 5 * dx, a[2] + 3 }, { mx, my } }) end
+        return Put(a, b, { { mx, my }, { b[1] - 5 * dx, b[2] - 3 } })
+    end
+    for _, kind in ipairs({ { "CON", Connector }, { "GREV", WayBack }, { "CON", Diagonal, "diagonal " } }) do
         for _, where in ipairs({ "none", "before", "after" }) do
-            local e, from, to, a, b = kind[2]()
+            local e, from, to, a, b, corner = kind[2]()
             local W = WAYS.World(e)
             local ok, err = pcall(function()
                 local d = ns.WaysDiag()
                 local guard, count, other = d.fellGuard, d.fellCount, d.fellOther
-                if where ~= "none" then Core.threadBendTest = Bend(a, b, where) end
+                if where ~= "none" then Core.threadBendTest = Bend(a, b, where, corner) end
                 W.At(from[1], from[2])
                 W.Run({ W.Node(to[1], to[2]) }, 2)
                 local nav = ns.WaysState()
