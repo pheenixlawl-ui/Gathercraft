@@ -37981,6 +37981,133 @@ step("Ways 0.2.4 S1.1 a9 parts 1 and 6: the centre line is never shown - until t
     if not ok then error(err, 0) end
 end)
 
+-- (0.2.4 a9, order point "Messung") Codex' two load ways with the real clock - only when GC_MEASURE_A9 is set (a
+-- clock's numbers depend on the computer and its load: not a pass/fail of the ordinary run). A net of 8,000 squares:
+-- the way of 800 edges (three steps east, one north-east, 200 times) and 7,199 squares of rows beside it. GREV: the
+-- way ridden back with a fall each (its edges guessed ways back); OBS: ridden forwards. 20 cold runs (a new world:
+-- build, search, thread, drawing) and 20 warm (the net built). Per run: the longest call of the thread's core, the
+-- longest S1 step and the largest S1 frame sum (the addon's own sums, by the real clock), the frames from the way
+-- published (and from the run's start) to the world map's drawing done - at 60 frames a second.
+step("Ways 0.2.4 S1.1 a9 measure: the real clock on Codex' two 800 ways in a net of 8,000 squares (only with GC_MEASURE_A9 set)", function()
+    if not os.getenv("GC_MEASURE_A9") then return end
+    local Core = ns.WaysCore
+    local ffi = require("ffi")
+    pcall(ffi.cdef, "int QueryPerformanceCounter(int64_t *); int QueryPerformanceFrequency(int64_t *);")
+    local qc = ffi.new("int64_t[1]")
+    ffi.C.QueryPerformanceFrequency(qc)
+    local freq = tonumber(qc[0])
+    local function Now() ffi.C.QueryPerformanceCounter(qc) return tonumber(qc[0]) * 1000 / freq end
+    local way, x, y = { { 5, 5 } }, 5, 5
+    for i = 1, 800 do
+        if i % 4 == 0 then x, y = x + 1, y + 1 else x = x + 1 end
+        way[#way + 1] = { x, y }
+    end
+    local filler, row = {}, 0
+    while #filler < 7199 do
+        local r = {}
+        for c = 0, 99 do r[#r + 1] = { 5 + (row % 2 == 0 and c or 99 - c), 300 + row } end
+        for _, q in ipairs(r) do if #filler < 7199 then filler[#filler + 1] = q end end
+        row = row + 1
+    end
+    local function Pieces(kind)
+        local e = {}
+        if kind == "GREV" then
+            local back = {}
+            for i = #way, 1, -1 do back[#back + 1] = way[i] end
+            WAYS.Ride(e, back, { falls = 1 })
+        else
+            WAYS.Ride(e, way)
+        end
+        WAYS.Ride(e, filler)
+        return e
+    end
+    local HBD = LibStub("HereBeDragons-2.0")
+    local OFF = 30000
+    local keepHBD = { HBD.GetWorldCoordinatesFromZone, HBD.GetPlayerWorldPosition, HBD.GetZoneCoordinatesFromWorld, HBD.GetZoneDistance }
+    local keepStep = Core.ThreadStep
+    local core = 0
+    Core.ThreadStep = function(T, budget)
+        local t0 = Now()
+        local used = keepStep(T, budget)
+        local ms = Now() - t0
+        if ms > core then core = ms end
+        return used
+    end
+    local results = {}
+    local ok, err = pcall(function()
+        for _, kind in ipairs({ "GREV", "OBS" }) do
+            for _, temp in ipairs({ "cold", "warm" }) do
+                local runs = {}
+                local W
+                for n = 1, 20 do
+                    if temp == "cold" or n == 1 then
+                        if W then W.Done() end
+                        W = WAYS.World(Pieces(kind))
+                        W.w, W.h = 25000, 12500
+                        HBD.GetWorldCoordinatesFromZone = function(_, zx, zy, map) return zx * W.w + (map - 1400) * OFF, zy * W.h, 1 end
+                        HBD.GetPlayerWorldPosition = function() return player.x * W.w + (player.map - 1400) * OFF, player.y * W.h, 1 end
+                        HBD.GetZoneCoordinatesFromWorld = function(_, wx, wy, map) return (wx - (map - 1400) * OFF) / W.w, wy / W.h end
+                        HBD.GetZoneDistance = function(_, m1, x1, y1, m2, x2, y2)
+                            return math.sqrt(((x1 - x2) * W.w + (m1 - m2) * OFF) ^ 2 + ((y1 - y2) * W.h) ^ 2)
+                        end
+                        ns.WaysClock = Now
+                        WorldMapFrame:Show()
+                        if temp == "warm" then
+                            -- (the net built once, before the warm runs)
+                            W.At(way[1][1], way[1][2])
+                            ns.db.nodes[W.Z] = { W.Node(way[#way][1], way[#way][2]) }
+                            ns.StartRun("ore", W.Z)
+                            for _ = 1, 600 do advance(1 / 60) if W.Read().state == "net" then break end end
+                            ns.StopRun(true)
+                            advance(0.1)
+                        end
+                    end
+                    ns.WaysPerf(true)
+                    core = 0
+                    W.At(way[1][1], way[1][2])
+                    ns.db.nodes[W.Z] = { W.Node(way[#way][1], way[#way][2]) }
+                    local gen0 = (select(1, ns.WaysState()) or { core = { gen = -1 } }).core
+                    gen0 = gen0 and gen0.gen or -1
+                    ns.StartRun("ore", W.Z)
+                    local frames, published, drawn = 0, nil, nil
+                    local _, _, wh = ns.RouteWaysHead()
+                    while frames < 1200 and not drawn do
+                        advance(1 / 60)
+                        frames = frames + 1
+                        local nav = ns.WaysState()
+                        if not published and nav and nav.core.state == "net" and nav.core.gen ~= gen0 then published = frames end
+                        if published and ns.WaysDisplay().kind == "thread" and not wh.job and wh.top > 0 then drawn = frames end
+                    end
+                    local d = ns.WaysDiag()
+                    runs[#runs + 1] = { core = core, step = d.step, peak = d.peak, pub = published, drawn = drawn, fromPub = drawn and published and drawn - published,
+                        arcs = ns.WaysThread().arcs }
+                    ns.StopRun(true)
+                    advance(0.1)
+                end
+                if W then W.Done() end
+                results[#results + 1] = { kind = kind, temp = temp, runs = runs }
+            end
+        end
+    end)
+    Core.ThreadStep = keepStep
+    HBD.GetWorldCoordinatesFromZone, HBD.GetPlayerWorldPosition, HBD.GetZoneCoordinatesFromWorld, HBD.GetZoneDistance = keepHBD[1], keepHBD[2], keepHBD[3], keepHBD[4]
+    WorldMapFrame:Hide()
+    if not ok then error(err, 0) end
+    for _, r in ipairs(results) do
+        local c, s, p, fp, fr, over, miss = 0, 0, 0, 0, 0, 0, 0
+        for _, x in ipairs(r.runs) do
+            c, s, p = math.max(c, x.core), math.max(s, x.step), math.max(p, x.peak)
+            if x.fromPub then fp, fr = math.max(fp, x.fromPub), math.max(fr, x.drawn) else miss = miss + 1 end
+            if x.step > 0.25 then over = over + 1 end
+        end
+        note("MEASURE a9 " .. r.kind .. " " .. r.temp, ("core %.4f ms, step %.4f ms (%d runs over 0.25), frame %.4f ms; published -> drawn %d frames (%.2f s), start -> drawn %d frames; %d runs not drawn; arcs %d")
+            :format(c, s, over, p, fp, fp / 60, fr, miss, r.runs[1].arcs or -1))
+        for i, x in ipairs(r.runs) do
+            note("MEASURE a9 run", ("%s %s %d: core %.4f step %.4f frame %.4f pub %s drawn %s"):format(r.kind, r.temp, i, x.core, x.step, x.peak, tostring(x.pub), tostring(x.drawn)))
+        end
+    end
+end)
+
 step("Ways donation: canonical own pieces, no private fields, bounds and sliced multipart export", function()
     assert(loadfile(ROOT .. "/tools/ways_donation_test.lua"))()("codec", {ns=ns})
 end)
