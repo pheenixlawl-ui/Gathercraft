@@ -1295,9 +1295,14 @@ function M.KeepStart(ctx, nav)
     if i < 2 then i = 2 end
     k.nav, k.i, k.done, k.ok = nav, i, false, false
     k.guess, k.yards = 0, 0
-    k.duty = false -- (0.2.4 a7, S1.1 B4) an edge of the rest went from smoothable (OBS, REV) to fixed (CON, GREV) or back
+    k.duty = false -- (0.2.4 a7, S1.1 B4) an edge of the rest went from smoothable to fixed or back (a9: fixed is CON only)
     return k
 end
+
+-- (0.2.4 a9, F4.6 §1) the anchor duty of an edge kept went from fixed to smoothable or back: only CON is fixed -
+-- GREV -> CON (or OBS/REV -> CON) and back change it, OBS <-> GREV <-> REV do not. The guessed share below still
+-- counts GREV as guessed (unchanged).
+function M.DutyChanged(old, new) return (old == CON) ~= (new == CON) end
 
 function M.KeepStep(ctx, budget)
     local k = ctx.keepJob
@@ -1331,8 +1336,7 @@ function M.KeepStep(ctx, budget)
         -- stretch between its middles now, or no longer? The caller lets the thread go at the first change (T1).
         -- The centre line takes the new kind at once - it is drawn the same whatever the kinds, and a thread
         -- is only found for them again after the check (T2); a rest not kept is taken back.
-        local old = ck[i + 1]
-        if (old == CON or old == GREV) ~= (kind == CON or kind == GREV) then k.duty = true end
+        if M.DutyChanged(ck[i + 1], kind) then k.duty = true end
         ck[i + 1] = kind
         local d = kb - ka
         local len = (d == 1 or d == -1 or d == GRID or d == -GRID) and TILE or DIAG
@@ -1421,7 +1425,10 @@ function M.NewThread()
     }
 end
 
-local function Fixed(kind) return kind == CON or kind == GREV end
+-- (0.2.4 a9, F4.5 §2, F4.6 §1) only a CON edge is fixed (the straight stretch from middle to middle, anchored):
+-- a GREV edge joins two squares side by side, the thread stays in their tube - it is smoothed like OBS and REV
+local function Fixed(kind) return kind == CON end
+M.Fixed = Fixed
 local function IsAnchor(T, j)
     local c = T.c
     local kind = c.kind

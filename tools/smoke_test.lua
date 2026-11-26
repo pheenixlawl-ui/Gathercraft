@@ -36125,10 +36125,12 @@ step("Ways 0.2.4 S1.1 B2: the thread - the line pulled tight through the passage
         local CON, GREV = Core.CON, Core.GREV
         local state = Thread({ { 0, 0 }, { 1, 0 }, { 2, 0 }, { 3, 1 }, { 4, 1 }, { 5, 1 } }, { 1, 1, CON, 1, 1 }, nil, nil, 100)
         assert(state == "done" and Points():find("62.5,12.5 75,25 87.5,37.5", 1, true), "a connector: " .. Points())
+        -- (0.2.4 a9, F4.5 §2: a GREV edge is smoothed - its middles are no points of the thread)
         state = Thread({ { 0, 0 }, { 1, 0 }, { 2, 0 }, { 3, 0 }, { 4, 0 }, { 5, 1 }, { 6, 1 } }, { 1, GREV, 1, 1, 1, 1 }, nil, nil, 100)
-        assert(state == "done" and Points():find("37.5,12.5 62.5,12.5", 1, true), "the guessed way back: " .. Points())
+        assert(state == "done" and Points() == "12.5,12.5 12.5,12.5 125,25 162.5,37.5 162.5,37.5", "the guessed way back, smoothed: " .. Points())
         state = Thread({ { 0, 0 }, { 1, 0 }, { 2, 1 }, { 3, 1 }, { 4, 2 }, { 5, 2 } }, { 1, CON, GREV, 1, 1 }, nil, nil, 100)
-        assert(state == "done" and Points():find("37.5,12.5 50,25 62.5,37.5 87.5,37.5", 1, true), "two guessed in a row: " .. Points())
+        -- (0.2.4 a9: the CON stays from middle to middle over its corner, the GREV after it is smoothed)
+        assert(state == "done" and Points() == "12.5,12.5 12.5,12.5 37.5,12.5 50,25 62.5,37.5 100,50 137.5,62.5 137.5,62.5", "two guessed in a row: " .. Points())
     end
     -- 14. the events find what the look ahead would have: with it off, the U is found (three passages at
     -- one point), repaired with the same anchors, and the thread is the same; the check goes over the
@@ -36367,10 +36369,25 @@ step("Ways 0.2.4 S1.1 B4: keeping the rest of the way in two moments - T1 at the
             Core.Build(ctx, Line4(v[1]))
             local k = Core.KeepStart(ctx, nav)
             Core.KeepStep(ctx, 3)
-            assert(k.duty and not k.done and k.guess == 25 and k.percent == nil, v[1] .. ": after the first call the change is known, the result not")
+            -- (0.2.4 a9, F4.6 §1: REV -> GREV changes no anchor duty any more - both are smoothed)
+            assert(not k.duty and not k.done and k.guess == 25 and k.percent == nil, v[1] .. ": after the first call the guessed yards are known, the result not; REV -> GREV no change of the duty")
             while not k.done do Core.KeepStep(ctx, 3) end
             assert(k.ok == v[2] and (not v[2] or k.percent == v[3]), ("%s: kept %s, %s %%"):format(v[1], tostring(k.ok), tostring(k.percent)))
             assert(nav.cf.kind[3] == Core.GREV, v[1] .. ": the centre line has the new kind")
+        end
+        -- (0.2.4 a9, F4.6 §1) REV -> CON (the rides split, a connector guessed over the gap): the duty changes
+        do
+            local ctx = Core.New()
+            Core.Build(ctx, Line4())
+            local nav = Core.NewNav()
+            assert(Core.Query(ctx, nav, Centre(50), Centre(50), Centre(53), Centre(50)) == "net", "test setup: the way of 75 yd")
+            local e = {}
+            Ride(e, { { 53, 50 }, { 52, 50 } })
+            Ride(e, { { 51, 50 }, { 50, 50 } })
+            Core.Build(ctx, e)
+            local k = Core.KeepStart(ctx, nav)
+            while not k.done do Core.KeepStep(ctx, 3) end
+            assert(k.duty and nav.cf.kind[4] == Core.CON, "REV -> CON: the duty changes (" .. tostring(nav.cf.kind[4]) .. ")")
         end
         -- no change of the anchor duty (REV -> OBS): no T1
         local ctx = Core.New()
@@ -36406,7 +36423,10 @@ step("Ways 0.2.4 S1.1 B4: keeping the rest of the way in two moments - T1 at the
         end
         return e
     end
-    for _, v in ipairs({ { "one", 8 }, { "two", 17 }, { "gone" } }) do
+    -- (0.2.4 a9, F4.6 §1) REV -> GREV is no change of the anchor duty any more (both smoothed): no T1, the thread
+    -- stays shown through the check; T2 sets percent and source (GREV still counts as guessed). The T1 of a change
+    -- to or from CON: the a9 part 3 step (CON -> REV)
+    for _, v in ipairs({ { "one", 8, true }, { "two", 17, true }, { "gone" } }) do
         local e = Pieces()
         local W = WAYS.World(e)
         local ok, err = pcall(function()
@@ -36428,7 +36448,10 @@ step("Ways 0.2.4 S1.1 B4: keeping the rest of the way in two moments - T1 at the
                 return keepStep(c, 16)
             end
             W.keepStep = keepStep
-            for kk, vv in pairs(Pieces(v[1])) do if e[kk] ~= vv then e[kk] = vv end end
+            local new = Pieces(v[1])
+            for kk, vv in pairs(new) do if e[kk] ~= vv then e[kk] = vv end end
+            -- (0.2.4 a9: the CON variants leave gaps - a piece the new set has not goes from the saved ones)
+            for kk in pairs(e) do if new[kk] == nil then e[kk] = nil end end
             local rev = net.rev
             for i = 1, 50 do
                 Piece(e, 200 + 2 * i, 200, 1, 0)
@@ -36456,22 +36479,16 @@ step("Ways 0.2.4 S1.1 B4: keeping the rest of the way in two moments - T1 at the
                 frames = frames + 1
             end
             local k = ctx.keepJob
-            assert(early and frames >= 1, "test setup: the check went over frames (" .. frames .. ")")
-            assert(early.kind == "centre" and early.pub == pub + 1 and not early.done, "T1: the centre line in the frame of the change, the check still open")
-            assert(early.percent == 0 and early.source == source, "T1: percent and source as before: " .. tostring(early.source))
             local after = { core.pos, core.rest, core.offD, core.on, core.seg, core.state, core.front, core.have, core.gen }
             local _, want = ns.WaysThread()
-            if v[2] then
-                for i = 1, #before do assert(before[i] == after[i], "T1/T2 changed the navigation (" .. i .. ")") end
+            assert(frames >= 1 and not early, "REV -> GREV: no T1 (" .. frames .. " frames)")
+            if v[3] then
+                -- (0.2.4 a9) REV -> GREV: no change of the anchor duty - no T1, the thread stays shown through the
+                -- check; T2: percent and source of the new net, no new thread wanted
+                for i = 1, #before do assert(before[i] == after[i], "the check changed the navigation (" .. i .. ")") end
                 r = W.Read()
-                assert(k.done and k.ok and r.state == "net" and r.percent == v[2] and ns.WaysSource(run):find(v[2] .. "%", 1, true),
-                    ("T2: percent and source of the new net: %s, %s"):format(tostring(r.percent), tostring(ns.WaysSource(run))))
-                assert(ns.WaysDisplay().kind == "centre" and want == gen and core.gen == gen, "T2: the centre line until the thread for the new kinds")
-                -- the thread for the new kinds: the guessed first edge stays the straight stretch between its middles
-                assert(ns.WaysThreadNow() == "done", "the thread for the new kinds")
-                local th = ns.WaysThread().t
-                assert(th.x[2] == Centre(50) and th.y[2] == Centre(50) and th.x[3] == Centre(50) and th.y[3] == Centre(51),
-                    ("the guessed edge is pulled: (%g, %g) after the first middle"):format(th.x[3], th.y[3]))
+                assert(k.done and k.ok and r.percent == v[2] and ns.WaysSource(run):find(v[2] .. "%", 1, true) and ns.WaysDisplay().kind == "thread"
+                    and r.pub == pub and want == nil, ("REV -> GREV: the thread stays, %s %%, %s"):format(tostring(r.percent), ns.WaysDisplay().kind))
             else
                 -- not kept: as a5, the way is taken back
                 assert(k.done and not k.ok and W.Read().state == "line" and want == nil, "not kept: taken back as a5, no thread wanted")
@@ -37110,8 +37127,10 @@ step("Ways 0.2.4 S1.1 R1 M2: the guard checks a guessed edge (CON, GREV) as a wh
         if where == "before" then return Put(a, b, { { a[1] + 5 * dx, a[2] + 3 }, { mx, my } }) end
         return Put(a, b, { { mx, my }, { b[1] - 5 * dx, b[2] - 3 } })
     end
-    for _, kind in ipairs({ { "CON", Connector }, { "GREV", WayBack }, { "CON", Diagonal, "diagonal " } }) do
-        for _, where in ipairs({ "none", "before", "after" }) do
+    -- (0.2.4 a9, F4.5 §2: a GREV edge is smoothed, the guard takes CON only as a whole - the GREV way is looked at
+    -- without a bend: its thread shown)
+    for _, kind in ipairs({ { "CON", Connector }, { "GREV", WayBack, nil, true }, { "CON", Diagonal, "diagonal " } }) do
+        for _, where in ipairs(kind[4] and { "none" } or { "none", "before", "after" }) do
             local e, from, to, a, b, corner = kind[2]()
             local W = WAYS.World(e)
             local ok, err = pcall(function()
@@ -37408,6 +37427,117 @@ step("Ways 0.2.4 S1.1 a9 part 2: a thread's whole budget is 16 times its passage
     -- asked for less than 32: that many
     Core.ThreadStart(T, c, 2)
     assert(Core.ThreadStep(T, 5) == 5 and T.used == 5, "asked for 5: 5 units")
+end)
+
+step("Ways 0.2.4 S1.1 a9 part 3: a GREV edge is smoothed like OBS and REV, only CON stays fixed - Codex' twelve GREV edges give a thread without a middle in it; keeping a way, only a change to or from CON changes the anchor duty (0.2.4 a9, F4.5 §2, F4.6 §1)", function()
+    local Core = ns.WaysCore
+    local OBS, REV, CON, GREV = Core.OBS, Core.REV, Core.CON, Core.GREV
+    assert(Core.Fixed(CON) and not Core.Fixed(GREV) and not Core.Fixed(OBS) and not Core.Fixed(REV), "fixed: CON only")
+    -- Codex' twelve GREV edges from square (10, 10), east and north by turns: a8 drew its 13 middles (eleven right
+    -- angles); smoothed, no square's middle is a point of it but the first and the last
+    local T = Core.NewThread()
+    local kinds = {}
+    for i = 1, 12 do kinds[i] = GREV end
+    local c = A9.Centre(A9.Walk(10, 10, "ENENENENENEN"), kinds)
+    local state, reason = Core.Thread(T, c, 1)
+    assert(state == "done", "the twelve GREV edges: " .. tostring(reason))
+    local middles = 0
+    for k = 2, T.t.n - 1 do
+        if T.vu[k] % 2 == 0 and T.vu[k] > 4 and T.vu[k] < 2 * (c.n - 1) then middles = middles + 1 end
+    end
+    assert(middles == 0, ("the twelve GREV edges: %d middles in the thread"):format(middles))
+    -- the same with CON: every middle an anchor, the stairs stay
+    for i = 1, 12 do kinds[i] = CON end
+    state = Core.Thread(T, A9.Centre(A9.Walk(10, 10, "ENENENENENEN"), kinds), 1)
+    assert(state == "done" and T.t.n == 15, "twelve CON edges: the stairs of middles (" .. T.t.n .. " points)")
+    -- the anchor duty when a way is kept: a change to or from CON only (F4.6 §1)
+    local D = Core.DutyChanged
+    assert(D(GREV, CON) and D(CON, GREV) and D(OBS, CON) and D(CON, REV), "to or from CON: the duty changes")
+    assert(not D(OBS, GREV) and not D(GREV, OBS) and not D(GREV, REV) and not D(REV, OBS) and not D(CON, CON), "OBS, GREV, REV among them: no change")
+    -- in the run, T1 at a change from CON: the way shown crosses a gap on a guessed connector (two rides, no piece
+    -- between (52,51) and (53,51)); then the gap is ridden (REV), the short way costs 4 times as much and a long
+    -- way lies beside it - the search takes the long way, too long: the short one is checked against the new net
+    -- (keep), its edge CON -> REV changes the anchor duty: T1 in the frame of the change, T2 at the end
+    local Ride, Piece = WAYS.Ride, WAYS.Piece
+    local function Mid(i) return (i + 0.5) * 25 end
+    local function Pieces(after)
+        local e = {}
+        local short = { { 60, 50 }, { 60, 51 } }
+        for x = 59, 50, -1 do short[#short + 1] = { x, 51 } end
+        short[#short + 1] = { 50, 50 }
+        if not after then
+            local a, b = {}, {}
+            for _, q in ipairs(short) do
+                if q[2] == 51 and q[1] <= 52 or q[2] == 50 and q[1] == 50 then b[#b + 1] = q else a[#a + 1] = q end
+            end
+            Ride(e, a)
+            Ride(e, b)
+            return e
+        end
+        Ride(e, short, { cost = 400 })
+        local long = { { 50, 50 } }
+        for y = 49, 35, -1 do long[#long + 1] = { 50, y } end
+        for x = 51, 60 do long[#long + 1] = { x, 35 } end
+        for y = 36, 50 do long[#long + 1] = { 60, y } end
+        Ride(e, long)
+        return e
+    end
+    local e = Pieces()
+    local W = WAYS.World(e)
+    local ok, err = pcall(function()
+        W.At(50, 50)
+        local run = W.Run({ W.Node(60, 50) }, 2)
+        local r = W.Read()
+        assert(r.state == "net" and r.percent == 8, "test setup: the short way with its connector, 8 % guessed: " .. r.state .. ", " .. tostring(r.percent))
+        local nav, net, req, ctx = ns.WaysState()
+        local core = nav.core
+        local found = false
+        for i = 2, core.cf.n do if core.cf.kind[i] == CON then found = true end end
+        assert(found, "test setup: the connector is in the way shown")
+        assert(ns.WaysThreadNow() == "done" and ns.WaysDisplay().kind == "thread", "test setup: its thread shown")
+        local gen, pub = core.gen, r.pub
+        W.Clock("fast")
+        local keepStep = Core.KeepStep
+        Core.KeepStep = function(c, budget)
+            W.extra = W.extra + 0.8
+            return keepStep(c, 16)
+        end
+        W.keepStep = keepStep
+        local new = Pieces(true)
+        for kk, vv in pairs(new) do if e[kk] ~= vv then e[kk] = vv end end
+        for kk in pairs(e) do if new[kk] == nil then e[kk] = nil end end
+        for i = 1, 50 do
+            Piece(e, 200 + 2 * i, 200, 1, 0)
+            ns.PathsChanged(W.Z, "new")
+        end
+        local t, early = 0, nil
+        while not (req.active and req.stage == "keep") and t < 4000 do
+            advance(0.01)
+            t = t + 1
+        end
+        assert(req.active and req.stage == "keep" and ctx.q.reason == "long", ("test setup: the rest is checked against the new net (%s %s, %s)"):format(tostring(req.active), tostring(req.stage), tostring(ctx.q.reason)))
+        local frames = 0
+        while req.active and req.stage == "keep" and frames < 100 do
+            local k = ctx.keepJob
+            if k.early and not early then early = { kind = ns.WaysDisplay().kind, pub = W.Read().pub, done = k.done } end
+            advance(0.01)
+            frames = frames + 1
+        end
+        local k = ctx.keepJob
+        local _, want = ns.WaysThread()
+        assert(early and early.kind == "centre" and early.pub == pub + 1 and not early.done, "CON -> REV: T1 in the frame of the change, the check still open")
+        r = W.Read()
+        assert(k.done and k.ok and r.percent == 0 and want == gen and core.gen == gen, ("CON -> REV: T2, the new kinds (%s %%), a thread wanted for them"):format(tostring(r.percent)))
+        -- the thread for the new kinds: the former connector smoothed, its middles no points of it
+        assert(ns.WaysThreadNow() == "done", "the thread for the new kinds")
+        local th = ns.WaysThread().t
+        for kk = 1, th.n - 1 do
+            assert(not (th.x[kk] == Mid(52) and th.y[kk] == Mid(51) and th.x[kk + 1] == Mid(53) and th.y[kk + 1] == Mid(51)), "the former connector is still the stretch between its middles")
+        end
+    end)
+    if W.keepStep then Core.KeepStep = W.keepStep end
+    W.Done()
+    if not ok then error(err, 0) end
 end)
 
 step("Ways donation: canonical own pieces, no private fields, bounds and sliced multipart export", function()
