@@ -37214,6 +37214,55 @@ end)
 step("Ways donation: copy window, focus, Escape, hint once per character, no channel traffic", function()
     assert(loadfile(ROOT .. "/tools/ways_donation_ui_test.lua"))()({ns=ns,fire=fire,sent=sentMessages,slash=slash})
 end)
+-- (0.2.4 a8, Codex' check of a6/a7: the known gap of a6) On Options › Fishing the heading "Ways" is a row of the
+-- page's flowing layout (AddHeader, as in 9158a7d) - no test held it: without it the heading stayed where it was
+-- made while the switch and the button under it moved with the rows.
+step("Options 0.2.4 a8: Fishing › Ways - the heading, the switch and the button are rows of the page, one under the other as the rows flow (Codex' check of a6/a7, the layout)", function()
+    local keep = ns.WaysDonationFormURL
+    ns.WaysDonationFormURL = "https://example.invalid/manual-form" -- (the button is shown with a form)
+    local ok, err = pcall(function()
+        ns.ShowOptionsSection("general")
+        ns.ShowOptionsSection("fishing")
+        local L = ns.L
+        local button, label
+        for _, f in ipairs(allFrames) do
+            if f.__kind == "Button" and f:GetText() == L["Share my ways..."] and f:GetParent() ~= GathercraftWaysDonation then button = f end
+            if f.__kind == "FontString" and f:GetText() == L["Donation hint in chat"] then label = f end
+        end
+        assert(button and label, "test setup: the button and the switch's label on Fishing")
+        local page = button:GetParent()
+        local head
+        for _, f in ipairs(allFrames) do
+            if f.__kind == "FontString" and f.__parent == page and f:GetText() == L["Ways"] then head = f end
+        end
+        local cb = label.__pts and label.__pts.TOPLEFT and label.__pts.TOPLEFT[1]
+        assert(head and cb and cb.__kind == "CheckButton", "test setup: the heading \"Ways\" and the switch on the page of the button")
+        -- all three are rows of the page's flowing layout, in this order, one after the other
+        local rows, ih, ic, ib = page.rows or {}, nil, nil, nil
+        for i, r in ipairs(rows) do
+            if r.holder == head then ih = i end
+            if r.cb == cb then ic = i end
+            if r.holder == button then ib = i end
+        end
+        assert(ih and ic and ib and ic == ih + 1 and ib == ic + 1, ("the rows of Fishing: heading %s, switch %s, button %s"):format(tostring(ih), tostring(ic), tostring(ib)))
+        -- where the rows put them: the switch a heading's row (26) under the heading, the button a switch's row under it
+        local hx, hy = head.__pts.TOPLEFT[1], head.__pts.TOPLEFT[2]
+        local cx, cy = cb.__pts.TOPLEFT[1], cb.__pts.TOPLEFT[2]
+        local bx, by = button.__pts.TOPLEFT[1], button.__pts.TOPLEFT[2]
+        local lh = label:GetStringHeight() or 0
+        assert(type(hy) == "number" and hy - cy == 26 and cy - by == math.max(26, lh + 12),
+            ("heading at %s, switch at %s, button at %s (the switch's label %s high)"):format(tostring(hy), tostring(cy), tostring(by), tostring(lh)))
+        assert(hx == cx + 2 and bx == cx + 6, ("the columns: heading %s, switch %s, button %s"):format(tostring(hx), tostring(cx), tostring(bx)))
+        -- and the heading under the row before it
+        local prev = rows[ih - 1]
+        local pf = prev and (prev.holder or prev.cb or prev.fs)
+        local py = pf and pf.__pts and pf.__pts.TOPLEFT and pf.__pts.TOPLEFT[2]
+        assert(type(py) == "number" and hy < py, ("the heading at %s, the row before it at %s"):format(tostring(hy), tostring(py)))
+    end)
+    ns.WaysDonationFormURL = keep
+    ns.ShowOptionsSection("general")
+    if not ok then error(err, 0) end
+end)
 step("Ways donation: no form hides the button, all nine translations and unchanged idle data", function()
     local keys = {
         "Share my ways...", "Donation hint in chat", "The form is not ready yet",
