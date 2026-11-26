@@ -2617,7 +2617,11 @@ local diag = { peak = 0, step = 0, requests = 0, cancelled = 0, late = 0, over =
     threads = 0, repaired = 0, fellCount = 0, fellGuard = 0, fellOther = 0, booked = 0, pubReads = 0, pubPeak = 0,
     -- (0.2.4 a9, F4.5 §5, F4.6 §5) ways of the net published, their threads shown; corners drawn round and left sharp by
     -- the check; ways with a corner to round, and of them the ones with an arc
-    ways = 0, shown = 0, arcs = 0, sharp = 0, roundWays = 0, arcWays = 0 }
+    ways = 0, shown = 0, arcs = 0, sharp = 0, roundWays = 0, arcWays = 0,
+    -- (0.2.4 a9 R1, Codex M3) the generation of way each of the four way counters counted last: a way counts once,
+    -- however often it is drawn (kept with new kinds of edge: drawn anew); shown, it counts among the ways too
+    -- (published before the counters were reset)
+    wayGen = -1, shownGen = -1, roundGen = -1, arcGen = -1 }
 local function Frame()
     local now = GetTime()
     if now ~= frameAt then frameAt, frameSum = now, 0 end
@@ -3151,14 +3155,16 @@ local function ThreadWork(budget)
         diag.threads, diag.booked = diag.threads + 1, diag.booked + T.used
         if T.repairs > 0 then diag.repaired = diag.repaired + 1 end
         diag.arcs, diag.sharp = diag.arcs + T.arcs, diag.sharp + T.sharp
-        if T.tries > 0 then
-            diag.roundWays = diag.roundWays + 1
-            if T.arcs > 0 then diag.arcWays = diag.arcWays + 1 end
-        end
+        local g = T.gen
+        if T.tries > 0 and diag.roundGen ~= g then diag.roundWays, diag.roundGen = diag.roundWays + 1, g end
+        if T.arcs > 0 and diag.arcGen ~= g then diag.arcWays, diag.arcGen = diag.arcWays + 1, g end
         -- (0.2.4 a9, F4.6 §4) shown: the finished drawing with its arcs - the maps and the arrow read this one list
         if (disp.kind == "straight" or disp.kind == "centre") and disp.gen == nav.core.gen then
             used = used + PublishDisplay(T.f.view, "thread")
-            diag.shown = diag.shown + 1
+            if diag.shownGen ~= g then
+                diag.shown, diag.shownGen = diag.shown + 1, g
+                if diag.wayGen ~= g then diag.ways, diag.wayGen = diag.ways + 1, g end
+            end
         end
     elseif T.state == "failed" then
         threadWant = nil
@@ -3274,7 +3280,7 @@ local function Step()
                     read.pub = read.pub + 1
                     -- (S1.1 B5, F4 §D) its thread: a job of its own, after this publication
                     threadWant, threadAsk = nav.core.gen, threadAsk + 1
-                    diag.ways = diag.ways + 1
+                    if diag.wayGen ~= nav.core.gen then diag.ways, diag.wayGen = diag.ways + 1, nav.core.gen end
                     nav.stamp = -1
                     nav.source = SourceText(nav.core.front.percent)
                     req.active = false
@@ -3511,6 +3517,7 @@ ns.WaysPerf = function(reset)
         diag.threads, diag.repaired, diag.fellCount, diag.fellGuard, diag.fellOther, diag.booked = 0, 0, 0, 0, 0, 0
         diag.pubPeak = 0
         diag.ways, diag.shown, diag.arcs, diag.sharp, diag.roundWays, diag.arcWays = 0, 0, 0, 0, 0, 0
+        diag.wayGen, diag.shownGen, diag.roundGen, diag.arcGen = -1, -1, -1, -1
         return
     end
     return ("ways: largest frame %.2f ms (limit %.1f), longest step %.2f ms, %d requests (%d given up, %d late, %d dropped), %d builds (%d over the limits), %d taken back at once; %d threads (%d repaired), %d on the straight line (%d counter, %d guard, %d other), %d booked; a change of what is shown read %d distances at the most; %d of %d ways shown as a thread; corners: %d drawn round, %d left sharp by the check; %d of %d ways with a corner to round have an arc")

@@ -37781,6 +37781,105 @@ step("Ways 0.2.4 S1.1 a9 part 3: a GREV edge is smoothed like OBS and REV, only 
     if not ok then error(err, 0) end
 end)
 
+-- (0.2.4 a9 R1, Codex M3) one way published, its thread drawn, the way kept with a new kind of edge (CON -> REV): a
+-- second drawing of the same generation - "2 of 1 ways shown as a thread"
+step("Ways 0.2.4 S1.1 a9 R1 M3: /gcr perf counts a way once - published, drawn, kept with a new kind of edge and drawn again: 1 of 1 ways shown as a thread, its corners' quota once too; the counters reset between two drawings: 1 of 1 after it", function()
+    local Core = ns.WaysCore
+    local CON = Core.CON
+    local Ride, Piece = WAYS.Ride, WAYS.Piece
+    local function Pieces(after)
+        local e = {}
+        local short = { { 60, 50 }, { 60, 51 } }
+        for x = 59, 50, -1 do short[#short + 1] = { x, 51 } end
+        short[#short + 1] = { 50, 50 }
+        if not after then
+            local a, b = {}, {}
+            for _, q in ipairs(short) do
+                if q[2] == 51 and q[1] <= 52 or q[2] == 50 and q[1] == 50 then b[#b + 1] = q else a[#a + 1] = q end
+            end
+            Ride(e, a)
+            Ride(e, b)
+            return e
+        end
+        Ride(e, short, { cost = 400 })
+        local long = { { 50, 50 } }
+        for y = 49, 35, -1 do long[#long + 1] = { 50, y } end
+        for x = 51, 60 do long[#long + 1] = { x, 35 } end
+        for y = 36, 50 do long[#long + 1] = { 60, y } end
+        Ride(e, long)
+        return e
+    end
+    local function Ways()
+        local d = ns.WaysDiag()
+        return d.shown, d.ways, d.arcWays, d.roundWays
+    end
+    -- (until no thread is wanted any more and a thread is shown: WaysThreadNow tells the thread object's state, an
+    -- earlier thread's "done" too)
+    local function Settled(req)
+        for _ = 1, 3000 do
+            local _, want = ns.WaysThread()
+            if not req.active and want == nil and ns.WaysThreadNow() == "done" and ns.WaysDisplay().kind == "thread" then return true end
+            advance(0.01)
+        end
+        return false
+    end
+    -- resetAfter: the counters reset right after the way is published (before its first drawing is done)
+    local function Case(resetAfter)
+        local e = Pieces()
+        local W = WAYS.World(e)
+        local ok, err = pcall(function()
+            ns.WaysPerf(true)
+            W.At(50, 50)
+            W.Run({ W.Node(60, 50) }, 2)
+            local nav, net, req, ctx = ns.WaysState()
+            local core = nav.core
+            local found = false
+            for i = 2, core.cf.n do if core.cf.kind[i] == CON then found = true end end
+            assert(found and ns.WaysThreadNow() == "done" and ns.WaysDisplay().kind == "thread", "test setup: the short way with its connector, its thread shown")
+            local s, w = Ways()
+            assert(s == 1 and w == 1, ("after the first drawing %d of %d ways shown as a thread (want 1 of 1)"):format(s, w))
+            if resetAfter then
+                -- (the counters reset after the way was published and drawn: its drawing anew counts it, once)
+                ns.WaysPerf(true)
+                s, w = Ways()
+                assert(s == 0 and w == 0, "test setup: the counters reset")
+            end
+            local gen = core.gen
+            W.Clock("fast")
+            local keepStep = Core.KeepStep
+            Core.KeepStep = function(c, budget)
+                W.extra = W.extra + 0.8
+                return keepStep(c, 16)
+            end
+            W.keepStep = keepStep
+            local new = Pieces(true)
+            for kk, vv in pairs(new) do if e[kk] ~= vv then e[kk] = vv end end
+            for kk in pairs(e) do if new[kk] == nil then e[kk] = nil end end
+            for i = 1, 50 do
+                Piece(e, 200 + 2 * i, 200, 1, 0)
+                ns.PathsChanged(W.Z, "new")
+            end
+            local t = 0
+            while not (req.active and req.stage == "keep") and t < 4000 do
+                advance(0.01)
+                t = t + 1
+            end
+            assert(Settled(req), "test setup: kept, a thread drawn again")
+            assert(ctx.keepJob.done and ctx.keepJob.ok and core.gen == gen and ns.WaysDiag().threads == (resetAfter and 1 or 2),
+                ("test setup: kept with the new kinds, their thread drawn and shown (%d threads done)"):format(ns.WaysDiag().threads))
+            local shown, ways, arcWays, roundWays = Ways()
+            assert(shown == 1 and ways == 1, ("%s: kept and drawn again - %d of %d ways shown as a thread (want 1 of 1)"):format(resetAfter and "reset after the first drawing" or "no reset", shown, ways))
+            assert(arcWays <= roundWays and roundWays <= 1, ("%s: %d of %d ways with a corner to round have an arc (one way)"):format(resetAfter and "reset after the first drawing" or "no reset", arcWays, roundWays))
+            local line = ns.WaysPerf()
+            assert(line:find("1 of 1 ways shown as a thread", 1, true), "/gcr perf: " .. line)
+        end)
+        if W.keepStep then Core.KeepStep = W.keepStep end
+        W.Done()
+        if not ok then error(err, 0) end
+    end
+    Case(false)
+    Case(true)
+end)
 step("Ways 0.2.4 S1.1 a9 part 4: the funnel works on sides cut by 6 yd at both ends (the construction margin) - the thread keeps 6 yd from the squares' corners it bends around; a diagonal's corner stays a point; the check margin is 4 yd (0.2.4 a9, F4.6 §2)", function()
     local Core = ns.WaysCore
     assert(Core.buildMargin == 6 and Core.checkMargin == 4, "the margins: 6 yd to build, 4 yd to check")
