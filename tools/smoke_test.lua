@@ -20060,8 +20060,8 @@ end)
 -- GathercraftSync (7), at once the same text from "Test Fern-Forever" on Trade (5) - refused and counted, nothing
 -- learned; 12 s later a node message of the same player on 7 - heard as somebody else's, not as the own echo. The
 -- control "Test Elm-Forever" on 7: heard. The same with no channel fields (unknown origin) and for a blocked player
--- within the 10 s. The own echo of a two-part name on GathercraftSync and in the guild: learned, as before. And the
--- code: no call that learns before where the message came from is known.
+-- within the 10 s, and for an event that names only the channel. The own echo of a two-part name on GathercraftSync and
+-- in the guild: learned, as before. And the code: no call that learns before where the message came from is known.
 step("Sync 0.2.4 a12: where a node message came from is asked before anything that learns who oneself is - from another channel, of unknown origin or from a blocked player right after the own one it never makes its sender oneself", function()
     local keep = { chan = GetChannelName, name = UnitName, debug = ns.db.debug, public = ns.db.sync.public, enabled = ns.db.sync.enabled }
     local made = {}
@@ -20131,6 +20131,9 @@ step("Sync 0.2.4 a12: where a node message came from is asked before anything th
         expect(Did(Channel(ASK, "Test Fern", 7, "GathercraftSync"), "Test Fern"), "other +0 unknown +0 own +0 heard +1", "a node message of Test Fern on GathercraftSync 12 s later")
         -- 4. the control: Test Elm on 7
         expect(Did(Channel(ASK, "Test Elm", 7, "GathercraftSync"), "Test Elm"), "other +0 unknown +0 own +0 heard +1", "the control: Test Elm on GathercraftSync")
+        --    (an event that names only the channel: its name decides - Trade is another channel)
+        text = Own(0.3166)
+        expect(Did(Channel(text, "Test Moss", nil, "Trade"), "Test Moss"), "other +1 unknown +0 own +0 heard +0", "the own node message's text from Test Moss on Trade (only the name given) right after it")
         -- 5. an unknown origin right after the own message (no channel fields): the same
         text = Own(0.3222)
         expect(Did(Channel(text, "Test Oak"), "Test Oak"), "other +0 unknown +1 own +0 heard +0", "the own node message's text from Test Oak, no channel fields, right after it")
