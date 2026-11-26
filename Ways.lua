@@ -2930,9 +2930,10 @@ Rebuild = function()
 end
 
 -- No S1 work any more (the run ended, the option is off, nothing is shown):
--- the way is taken back and hidden in this frame, the net's lists are let go.
--- (Taking the hidden dots off the maps goes on in small steps, Route.lua.)
+-- the way is taken back and hidden in this frame; (0.2.4 a9 R1) the net's lists stay for the next run, the option
+-- off lets them go - also when no run is on. (Taking the hidden dots off the maps goes on in small steps, Route.lua.)
 local function Release()
+    if ns.db and ns.db.routeWaysOff then ctx = nil end
     if not nav then return end
     Withdraw()
     CancelRequest()
@@ -2942,7 +2943,17 @@ local function Release()
     -- (0.2.4 a8, Codex N1) the thread's job lets the last centre line go; its own lists stay for the next run
     thread.c, threadWant = nil, nil
     read.state, read.points, read.n, read.source = "none", nil, 0, nil
-    ctx = nil
+    -- (0.2.4 a9 R1, Codex M2) the build's and the search's lists stay from run to run, no net in use: a run made them
+    -- anew - about 2.8 MB for a net of 8,000 squares, and the garbage collector's steps for them fell into S1's steps.
+    -- They are written over (8,000 squares and 20,000 edges at the most); what they held of the run goes (its
+    -- navigation, the keep's: the last centre line is let go, a8 N1). The option off lets them go too (Codex R3-M2).
+    if ctx and not (ns.db and ns.db.routeWaysOff) then
+        M.Drop(ctx)
+        ctx.q.nav = nil
+        if ctx.keepJob then ctx.keepJob.nav = nil end
+    else
+        ctx = nil
+    end
     net.mapID, net.ready, net.building, net.over, net.fresh = nil, false, false, nil, 0
     if ns.PathsListen then ns.PathsListen(nil) end
     Told()

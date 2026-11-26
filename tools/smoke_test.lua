@@ -38524,6 +38524,83 @@ step("Ways 0.2.4 S1.1 a9 R1 M2: the work of a step is set per kind of work and p
     end
     assert(stage4 >= 2, ("test setup: the radix sorts' spreading (stage 4) seen in %d phases"):format(stage4))
 end)
+-- (0.2.4 a9 R1, Codex M2: the spikes that stayed were the garbage collector's steps - a build of a net of 8,000 squares
+-- made its lists anew in every run, about 2 MB: the run's end let them go)
+step("Ways 0.2.4 S1.1 a9 R1 M2: the build's and the search's lists stay from run to run (the option off lets them go) - a second run's build takes no memory (less than 16 KB with the collector stopped; the first run's S1 work about 2.8 MB, the second run's search, keep, thread and map dots noted): the way the same", function()
+    local Core = ns.WaysCore
+    local drawer = ns.RouteWaysDrawer
+    local filler, row = {}, 0
+    while #filler < 7999 do
+        local r = {}
+        for c = 0, 99 do r[#r + 1] = { 5 + (row % 2 == 0 and c or 99 - c), 20 + row } end
+        for _, q in ipairs(r) do if #filler < 7999 then filler[#filler + 1] = q end end
+        row = row + 1
+    end
+    local e = {}
+    WAYS.Ride(e, filler)
+    local W = WAYS.World(e)
+    -- the memory taken inside S1's pieces of work
+    local inside, build, dots = 0, 0, 0
+    local keep = {}
+    local function Wrap(t, name)
+        local f = t[name]
+        keep[#keep + 1] = { t, name, f }
+        t[name] = function(...)
+            local k0 = collectgarbage("count")
+            local a, b, c = f(...)
+            local d = collectgarbage("count") - k0
+            inside = inside + d
+            if name == "BuildStep" then build = build + d end
+            if name == "Step" then dots = dots + d end
+            return a, b, c
+        end
+    end
+    local ok, err = pcall(function()
+        Wrap(Core, "BuildStep")
+        Wrap(Core, "QueryStep")
+        Wrap(Core, "KeepStep")
+        Wrap(Core, "ThreadStep")
+        if drawer then Wrap(drawer, "Step") end
+        local function Run()
+            W.At(5, 20)
+            W.Run({ W.Node(60, 20) }, 3)
+            local r = W.Read()
+            assert(r.state == "net" and ns.WaysDisplay().kind == "thread", "test setup: a way in the net of 8,000 squares, its thread shown: " .. tostring(r.state))
+            local way = W.Way()
+            ns.StopRun(true)
+            advance(0.5)
+            return way
+        end
+        -- (the option off and on: no lists kept - the next run makes them, as the session's first run)
+        ns.db.routeWaysOff = true
+        ns.WaysOptionChanged()
+        ns.db.routeWaysOff = nil
+        ns.WaysOptionChanged()
+        assert(select(4, ns.WaysState()) == nil, "test setup: the option off let the lists go")
+        collectgarbage("collect")
+        collectgarbage("stop")
+        inside = 0
+        local first = Run() -- (the lists made, as at the session's first run)
+        local firstTaken = inside
+        collectgarbage("restart")
+        collectgarbage("collect")
+        collectgarbage("stop")
+        inside, build, dots = 0, 0, 0
+        local second = Run()
+        local taken = inside
+        collectgarbage("restart")
+        assert(firstTaken > 1024, ("test setup: the first run's S1 work took %.0f KB (its lists made)"):format(firstTaken))
+        assert(second == first, "the second run's way is not the first one's")
+        -- (the search writes the way into the run's own navigation buffers; the map dots' pins are HereBeDragons' and the
+        -- mock's frames - noted, not held)
+        note("MEASURE S1.1 a9 R1 memory", ("the second run: build %.1f KB, build to thread %.1f KB, map dots %.1f KB; the first run %.0f KB"):format(build, taken - dots, dots, firstTaken))
+        assert(build < 16, ("the second run: its build took %.1f KB (the first run's S1 work %.0f KB)"):format(build, firstTaken))
+    end)
+    for i = #keep, 1, -1 do keep[i][1][keep[i][2]] = keep[i][3] end
+    collectgarbage("restart")
+    W.Done()
+    if not ok then error(err, 0) end
+end)
 step("Ways 0.2.4 S1.1 a9 measure: the real clock on Codex' two kinds of an 800 way and his way with arcs in a net of 8,000 squares, each cell on its own (only with GC_MEASURE_A9 set)", function()
     if not os.getenv("GC_MEASURE_A9") then return end
     local Core = ns.WaysCore
