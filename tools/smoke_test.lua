@@ -38322,6 +38322,84 @@ step("Ways 0.2.4 S1.1 a9 R1 M1: a call of the core does 32 pieces of work at the
         if w == 1 then assert(first == "done " .. drawn, "the ten steps: another drawing") end
     end
 end)
+-- (0.2.4 a9 R1, Codex N2: in an arc the events kept the thread's crossing - (275, 269) on the twelve GREV edges, where
+-- the drawing crosses at (275, 269.1808); their s was right)
+step("Ways 0.2.4 S1.1 a9 R1 N2: every event's point is where the finished drawing is at its s - in an arc the drawing's crossing (Codex' twelve GREV edges: 275, 269.1808), an anchor drawn round the arc's middle point; 1,000 random ways", function()
+    local Core = ns.WaysCore
+    local OBS, REV, CON, GREV = Core.OBS, Core.REV, Core.CON, Core.GREV
+    local T = Core.NewThread()
+    -- the drawing's point at s yards along it
+    local function At(s)
+        local F = T.f
+        for k = 1, F.n - 1 do
+            if s <= F.raw[k + 1] + 1e-9 then
+                local len = F.raw[k + 1] - F.raw[k]
+                local f = len > 0 and (s - F.raw[k]) / len or 0
+                if f < 0 then f = 0 end
+                return F.x[k] + f * (F.x[k + 1] - F.x[k]), F.y[k] + f * (F.y[k + 1] - F.y[k])
+            end
+        end
+        return F.x[F.n], F.y[F.n]
+    end
+    local function Off()
+        local worst, at = 0, 0
+        for e = 1, T.en do
+            local x, y = At(T.es[e])
+            local d = math.sqrt((x - T.ex[e]) ^ 2 + (y - T.ey[e]) ^ 2)
+            if d > worst then worst, at = d, e end
+        end
+        return worst, at
+    end
+    local kinds = {}
+    for i = 1, 12 do kinds[i] = GREV end
+    local state = Core.Thread(T, A9.Centre(A9.Walk(10, 10, "ENENENENENEN"), kinds), 1)
+    assert(state == "done" and T.arcs == 2, "test setup: the twelve GREV edges with their two arcs")
+    local found
+    for e = 1, T.en do
+        if math.abs(T.ex[e] - 275) < 1e-9 then found = e end
+    end
+    assert(found and math.abs(T.ey[found] - 269.180778446) < 1e-6, ("the twelve GREV edges: the event at x = 275 is at y %s (the drawing: 269.180778446)"):format(found and ("%.9f"):format(T.ey[found]) or "none"))
+    local worst, e = Off()
+    assert(worst < 1e-6, ("the twelve GREV edges: event %d is %.6f yd off the drawing at its s"):format(e, worst))
+    -- 1,000 random ways (the generator of part 5)
+    local seed = 2611
+    local function Rand(n)
+        seed = (seed * 16807) % 2147483647
+        return seed % n
+    end
+    local D4 = { { 1, 0 }, { 0, 1 }, { -1, 0 }, { 0, -1 } }
+    local D8 = { { 1, 0 }, { 1, 1 }, { 0, 1 }, { -1, 1 }, { -1, 0 }, { -1, -1 }, { 0, -1 }, { 1, -1 } }
+    local KINDS = { OBS, OBS, OBS, OBS, OBS, OBS, REV, REV, CON, GREV }
+    local arcs = 0
+    for w = 1, 1000 do
+        local dirs = w % 3 == 0 and D8 or D4
+        local sq, seen, x, y = { { 0, 0 } }, { ["0,0"] = true }, 0, 0
+        for _ = 1, 3 + Rand(50) do
+            local moved = false
+            for _ = 1, 8 do
+                local d = dirs[Rand(#dirs) + 1]
+                local nx, ny = x + d[1], y + d[2]
+                if not seen[nx .. "," .. ny] then
+                    x, y, moved = nx, ny, true
+                    seen[x .. "," .. y] = true
+                    sq[#sq + 1] = { x, y }
+                    break
+                end
+            end
+            if not moved then break end
+        end
+        local kk = {}
+        for i = 1, #sq - 1 do kk[i] = KINDS[Rand(#KINDS) + 1] end
+        local player = { 12.5 + Rand(25) - 12, 12.5 + Rand(25) - 12 }
+        local node = { (x + 0.5) * 25 + Rand(25) - 12, (y + 0.5) * 25 + Rand(25) - 12 }
+        state = Core.Thread(T, A9.Centre(sq, kk, player, node), 1)
+        assert(state == "done", ("random way %d: %s"):format(w, state))
+        worst, e = Off()
+        assert(worst < 1e-6, ("random way %d: event %d (kind %d) is %.6f yd off the drawing at its s"):format(w, e, e > 0 and T.ek[e] or -1, worst))
+        arcs = arcs + T.arcs
+    end
+    assert(arcs > 1000, "test setup: arcs drawn on the random ways")
+end)
 step("Ways 0.2.4 S1.1 a9 measure: the real clock on Codex' two 800 ways in a net of 8,000 squares (only with GC_MEASURE_A9 set)", function()
     if not os.getenv("GC_MEASURE_A9") then return end
     local Core = ns.WaysCore

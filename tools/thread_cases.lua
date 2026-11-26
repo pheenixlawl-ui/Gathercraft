@@ -11,7 +11,9 @@
 --     threads.txt  per way:  way <id> <state> <reason> <booked> <limit> <repairs>
 --                            p <x> <y> <anchor 0/1> <slot>        the thread's points
 --                            e <slot> <kind> <s> <r> <x> <y>       the events (kind 0 corner,
---                                                                  1 side across x, 2 across y, 3 anchor)
+--                                                                  1 side across x, 2 across y, 3 anchor);
+--                                                                  (0.2.4 a9 R1) x, y and s of the finished
+--                                                                  drawing (in an arc its crossing)
 --                            d <k> <k> ...                         the points drawn
 --                            f <x> <y> <s>                         (0.2.4 a9) the finished drawing with its arcs,
 --                                                                  one line a point, s its yards along it

@@ -1428,7 +1428,7 @@ function M.NewThread()
         -- (0.2.4 a9) the finished drawing with its arcs (f), an arc's points (qx, qy), its crossings' yards (fs); the
         -- corner drawn next (ai), what the arcs made shorter so far (ad), the first event not passed yet (ae), arcs
         -- drawn, corners left sharp by the check
-        f = NewCentre(), qx = {}, qy = {}, fs = {}, ai = 0, ad = 0, ae = 0, arcs = 0, sharp = 0, tries = 0,
+        f = NewCentre(), qx = {}, qy = {}, fs = {}, fx = {}, fy = {}, ai = 0, ad = 0, ae = 0, arcs = 0, sharp = 0, tries = 0,
         -- (0.2.4 a9 R1, Codex M1) the call's pieces left, units carried over to the next call, pieces worked (pairs,
         -- points, checks, a repair's squares and points; the tests look at it), the pieces of the arcs that book no unit (free); the arcs' stage and its numbers;
         -- a repair's squares (from rj to rjb, of the group from square rja), anchors made, the point it went back to
@@ -2250,7 +2250,8 @@ local function ArcHolds(T, j, sb, base)
             if tc == false then return false end
             if not tc then break end
             nf = nf + 1
-            fs[nf] = along + tc * len
+            -- (0.2.4 a9 R1, Codex N2) and the point where the chord crosses it
+            fs[nf], T.fx[nf], T.fy[nf] = along + tc * len, p1x + tc * (p2x - p1x), p1y + tc * (p2y - p1y)
             lo, j, e = tc, pj + 1, e + 1
         end
         if not InSquare(c, j, p2x, p2y) then return false end
@@ -2333,7 +2334,8 @@ end
 --   3  the arc checked (the pairs up to its first touching point are passed): it holds - its five points, then its
 --      pairs; it does not - that corner stays sharp
 --   4  the pairs in the arc from the finished drawing, one a piece: a passage's s is where its chord crosses it
---      (ArcHolds wrote them in order); an anchor's middle drawn round maps to the arc's middle point
+--      (ArcHolds wrote them in order); an anchor's middle drawn round maps to the arc's middle point. (Codex N2) The
+--      event's point becomes that point of the drawing too (the thread's crossing before).
 --   6  the end: the last point, the finished drawing's own numbers
 -- A piece moves one pair, writes one point or checks one arc (T.work counts them); a stage with nothing to do
 -- goes on to the next in the same piece. The same steps in the same order as a9: the same drawing.
@@ -2374,11 +2376,14 @@ local function ArcStep(T)
     if st == 4 then
         local e = T.ae
         if e <= T.en and T.es[e] <= T.asb then
+            -- (0.2.4 a9 R1, Codex N2) its point too: the drawing's crossing, the arc's middle point
             if T.ek[e] == 3 then
-                T.es[e] = T.f.raw[T.f.n - 2]
+                local F = T.f
+                local m = F.n - 2
+                T.es[e], T.ex[e], T.ey[e] = F.raw[m], F.x[m], F.y[m]
             else
                 local n2 = T.an2 + 1
-                T.an2, T.es[e] = n2, T.fs[n2]
+                T.an2, T.es[e], T.ex[e], T.ey[e] = n2, T.fs[n2], T.fx[n2], T.fy[n2]
             end
             T.ae = e + 1
             T.left, T.work, T.free = T.left - 1, T.work + 1, T.free + 1
