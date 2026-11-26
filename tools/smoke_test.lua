@@ -35991,7 +35991,9 @@ step("Ways 0.2.4 S1.1 B2: the thread - the line pulled tight through the passage
         local state, reason = Thread(sq)
         assert(state == "done", "the U: " .. tostring(reason))
         assert(Points() == "-37.5,12.5 -37.5,12.5 37.5,12.5 37.5,37.5 -37.5,37.5 -37.5,37.5", "the U is cut short: " .. Points())
-        assert(Core.ThreadAnchor(T, 5) and Core.ThreadAnchor(T, 6) and T.repairs == 0, "the U: its protective anchors were looked ahead for")
+        -- (0.2.4 a8, Codex M1: the look ahead only proposes - here decided when the funnel comes to the middle
+        -- after the first side: the funnel writes the corner next, straight from the thread's last point)
+        assert(Core.ThreadAnchor(T, 5) and Core.ThreadAnchor(T, 6) and T.repairs == 0, "the U: its protective anchors, decided as the funnel came to them")
     end
     -- 6. a diagonal's corner and a side back over it (a turn back): the square between is an anchor
     do
@@ -36740,6 +36742,183 @@ step("Ways 0.2.4 S1.1 B5: the thread's own job - after the way is published (the
         ns.db.routeLineHidden, ns.db.routeLineMiniHidden = nil, nil
         W.Done()
         if not ok then error(err, 0) end
+    end
+end)
+-- (0.2.4 a8, Codex' check of a6/a7, M1) The look ahead set protective anchors from the pattern of the steps
+-- alone: an L and a third side at the same corner (a U in the pattern) - but the thread can cross the three
+-- sides at different points, along the line, and break no rule. F4 §C: a protective anchor only where the
+-- events of the thread really break the rules. The look ahead is a proposal now: a place to find the thread
+-- anew from, should the events (which run along with the funnel now) find a broken group there.
+step("Ways 0.2.4 S1.1 R1 M1: the look ahead only proposes - protective anchors only where the thread's events really break the rules; Codex' nine squares 135.3553 yd; the thread the one found without a look ahead, found anew from the proposal (0.2.4 a8, F4 §C, Codex M1)", function()
+    local Core = ns.WaysCore
+    local Near = WAYS.Near
+    local function Centre(squares)
+        local c = Core.NewCentre()
+        local pts = { { (squares[1][1] + 0.5) * 25, (squares[1][2] + 0.5) * 25 } }
+        for _, q in ipairs(squares) do pts[#pts + 1] = { (q[1] + 0.5) * 25, (q[2] + 0.5) * 25 } end
+        pts[#pts + 1] = { pts[#pts][1], pts[#pts][2] }
+        local raw = 0
+        for i, p in ipairs(pts) do
+            c.x[i], c.y[i] = p[1], p[2]
+            c.kind[i] = (i <= 2 or i == #pts) and -1 or Core.OBS
+            if i > 1 then
+                local dx, dy = p[1] - pts[i - 1][1], p[2] - pts[i - 1][2]
+                raw = raw + math.sqrt(dx * dx + dy * dy)
+            end
+            c.raw[i] = raw
+        end
+        c.n, c.len = #pts, raw
+        c.head, c.tail = c.raw[2], raw - c.raw[#pts - 1]
+        return c
+    end
+    local T = Core.NewThread()
+    -- the thread of the squares; ahead false: no look ahead; factor: the counter at factor times the passages
+    local function Thread(squares, ahead, factor)
+        if ahead == false then Core.threadAhead = false else Core.threadAhead = nil end
+        local ok, state, reason = pcall(function()
+            local c = Centre(squares)
+            Core.ThreadStart(T, c, 1)
+            if factor and T.state == "work" then T.limit = factor * (c.n - 3) end
+            while T.state == "work" do Core.ThreadStep(T, 7) end
+            return T.state, T.reason
+        end)
+        Core.threadAhead = nil
+        if not ok then error(state, 0) end
+        return state, reason
+    end
+    local function Points()
+        local t, out = T.t, {}
+        for k = 1, t.n do out[k] = ("%g,%g"):format(t.x[k], t.y[k]) end
+        return table.concat(out, " ")
+    end
+    -- the thread and its events as text, to compare two of them
+    local function Whole()
+        local t, out = T.t, {}
+        for k = 1, t.n do out[#out + 1] = ("%.9g,%.9g,%d,%d"):format(t.x[k], t.y[k], T.vu[k], T.va[k]) end
+        for e = 1, T.en do out[#out + 1] = ("e%d,%d,%.9g,%.9g"):format(T.eu[e], T.ek[e], T.es[e], T.er[e]) end
+        return table.concat(out, " ")
+    end
+    local function Protected()
+        local n = 0
+        for j = 1, T.c.n do if T.prot[j] == T.stamp then n = n + 1 end end
+        return n
+    end
+    -- 1. Codex' nine squares, all ridden (OBS), you and the node on the end middles: the sides around (300, 500)
+    -- are crossed at two points (an L at it, the side before along the line) - no rule broken, no anchor
+    do
+        local sq = { { 11, 15 }, { 12, 15 }, { 12, 16 }, { 12, 17 }, { 12, 18 }, { 12, 19 }, { 11, 19 }, { 11, 20 }, { 12, 20 } }
+        local state, reason = Thread(sq)
+        assert(state == "done", "the nine squares: " .. tostring(reason))
+        assert(math.abs(T.t.len - 135.3553) < 1e-4, ("the nine squares: %.4f yd shown, 135.3553 without a detour"):format(T.t.len))
+        assert(Points() == "287.5,387.5 287.5,387.5 300,400 300,475 300,500 312.5,512.5 312.5,512.5", "the nine squares: " .. Points())
+        assert(Protected() == 0 and T.repairs == 0 and T.used <= T.limit, ("the nine squares: %d protective anchors, %d repairs, %d of %d booked"):format(Protected(), T.repairs, T.used, T.limit))
+        local whole = Whole()
+        assert(Thread(sq, false) == "done" and Whole() == whole, "the nine squares: not the thread found without a look ahead")
+    end
+    -- 2. where the thread does break the rules, the anchors come as before: Codex' U and a side, then a diagonal
+    -- back over its end - proposals, decided when the funnel comes to the middle after the first side (the
+    -- funnel's side is the corner and it writes it next, straight from the thread's last point: no repair);
+    -- a diagonal and a side back over its corner, the same side back - sure to break them (the thread goes
+    -- through the corner; the side's first point is the event on it), the square between them an anchor at
+    -- once, as in a7. All within 4 times the passages.
+    do
+        local cases = {
+            { { { -2, 0 }, { -1, 0 }, { 0, 0 }, { 1, 0 }, { 1, 1 }, { 0, 1 }, { -1, 1 }, { -2, 1 } }, "-37.5,12.5 -37.5,12.5 37.5,12.5 37.5,37.5 -37.5,37.5 -37.5,37.5", 2, 0 },
+            { { { -1, 0 }, { 0, 0 }, { 1, 0 }, { 0, 1 }, { -1, 1 } }, "-12.5,12.5 -12.5,12.5 37.5,12.5 25,25 -12.5,37.5 -12.5,37.5", 1, 0 },
+            { { { -1, 0 }, { 0, 0 }, { 1, 1 }, { 0, 1 }, { -1, 1 } }, "-12.5,12.5 -12.5,12.5 25,25 37.5,37.5 -12.5,37.5 -12.5,37.5", 1, 0 },
+        }
+        for i, case in ipairs(cases) do
+            local state, reason = Thread(case[1])
+            assert(state == "done" and Points() == case[2], ("case %d: %s %s %s"):format(i, state, tostring(reason), Points()))
+            assert(Protected() == case[3] and T.repairs == case[4] and T.used <= T.limit, ("case %d: %d protective anchors, %d repairs, %d of %d booked"):format(i, Protected(), T.repairs, T.used, T.limit))
+        end
+        local state = Thread({ { -1, 0 }, { 0, 0 }, { 1, 0 }, { 0, 0 }, { 0, 1 } })
+        assert(state == "done" and Points():find("37.5,12.5", 1, true) and T.repairs == 0, "the same side back: " .. Points())
+        -- a side, then a diagonal over its end that the thread comes to along the side: no anchor (a7 made the
+        -- thread go round the middle of (1,0), 10.36 yd longer)
+        state = Thread({ { 1, -2 }, { 0, -1 }, { 0, 0 }, { 1, 0 }, { 0, 1 } })
+        assert(state == "done" and Points() == "37.5,-37.5 37.5,-37.5 25,-25 25,0 25,25 12.5,37.5 12.5,37.5" and Protected() == 0,
+            "a side and a diagonal over its end, the thread along the side: " .. Points())
+    end
+    -- 3. a long straight ride, then a U at its end: within 4 times the passages, the thread the events alone find,
+    -- with less work than they need (they find it anew from the anchor before - the start of the ride)
+    do
+        local sq = {}
+        for x = 0, 30 do sq[#sq + 1] = { x, 0 } end
+        sq[#sq + 1] = { 30, 1 }
+        for x = 29, 26, -1 do sq[#sq + 1] = { x, 1 } end
+        local state, reason = Thread(sq)
+        assert(state == "done" and Protected() == 2, "the ride and its U: " .. tostring(reason) .. ", " .. Protected() .. " protective anchors")
+        local whole, used = Whole(), T.used
+        state = Thread(sq, false, 100)
+        assert(state == "done" and Whole() == whole and T.repairs == 1 and used < T.used, ("the ride and its U: %d booked with the look ahead, %d by the events alone"):format(used, T.used))
+    end
+    -- 3b. where it cannot be decided as the funnel comes to it, the thread is found anew from the proposal: a U whose
+    -- corner the funnel writes later (confirmed then), a U the events find broken (repaired from the proposal) -
+    -- done, on the squares, never longer than what the events alone find
+    do
+        local cases = {
+            { { 0, 0 }, { 0, 1 }, { 1, 1 }, { 1, 2 }, { 1, 3 }, { 1, 4 }, { 0, 4 }, { 0, 3 }, { 0, 2 }, { -1, 2 }, { -1, 3 }, { -2, 3 }, { -2, 2 }, { -3, 2 }, { -3, 1 } },
+            { { 0, 0 }, { 0, -1 }, { 1, -1 }, { 2, -1 }, { 2, -2 }, { 2, -3 }, { 1, -3 }, { 0, -3 }, { -1, -3 }, { -1, -2 }, { -2, -2 }, { -3, -2 }, { -3, -3 }, { -4, -3 }, { -4, -2 }, { -5, -2 }, { -5, -1 }, { -4, -1 }, { -3, -1 } },
+        }
+        for i, sq in ipairs(cases) do
+            local state, reason = Thread(sq, nil, 100)
+            local len, rep, t = T.t.len, T.repairs, T.t
+            assert(state == "done" and rep >= 1, ("winding ride %d: %s %s, %d repairs"):format(i, state, tostring(reason), rep))
+            for k = 2, t.n - 1 do
+                local inside = false
+                for _, q in ipairs(sq) do
+                    if t.x[k] >= q[1] * 25 - 1e-9 and t.x[k] <= (q[1] + 1) * 25 + 1e-9 and t.y[k] >= q[2] * 25 - 1e-9 and t.y[k] <= (q[2] + 1) * 25 + 1e-9 then inside = true end
+                end
+                assert(inside, ("winding ride %d: point %d (%g, %g) off the squares"):format(i, k, t.x[k], t.y[k]))
+            end
+            assert(Thread(sq, false, 100) == "done" and len <= T.t.len + 1e-6, ("winding ride %d: %.4f yd, the events alone %.4f"):format(i, len, T.t.len))
+        end
+    end
+    -- 4. many ways (ridden straight only - the U patterns - and with diagonals): with a counter that does not stop,
+    -- the thread with the look ahead never longer than the one the events alone find (the squares it makes
+    -- anchors at once or on a proposal are ones the events would make anchors too, or fewer); with 4 times the
+    -- passages, done at least as often
+    do
+        local seed = 2611
+        local function Rand(n) -- (Park-Miller: exact in doubles)
+            seed = (seed * 16807) % 2147483647
+            return seed % n
+        end
+        local D4 = { { 1, 0 }, { 0, 1 }, { -1, 0 }, { 0, -1 } }
+        local D8 = { { 1, 0 }, { 1, 1 }, { 0, 1 }, { -1, 1 }, { -1, 0 }, { -1, -1 }, { 0, -1 }, { 1, -1 } }
+        local same, shorter, repaired, done4, doneOff4 = 0, 0, 0, 0, 0
+        for w = 1, 240 do
+            local dirs = w % 2 == 0 and D4 or D8
+            local sq, seen, x, y = { { 0, 0 } }, { ["0,0"] = true }, 0, 0
+            for _ = 1, 3 + Rand(38) do
+                local moved = false
+                for _ = 1, 8 do
+                    local d = dirs[Rand(#dirs) + 1]
+                    local nx, ny = x + d[1], y + d[2]
+                    if not seen[nx .. "," .. ny] then
+                        x, y, moved = nx, ny, true
+                        seen[x .. "," .. y] = true
+                        sq[#sq + 1] = { x, y }
+                        break
+                    end
+                end
+                if not moved then break end
+            end
+            local s1, r1 = Thread(sq, nil, 100)
+            local a, len, rep = Whole(), T.t.len, T.repairs
+            local s2, r2 = Thread(sq, false, 100)
+            assert(s1 == s2 and r1 == r2, ("way %d: with the look ahead %s %s, without %s %s"):format(w, s1, tostring(r1), s2, tostring(r2)))
+            if s1 == "done" then
+                assert(len <= T.t.len + 1e-6, ("way %d: %.4f yd with the look ahead, %.4f without"):format(w, len, T.t.len))
+                if a == Whole() then same = same + 1 elseif len < T.t.len - 1e-6 then shorter = shorter + 1 end
+            end
+            if rep > 0 then repaired = repaired + 1 end
+            if Thread(sq) == "done" then done4 = done4 + 1 end
+            if Thread(sq, false) == "done" then doneOff4 = doneOff4 + 1 end
+        end
+        assert(same + shorter >= 200 and repaired >= 20 and done4 >= doneOff4, ("the ways: %d the same, %d shorter, %d repaired; %d done within 4 times the passages, %d without the look ahead"):format(same, shorter, repaired, done4, doneOff4))
+        note("MEASURE S1.1 R1 M1", ("240 ways: %d threads the same with and without the look ahead, %d shorter with it, none longer; %d repaired; within 4 times the passages %d done, %d without it"):format(same, shorter, repaired, done4, doneOff4))
     end
 end)
 

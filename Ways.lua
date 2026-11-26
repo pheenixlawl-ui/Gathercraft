@@ -1376,8 +1376,24 @@ end
 --   cut short), a diagonal's corner with another passage, the same side
 --   crossed back: the middles of the squares between the first and the last
 --   of them become protective anchors and the thread is found anew from the
---   anchor before them. The events are checked as each stretch is done, the
---   group of the stretch before included (the check goes over the borders).
+--   anchor before them. The events are checked as the thread is written (a
+--   passage once a point of the thread lies beyond it; the rest when the
+--   stretch is done), the group of the stretch before included (the check
+--   goes over the borders).
+--   (0.2.4 a8, Codex M1) Looking ahead, the funnel sees where the pattern of
+--   the steps could make the thread break the rules. A protective anchor only
+--   where the thread's events are sure to break them: at once where the
+--   pattern alone makes it sure (a diagonal's corner with the passage after
+--   it, the same side back); for a U or a side and then a diagonal over its
+--   end - the thread may run along the first side and cross the passages at
+--   points apart - only a proposal: decided when the funnel comes to the
+--   middle after the first side (it writes the shared point next, straight
+--   from the thread's last point), else when the thread is written at that
+--   point (then found anew from the funnel's state kept there), else by the
+--   events, repaired from the last state kept before the first new anchor -
+--   one the funnel kept before it looked as far on as that anchor - or from
+--   the anchor before. The thread is never longer for the look ahead than
+--   the one the events alone find.
 --   Every piece of work is booked on one counter before it is done: a
 --   passage or point looked at by the funnel or for the events, a square made
 --   an anchor, a point of the thread given back or written. At 4 times the
@@ -1398,6 +1414,7 @@ function M.NewThread()
         t = NewCentre(), vu = {}, va = {},
         es = {}, er = {}, ex = {}, ey = {}, eu = {}, ek = {}, en = 0, gs = 1,
         prot = {}, stamp = 0,
+        sv = {}, pc = 0, pslot = -1, far = 0, -- (0.2.4 a8, Codex M1) the proposals' kept states, SNAP values each; how many; one seen; the funnel's furthest slot
         c = nil, gen = -1, state = "none", reason = nil, used = 0, limit = 0, repairs = 0,
         phase = 0, u = 0, ax = 0, ay = 0, au = 0, lx = 0, ly = 0, lu = 0, rx = 0, ry = 0, ru = 0,
         sk = 0, wu = 0, wk = 0, wt = 0, fk = 0,
@@ -1443,13 +1460,69 @@ local function Ends(c, j)
     return mx + hx, my + hy, mx - hx, my - hy, dx, dy
 end
 
+-- (0.2.4 a8, Codex M1) A proposal: the funnel's state now, after the proposal's first side, before the middle
+-- of the square after it (slot T.u) - the place the thread is found anew from when the rules are found broken
+-- after it. Nothing of the thread up to here depends on an anchor at that square or after it.
+-- What is kept with it (for the check when the thread is written at the point, Confirm below): the step j,
+-- how many squares after it would be anchors (1: a side, then a diagonal over its end; 2: a U), the point the
+-- passages share (px, py), the other end of the first side (qx, qy), and how far the funnel had looked (far):
+-- a point it wrote while looking at a slot further on may depend on what lies there - the kept state holds
+-- for anchors further on than that only.
+local SNAP = 24
+local function Propose(T, j, squares, px, py, qx, qy)
+    local sv = T.sv
+    -- (the list goes by the passage, forwards: one kept for this passage or one after it - before the funnel
+    -- went back to a point it wrote - is let go; the funnel comes to it again and keeps it anew)
+    local i = T.pc
+    while i > 0 and sv[(i - 1) * SNAP + 1] > T.u do i = i - 1 end
+    -- (one kept here before the funnel looked further on and came back: it holds for these squares, the new
+    -- state would not - it stays)
+    if i > 0 and sv[(i - 1) * SNAP + 1] == T.u and sv[(i - 1) * SNAP + 24] < T.u then
+        T.pc = i
+        return
+    end
+    while i > 0 and sv[(i - 1) * SNAP + 1] >= T.u do i = i - 1 end
+    local o = i * SNAP
+    T.pc = i + 1
+    sv[o + 1], sv[o + 2], sv[o + 3], sv[o + 4], sv[o + 5] = T.u, T.t.n, T.ax, T.ay, T.au
+    sv[o + 6], sv[o + 7], sv[o + 8], sv[o + 9], sv[o + 10], sv[o + 11] = T.lx, T.ly, T.lu, T.rx, T.ry, T.ru
+    sv[o + 12], sv[o + 13], sv[o + 14], sv[o + 15], sv[o + 16], sv[o + 17] = T.en, T.gs, T.wu, T.wk, T.wt, T.sk
+    sv[o + 18], sv[o + 19], sv[o + 20], sv[o + 21], sv[o + 22], sv[o + 23] = j, squares, px, py, qx, qy
+    sv[o + 24] = T.far
+end
+-- A proposal seen while the funnel takes step j's side: kept when the funnel comes to the middle after it (the
+-- funnel's start of a piece of work, FunnelSlot). Only when the squares it would make anchors are none yet.
+local function Pend(T, j, squares, px, py, qx, qy)
+    for q = j + 1, j + squares do
+        if IsAnchor(T, q) then return end
+    end
+    T.pslot, T.pj, T.pq, T.ppx, T.ppy, T.pqx, T.pqy = 2 * (j + 1), j, squares, px, py, qx, qy
+end
+-- back to proposal i (of this stretch or one before): the funnel, the thread's points and the events as they
+-- were then; the proposals after it are let go
+local function Resume(T, i)
+    local sv, o = T.sv, (i - 1) * SNAP
+    T.pc, T.pslot = i, -1
+    T.u, T.t.n, T.ax, T.ay, T.au = sv[o + 1], sv[o + 2], sv[o + 3], sv[o + 4], sv[o + 5]
+    T.lx, T.ly, T.lu, T.rx, T.ry, T.ru = sv[o + 6], sv[o + 7], sv[o + 8], sv[o + 9], sv[o + 10], sv[o + 11]
+    T.en, T.gs, T.wu, T.wk, T.wt, T.sk = sv[o + 12], sv[o + 13], sv[o + 14], sv[o + 15], sv[o + 16], sv[o + 17]
+    T.far, T.phase = sv[o + 24], 1
+end
+
 -- (looked ahead from step j, in the funnel's piece of work for it) The thread could pass two passages
 -- of the way at one point they share - and then the square between them with no length. Allowed is
 -- only the L (two sides at right angles around a corner); a diagonal's corner on another passage, the
--- same side or corner passed back, three sides around one point (a U) are not (F4 §C). Their squares
--- become protective anchors before the funnel gets to them, so the events find nothing to repair
--- (that would find the stretch anew, and the counter would rarely do for it). The events are checked
--- all the same.
+-- same side or corner passed back, three sides around one point (a U) are not (F4 §C).
+-- (0.2.4 a8, Codex M1) Only where the thread's events are sure to break the rules is the square between
+-- an anchor at once:
+--   - a diagonal's corner and the passage after it on the same point: the thread goes through the corner
+--     (an anchor), and the first point on the next passage after it is that corner - one point, a
+--     corner with another passage;
+--   - the same side back (A -> B -> A): the first point on it after the event on it is that event's point.
+-- Where the thread may cross the passages at points apart - it can run along the first side to the point
+-- (Codex' nine squares: a U in the pattern, an L in the thread) - only its events can tell: a side, then a
+-- diagonal over its end; three sides around one point (a U). There only a proposal is kept, so a repair
+-- need not find the stretch anew from the anchor before (the counter would rarely do for it).
 local function Ahead(T, j)
     local c = T.c
     local ax, ay, bx, by, adx, ady = Ends(c, j)
@@ -1460,15 +1533,23 @@ local function Ahead(T, j)
     elseif bx == cx and by == cy or bx == dx2 and by == dy2 then px, py = bx, by
     else return end
     local straightA, straightC = adx == 0 or ady == 0, cdx == 0 or cdy == 0
+    -- (the other end of the first side: the thread may come to the point along it)
+    local qx, qy = ax, ay
+    if ax == px and ay == py then qx, qy = bx, by end
     if not (straightA and straightC and adx * cdx + ady * cdy == 0) then
-        -- not an L: the square between them
-        T.prot[j + 1] = T.stamp
-        return
+        -- not an L: the square between them - at once after a diagonal's corner or on the same side back
+        if not straightA or (straightC and adx * cdy - ady * cdx == 0) then
+            -- (only while the funnel has not looked at that middle or beyond: else the points it wrote then
+            -- may not be the ones it writes with the anchor - the events find it, the repair goes back far enough)
+            if T.far < 2 * (j + 1) then T.prot[j + 1] = T.stamp end
+            return
+        end
+        return Pend(T, j, 1, px, py, qx, qy)
     end
     -- an L around (px, py): and the next side around the same point too (a U)?
     local ex, ey, fx, fy, edx, edy = Ends(c, j + 2)
     if ex and (edx == 0 or edy == 0) and cdx * edx + cdy * edy == 0 and (ex == px and ey == py or fx == px and fy == py) then
-        T.prot[j + 1], T.prot[j + 2] = T.stamp, T.stamp
+        return Pend(T, j, 2, px, py, qx, qy)
     end
 end
 
@@ -1502,14 +1583,138 @@ local function Restart(T, x, y, u)
     T.u = u + 1
 end
 
--- the stretch up to the anchor just written is done: its events next
+-- A stretch begins at the anchor k (point k of the thread): the funnel from it, the events of its passages
+-- from it on (0.2.4 a8: they run along with the funnel). The proposals of the stretches before stay: a
+-- group of events over the border is repaired from them.
+local function Begin(T, k)
+    T.sk, T.phase = k, 1
+    T.wu, T.wk, T.wt = T.vu[k] + 1, k, 0
+end
+
+-- the stretch up to the anchor just written is done: the rest of its events next
 local function StretchDone(T)
-    T.phase, T.wu, T.wk, T.wt = 2, T.vu[T.sk] + 1, T.sk, 0
+    T.phase = 2
     if M.threadBendTest then M.threadBendTest(T) end -- (the tests: a bend moved off its square)
+end
+
+-- (0.2.4 a8) events to find now, while the stretch is not done: the thread up to its last point is final,
+-- so the passages up to the one that point was written for, and the ones after it the point lies on too
+-- (a corner the way turns around). A middle that is no anchor: the passage after it.
+-- the slot of the next passage for the events (a middle that is no anchor: the passage after it); nil: an
+-- anchor's middle (it ends the stretch: its pair when the stretch is done)
+local function NextSlot(T)
+    local u = T.wu
+    if u % 2 == 0 then
+        if IsAnchor(T, u / 2) then return nil end
+        u = u + 1
+    end
+    return u
+end
+-- the passage of slot u holds the thread's last point
+local function Holds(T, u)
+    local ax, ay, bx, by = Ends(T.c, (u - 1) / 2)
+    if not ax then return false end
+    local t = T.t
+    local px, py = t.x[t.n], t.y[t.n]
+    if ax > bx then ax, bx = bx, ax end
+    if ay > by then ay, by = by, ay end
+    return px >= ax - ON_EPS and px <= bx + ON_EPS and py >= ay - ON_EPS and py <= by + ON_EPS
+end
+local function Pending(T)
+    local u = NextSlot(T)
+    if not u then return false end
+    return u <= T.vu[T.t.n] or Holds(T, u)
+end
+
+-- (0.2.4 a8, Codex M1) The thread written from its point k straight to p (the point a proposal's passages
+-- share; first side from p to (qx, qy), the passage of slot side): does it meet the first side only at p?
+-- Yes when point k was written for a passage before the one before that side (the line from it crosses that
+-- passage before p, its event lies on it) - or is the middle of the square before that side as an anchor (its
+-- own event is the one before that side) - and the line does not run along the side (from its other end on).
+-- Then the first point on that side after the event before is p (see Confirm).
+local function OnlyAtP(T, k, px, py, qx, qy, side)
+    local before = T.vu[k]
+    if T.va[k] == 1 and before % 2 == 0 then before = before - 2 end
+    if before >= side - 2 then
+        -- (or it lies on the passage before that side, and that passage is the side across the square from it
+        -- - the way goes straight through: from its event to point k the thread stays on it, 25 yd off)
+        if before ~= side - 2 then return false end
+        local j = (side - 1) / 2
+        local _, _, _, _, dx1, dy1 = Ends(T.c, j - 1)
+        local _, _, _, _, dx2, dy2 = Ends(T.c, j)
+        if not (dx1 and dx2) or (dx1 ~= 0 and dy1 ~= 0) or dx1 ~= dx2 or dy1 ~= dy2 then return false end
+    end
+    local wx, wy = T.t.x[k] - px, T.t.y[k] - py
+    qx, qy = qx - px, qy - py
+    return not (wx * qy - wy * qx == 0 and wx * qx + wy * qy > 0)
+end
+
+-- a side, then a diagonal over its end (a proposal seen at step j = T.pj): decided at once when the funnel's
+-- left or right side is the corner p after the side - the next slot is the corner itself (the middle between
+-- is no anchor): the funnel writes p next, straight from its apex, the thread's last point. When that meets
+-- the side only at p, the middle is a protective anchor now (booked; no thread found anew). true: decided.
+local function Sure(T)
+    local px, py = T.ppx, T.ppy
+    if T.far >= T.u then return false end
+    if not (T.lx == px and T.ly == py or T.rx == px and T.ry == py) then return false end
+    local n = T.t.n
+    if not OnlyAtP(T, n, px, py, T.pqx, T.pqy, 2 * T.pj + 1) then return false end
+    if Book(T, 1) then T.prot[T.pj + 1] = T.stamp end
+    return true
+end
+
+-- a U (three sides around p, seen at step j = T.pj): the two sides after the first one, taken by the funnel's
+-- rule on a copy of its apex and sides (FunnelSlot below - the middle between them is no anchor). When the
+-- first point the funnel would write there is p, from its side, it writes p straight from its apex, the
+-- thread's last point; when that meets the first side only at p, the two middles are protective anchors now
+-- (booked; no thread found anew). Another point first, or none: the proposal is kept. true: decided.
+local function SureU(T)
+    local px, py = T.ppx, T.ppy
+    if T.far >= T.u then return false end
+    local ax, ay, lx, ly, rx, ry = T.ax, T.ay, T.lx, T.ly, T.rx, T.ry
+    if not (lx == px and ly == py or rx == px and ry == py) then return false end
+    local c, j = T.c, T.pj
+    local ex, ey
+    for q = j + 1, j + 2 do
+        local nlx, nly, nrx, nry = Ends(c, q)
+        if not nlx then return false end
+        if not ((nlx == ax and nly == ay) or (nrx == ax and nry == ay)) then
+            if (rx - ax) * (nry - ay) - (ry - ay) * (nrx - ax) >= 0 then
+                if (rx == ax and ry == ay) or (lx - ax) * (nry - ay) - (ly - ay) * (nrx - ax) < 0 then
+                    rx, ry = nrx, nry
+                else
+                    ex, ey = lx, ly
+                    break
+                end
+            end
+            if (lx - ax) * (nly - ay) - (ly - ay) * (nlx - ax) <= 0 then
+                if (lx == ax and ly == ay) or (rx - ax) * (nly - ay) - (ry - ay) * (nlx - ax) > 0 then
+                    lx, ly = nlx, nly
+                else
+                    ex, ey = rx, ry
+                    break
+                end
+            end
+        end
+    end
+    if not (ex == px and ey == py) then return false end
+    if not OnlyAtP(T, T.t.n, px, py, T.pqx, T.pqy, 2 * j + 1) then return false end
+    if Book(T, 2) then T.prot[j + 1], T.prot[j + 2] = T.stamp, T.stamp end
+    return true
 end
 
 -- the funnel: one slot
 local function FunnelSlot(T)
+    -- (0.2.4 a8) at the middle after a proposal's first side: the proposal is kept now - or, a side and then a
+    -- diagonal over its end, decided at once when the funnel's side is that corner: the corner is the next
+    -- slot, so the funnel writes it next, from its apex (the thread's last point), and Confirm's rule tells
+    if T.pslot == T.u then
+        T.pslot = -1
+        local decided
+        if T.pq == 1 then decided = Sure(T) else decided = SureU(T) end
+        if not decided then Propose(T, T.pj, T.pq, T.ppx, T.ppy, T.pqx, T.pqy) end
+        if T.state ~= "work" then return end
+    end
     local u = T.u
     local what, a1, a2, a3, a4 = Slot(T, u)
     if what == 0 then
@@ -1519,6 +1724,7 @@ local function FunnelSlot(T)
         what, a1, a2, a3, a4 = Slot(T, u)
     end
     if what == -1 then return Fail(T, "step") end
+    if u > T.far then T.far = u end
     if u % 2 == 1 and M.threadAhead ~= false then Ahead(T, (u - 1) / 2) end
     local ax, ay = T.ax, T.ay
     local nlx, nly, nrx, nry
@@ -1594,9 +1800,22 @@ local function Repair(T, a, b)
     -- (none new: the same would be found again - the centre line stays)
     if added == 0 then return Fail(T, "repair") end
     T.repairs = T.repairs + 1
-    -- back to the last anchor of the thread before the first new one; its events and the ones before stay
     local first = 2 * (ja + 1)
     local t, vu, va = T.t, T.vu, T.va
+    -- (0.2.4 a8, Codex M1) the last proposal kept before the passage into the first new anchor's square:
+    -- the thread anew from there (the proposals after it are let go, each looked at is booked, so are the
+    -- points given back). Nothing before that passage depends on the new anchors.
+    local sv = T.sv
+    for i = T.pc, 1, -1 do
+        local o = (i - 1) * SNAP
+        if sv[o + 24] < first then
+            if not Book(T, T.pc - i + t.n - sv[o + 2]) then return end
+            return Resume(T, i)
+        end
+    end
+    if not Book(T, T.pc) then return end
+    T.pc = 0 -- (all of them after it)
+    -- back to the last anchor of the thread before the first new one; its events and the ones before stay
     local k = t.n
     while k > 2 and not (va[k] == 1 and vu[k] < first) do
         if not Book(T, 1) then return end
@@ -1610,7 +1829,55 @@ local function Repair(T, a, b)
     while gs > 1 and ek[gs] ~= 3 and ek[gs - 1] ~= 3 and es[e] - es[gs - 1] <= THREAD_TOL do gs = gs - 1 end
     T.gs = gs
     Restart(T, t.x[k], t.y[k], vu[k])
-    T.sk, T.phase = k, 1
+    Begin(T, k)
+    T.far = vu[k] -- (the thread up to the anchor holds whatever lies beyond it)
+end
+
+-- (0.2.4 a8, Codex M1) The thread has just been written at a point p: is it the point a proposal's passages
+-- share? Then their events may be known now. The point before p written for a passage before the one before
+-- the proposal's first side (slot < 2j - 1): the straight line from it to p crosses that passage before (its
+-- event lies on it) and, not running along the first side (from that side's other end on), meets the first
+-- side only at p - the first point on it after the event before is p; p lies on the passages after it, so
+-- their first points after it are p as well: the group of events at p holds a diagonal's corner and another
+-- passage, or three sides - the rules are broken, as the events would find. The squares become protective
+-- anchors and the thread is found anew from the proposal (the events of the passages before it on the way to
+-- p are not worked out for nothing). Running along the first side, the thread crosses it before p, and the
+-- point before p written later may lie beyond the first side: no anchor here - the events decide, as they do
+-- everywhere. (Looking is part of the piece of work that wrote p: the proposals since the passage two before
+-- p's, a few; the anchors and the points given back are booked.) true: repaired, or given up.
+local function Confirm(T)
+    local t = T.t
+    local n = t.n
+    local px, py, top = t.x[n], t.y[n], T.vu[n]
+    local sv = T.sv
+    for i = T.pc, 1, -1 do
+        local o = (i - 1) * SNAP
+        local su = sv[o + 1]
+        -- (p is an end of the passages of a proposal at most two passages before the one it was written for;
+        -- the proposal's first side is the passage before the slot it was kept at)
+        local side = su - 1
+        if side < top - 4 then break end
+        if side <= top and sv[o + 20] == px and sv[o + 21] == py then
+            if OnlyAtP(T, n - 1, px, py, sv[o + 22], sv[o + 23], side) then
+                -- (a square between the passages that is an anchor already puts its middle's event between
+                -- them: they are not crossed at one point - the events decide)
+                local j, squares = sv[o + 18], sv[o + 19]
+                local anchor = M.threadAnchorTest or IsAnchor
+                local free = true
+                for q = j + 1, j + squares do
+                    if anchor(T, q) then free = false end
+                end
+                if free and sv[o + 24] < 2 * (j + 1) then
+                    if not Book(T, squares + n - sv[o + 2]) then return true end
+                    for q = j + 1, j + squares do T.prot[q] = T.stamp end
+                    T.repairs = T.repairs + 1
+                    Resume(T, i)
+                    return true
+                end
+            end
+        end
+    end
+    return false
 end
 
 -- an event; the group before it is checked when it is closed by one further on
@@ -1674,19 +1941,45 @@ local function Clip(p, d, b0, b1, lo, hi)
     return lo, hi
 end
 
--- the stretch is checked (its last event written): the next one, or the end
+-- (0.2.4 a8) The group of events at the thread's last point, when the next passage does not hold that point:
+-- it is whole (the next crossing lies a square's side on at least - the thread's points on passages are
+-- the squares' corners), so it is checked now, as the next event would check it; true: it broke the rules
+-- (repaired, or given up)
+local function CheckLast(T)
+    local gs, en = T.gs, T.en
+    if en <= gs or T.ek[gs] == 3 then return false end
+    local t = T.t
+    local off = T.es[en] - t.raw[t.n]
+    if off > THREAD_TOL or off < -THREAD_TOL or not Broken(T, gs, en) then return false end
+    Repair(T, gs, en)
+    return true
+end
+
+-- the stretch is checked (its last event written): the next one, or the end. (0.2.4 a8) The events found
+-- while the stretch is not done (phase 4): back to the funnel when there are none to find now.
 local function StretchChecked(T)
-    if T.state ~= "work" or T.phase ~= 2 then return end
+    if T.state ~= "work" then return end
+    if T.phase == 4 then
+        if Pending(T) then return end
+        T.phase = 1
+        CheckLast(T)
+        return
+    end
+    if T.phase ~= 2 then return end
     local t = T.t
     if T.wu <= T.vu[t.n] then return end
+    -- (the anchor that ends it may be a diagonal's corner with events of passages before it at it)
+    local u = NextSlot(T)
+    if not (u and Holds(T, u)) and CheckLast(T) then return end
     if T.vu[t.n] >= 2 * (T.c.n - 1) then
         T.phase, T.fk = 3, 0
     else
-        T.sk, T.phase = t.n, 1
+        Begin(T, t.n)
     end
 end
 
--- the events of the stretch just done: one slot
+-- the events of the stretch: one slot (phase 2: the stretch is done, up to its anchor; phase 4: the passages
+-- before the passage of the thread's last point)
 local function EventSlot(T)
     local t, c = T.t, T.c
     local ke = t.n
@@ -1720,7 +2013,14 @@ local function EventSlot(T)
     local tx, ty, cum = t.x, t.y, t.raw
     local k, lo0 = T.wk, T.wt
     while true do
-        if k >= ke then return Fail(T, "event") end
+        if k >= ke then
+            -- (0.2.4 a8: the stretch not done yet - the crossing lies beyond the thread written so far)
+            if T.phase == 4 then
+                T.phase = 1
+                return
+            end
+            return Fail(T, "event")
+        end
         local vx, vy = tx[k], ty[k]
         local dx, dy = tx[k + 1] - vx, ty[k + 1] - vy
         local lo, hi = Clip(vx, dx, x0 - ON_EPS, x1 + ON_EPS, lo0, 1)
@@ -1809,7 +2109,7 @@ function M.ThreadStart(T, c, gen)
     T.used, T.repairs, T.reason, T.state = 0, 0, nil, "work"
     local n = c.n
     T.limit = (M.threadFactor or 4) * (n - 3) -- (M.threadFactor: the tests, another counter)
-    T.en, T.gs = 0, 1
+    T.en, T.gs, T.pc, T.pslot, T.far = 0, 1, 0, -1, 4
     if n < 4 then return Fail(T, "short") end -- (one square: nothing to pull tight)
     local t = T.t
     -- you and the first square's middle: the bit from you stays straight
@@ -1819,7 +2119,7 @@ function M.ThreadStart(T, c, gen)
     AddPoint(T, c.x[2], c.y[2], 4, 1)
     Event(T, c.x[2], c.y[2], 4, 3, c.raw[2], t.raw[2])
     Restart(T, c.x[2], c.y[2], 4)
-    T.sk, T.phase = 2, 1
+    Begin(T, 2)
 end
 
 function M.ThreadStep(T, budget)
@@ -1828,7 +2128,17 @@ function M.ThreadStep(T, budget)
         if not Book(T, 1) then break end
         used = used + 1
         local phase = T.phase
-        if phase == 1 then FunnelSlot(T) elseif phase == 2 then EventSlot(T) else FinishPoint(T) end
+        if phase == 1 then
+            local n = T.t.n
+            FunnelSlot(T)
+            -- (0.2.4 a8, Codex M1) a point of the thread written: a proposal at it is confirmed or not; inside
+            -- the stretch, the events of the passages before it now (a broken group is repaired near it)
+            if T.state == "work" and T.t.n > n and not Confirm(T) and T.phase == 1 and Pending(T) then T.phase = 4 end
+        elseif phase == 2 or phase == 4 then
+            EventSlot(T)
+        else
+            FinishPoint(T)
+        end
     end
     return used
 end
