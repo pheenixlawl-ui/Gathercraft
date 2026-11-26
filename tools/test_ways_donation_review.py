@@ -352,6 +352,36 @@ def t_own_roundtrip(export_dir, sv_copy, sizes=(), estimated=()):
     shutil.rmtree(base)
 
 
+# ---------------------------------------------------------------- zone sizes asked in the game (Sven, 26.11.2026)
+def t_game_sizes():
+    # C_Map.GetWorldPosFromMapPos(m, (0,0)) and (1,1); read as HereBeDragons reads them: the width from y, the height from x
+    sizes = review.load_sizes([], [])
+    s = sizes.get(2652)
+    check(s is not None and abs(s[0] - 2050.0) < 1e-6 and abs(s[1] - 1366.666015625) < 1e-6 and s[2] == "Shen'dralas"
+          and s[3] == 'Spiel-API, Sven, 26.11.', "game sizes: Shen'dralas 2652 is 2050 x 1366.67 yd, source the game API")
+    s = sizes.get(2482)
+    check(s is not None and abs(s[0] - 3472.91796875) < 1e-6 and abs(s[1] - 2314.5830078125) < 1e-6 and s[2] == 'Mount Hyjal',
+          'game sizes: Mount Hyjal 2482 is 3472.92 x 2314.58 yd')
+    check(1415 not in sizes, 'game sizes: the continent 1415 is no zone of the table')
+    base = fresh()
+    # conversion.json (exact) wins over the game table; an estimate never wins over it
+    exact = {'geometry': {'transforms': [{'ui_map_id': 2652, 'target_name': 'X', 'target_bounds': {'left': 0, 'right': 500, 'top': 0, 'bottom': 500}}]}}
+    (base / 'exact.json').write_text(json.dumps(exact), encoding='utf-8')
+    (base / 'est.lua').write_text('return {\n[2482] = { 9000.0, 6000.0 },\n}\n', encoding='utf-8')
+    sizes = review.load_sizes([base / 'exact.json'], [base / 'est.lua'])
+    check(sizes[2652][:2] == (500, 500) and sizes[2652][3] == 'genau', 'game sizes: conversion.json comes first')
+    check(abs(sizes[2482][0] - 3472.91796875) < 1e-6 and sizes[2482][3] == 'Spiel-API, Sven, 26.11.', 'game sizes: an estimate does not overwrite the game value')
+    # a donation on 2652: checked on its grid of 82 x 55 squares, a step off it is an edge piece
+    records = walk(2652, 70, 30, [E] * 11) + walk(2652, 81, 40, [E])                     # 81 -> 82 is off an 82-square grid
+    (base / 'eingang' / 'spende-s.txt').write_text(''.join(parts_of(records, IDS[1])), encoding='ascii')
+    code, out = run_tool(base)
+    text = report_text(base)
+    check(code == 0 and "| 2652 | Shen'dralas | 82 × 55 (Spiel-API, Sven, 26.11.) |" in text, 'game sizes: the review shows the zone with its grid and its source')
+    check('Größe unbekannt' not in text, 'game sizes: 2652 is no zone without size any more')
+    check(re.search(r'Randstücke[^\n]*\b1\b', text) is not None, 'game sizes: the step off the grid is the one edge piece')
+    shutil.rmtree(base)
+
+
 def main():
     args = sys.argv[1:]
     t_sv_reader()
@@ -360,6 +390,7 @@ def main():
     t_duplicate_accept_reject()
     t_deadline_and_patterns()
     t_own_overlap()
+    t_game_sizes()
     if '--own-export' in args:
         opt = lambda name: [args[i + 1] for i, a in enumerate(args) if a == name]
         t_own_roundtrip(args[args.index('--own-export') + 1], args[args.index('--own-sv') + 1], opt('--sizes'), opt('--sizes-estimated'))
