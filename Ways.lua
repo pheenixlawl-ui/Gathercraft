@@ -2793,12 +2793,16 @@ local drawer = ns.RouteWaysDrawer
 local work = CreateFrame("Frame")
 work:Hide()
 
--- how many operations a step of each kind of work does (set by the clock as it goes)
+-- how many operations a step of each kind of work does (set by the clock as it goes). (0.2.4 a9 R1, Codex M2) A kind
+-- is a phase of the build or the search and its stage (a radix sort's five stages cost a piece of work very
+-- differently - counting, spreading - and shared one setting: after a cheap step it doubled and the dear one ran
+-- over), or one of the other kinds of work. A kind starts at 32 pieces at the most and grows by a quarter at the most.
+local OPS_FIRST = 32
 local ops = {}
 local function Ops(kind, first)
     local n = ops[kind]
     if not n then
-        n = first
+        n = first < OPS_FIRST and first or OPS_FIRST
         ops[kind] = n
     end
     return n
@@ -2809,8 +2813,10 @@ local function Tune(kind, used, ms)
     local n = ops[kind]
     local want = floor(used * STEP_AIM_MS / ms)
     if want < OPS_MIN then want = OPS_MIN elseif want > OPS_MAX then want = OPS_MAX end
-    -- down at once, up by doubling at the most
-    if want > n * 2 then want = n * 2 end
+    -- down at once, up by a quarter at the most
+    local up = n + floor(n / 4)
+    if up < n + 1 then up = n + 1 end
+    if want > up then want = up end
     ops[kind] = want
 end
 
@@ -3209,7 +3215,7 @@ local function Step()
             return
         end
         local job = ctx.job
-        local kind = job.phase
+        local kind = job.phase + 1000 * job.stage -- (0.2.4 a9 R1: each stage of a phase its own setting)
         local used = M.BuildStep(ctx, Ops(kind, 400))
         if job.done then
             net.building = false
@@ -3230,7 +3236,7 @@ local function Step()
     do
         if req.stage == "query" then
             local q = ctx.q
-            local kind = 100 + q.phase
+            local kind = 100 + q.phase + 1000 * (q.stage or 0) -- (0.2.4 a9 R1: each stage its own setting)
             local used = M.QueryStep(ctx, Ops(kind, 200))
             if q.done then
                 if q.result == "net" then

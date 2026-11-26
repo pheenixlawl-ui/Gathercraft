@@ -38480,6 +38480,49 @@ step("Ways 0.2.4 S1.1 a9 R1 N3: a corner the drawing keeps (left sharp by the ch
     end
     assert(sharpWays > 50 and corners > 1000, ("test setup: %d ways with a corner left sharp by the check, %d corners kept"):format(sharpWays, corners))
 end)
+-- (0.2.4 a9 R1, Codex M2: the whole S1 step over 0.25 ms - most often a radix sort's spreading, stage 4, which shared
+-- its setting with the cheap stages 0 to 3: after a cheap step the setting doubled and the dear one ran over)
+step("Ways 0.2.4 S1.1 a9 R1 M2: the work of a step is set per kind of work and per stage of the build's and the search's phases - a radix sort's stages each their own; a kind's first step does 32 pieces at the most, a step after a short one a quarter more at the most", function()
+    local Core = ns.WaysCore
+    local W = WAYS.World(WAYS.Snake({}, 10, 10, 50, 40)) -- (2,000 squares)
+    local keepB, keepQ = Core.BuildStep, Core.QueryStep
+    local seen, order = {}, {}
+    local function Note(kind, budget)
+        if not seen[kind] then seen[kind] = {} order[#order + 1] = kind end
+        local l = seen[kind]
+        l[#l + 1] = budget
+    end
+    local ok, err = pcall(function()
+        Core.BuildStep = function(ctx, budget)
+            local j = ctx.job
+            Note(j.phase + 1000 * (j.stage or 0), budget)
+            return keepB(ctx, budget)
+        end
+        Core.QueryStep = function(ctx, budget)
+            local q = ctx.q
+            Note(100 + q.phase + 1000 * (q.stage or 0), budget)
+            return keepQ(ctx, budget)
+        end
+        W.Clock("fast") -- (every step looks short: each kind's setting grows as fast as it may)
+        W.At(10, 10)
+        W.Run({ W.Node(40, 10) }, 3)
+        assert(W.Read().state == "net", "test setup: a way in the net of 2,000 squares: " .. tostring(W.Read().state))
+    end)
+    Core.BuildStep, Core.QueryStep = keepB, keepQ
+    W.Done()
+    if not ok then error(err, 0) end
+    local stage4 = 0
+    for _, kind in ipairs(order) do
+        local l = seen[kind]
+        assert(l[1] <= 32, ("kind %d: its first step did %d pieces (32 at the most)"):format(kind, l[1]))
+        for i = 2, #l do
+            local up = l[i - 1] + math.max(1, math.floor(l[i - 1] / 4))
+            assert(l[i] <= up, ("kind %d: a step of %d after one of %d (a quarter more at the most: %d)"):format(kind, l[i], l[i - 1], up))
+        end
+        if kind >= 4000 and kind < 5000 and kind < 4100 then stage4 = stage4 + 1 end
+    end
+    assert(stage4 >= 2, ("test setup: the radix sorts' spreading (stage 4) seen in %d phases"):format(stage4))
+end)
 step("Ways 0.2.4 S1.1 a9 measure: the real clock on Codex' two 800 ways in a net of 8,000 squares (only with GC_MEASURE_A9 set)", function()
     if not os.getenv("GC_MEASURE_A9") then return end
     local Core = ns.WaysCore
