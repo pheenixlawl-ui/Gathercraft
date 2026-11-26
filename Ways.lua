@@ -1594,6 +1594,7 @@ local function Book(T, n)
     T.used, T.left, T.debt = T.used + now, left - now, T.debt + n - now
     return true
 end
+M.ThreadBook = Book -- (the tests: a piece that books several units at once)
 
 local function AddPoint(T, x, y, u, anchor)
     local t = T.t

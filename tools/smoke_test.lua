@@ -38322,6 +38322,76 @@ step("Ways 0.2.4 S1.1 a9 R1 M1: a call of the core does 32 pieces of work at the
         end
         if w == 1 then assert(first == "done " .. drawn, "the ten steps: another drawing") end
     end
+    -- 1,000 random ways (part 5's) at 1 a call: one piece a call, the units a piece books past it carried over (a
+    -- protective anchor's points given back, an anchor made at once) - and the drawing the one at 32 a call
+    local OBS2, REV2, CON2, GREV2 = Core.OBS, Core.REV, Core.CON, Core.GREV
+    local seed = 2611
+    local function Rand(n)
+        seed = (seed * 16807) % 2147483647
+        return seed % n
+    end
+    local D4 = { { 1, 0 }, { 0, 1 }, { -1, 0 }, { 0, -1 } }
+    local D8 = { { 1, 0 }, { 1, 1 }, { 0, 1 }, { -1, 1 }, { -1, 0 }, { -1, -1 }, { 0, -1 }, { 1, -1 } }
+    local KINDS = { OBS2, OBS2, OBS2, OBS2, OBS2, OBS2, REV2, REV2, CON2, GREV2 }
+    local carried = 0
+    for w = 1, 1000 do
+        local dirs = w % 3 == 0 and D8 or D4
+        local sq, seen, x, y = { { 0, 0 } }, { ["0,0"] = true }, 0, 0
+        for _ = 1, 3 + Rand(50) do
+            local moved = false
+            for _ = 1, 8 do
+                local d = dirs[Rand(#dirs) + 1]
+                local nx, ny = x + d[1], y + d[2]
+                if not seen[nx .. "," .. ny] then
+                    x, y, moved = nx, ny, true
+                    seen[x .. "," .. y] = true
+                    sq[#sq + 1] = { x, y }
+                    break
+                end
+            end
+            if not moved then break end
+        end
+        local kk = {}
+        for i = 1, #sq - 1 do kk[i] = KINDS[Rand(#KINDS) + 1] end
+        local player = { 12.5 + Rand(25) - 12, 12.5 + Rand(25) - 12 }
+        local node = { (x + 0.5) * 25 + Rand(25) - 12, (y + 0.5) * 25 + Rand(25) - 12 }
+        local c = A9.Centre(sq, kk, player, node)
+        Run(c, 32)
+        local at32, used32 = T.state .. " " .. Drawing(), T.used
+        Core.ThreadStart(T, c, 1)
+        while T.state == "work" do
+            local u0, w0 = T.used, T.work
+            local r = Core.ThreadStep(T, 1)
+            if T.debt > 0 then carried = carried + 1 end
+            assert(r <= 1 and T.used - u0 <= 1 and T.work - w0 <= 1, ("random way %d at 1 a call: a call returned %d, booked %d, worked %d"):format(w, r, T.used - u0, T.work - w0))
+        end
+        assert(T.state .. " " .. Drawing() == at32 and T.used == used32, ("random way %d: at 1 a call another drawing or %d units (at 32: %d)"):format(w, T.used, used32))
+    end
+    -- (none of them books several units in one piece - a protective anchor's give-back is rare): a piece that does,
+    -- made by the test at every stretch's end (5 units at once), at 1 a call - the call books 1, the rest is carried
+    -- over and paid by the next calls, which do nothing else
+    local keepBend = Core.threadBendTest
+    local ok, err = pcall(function()
+        Run(ten, 32)
+        local plain = T.used
+        local stretches = 0
+        Core.threadBendTest = function(TT)
+            stretches = stretches + 1
+            Core.ThreadBook(TT, 5)
+        end
+        Core.ThreadStart(T, ten, 1)
+        local carried2 = 0
+        while T.state == "work" do
+            local u0 = T.used
+            local r = Core.ThreadStep(T, 1)
+            if T.debt > 0 then carried2 = carried2 + 1 end
+            assert(r <= 1 and T.used - u0 <= 1, ("a piece of 5 units at 1 a call: a call returned %d, booked %d"):format(r, T.used - u0))
+        end
+        assert(T.state == "done" and stretches > 0 and carried2 >= 4 * stretches and T.used == plain + 5 * stretches,
+            ("a piece of 5 units: %d stretches, %d calls carried, %d units (want %d)"):format(stretches, carried2, T.used, plain + 5 * stretches))
+    end)
+    Core.threadBendTest = keepBend
+    if not ok then error(err, 0) end
 end)
 -- (0.2.4 a9 R1, Codex N2: in an arc the events kept the thread's crossing - (275, 269) on the twelve GREV edges, where
 -- the drawing crosses at (275, 269.1808); their s was right)
