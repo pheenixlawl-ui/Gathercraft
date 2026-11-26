@@ -13936,7 +13936,8 @@ step("Paths: at most 30,000 pieces, 8,000 a zone - the longest unused go first; 
         local maxTotal, maxZone, tile = ns.PathsLimits()
         assert(maxTotal == 30000 and maxZone == 8000 and tile == 25, ("limits %s / %s, squares of %s"):format(tostring(maxTotal), tostring(maxZone), tostring(tile)))
         -- four zones with a size, a calendar and a clock of our own
-        HBD.GetZoneSize = function(_, mapID) if mapID >= 1411 and mapID <= 1414 then return W.w, W.h end return 0, 0 end
+        -- (0.2.4 a10: the fourth zone is 1416 - the map used before is Kalimdor, a continent, where nothing is learned)
+        HBD.GetZoneSize = function(_, mapID) if (mapID >= 1411 and mapID <= 1413) or mapID == 1416 then return W.w, W.h end return 0, 0 end
         local day = 0
         time = function() return (20454 + 100 + day) * 86400 + 4000 end
         local clock = GetTime()
@@ -14015,18 +14016,18 @@ step("Paths: at most 30,000 pieces, 8,000 a zone - the longest unused go first; 
         -- all zones together: three more zones, 30,000 in all, the oldest a small zone of its own
         ns.db.paths = nil
         day = 1
-        Fill(1414, 0, 40)
+        Fill(1416, 0, 40)
         day = 2
         Fill(1411, 0, 7960)
         Fill(1412, 0, 8000)
         day = 3
         Fill(1413, 0, 8000)
         Fill(1411, 60, 40) -- (rows the zone has not seen yet)
-        local row14 = Fill(1414, 10, 5960)
+        local row14 = Fill(1416, 10, 5960)
         local total, zones = ns.PathsCount()
         assert(total == 30000 and zones == 4, ("test setup: %d pieces in %d zones"):format(total, zones))
         local t0 = os.clock()
-        Fill(1414, row14, 1)
+        Fill(1416, row14, 1)
         local took = (os.clock() - t0) * 1000
         total, zones = ns.PathsCount()
         assert(total == 27001, "after the 30,001st piece " .. total .. " are kept, want 27,001 (a tenth gone)")
@@ -14047,23 +14048,23 @@ step("Paths: at most 30,000 pieces, 8,000 a zone - the longest unused go first; 
         -- a zone whose pieces all went is gone itself
         ns.db.paths = nil
         day = 1
-        Fill(1414, 0, 30)
+        Fill(1416, 0, 30)
         day = 2
         Fill(1412, 0, 8000) Fill(1411, 0, 8000) Fill(1413, 0, 8000)
-        player.map = 1414
+        player.map = 1416
         day = 3
         local need = 30000 - ns.PathsCount()
         assert(need == 5970, "test setup: " .. need .. " pieces to the limit")
         -- fill up with pieces of day 3 in a zone that has room, then one more
-        HBD.GetZoneSize = function(_, mapID) if mapID >= 1411 and mapID <= 1415 then return W.w, W.h end return 0, 0 end
+        HBD.GetZoneSize = function(_, mapID) if mapID >= 1411 and mapID <= 1416 then return W.w, W.h end return 0, 0 end
         Fill(1415, 0, 5971)
         total, zones = ns.PathsCount()
-        assert(total == 27001 and zones == 4 and ns.db.paths.zones[1414] == nil, ("%d pieces in %d zones; the emptied zone is %s"):format(total, zones, ns.db.paths.zones[1414] and "still there" or "gone"))
+        assert(total == 27001 and zones == 4 and ns.db.paths.zones[1416] == nil, ("%d pieces in %d zones; the emptied zone is %s"):format(total, zones, ns.db.paths.zones[1416] and "still there" or "gone"))
 
         -- the saved data at the limit, written the way the game writes it
         ns.db.paths = nil
         day = 1
-        Fill(1411, 0, 8000) Fill(1412, 0, 8000) Fill(1413, 0, 8000) Fill(1414, 0, 6000)
+        Fill(1411, 0, 8000) Fill(1412, 0, 8000) Fill(1413, 0, 8000) Fill(1416, 0, 6000)
         assert(ns.PathsCount() == 30000, "test setup: the limit")
         local bytes = 0
         for mapID, z in pairs(ns.db.paths.zones) do
@@ -32921,6 +32922,45 @@ do
     end
 end
 
+-- (0.2.4 a10, Sven 26.11.2026, proposal A of 2026-11-26_claude-code_spenden-zonengroessen-1415.md) Where the game
+-- knows no zone, your map is the continent (mapType 2): a donor's ride up a mountain out of Dun Morogh came in on
+-- 1415. Such pieces never join a zone's net, and a continent is wider than the 1024 squares of a row.
+step("Paths 0.2.4 a10: nothing is learned on a continent's map (mapType 2) - a ride where the game knows no zone gives no piece and no zone entry; the same ride on a zone's map gives its pieces", function()
+    local W = PathsWorld()
+    local HBD = LibStub("HereBeDragons-2.0")
+    local keepSize, keepMap = HBD.GetZoneSize, player.map
+    HBD.GetZoneSize = function(_, mapID)
+        if mapID == 1412 or mapID == 1414 then return W.w, W.h end
+        return 0, 0
+    end
+    local ok, err = pcall(function()
+        -- a zone's map: its pieces (the control)
+        player.map = 1412
+        W.Start(100, 50)
+        W.Go(1, 0, 150)
+        local zone = W.Total()
+        for tx = 100, 104 do
+            assert(W.Piece(tx, 50, 1, 0) == 1, ("test setup: the ride on the zone's map has no piece %d -> %d"):format(tx, tx + 1))
+        end
+        -- the continent's map (no zone there: the game gives the continent as your map)
+        player.map = 1414
+        assert(C_Map.GetMapInfo(1414).mapType == 2 and (ns.GetPlayerPos()) == 1414, "test setup: the player is on the continent 1414")
+        W.Start(100, 60)
+        W.Go(1, 0, 150)
+        for tx = 100, 104 do
+            assert(ns.PathsPiece(1414, tx, 60, 1, 0) == nil, ("on the continent: a piece %d -> %d was learned"):format(tx, tx + 1))
+        end
+        assert(W.Total() == zone and ns.db.paths.zones[1414] == nil, ("on the continent: %d pieces instead of %d, a zone entry %s"):format(W.Total(), zone, tostring(ns.db.paths.zones[1414] ~= nil)))
+        -- back on the zone's map: learned again, the first crossing after the continent is a new start (no piece across)
+        player.map = 1412
+        W.Start(100, 70)
+        W.Go(1, 0, 60)
+        assert(W.Piece(100, 70, 1, 0) == 1, "back on the zone's map: nothing learned")
+    end)
+    HBD.GetZoneSize, player.map = keepSize, keepMap
+    W.Done()
+    if not ok then error(err, 0) end
+end)
 step("Ways 0.2.4: the net - an edge for every piece you rode and its way back; a fall seen once has a guessed way back, a sure fall none; the counts read as saved; the diagonal; a cost under 1 (S1 W1)", function()
     local Core = ns.WaysCore
     local Piece, Ride, Edge, Near, Build = WAYS.Piece, WAYS.Ride, WAYS.Edge, WAYS.Near, WAYS.Build

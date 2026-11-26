@@ -346,6 +346,21 @@ local function Elsewhere()
     return false
 end
 
+-- (0.2.4 a10, Sven 26.11.2026) A continent's map (mapType 2) is no place to learn: the game gives it as your map
+-- where it knows no zone (a mountain ridge beyond a zone's edge, the sea). Its pieces never join a zone's net, and a
+-- continent is wider than a row of squares. The type of a map does not change: asked once per map.
+local MAP_CONTINENT = (Enum and Enum.UIMapType and Enum.UIMapType.Continent) or 2
+local continent = {}
+local function Continent(mapID)
+    local c = continent[mapID]
+    if c == nil then
+        local info = C_Map and C_Map.GetMapInfo and C_Map.GetMapInfo(mapID)
+        c = (info and not ns.AnySecret("paths map type", info.mapType) and info.mapType == MAP_CONTINENT) or false
+        continent[mapID] = c
+    end
+    return c
+end
+
 local function Look()
     local p = DB()
     if not p or p.off then return end
@@ -360,7 +375,7 @@ local function Look()
     local swimming = IsSwimming and IsSwimming()
     if ns.AnySecret("paths", speed, falling, swimming) or type(speed) ~= "number" then return Forget() end
     local mapID, x, y = ns.GetPlayerPos()
-    if not mapID or not x or not y then return Forget() end
+    if not mapID or not x or not y or Continent(mapID) then return Forget() end
     local w, h = ZoneSize(mapID)
     if not w then return Forget() end
     local tx, ty = floor(x * w / TILE), floor(y * h / TILE)
