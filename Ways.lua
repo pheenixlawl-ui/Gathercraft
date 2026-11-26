@@ -2252,13 +2252,19 @@ local function FPoint(F, x, y)
     end
     m = m + 1
     F.x[m], F.y[m], F.raw[m], F.dk[m], F.dcum[m] = x, y, s, m, s
+    -- (the world places' lists get their length here, as the thread's do in FinishPoint - not while you ride)
+    F.bx[m], F.by[m], F.cv[m] = 0, 0, -1
     F.n, F.dn = m, m
 end
 
--- the events up to the old yards s (inclusive: and at s) are behind the drawing written
+-- the events up to the old yards s (inclusive: and at s) are behind the drawing written: (0.2.4 a9, F4.6 §4) their
+-- pairs move by what the arcs before them made the drawing shorter - r stays, s is the yards along the drawing
 local function PassPairs(T, s)
-    local es, e = T.es, T.ae
-    while e <= T.en and es[e] <= s do e = e + 1 end
+    local es, e, ad = T.es, T.ae, T.ad
+    while e <= T.en and es[e] <= s do
+        es[e] = es[e] - ad
+        e = e + 1
+    end
     T.ae = e
 end
 
@@ -2345,8 +2351,23 @@ local function ArcStep(T)
         return
     end
     for h = 1, 5 do FPoint(F, T.qx[h], T.qy[h]) end
-    PassPairs(T, sb)
+    -- (0.2.4 a9, F4.6 §4) the pairs in the arc from the finished drawing: a passage's s is where its chord crosses
+    -- it (ArcHolds wrote them in order); an anchor's middle drawn round maps to the arc's middle point
+    local es, ek, en, fs = T.es, T.ek, T.en, T.fs
+    local mid = F.raw[F.n - 2]
+    local e, n2 = T.ae, 0
+    while e <= en and es[e] <= sb do
+        if ek[e] == 3 then
+            es[e] = mid
+        else
+            n2 = n2 + 1
+            es[e] = fs[n2]
+        end
+        e = e + 1
+    end
+    T.ae = e
     T.arcs = T.arcs + 1
+    T.ad = T.ad + (sb - sa) - (F.raw[F.n] - F.raw[F.n - 4])
 end
 
 -- the end: the node, then the points drawn (one a piece)
@@ -3034,7 +3055,8 @@ local function ThreadWork(budget)
         threadWant = nil
         diag.threads, diag.booked = diag.threads + 1, diag.booked + T.used
         if T.repairs > 0 then diag.repaired = diag.repaired + 1 end
-        if disp.kind == "centre" and disp.gen == nav.core.gen then used = used + PublishDisplay(T.t.view, "thread") end
+        -- (0.2.4 a9, F4.6 §4) shown: the finished drawing with its arcs - the maps and the arrow read this one list
+        if disp.kind == "centre" and disp.gen == nav.core.gen then used = used + PublishDisplay(T.f.view, "thread") end
     elseif T.state == "failed" then
         threadWant = nil
         diag.booked = diag.booked + T.used
@@ -3332,7 +3354,7 @@ ns.WaysThreadNow = function()
     if not (nav and nav.core.state == "net") then return "none" end
     if disp.kind == "thread" then PublishDisplay(nav.core.cf.view, "centre") end
     local state, reason = M.Thread(thread, nav.core.cf, nav.core.gen)
-    if state == "done" then PublishDisplay(thread.t.view, "thread") end
+    if state == "done" then PublishDisplay(thread.f.view, "thread") end
     return state, reason
 end
 ns.WaysThread = function() return thread, threadWant, threadAsk end

@@ -36000,8 +36000,10 @@ step("Ways 0.2.4 S1.1 B2: the thread - the line pulled tight through the passage
         local s1, r1 = Event(5)
         local s2, r2 = Event(7)
         local s3, r3, k3 = Event(9)
-        assert(Tol(s1, 12.6864) and Near(r1, 12.5) and Tol(s2, 38.0592) and Near(r2, 37.5), ("the L's passages: %.4f / %.4f at %.1f / %.1f"):format(s1, s2, r1, r2))
-        assert(Tol(s3, 38.0592 + 8.4853) and Near(r3, 62.5) and k3 == 2, "the L: the side after the corner 6 yd up and 6 yd across")
+        -- (0.2.4 a9, F4.6 §4: the pairs on the finished drawing with its two arcs - the side x = 50 crossed by the
+        -- first arc at 38.2541, the side y = 25 by the second at 45.8545; the a9 part 5a step checks every pair)
+        assert(Tol(s1, 12.6864) and Near(r1, 12.5) and Tol(s2, 38.2541) and Near(r2, 37.5), ("the L's passages: %.4f / %.4f at %.1f / %.1f"):format(s1, s2, r1, r2))
+        assert(Tol(s3, 45.8545) and Near(r3, 62.5) and k3 == 2, "the L: the side after the corner on the second arc")
         assert(T.repairs == 0 and T.used <= T.limit, "the L: no repair")
         -- both ways round
         state = Thread({ { 2, 2 }, { 2, 1 }, { 2, 0 }, { 1, 0 }, { 0, 0 } })
@@ -36202,24 +36204,32 @@ step("Ways 0.2.4 S1.1 B3: the display on the thread - d mapped through the pairs
             local core, r, disp = Nav().core, Shown(), ns.WaysDisplay()
             assert(Tol(core.pos, 25, 0.005) and Tol(core.rest, 75, 0.005) and Tol(math.sqrt(core.offD), 0, 0.005) and core.on,
                 ("the navigation with the thread shown: %.4f / %.4f / %.4f"):format(core.pos, core.rest, math.sqrt(core.offD)))
-            assert(disp.kind == "thread" and r.points == ns.WaysThread().t.view and Tol(r.pos, 25.3728),
-                ("the display on the thread: %s at %.4f, want 25.3728"):format(disp.kind, r.pos))
+            -- (0.2.4 a9, F4.6 §4: the finished drawing with its arcs is shown, the place found by its pairs)
+            assert(disp.kind == "thread" and r.points == ns.WaysThread().f.view and Tol(r.pos, 25.4702),
+                ("the display on the thread: %s at %.4f, want 25.4702"):format(disp.kind, r.pos))
             -- its own segment: the thread drawn is (12.5|12.5) (50|19) (56|25) (62.5|62.5); 25.37 yd is on the first
             assert(r.seg == 1 and disp.seg == 1, "the display's segment: " .. r.seg)
-            -- the arrow: 30 yd ahead on the thread, from 25.3728: 8.8283 yd into the third stretch (from (56|25))
+            -- the arrow: 30 yd ahead on the drawing, from 25.4702 (on its last stretch, after the second arc)
             local ax, ay = ns.WaysArrow(ns.run, W.World(37.5, 12.5))
-            local u = (25.3728 + 30 - 46.5445) / math.sqrt(6.5 ^ 2 + 37.5 ^ 2)
-            assert(ax and Tol(ax - (W.Z - 1400) * 6000, 56 + 6.5 * u, 0.002) and Tol(ay, 25 + 37.5 * u, 0.002),
+            local F = ns.WaysThread().f
+            local at, wx, wy = 25.4702 + 30, nil, nil
+            for k = 1, F.n - 1 do
+                if not wx and F.raw[k + 1] >= at then
+                    local u = (at - F.raw[k]) / (F.raw[k + 1] - F.raw[k])
+                    wx, wy = F.x[k] + u * (F.x[k + 1] - F.x[k]), F.y[k] + u * (F.y[k + 1] - F.y[k])
+                end
+            end
+            assert(ax and Tol(ax - (W.Z - 1400) * 6000, wx, 0.002) and Tol(ay, wy, 0.002),
                 ("the arrow on the thread: %.4f, %.4f"):format((ax or 0) - (W.Z - 1400) * 6000, ay or 0))
             -- the same place with the centre line shown: the place is d itself; and the thread again
             ns.WaysPublishDisplay()
             assert(ns.WaysDisplay().kind == "centre" and Tol(Shown().pos, 25, 0.005), ("on the centre line: %.4f, want 25"):format(Shown().pos))
-            assert(ns.WaysThreadNow() == "done" and Tol(Shown().pos, 25.3728), ("the thread again: %.4f"):format(Shown().pos))
+            assert(ns.WaysThreadNow() == "done" and Tol(Shown().pos, 25.4702), ("the thread again: %.4f"):format(Shown().pos))
             -- the corner of the L: d from 37.5 to 62.5 - (0.2.4 a9) the corner cut 6 yd off, the two sides 8.4853 yd
             -- apart along the thread: the place goes along the cut, half way at d = 50
             W.At(2, 0)
             advance(0.2)
-            assert(Tol(Shown().pos, 42.3018), ("at the L's corner: %.4f, want 42.3018"):format(Shown().pos))
+            assert(Tol(Shown().pos, 42.0543), ("at the L's corner: %.4f, want 42.0543 (a9: between the arcs' pairs)"):format(Shown().pos))
         end)
         W.Done()
         if not ok then error(err, 0) end
@@ -36288,18 +36298,18 @@ step("Ways 0.2.4 S1.1 B3: the display on the thread - d mapped through the pairs
             assert(ns.WaysThreadNow() == "done", "test setup: the L's thread")
             local r = Shown()
             local b = r.points
-            -- (the points drawn: you, the two ends of the cut corner, the node; you on the first middle - no bit
-            -- drawn for it; 0.2.4 a9: the corner cut 6 yd off it)
-            assert(b.n == 4 and Near(b.cum[2], math.sqrt(1448.5)) and r.seg == 1, ("the L drawn: %d points, segment %d"):format(b.n, r.seg))
-            -- the passage into the corner square: d = 37.5 maps to 38.0592 = the border of segments 1 and 2 -> segment 2
+            -- (the points drawn: you, the two arcs of five points each, the node; you on the first middle - no bit
+            -- drawn for it; 0.2.4 a9: the corner cut 6 yd off it, both bends drawn round)
+            assert(b.n == 12 and r.seg == 1, ("the L drawn: %d points, segment %d"):format(b.n, r.seg))
+            -- the passage into the corner square: d = 37.5 maps to 38.2541, on the first arc's third chord (segment 4)
             W.At(1, 0, 12.5, 0) -- (50 | 12.5): on the way at d = 37.5
             advance(0.2)
             r = Shown()
-            assert(Tol(r.pos, b.cum[2], 1e-6) and r.seg == 2, ("on the border: %.6f, segment %d"):format(r.pos, r.seg))
+            assert(Tol(r.pos, 38.2541) and r.seg == 4 and b.cum[4] <= r.pos and r.pos < b.cum[5], ("on the first arc: %.6f, segment %d"):format(r.pos, r.seg))
             W.At(2, 2)
             advance(0.2)
             r = Shown()
-            assert(Tol(r.pos, b.len, 1e-6) and r.seg == 3, ("at the end: %.6f of %.6f, segment %d"):format(r.pos, b.len, r.seg))
+            assert(Tol(r.pos, b.len, 1e-6) and r.seg == 11, ("at the end: %.6f of %.6f, segment %d"):format(r.pos, b.len, r.seg))
             -- the arrow: the point 30 yd ahead is on the last bit (here of no length): the node
             assert(ns.WaysArrow(ns.run, W.World(62.5, 62.5)) == nil, "the arrow at the end turns to a point, not the node")
         end)
@@ -36609,7 +36619,7 @@ step("Ways 0.2.4 S1.1 B5: the thread's own job - after the way is published (the
                 ("the new way's thread: generation %d, the thread's %d"):format(nav.core.gen, T.gen))
             -- the place on it: from the new way's d (you stand on its first middle: 0), its first segment
             local r = ns.WaysRead(ns.run)
-            assert(r.points == T.t.view and Near(nav.core.front.yards - nav.core.rest, 0) and r.pos < 1e-6 and r.seg == 1, ("the new thread's place: %.4f, segment %d"):format(r.pos, r.seg))
+            assert(r.points == T.f.view and Near(nav.core.front.yards - nav.core.rest, 0) and r.pos < 1e-6 and r.seg == 1, ("the new thread's place: %.4f, segment %d"):format(r.pos, r.seg))
         end)
         if undo then undo() end
         W.Done()
@@ -36827,7 +36837,7 @@ step("Ways 0.2.4 S1.1 B5: the thread's own job - after the way is published (the
             W.At(10, 10)
             W.Run({ W.Node(40, 20) }, 2)
             local r = Shown()
-            assert(r.state == "net" and ns.WaysDisplay().kind == "thread" and r.points == ns.WaysThread().t.view, "only the arrow: the thread is made and shown to it")
+            assert(r.state == "net" and ns.WaysDisplay().kind == "thread" and r.points == ns.WaysThread().f.view, "only the arrow: the thread is made and shown to it")
             assert(ns.WaysArrow(ns.run, W.World(262.5, 262.5)) ~= nil, "only the arrow: it turns along the thread")
         end)
         ns.db.routeLineHidden, ns.db.routeLineMiniHidden = nil, nil
@@ -37416,6 +37426,70 @@ function A9.Walk(x, y, steps)
     return out
 end
 
+-- (0.2.4 a9) an independent check of a finished drawing F (written here, not the code's): along the drawing, from
+-- the first square, each passage in its order crossed at the first point of the drawing on the side cut by 4 yd (a
+-- diagonal's corner: on its point), every point in the square it is in. Returns the yards along the drawing of
+-- every passage's crossing (cs[j] for the passage from square j to j + 1), or nil and why not.
+function A9.Crossings(c, F)
+    local cs = {}
+    local j, last = 2, c.n - 1
+    for k = 1, F.n - 1 do
+        local px, py, qx, qy = F.x[k], F.y[k], F.x[k + 1], F.y[k + 1]
+        local len = math.sqrt((qx - px) ^ 2 + (qy - py) ^ 2)
+        local lo = 0
+        while j < last do
+            local ax, ay, bx, by = c.x[j], c.y[j], c.x[j + 1], c.y[j + 1]
+            local mx, my = (ax + bx) / 2, (ay + by) / 2
+            local t
+            local vx, vy = qx - px, qy - py
+            if ax ~= bx and ay ~= by then
+                local l2 = vx * vx + vy * vy
+                if l2 > 0 then
+                    local u = ((mx - px) * vx + (my - py) * vy) / l2
+                    local ex, ey = px + u * vx - mx, py + u * vy - my
+                    if u >= lo - 1e-9 and u <= 1 + 1e-9 and ex * ex + ey * ey <= 1e-10 then t = u end
+                end
+            else
+                -- along x or y: the side's line, its cut part [m - 8.5, m + 8.5]
+                local across = ax ~= bx
+                local a0, va, w0, vw, mw, ma = px, vx, py, vy, mx, my
+                if not across then a0, va, w0, vw, mw, ma = py, vy, px, vx, my, mx end
+                if va == 0 then
+                    -- (running along the side's line: the crossing is its first point on the side cut by 6 yd, the
+                    -- construction margin, as the events take it; a run that does not get there crosses where the
+                    -- drawing leaves the line - the next chord's start, checked against the part cut by 4 yd)
+                    if math.abs(a0 - mw) <= 1e-9 then
+                        for _, reach in ipairs({ 6.5 }) do
+                            if not t then
+                                if vw == 0 then
+                                    if math.abs(w0 + lo * vw - ma) <= reach + 1e-9 then t = lo end
+                                else
+                                    local t1, t2 = (ma - reach - w0) / vw, (ma + reach - w0) / vw
+                                    if t1 > t2 then t1, t2 = t2, t1 end
+                                    local u = math.max(lo, t1)
+                                    if u <= math.min(1, t2) + 1e-12 then t = u end
+                                end
+                            end
+                        end
+                    end
+                else
+                    local u = (mw - a0) / va
+                    if u >= lo - 1e-9 and u <= 1 + 1e-9 and math.abs(w0 + u * vw - ma) <= 8.5 + 1e-9 then t = math.max(u, lo) end
+                end
+            end
+            if not t then break end
+            cs[j] = F.raw[k] + t * len
+            lo, j = t, j + 1
+        end
+        if k + 1 < F.n then
+            local cx, cy = c.x[j], c.y[j]
+            if math.abs(qx - cx) > 12.5 + 0.01 or math.abs(qy - cy) > 12.5 + 0.01 then return nil, ("point %d not in square %d"):format(k + 1, j) end
+        end
+    end
+    if j ~= last then return nil, ("passages crossed: %d of %d"):format(j - 2, last - 2) end
+    return cs
+end
+
 step("Ways 0.2.4 S1.1 a9 part 2: a thread's whole budget is 16 times its passages; a call of the core does 32 units at the most, asked for more or not - a unit is a passage, point or corner booked, the call and the counter count the same, no double count (0.2.4 a9, F4.3 §2, F4.4 §2, order point 2)", function()
     local Core = ns.WaysCore
     local T = Core.NewThread()
@@ -37651,52 +37725,8 @@ step("Ways 0.2.4 S1.1 a9 part 5: arcs at the thread's corners - radius up to 12 
     -- first square, each passage in its order crossed at the first point of the drawing on the side cut by 4 yd
     -- (a diagonal's corner: on its point), every point in the square it is in; 1,000 random ways
     local function Check(c, F)
-        local j, last = 2, c.n - 1
-        for k = 1, F.n - 1 do
-            local px, py, qx, qy = F.x[k], F.y[k], F.x[k + 1], F.y[k + 1]
-            local lo = 0
-            while j < last do
-                local ax, ay, bx, by = c.x[j], c.y[j], c.x[j + 1], c.y[j + 1]
-                local mx, my = (ax + bx) / 2, (ay + by) / 2
-                local t
-                local vx, vy = qx - px, qy - py
-                if ax ~= bx and ay ~= by then
-                    local l2 = vx * vx + vy * vy
-                    if l2 > 0 then
-                        local u = ((mx - px) * vx + (my - py) * vy) / l2
-                        local ex, ey = px + u * vx - mx, py + u * vy - my
-                        if u >= lo - 1e-9 and u <= 1 + 1e-9 and ex * ex + ey * ey <= 1e-10 then t = u end
-                    end
-                else
-                    -- along x or y: the side's line, its cut part [m - 8.5, m + 8.5]
-                    local across = ax ~= bx
-                    local a0, va, w0, vw, mw, ma = px, vx, py, vy, mx, my
-                    if not across then a0, va, w0, vw, mw, ma = py, vy, px, vx, my, mx end
-                    if va == 0 then
-                        if math.abs(a0 - mw) <= 1e-9 then
-                            if vw == 0 then
-                                if math.abs(w0 + lo * vw - ma) <= 8.5 + 1e-9 then t = lo end
-                            else
-                                local t1, t2 = (ma - 8.5 - w0) / vw, (ma + 8.5 - w0) / vw
-                                if t1 > t2 then t1, t2 = t2, t1 end
-                                local u = math.max(lo, t1)
-                                if u <= math.min(1, t2) + 1e-12 then t = u end
-                            end
-                        end
-                    else
-                        local u = (mw - a0) / va
-                        if u >= lo - 1e-9 and u <= 1 + 1e-9 and math.abs(w0 + u * vw - ma) <= 8.5 + 1e-9 then t = math.max(u, lo) end
-                    end
-                end
-                if not t then break end
-                lo, j = t, j + 1
-            end
-            if k + 1 < F.n then
-                local cx, cy = c.x[j], c.y[j]
-                if math.abs(qx - cx) > 12.5 + 0.01 or math.abs(qy - cy) > 12.5 + 0.01 then return ("point %d not in square %d"):format(k + 1, j) end
-            end
-        end
-        if j ~= last then return ("passages crossed: %d of %d"):format(j - 2, last - 2) end
+        local _, why = A9.Crossings(c, F)
+        return why
     end
     local seed = 2611
     local function Rand(n)
@@ -37737,6 +37767,112 @@ step("Ways 0.2.4 S1.1 a9 part 5: arcs at the thread's corners - radius up to 12 
     end
     assert(arcs > 0 and sharp < arcs, "test setup: arcs drawn")
     note("MEASURE S1.1 a9 arcs", ("%d random ways: %d arcs, %d corners left sharp by the check"):format(ways, arcs, sharp))
+end)
+
+step("Ways 0.2.4 S1.1 a9 part 5a: the pairs (r, s) found anew on the finished drawing - every passage's s is the yards along the drawing (arcs and all) to where it crosses the passage, never falling; the maps and the arrow read that one list: the place and the 30-yd point on it (0.2.4 a9, F4.6 §4)", function()
+    local Core = ns.WaysCore
+    local OBS, REV, CON, GREV = Core.OBS, Core.REV, Core.CON, Core.GREV
+    local T = Core.NewThread()
+    -- every pair against the drawing: a passage's s is where the drawing crosses it (the independent walk), an
+    -- anchor's s on the drawing; all of them never falling, none beyond the drawing's end
+    local function Pairs(c, what)
+        local cs, why = A9.Crossings(c, T.f)
+        assert(cs, what .. ": the drawing breaks the rules: " .. tostring(why))
+        local before = -1
+        for e = 1, T.en do
+            local s, u = T.es[e], T.eu[e]
+            assert(s >= before - 1e-9 and s <= T.f.len + 1e-9, ("%s: pair %d at %.4f after %.4f (drawing %.4f)"):format(what, e, s, before, T.f.len))
+            if T.ek[e] ~= 3 then
+                local j = (u - 1) / 2
+                assert(cs[j] and math.abs(cs[j] - s) < 1e-6, ("%s: the passage %d at %.6f on the drawing, its pair %.6f"):format(what, j, cs[j] or -1, s))
+            end
+            before = s
+        end
+    end
+    local kinds = {}
+    for i = 1, 12 do kinds[i] = GREV end
+    for _, case in ipairs({ { "the twelve GREV edges", A9.Centre(A9.Walk(10, 10, "ENENENENENEN"), kinds) },
+        { "the S curve", A9.Centre(A9.Walk(0, 0, "EENNEE")) }, { "the U", A9.Centre(A9.Walk(0, 0, "ENW")) } }) do
+        assert(Core.Thread(T, case[2], 1) == "done" and T.arcs > 0, "test setup: " .. case[1])
+        Pairs(case[2], case[1])
+    end
+    -- the U and one square more: the passage after its three arcs lies shorter along the drawing than along the
+    -- thread by exactly what the arcs cut off (2 tl - the chords), not where the thread had it
+    do
+        local c = A9.Centre(A9.Walk(0, 0, "ENWW"))
+        Core.threadArcs = false
+        Core.Thread(T, c, 1)
+        local plain = {}
+        for e = 1, T.en do plain[e] = T.es[e] end
+        Core.threadArcs = true
+        Core.Thread(T, c, 1)
+        local last = T.en - 1 -- (the last passage, after all the arcs: the cut is the drawing's length against the thread's)
+        assert(T.arcs == 3, "test setup: the U's three arcs, " .. T.arcs)
+        assert(T.f.len < T.t.len - 1e-6 and math.abs((plain[last] - T.es[last]) - (T.t.len - T.f.len)) < 1e-6,
+            ("the U: the last passage %.4f on the thread, %.4f on the drawing - %.4f shorter, the drawing %.4f"):format(plain[last], T.es[last], plain[last] - T.es[last], T.t.len - T.f.len))
+    end
+    -- 1,000 random ways (M1's seed): every pair on the drawing
+    local seed = 2611
+    local function Rand(n)
+        seed = (seed * 16807) % 2147483647
+        return seed % n
+    end
+    local D4 = { { 1, 0 }, { 0, 1 }, { -1, 0 }, { 0, -1 } }
+    local D8 = { { 1, 0 }, { 1, 1 }, { 0, 1 }, { -1, 1 }, { -1, 0 }, { -1, -1 }, { 0, -1 }, { 1, -1 } }
+    local KINDS = { OBS, OBS, OBS, OBS, OBS, OBS, REV, REV, CON, GREV }
+    for w = 1, 1000 do
+        local dirs = w % 3 == 0 and D8 or D4
+        local sq, seen, x, y = { { 0, 0 } }, { ["0,0"] = true }, 0, 0
+        for _ = 1, 3 + Rand(50) do
+            local moved = false
+            for _ = 1, 8 do
+                local d = dirs[Rand(#dirs) + 1]
+                local nx, ny = x + d[1], y + d[2]
+                if not seen[nx .. "," .. ny] then
+                    x, y, moved = nx, ny, true
+                    seen[x .. "," .. y] = true
+                    sq[#sq + 1] = { x, y }
+                    break
+                end
+            end
+            if not moved then break end
+        end
+        local kk = {}
+        for i = 1, #sq - 1 do kk[i] = KINDS[Rand(#KINDS) + 1] end
+        local player = { 12.5 + Rand(25) - 12, 12.5 + Rand(25) - 12 }
+        local node = { (x + 0.5) * 25 + Rand(25) - 12, (y + 0.5) * 25 + Rand(25) - 12 }
+        local c = A9.Centre(sq, kk, player, node)
+        assert(Core.Thread(T, c, 1) == "done", "random way " .. w)
+        Pairs(c, "random way " .. w)
+    end
+    -- in the run: the display is the finished drawing; the arrow turns to the point 30 yd ahead of the place on it
+    local e = {}
+    WAYS.Ride(e, A9.Walk(10, 10, "EEENNNWWW"))
+    local W = WAYS.World(e)
+    local ok, err = pcall(function()
+        W.At(10, 10)
+        W.Run({ W.Node(10, 13) }, 2)
+        assert(ns.WaysThreadNow() == "done", "test setup: the thread of the U")
+        local th = ns.WaysThread()
+        local r = ns.WaysRead(ns.run)
+        assert(ns.WaysDisplay().kind == "thread" and r.points == th.f.view and th.arcs > 0, "the finished drawing is shown")
+        W.At(11, 10)
+        advance(0.2)
+        r = ns.WaysRead(ns.run)
+        local F, at = th.f, r.pos + 30
+        local wx, wy
+        for k = 1, F.n - 1 do
+            if not wx and F.raw[k + 1] >= at then
+                local u = (at - F.raw[k]) / (F.raw[k + 1] - F.raw[k])
+                wx, wy = F.x[k] + u * (F.x[k + 1] - F.x[k]), F.y[k] + u * (F.y[k + 1] - F.y[k])
+            end
+        end
+        local ax, ay = ns.WaysArrow(ns.run, W.World(287.5, 262.5))
+        assert(ax and wx and math.abs(ax - (W.Z - 1400) * 6000 - wx) < 0.002 and math.abs(ay - wy) < 0.002,
+            ("the arrow: (%.4f, %.4f), the drawing 30 yd ahead (%.4f, %.4f)"):format((ax or 0) - (W.Z - 1400) * 6000, ay or 0, wx or 0, wy or 0))
+    end)
+    W.Done()
+    if not ok then error(err, 0) end
 end)
 
 step("Ways donation: canonical own pieces, no private fields, bounds and sliced multipart export", function()
