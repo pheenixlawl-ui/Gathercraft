@@ -36312,14 +36312,16 @@ step("Ways 0.2.4 S1.1 B2: the thread - the line pulled tight through the passage
         assert(state == "failed" and reason == "short", "one square: " .. tostring(reason))
         -- the pieces of work: as many in pieces of 1 as in one go, and the same thread
         Thread(sq)
-        local whole, used = Points(), T.used
+        local whole, used, free = Points(), T.used, T.free
         Core.ThreadStart(T, Centre(sq), 1)
         local steps = 0
         while T.state == "work" do
             assert(Core.ThreadStep(T, 1) == 1, "a piece of 1 did more")
             steps = steps + 1
         end
-        assert(Points() == whole and T.used == used and steps == used, ("in pieces of 1: %d steps, %d booked, %d in one go"):format(steps, T.used, used))
+        -- (0.2.4 a9 R1, Codex M1: the arcs' pairs, points and checks are pieces of their own that book no unit, T.free)
+        assert(Points() == whole and T.used == used and T.free == free and steps == used + free,
+            ("in pieces of 1: %d steps, %d booked and %d free, %d and %d in one go"):format(steps, T.used, T.free, used, free))
     end
 end)
 step("Ways 0.2.4 S1.1 B3: the display on the thread - d mapped through the pairs (r, s), never falling, still at an L's corner; its own segment by the forward rule; the arrow 30 yd ahead on it; the navigation the same (0.2.4 a7, F3 §4, F4 §A/§F/§G, F4.1 §C)", function()
@@ -37637,7 +37639,7 @@ function A9.Crossings(c, F)
     return cs
 end
 
-step("Ways 0.2.4 S1.1 a9 part 2: a thread's whole budget is 16 times its passages; a call of the core does 32 units at the most, asked for more or not - a unit is a passage, point or corner booked, the call and the counter count the same, no double count (0.2.4 a9, F4.3 §2, F4.4 §2, order point 2)", function()
+step("Ways 0.2.4 S1.1 a9 part 2: a thread's whole budget is 16 times its passages; a call of the core does 32 units at the most, asked for more or not - a unit is a passage, point or corner booked; a call counts the units it booked and (a9 R1) the arcs' pieces that book none, no double count (0.2.4 a9, F4.3 §2, F4.4 §2, order point 2)", function()
     local Core = ns.WaysCore
     local T = Core.NewThread()
     -- a long straight way of ridden steps east: nothing to repair, every piece of work one unit
@@ -37648,15 +37650,16 @@ step("Ways 0.2.4 S1.1 a9 part 2: a thread's whole budget is 16 times its passage
     assert(T.limit == 16 * (c.n - 3), ("the budget: %d, 16 times the %d passages is %d"):format(T.limit, c.n - 3, 16 * (c.n - 3)))
     local calls, most, sum = 0, 0, 0
     while T.state == "work" do
-        local before = T.used
+        local before, free = T.used, T.free
         local used = Core.ThreadStep(T, 1000) -- (far more than 32 asked for)
-        assert(used == T.used - before, ("a call says %d units, the counter went up by %d"):format(used, T.used - before))
+        -- (0.2.4 a9 R1, Codex M1: a call's pieces are the units it booked and the arcs' pieces that book none)
+        assert(used == T.used - before + T.free - free, ("a call says %d pieces, the counter went up by %d, %d free"):format(used, T.used - before, T.free - free))
         if used > most then most = used end
         sum, calls = sum + used, calls + 1
     end
     assert(T.state == "done", "the straight way's thread: " .. tostring(T.reason))
     assert(most == 32, ("asked for 1,000: a call did %d units at the most, not 32"):format(most))
-    assert(sum == T.used and calls >= math.ceil(T.used / 32), "the calls together are the counter")
+    assert(sum == T.used + T.free and calls >= math.ceil((T.used + T.free) / 32), "the calls together are the counter and the arcs' free pieces")
     -- asked for less than 32: that many
     Core.ThreadStart(T, c, 2)
     assert(Core.ThreadStep(T, 5) == 5 and T.used == 5, "asked for 5: 5 units")
@@ -38156,6 +38159,70 @@ end)
 -- for the core and for the addon's own sums; GC_MEASURE_A9_JIT=off - LuaJIT's compiler off, as in the game, which
 -- has none (with it on, compiling a trace falls into the call that runs the code: 1.5-2.4 ms in one core call).
 -- With both: the core's call at 0.25 ms at the most, asserted (the step and the frame sum are noted).
+-- (0.2.4 a9 R1, Codex M1: a repair or a protective anchor's give-back booked past the call's 32 - 35 in Codex' ten steps;
+-- the pairs after the arcs all moved in one piece - 802 in one call of budget 1)
+step("Ways 0.2.4 S1.1 a9 R1 M1: a call of the core does 32 pieces of work at the most - the units it books (a repair and a protective anchor's give-back too) and the arcs' pairs, points and checks; Codex' ten steps at 1000, the 800 straight passages at 1 a call; the units in all as in a9; the drawing the same whatever a call may do", function()
+    local Core = ns.WaysCore
+    local OBS, REV, GREV = Core.OBS, Core.REV, Core.GREV
+    local T = Core.NewThread()
+    -- one thread, call by call: the most a call returned, booked (T.used) and worked (T.work: pairs moved, points
+    -- written, arcs checked, squares marked by a repair, points it gave back)
+    local function Run(c, budget)
+        Core.ThreadStart(T, c, 1)
+        local most, mostUsed, mostWork, calls = 0, 0, 0, 0
+        while T.state == "work" do
+            local u0, w0 = T.used, T.work or 0
+            local r = Core.ThreadStep(T, budget)
+            calls = calls + 1
+            if r > most then most = r end
+            if T.used - u0 > mostUsed then mostUsed = T.used - u0 end
+            if (T.work or 0) - w0 > mostWork then mostWork = (T.work or 0) - w0 end
+            assert(calls < 200000, "test setup: a thread that does not end")
+        end
+        return most, mostUsed, mostWork, calls
+    end
+    local function Drawing()
+        local F, t = T.f, {}
+        for k = 1, F.n do t[#t + 1] = ("%.9f,%.9f"):format(F.x[k], F.y[k]) end
+        return table.concat(t, " ")
+    end
+    -- Codex' ten steps: SE, W, NE, E, E, E, SE, NE, W, SE (SE = (+1, -1), NE = (+1, +1)); OBS, REV, OBS, OBS, OBS, OBS,
+    -- GREV, OBS, OBS, OBS; you and the node on the middles
+    local sq, x, y = { { 0, 0 } }, 0, 0
+    for _, d in ipairs({ { 1, -1 }, { -1, 0 }, { 1, 1 }, { 1, 0 }, { 1, 0 }, { 1, 0 }, { 1, -1 }, { 1, 1 }, { -1, 0 }, { 1, -1 } }) do
+        x, y = x + d[1], y + d[2]
+        sq[#sq + 1] = { x, y }
+    end
+    local ten = A9.Centre(sq, { OBS, REV, OBS, OBS, OBS, OBS, GREV, OBS, OBS, OBS })
+    local most, mostUsed, mostWork = Run(ten, 1000)
+    assert(T.state == "done" and T.repairs > 0, ("test setup: Codex' ten steps - %s %s, %d repairs (a repair wanted)"):format(T.state, tostring(T.reason), T.repairs))
+    assert(most <= 32 and mostUsed <= 32 and mostWork <= 32, ("Codex' ten steps at 1000: a call returned %d, booked %d, worked %d (32 at the most)"):format(most, mostUsed, mostWork))
+    assert(T.used == 70, ("Codex' ten steps: %d units in all (a9: 70 of %d)"):format(T.used, T.limit))
+    local drawn = Drawing()
+    -- the 800 straight passages at 1 a call: the pairs after the arcs one a call
+    local straight = {}
+    for i = 0, 800 do straight[#straight + 1] = { i, 0 } end
+    local calls
+    most, mostUsed, mostWork, calls = Run(A9.Centre(straight), 1)
+    assert(T.state == "done", "the 800 straight passages: " .. tostring(T.state))
+    assert(most <= 1 and mostUsed <= 1 and mostWork <= 1, ("the 800 straight passages at 1: a call returned %d, booked %d, worked %d (1 at the most)"):format(most, mostUsed, mostWork))
+    assert((T.work or 0) >= 800 and calls >= T.used + 800, ("the 800 straight passages: %d pieces worked in %d calls (%d units) - the pairs not one a call"):format(T.work or 0, calls, T.used))
+    -- the drawing whatever a call may do (1, 5, 32): the ten steps, Codex' U, S curve and twelve GREV edges, a revisit
+    local kinds12 = {}
+    for i = 1, 12 do kinds12[i] = GREV end
+    local ways = { ten, A9.Centre(A9.Walk(0, 0, "ENW")), A9.Centre(A9.Walk(0, 0, "EENNEE")), A9.Centre(A9.Walk(10, 10, "ENENENENENEN"), kinds12),
+        A9.Centre(A9.Walk(0, 0, "EEENNWWWSSEEENNN")) }
+    for w, c in ipairs(ways) do
+        local first
+        for _, budget in ipairs({ 32, 1, 5 }) do
+            Run(c, budget)
+            local d = T.state .. " " .. Drawing()
+            first = first or d
+            assert(d == first, ("way %d: the drawing at %d a call is not the one at 32"):format(w, budget))
+        end
+        if w == 1 then assert(first == "done " .. drawn, "the ten steps: another drawing") end
+    end
+end)
 step("Ways 0.2.4 S1.1 a9 measure: the real clock on Codex' two 800 ways in a net of 8,000 squares (only with GC_MEASURE_A9 set)", function()
     if not os.getenv("GC_MEASURE_A9") then return end
     local Core = ns.WaysCore

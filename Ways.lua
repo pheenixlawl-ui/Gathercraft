@@ -1429,6 +1429,11 @@ function M.NewThread()
         -- corner drawn next (ai), what the arcs made shorter so far (ad), the first event not passed yet (ae), arcs
         -- drawn, corners left sharp by the check
         f = NewCentre(), qx = {}, qy = {}, fs = {}, ai = 0, ad = 0, ae = 0, arcs = 0, sharp = 0, tries = 0,
+        -- (0.2.4 a9 R1, Codex M1) the call's pieces left, units carried over to the next call, pieces worked (pairs,
+        -- points, checks, a repair's squares and points; the tests look at it), the pieces of the arcs that book no unit (free); the arcs' stage and its numbers;
+        -- a repair's squares (from rj to rjb, of the group from square rja), anchors made, the point it went back to
+        left = 0, debt = 0, work = 0, free = 0, ast = 0, apto = 0, anext = 0, aph = 1, apn = 1, athen = 0, an2 = 0,
+        asv = 0, asa = 0, asb = 0, avx = 0, avy = 0, rja = 0, rj = 0, rjb = 0, radd = 0, rk = 0, rfirst = 0,
         c = nil, gen = -1, state = "none", reason = nil, used = 0, limit = 0, repairs = 0,
         phase = 0, u = 0, ax = 0, ay = 0, au = 0, lx = 0, ly = 0, lu = 0, rx = 0, ry = 0, ru = 0,
         sk = 0, wu = 0, wk = 0, wt = 0, fk = 0,
@@ -1576,14 +1581,17 @@ local function Fail(T, reason)
     T.state, T.reason = "failed", reason
 end
 
--- book n pieces of work; false: the counter is spent (the thread is given up)
+-- book n pieces of work; false: the counter is spent (the thread is given up). (0.2.4 a9 R1, Codex M1) What does not
+-- fit into the pieces the call has left is carried over (T.debt): the next call pays it first and does nothing else
+-- for it - the counter goes up by the same in all, a call by 32 at the most
 local function Book(T, n)
-    local used = T.used + n
-    if used > T.limit then
+    if T.used + T.debt + n > T.limit then
         Fail(T, "count")
         return false
     end
-    T.used = used
+    local left = T.left
+    local now = n < left and n or left
+    T.used, T.left, T.debt = T.used + now, left - now, T.debt + n - now
     return true
 end
 
@@ -1806,21 +1814,49 @@ local function Broken(T, a, b)
 end
 
 -- (0.2.4 a9) jbTo: the last square to anchor when it is not the one of event b (a passage the thread missed)
+-- (0.2.4 a9 R1, Codex M1) A repair goes on where it stood, a piece of work at a time: its squares made anchors one a
+-- piece (phase 6), the thread's points given back one a piece (phase 7) - the same steps in the same order, the
+-- same units booked; the piece that found the broken group starts it.
+local RepairMarked
 local function Repair(T, a, b, jbTo)
     local ja, jb = floor(T.eu[a] / 2), jbTo or floor(T.eu[b] / 2)
-    if not Book(T, jb - ja) then return end
-    local added = 0
+    T.rja, T.rj, T.rjb, T.radd, T.phase = ja, ja + 1, jb, 0, 6
+    if ja + 1 > jb then return RepairMarked(T) end
+end
+-- (phase 6) one square of the repair made an anchor (the loop booked its unit)
+local function RepairMark(T)
+    local j = T.rj
     local anchor = M.threadAnchorTest or IsAnchor -- (the tests: a square taken for an anchor already)
-    for j = ja + 1, jb do
-        if not anchor(T, j) then
-            T.prot[j] = T.stamp
-            added = added + 1
-        end
+    if not anchor(T, j) then
+        T.prot[j] = T.stamp
+        T.radd = T.radd + 1
     end
+    T.work = T.work + 1
+    if j < T.rjb then
+        T.rj = j + 1
+        return
+    end
+    return RepairMarked(T)
+end
+-- back to the last anchor of the thread before the first new one (point k); its events and the ones before stay
+local function RepairBack(T, k)
+    local t, vu = T.t, T.vu
+    t.n = k
+    local e, eu = T.en, T.eu
+    while e > 1 and eu[e] > vu[k] do e = e - 1 end
+    T.en = e
+    local es, ek, gs = T.es, T.ek, e
+    while gs > 1 and ek[gs] ~= 3 and ek[gs - 1] ~= 3 and es[e] - es[gs - 1] <= THREAD_TOL do gs = gs - 1 end
+    T.gs = gs
+    Restart(T, t.x[k], t.y[k], vu[k])
+    Begin(T, k)
+    T.far = vu[k] -- (the thread up to the anchor holds whatever lies beyond it)
+end
+RepairMarked = function(T)
     -- (none new: the same would be found again - the centre line stays)
-    if added == 0 then return Fail(T, "repair") end
+    if T.radd == 0 then return Fail(T, "repair") end
     T.repairs = T.repairs + 1
-    local first = 2 * (ja + 1)
+    local first = 2 * (T.rja + 1)
     local t, vu, va = T.t, T.vu, T.va
     -- (0.2.4 a8, Codex M1) the last proposal kept before the passage into the first new anchor's square:
     -- the thread anew from there (the proposals after it are let go, each looked at is booked, so are the
@@ -1835,22 +1871,22 @@ local function Repair(T, a, b, jbTo)
     end
     if not Book(T, T.pc) then return end
     T.pc = 0 -- (all of them after it)
-    -- back to the last anchor of the thread before the first new one; its events and the ones before stay
     local k = t.n
-    while k > 2 and not (va[k] == 1 and vu[k] < first) do
-        if not Book(T, 1) then return end
-        k = k - 1
+    if k > 2 and not (va[k] == 1 and vu[k] < first) then
+        T.rk, T.rfirst, T.phase = k, first, 7
+        return
     end
-    t.n = k
-    local e, eu = T.en, T.eu
-    while e > 1 and eu[e] > vu[k] do e = e - 1 end
-    T.en = e
-    local es, ek, gs = T.es, T.ek, e
-    while gs > 1 and ek[gs] ~= 3 and ek[gs - 1] ~= 3 and es[e] - es[gs - 1] <= THREAD_TOL do gs = gs - 1 end
-    T.gs = gs
-    Restart(T, t.x[k], t.y[k], vu[k])
-    Begin(T, k)
-    T.far = vu[k] -- (the thread up to the anchor holds whatever lies beyond it)
+    return RepairBack(T, k)
+end
+-- (phase 7) one point of the thread given back (the loop booked its unit)
+local function RepairWalk(T)
+    local k = T.rk - 1
+    T.work = T.work + 1
+    if k > 2 and not (T.va[k] == 1 and T.vu[k] < T.rfirst) then
+        T.rk = k
+        return
+    end
+    return RepairBack(T, k)
 end
 
 -- (0.2.4 a8, Codex M1) The thread has just been written at a point p: is it the point a proposal's passages
@@ -2257,17 +2293,6 @@ local function FPoint(F, x, y)
     F.n, F.dn = m, m
 end
 
--- the events up to the old yards s (inclusive: and at s) are behind the drawing written: (0.2.4 a9, F4.6 §4) their
--- pairs move by what the arcs before them made the drawing shorter - r stays, s is the yards along the drawing
-local function PassPairs(T, s)
-    local es, e, ad = T.es, T.ae, T.ad
-    while e <= T.en and es[e] <= s do
-        es[e] = es[e] - ad
-        e = e + 1
-    end
-    T.ae = e
-end
-
 -- the square of the way the thread is in just after the last event passed (all events up to the arc's first
 -- touching point are): after a passage the square beyond it, at an anchor's middle its square
 local function SquareAt(T)
@@ -2281,7 +2306,7 @@ end
 local function ArcBegin(T)
     local F, t = T.f, T.t
     F.n, F.dn = 0, 0
-    T.ai, T.ad, T.ae, T.arcs, T.sharp, T.tries = 2, 0, 1, 0, 0, 0
+    T.ai, T.ad, T.ae, T.arcs, T.sharp, T.tries, T.ast = 2, 0, 1, 0, 0, 0, 0
     FPoint(F, t.x[t.dk[1]], t.y[t.dk[1]])
     T.phase = 5
 end
@@ -2298,14 +2323,77 @@ local function Roundable(T, k)
     return not (Fixed(c.kind[j]) or Fixed(c.kind[j + 1])) -- (a CON edge's middle stays)
 end
 
--- one corner: drawn round (and checked) or sharp; at the end the finished drawing's own numbers
+-- One piece of the arcs' work (0.2.4 a9 R1, Codex M1: where it stood, one piece a call of the loop - before, a corner
+-- moved all the pairs before it, wrote its five points and its arc's pairs at once, the end all the pairs left).
+-- The stages (T.ast):
+--   0  the next corner (or the end): decided - one unit booked, as a9 booked a corner
+--   1  the pairs up to the old yards T.apto (inclusive): (0.2.4 a9, F4.6 §4) moved by what the arcs before them made
+--      the drawing shorter - r stays, s is the yards along the drawing; one a piece, then stage T.anext
+--   2  the points T.aph .. T.apn of T.qx, T.qy written, one a piece, then stage T.athen
+--   3  the arc checked (the pairs up to its first touching point are passed): it holds - its five points, then its
+--      pairs; it does not - that corner stays sharp
+--   4  the pairs in the arc from the finished drawing, one a piece: a passage's s is where its chord crosses it
+--      (ArcHolds wrote them in order); an anchor's middle drawn round maps to the arc's middle point
+--   6  the end: the last point, the finished drawing's own numbers
+-- A piece moves one pair, writes one point or checks one arc (T.work counts them); a stage with nothing to do
+-- goes on to the next in the same piece. The same steps in the same order as a9: the same drawing.
 local function ArcStep(T)
+    local st = T.ast
+    if st == 1 then
+        local e = T.ae
+        if e <= T.en and T.es[e] <= T.apto then
+            T.es[e] = T.es[e] - T.ad
+            T.ae = e + 1
+            T.left, T.work, T.free = T.left - 1, T.work + 1, T.free + 1
+            return
+        end
+        st = T.anext
+        T.ast = st
+    end
+    if st == 2 then
+        local h = T.aph
+        FPoint(T.f, T.qx[h], T.qy[h])
+        T.left, T.work, T.free = T.left - 1, T.work + 1, T.free + 1
+        if h < T.apn then T.aph = h + 1 else T.ast = T.athen end
+        return
+    end
+    if st == 3 then
+        local F = T.f
+        local dx0, dy0 = T.qx[1] - F.x[F.n], T.qy[1] - F.y[F.n]
+        T.left, T.work, T.free = T.left - 1, T.work + 1, T.free + 1
+        if not ArcHolds(T, SquareAt(T), T.asb, F.raw[F.n] + sqrt(dx0 * dx0 + dy0 * dy0)) then
+            -- that corner stays sharp: the pairs up to it, then its point
+            T.sharp = T.sharp + 1
+            T.qx[6], T.qy[6] = T.avx, T.avy
+            T.apto, T.anext, T.aph, T.apn, T.athen, T.ast = T.asv, 2, 6, 6, 0, 1
+            return
+        end
+        T.aph, T.apn, T.athen, T.ast, T.an2 = 1, 5, 4, 2, 0
+        return
+    end
+    if st == 4 then
+        local e = T.ae
+        if e <= T.en and T.es[e] <= T.asb then
+            if T.ek[e] == 3 then
+                T.es[e] = T.f.raw[T.f.n - 2]
+            else
+                local n2 = T.an2 + 1
+                T.an2, T.es[e] = n2, T.fs[n2]
+            end
+            T.ae = e + 1
+            T.left, T.work, T.free = T.left - 1, T.work + 1, T.free + 1
+            return
+        end
+        local F = T.f
+        T.arcs = T.arcs + 1
+        T.ad = T.ad + (T.asb - T.asa) - (F.raw[F.n] - F.raw[F.n - 4])
+        T.ast = 0
+    end
     local t, F = T.t, T.f
-    local dk, i, dn = t.dk, T.ai, t.dn
-    local x, y = t.x, t.y
-    if i >= dn then
-        PassPairs(T, huge)
-        FPoint(F, x[dk[dn]], y[dk[dn]])
+    if T.ast == 6 then
+        local dn = t.dn
+        FPoint(F, t.x[t.dk[dn]], t.y[t.dk[dn]])
+        T.left, T.work, T.free = T.left - 1, T.work + 1, T.free + 1
         F.len, F.tail, F.head = F.raw[F.n], t.tail, t.head
         F.conv, F.map, F.w, F.h = t.conv, t.map, t.w, t.h
         F.pwx, F.pwy, F.twx, F.twy = t.pwx, t.pwy, t.twx, t.twy
@@ -2313,6 +2401,14 @@ local function ArcStep(T)
         local v = F.view
         v.n, v.len, v.tail = F.n, F.len, F.tail
         T.state = "done"
+        return
+    end
+    -- (stage 0) the next corner, or the end: one unit, as a9
+    if not Book(T, 1) then return end
+    local dk, i, dn = t.dk, T.ai, t.dn
+    local x, y = t.x, t.y
+    if i >= dn then
+        T.apto, T.anext, T.ast = huge, 6, 1
         return
     end
     T.ai = i + 1
@@ -2328,8 +2424,9 @@ local function ArcStep(T)
         th = math.atan2(abs(ax * by - ay * bx), ax * bx + ay * by)
     end
     if not (M.threadArcs and th >= ARC_MIN and th <= ARC_MAX and Roundable(T, k)) then
-        PassPairs(T, sv)
-        FPoint(F, vx, vy)
+        -- sharp: the pairs up to it, then its point
+        T.qx[6], T.qy[6] = vx, vy
+        T.apto, T.anext, T.aph, T.apn, T.athen, T.ast = sv, 2, 6, 6, 0, 1
         return
     end
     T.tries = T.tries + 1 -- (a corner to round)
@@ -2341,34 +2438,9 @@ local function ArcStep(T)
     if r3 < R then R = r3 end
     local tl = R * math.tan(half)
     ArcPoints(T, vx, vy, ax, ay, bx, by, th, R, tl)
-    local sa, sb = sv - tl, sv + tl
-    PassPairs(T, sa)
-    local dx0, dy0 = T.qx[1] - F.x[F.n], T.qy[1] - F.y[F.n]
-    if not ArcHolds(T, SquareAt(T), sb, F.raw[F.n] + sqrt(dx0 * dx0 + dy0 * dy0)) then
-        -- that corner stays sharp
-        T.sharp = T.sharp + 1
-        PassPairs(T, sv)
-        FPoint(F, vx, vy)
-        return
-    end
-    for h = 1, 5 do FPoint(F, T.qx[h], T.qy[h]) end
-    -- (0.2.4 a9, F4.6 §4) the pairs in the arc from the finished drawing: a passage's s is where its chord crosses
-    -- it (ArcHolds wrote them in order); an anchor's middle drawn round maps to the arc's middle point
-    local es, ek, en, fs = T.es, T.ek, T.en, T.fs
-    local mid = F.raw[F.n - 2]
-    local e, n2 = T.ae, 0
-    while e <= en and es[e] <= sb do
-        if ek[e] == 3 then
-            es[e] = mid
-        else
-            n2 = n2 + 1
-            es[e] = fs[n2]
-        end
-        e = e + 1
-    end
-    T.ae = e
-    T.arcs = T.arcs + 1
-    T.ad = T.ad + (sb - sa) - (F.raw[F.n] - F.raw[F.n - 4])
+    -- the pairs up to its first touching point, then the check
+    T.asv, T.asa, T.asb, T.avx, T.avy = sv, sv - tl, sv + tl, vx, vy
+    T.apto, T.anext, T.ast = sv - tl, 3, 1
 end
 
 -- the end: the node, then the points drawn (one a piece)
@@ -2417,6 +2489,7 @@ function M.ThreadStart(T, c, gen)
     T.c, T.gen = c, gen
     T.stamp = T.stamp + 1
     T.used, T.repairs, T.reason, T.state = 0, 0, nil, "work"
+    T.debt, T.work, T.free = 0, 0, 0 -- (0.2.4 a9 R1)
     local n = c.n
     -- (0.2.4 a9, F4.3 §2, F4.4 §2) the whole budget: 16 times the passages (M.threadFactor: the tests, another one)
     T.limit = (M.threadFactor or 16) * (n - 3)
@@ -2433,35 +2506,53 @@ function M.ThreadStart(T, c, gen)
     Begin(T, 2)
 end
 
--- (0.2.4 a9, F4.4 §2, order point 2) A call does `budget` units at the most and never more than 32, whatever it is
--- asked for: a unit is what the counter books - a passage the funnel or the events take, a point written or given
--- back, an anchor made, a corner drawn. The call and the counter count the same (the call returns what the counter
--- went up by): no second count. A piece that books more than one unit at once (a repair gives back the points
--- after its anchor) is done whole; a call starts no new piece after its 32.
+-- (0.2.4 a9, F4.4 §2, order point 2) A call does `budget` pieces of work at the most and never more than 32, whatever
+-- it is asked for. A unit is what the counter books - a passage the funnel or the events take, a point written or
+-- given back, an anchor made, a corner decided. (0.2.4 a9 R1, Codex M1) Every unit booked is a piece of the call's
+-- 32: units a piece books past them (a protective anchor's points given back) are carried over and paid first by
+-- the next call, doing nothing else; a repair goes on where it stood, a square or a point a piece. The arcs' pairs,
+-- points and checks are pieces too, booked on the counter as a9 booked them (a unit a corner): so the counter, and
+-- with it every thread given up or not, is a9's. The call returns its pieces (the counter went up by no more).
 local CALL_UNITS = 32
 M.threadCall = CALL_UNITS
 function M.ThreadStep(T, budget)
     local cap = M.threadCall
     if budget > cap then budget = cap end
-    local start = T.used
-    while T.used - start < budget and T.state == "work" do
-        if not Book(T, 1) then break end
-        local phase = T.phase
-        if phase == 1 then
-            local n = T.t.n
-            FunnelSlot(T)
-            -- (0.2.4 a8, Codex M1) a point of the thread written: a proposal at it is confirmed or not; inside
-            -- the stretch, the events of the passages before it now (a broken group is repaired near it)
-            if T.state == "work" and T.t.n > n and not Confirm(T) and T.phase == 1 and Pending(T) then T.phase = 4 end
-        elseif phase == 2 or phase == 4 then
-            EventSlot(T)
-        elseif phase == 5 then
+    T.left = budget
+    while T.left > 0 and T.state == "work" do
+        if T.debt > 0 then
+            -- (units booked past the call before: paid first, no work done for them now)
+            local pay = T.debt < T.left and T.debt or T.left
+            T.used, T.debt, T.left = T.used + pay, T.debt - pay, T.left - pay
+        elseif T.phase == 5 then
             ArcStep(T)
         else
-            FinishPoint(T)
+            if not Book(T, 1) then break end
+            local phase = T.phase
+            if phase == 1 then
+                local n = T.t.n
+                FunnelSlot(T)
+                -- (0.2.4 a8, Codex M1) a point of the thread written: a proposal at it is confirmed or not; inside
+                -- the stretch, the events of the passages before it now (a broken group is repaired near it)
+                if T.state == "work" and T.t.n > n and not Confirm(T) and T.phase == 1 and Pending(T) then T.phase = 4 end
+            elseif phase == 2 or phase == 4 then
+                EventSlot(T)
+            elseif phase == 6 then
+                RepairMark(T)
+            elseif phase == 7 then
+                RepairWalk(T)
+            else
+                FinishPoint(T)
+            end
         end
     end
-    return T.used - start
+    local done = budget - T.left
+    if T.state ~= "work" and T.debt > 0 then
+        -- (the thread is over: what it still owed is booked - no call works for it)
+        T.used, T.debt = T.used + T.debt, 0
+    end
+    T.left = 0
+    return done
 end
 
 -- (the tests) in one go
