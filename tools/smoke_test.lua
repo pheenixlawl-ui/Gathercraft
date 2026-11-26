@@ -37740,6 +37740,12 @@ step("Ways 0.2.4 S1.1 a9 part 5: arcs at the thread's corners - radius up to 12 
         assert(not Chain({ { 29, 21 }, { 25.726, 24.622 }, { 24.622, 25.726 }, { 21, 29 }, { 17, 33 } }), "Codex' three squares: the arc through the missing square held")
         assert(Chain({ { 29, 15 }, { 25, 15 }, { 15, 20 }, { 15, 25 }, { 15, 30 } }), "a chain crossing both sides inside their cut parts: rejected")
         assert(not Chain({ { 29, 22 }, { 25, 22 }, { 15, 20 }, { 15, 25 }, { 15, 30 } }), "a chain crossing the side 3 yd from its end (outside the 4 yd): held")
+        -- every piece in one square: a chain that crosses both passages well and then leaves the last square
+        -- through its west wall (x = 0) is rejected
+        assert(not Chain({ { 29, 15 }, { 25, 15 }, { 15, 20 }, { 15, 25 }, { -5, 30 } }), "a chain leaving the last square through a wall: held")
+        -- every passage between the touching points crossed: a chain that stays in the middle square, the side
+        -- y = 25 never crossed, is rejected
+        assert(not Chain({ { 29, 15 }, { 25, 15 }, { 15, 20 }, { 12, 15 }, { 10, 10 } }), "a chain that leaves a passage out: held")
     end
     -- 3. the local fallback: a way of five squares where one arc holds and one does not - that corner stays sharp,
     -- the counter +1, the other arc kept (one of the random ways below, M1's seed)
@@ -37752,6 +37758,31 @@ step("Ways 0.2.4 S1.1 a9 part 5: arcs at the thread's corners - radius up to 12 
         local _, why = A9.Crossings(c, F)
         return why
     end
+    -- (4 yd at the most off the corner: every point the thread draws is at most 4 yd from the finished drawing - a
+    -- corner drawn round is as far from it as its arc's middle, a sharp one is on it)
+    local function Off(T)
+        local t, F = T.t, T.f
+        local worst = 0
+        for i = 2, t.dn - 1 do
+            local vx, vy = t.x[t.dk[i]], t.y[t.dk[i]]
+            local best = math.huge
+            for k = 1, F.n - 1 do
+                local ax, ay = F.x[k], F.y[k]
+                local dx, dy = F.x[k + 1] - ax, F.y[k + 1] - ay
+                local l2 = dx * dx + dy * dy
+                local u = l2 > 0 and math.max(0, math.min(1, ((vx - ax) * dx + (vy - ay) * dy) / l2)) or 0
+                local ex, ey = ax + u * dx - vx, ay + u * dy - vy
+                local d = math.sqrt(ex * ex + ey * ey)
+                if d < best then best = d end
+            end
+            if best > worst then worst = best end
+        end
+        return worst
+    end
+    for _, case in ipairs({ { "ENENENENENEN" }, { "EENNEE" }, { "ENW" }, { "EEEENNNNWWWW" }, { "EEEEEESSSSSS" } }) do
+        Arcs(A9.Centre(A9.Walk(0, 0, case[1])))
+        assert(Off(T) <= 4 + 1e-6, ("the way %s: a corner %.3f yd off the drawing (4 at the most)"):format(case[1], Off(T)))
+    end
     local seed = 2611
     local function Rand(n)
         seed = (seed * 16807) % 2147483647
@@ -37760,7 +37791,7 @@ step("Ways 0.2.4 S1.1 a9 part 5: arcs at the thread's corners - radius up to 12 
     local D4 = { { 1, 0 }, { 0, 1 }, { -1, 0 }, { 0, -1 } }
     local D8 = { { 1, 0 }, { 1, 1 }, { 0, 1 }, { -1, 1 }, { -1, 0 }, { -1, -1 }, { 0, -1 }, { 1, -1 } }
     local KINDS = { OBS, OBS, OBS, OBS, OBS, OBS, REV, REV, CON, GREV }
-    local ways, arcs, sharp = 0, 0, 0
+    local ways, arcs, sharp, worstOff = 0, 0, 0, 0
     for w = 1, 1000 do
         local dirs = w % 3 == 0 and D8 or D4
         local sq, seen, x, y = { { 0, 0 } }, { ["0,0"] = true }, 0, 0
@@ -37787,9 +37818,13 @@ step("Ways 0.2.4 S1.1 a9 part 5: arcs at the thread's corners - radius up to 12 
         assert(state == "done", ("random way %d: %s %s"):format(w, state, tostring(reason)))
         local why = Check(c, T.f)
         assert(not why, ("random way %d: the finished drawing breaks the rules: %s"):format(w, tostring(why)))
+        local off = Off(T)
+        assert(off <= 4 + 1e-6, ("random way %d: a corner %.3f yd off the drawing (4 at the most)"):format(w, off))
+        if off > worstOff then worstOff = off end
         ways, arcs, sharp = ways + 1, arcs + T.arcs, sharp + T.sharp
     end
     assert(arcs > 0 and sharp < arcs, "test setup: arcs drawn")
+    assert(worstOff > 3, ("test setup: corners drawn round near the 4 yd (at the most %.3f)"):format(worstOff))
     note("MEASURE S1.1 a9 arcs", ("%d random ways: %d arcs, %d corners left sharp by the check"):format(ways, arcs, sharp))
 end)
 
