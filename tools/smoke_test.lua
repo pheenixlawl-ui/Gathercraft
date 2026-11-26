@@ -38598,8 +38598,11 @@ step("Ways 0.2.4 S1.1 a9 R1 M2: the work of a step is set per kind of work and p
 end)
 -- (0.2.4 a9 R1, Codex M2: the spikes that stayed were the garbage collector's steps - a build of a net of 8,000 squares
 -- made its lists anew in every run, about 2 MB: the run's end let them go)
--- A second run's build takes no memory (less than 16 KB with the collector stopped; the first run's S1 work about 2.8 MB,
--- the second run's search, keep, thread and map dots noted); the way the same.
+-- A second run's build takes no memory (less than 1 KB with the collector stopped in a set of lists the first run
+-- filled; the first run's S1 work about 2.8 MB, the second run's search, keep, thread and map dots noted); the way the
+-- same. (A run builds into set 1 first; a second build in a run goes into set 2, which is filled the first time it is
+-- used in a session: noted, not held.) LuaJIT's compiler is off, as the game has none: its traces are the collector's
+-- memory too - 2 to 50 KB in a build into lists already filled, by the operations a piece of work has.
 step("Ways 0.2.4 S1.1 a9 R1 M2: the lists stay from run to run (the option off lets them go)", function()
     local Core = ns.WaysCore
     local drawer = ns.RouteWaysDrawer
@@ -38615,6 +38618,7 @@ step("Ways 0.2.4 S1.1 a9 R1 M2: the lists stay from run to run (the option off l
     local W = WAYS.World(e)
     -- the memory taken inside S1's pieces of work
     local inside, build, dots = 0, 0, 0
+    local bySet, byPhase, starts = {}, {}, {}
     local keep = {}
     local function Wrap(t, name)
         local f = t[name]
@@ -38624,12 +38628,23 @@ step("Ways 0.2.4 S1.1 a9 R1 M2: the lists stay from run to run (the option off l
             local a, b, c = f(...)
             local d = collectgarbage("count") - k0
             inside = inside + d
-            if name == "BuildStep" then build = build + d end
+            if name == "BuildStep" then
+                build = build + d
+                local j = (...).job
+                bySet[j.target] = (bySet[j.target] or 0) + d
+                if d > 0.5 then
+                    local key = j.target .. "/" .. j.phase .. "/" .. j.stage
+                    byPhase[key] = (byPhase[key] or 0) + d
+                end
+            end
+            if name == "BuildStart" then starts[#starts + 1] = (...).job.target end
             if name == "Step" then dots = dots + d end
             return a, b, c
         end
     end
     local ok, err = pcall(function()
+        if jit then jit.off() jit.flush() end
+        Wrap(Core, "BuildStart")
         Wrap(Core, "BuildStep")
         Wrap(Core, "QueryStep")
         Wrap(Core, "KeepStep")
@@ -38660,13 +38675,16 @@ step("Ways 0.2.4 S1.1 a9 R1 M2: the lists stay from run to run (the option off l
         assert(select(4, ns.WaysState()) == nil, "test setup: the option off let the lists go")
         collectgarbage("collect")
         collectgarbage("stop")
-        inside = 0
+        inside, build = 0, 0
+        bySet, byPhase, starts = {}, {}, {}
         local first = Run() -- (the lists made, as at the session's first run)
-        local firstTaken = inside
+        local firstTaken, firstSets, firstStarts = inside, bySet, table.concat(starts, ",")
+        local firstBuild = build
         collectgarbage("restart")
         collectgarbage("collect")
         collectgarbage("stop")
         inside, build, dots = 0, 0, 0
+        bySet, byPhase, starts = {}, {}, {}
         local second = Run()
         local taken = inside
         collectgarbage("restart")
@@ -38675,10 +38693,22 @@ step("Ways 0.2.4 S1.1 a9 R1 M2: the lists stay from run to run (the option off l
         -- (the search writes the way into the run's own navigation buffers; the map dots' pins are HereBeDragons' and the
         -- mock's frames - noted, not held)
         note("MEASURE S1.1 a9 R1 memory", ("the second run: build %.1f KB, build to thread %.1f KB, map dots %.1f KB; the first run %.0f KB"):format(build, taken - dots, dots, firstTaken))
-        assert(build < 16, ("the second run: its build took %.1f KB (the first run's S1 work %.0f KB)"):format(build, firstTaken))
+        note("MEASURE S1.1 a9 R1 builds", ("the first run built into set(s) %s, the second into %s"):format(firstStarts, table.concat(starts, ",")))
+        assert(starts[1] == 1 and firstSets[1], "test setup: both runs build into set 1 first: " .. firstStarts .. " / " .. table.concat(starts, ","))
+        local bp = {}
+        for k, v in pairs(byPhase) do bp[#bp + 1] = ("%s:%.1f"):format(k, v) end
+        table.sort(bp)
+        for set, kb in pairs(bySet) do
+            if firstSets[set] then
+                assert(kb < 1, ("the second run: its build into set %d took %.1f KB (set/phase/stage: %s; builds %s); the first run: S1 work %.0f KB, its build %.0f KB (%.0f KB of it into set %d), builds %s"):format(set, kb, table.concat(bp, " "), table.concat(starts, ","), firstTaken, firstBuild, firstSets[set], set, firstStarts))
+            else
+                note("MEASURE S1.1 a9 R1 builds", ("set %d first used in the second run: %.1f KB (made once in a session)"):format(set, kb))
+            end
+        end
     end)
     for i = #keep, 1, -1 do keep[i][1][keep[i][2]] = keep[i][3] end
     collectgarbage("restart")
+    if jit then jit.on() end
     W.Done()
     if not ok then error(err, 0) end
 end)
