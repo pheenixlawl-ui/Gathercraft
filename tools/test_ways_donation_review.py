@@ -362,7 +362,19 @@ def t_game_sizes():
     s = sizes.get(2482)
     check(s is not None and abs(s[0] - 3472.91796875) < 1e-6 and abs(s[1] - 2314.5830078125) < 1e-6 and s[2] == 'Mount Hyjal',
           'game sizes: Mount Hyjal 2482 is 3472.92 x 2314.58 yd')
-    check(1415 not in sizes, 'game sizes: the continent 1415 is no zone of the table')
+    check(1415 not in sizes and 1414 not in sizes, 'game sizes: the continents 1415 and 1414 are no zones of the table')
+    # the second query (Sven, 26.11.2026 evening): Zephras Isle twice (2521, 2665: one island), Riverglades, Darkspear Islands
+    for zone, w, h, name in ((2521, 5562.5, 3708.3330078125, 'Zephras Isle'), (2665, 5562.5, 3708.3299560547, 'Zephras Isle'),
+                             (2548, 4850.0, 3233.333984375, 'Riverglades'), (2524, 1925.0, 1283.33203125, 'Darkspear Islands')):
+        s = sizes.get(zone)
+        check(s is not None and abs(s[0] - w) < 1e-6 and abs(s[1] - h) < 1e-6 and s[2] == name and s[3] == 'Spiel-API, Sven, 26.11.',
+              'game sizes: %s %d is %.2f x %.2f yd from the game' % (name, zone, w, h))
+    base0 = fresh()
+    (base0 / 'est.lua').write_text('return {\n[2548] = { 4850.0, 3233.3 },\n[2521] = { 5550.0, 3700.0 },\n}\n', encoding='utf-8')
+    s = review.load_sizes([], [base0 / 'est.lua']).get(2521)
+    check(s is not None and abs(s[0] - 5562.5) < 1e-6 and s[3] == 'Spiel-API, Sven, 26.11.' and review.grid_of({2521: s}, 2521) == (223, 149),
+          'game sizes: the game value of Zephras Isle replaces the old estimate - its grid is 223 x 149, not 222 x 148')
+    shutil.rmtree(base0)
     base = fresh()
     # conversion.json (exact) wins over the game table; an estimate never wins over it
     exact = {'geometry': {'transforms': [{'ui_map_id': 2652, 'target_name': 'X', 'target_bounds': {'left': 0, 'right': 500, 'top': 0, 'bottom': 500}}]}}

@@ -50,14 +50,21 @@ STRAIGHT_SHARE, STRAIGHT_ABS, STRAIGHT_MIN = 0.6, 40, 80   # 60 % of the zone an
 DENSE_BOX, DENSE_PIECES = 4, 80               # 100 x 100 yd with 80+ pieces: five directions per square on average
 OFF_WAY = 2                                   # squares from the nearest known way
 STATE_FORMAT, NET_FORMAT = 'gathercraft-spenden-stand-1', 'gathercraft-grundnetz-1'
-NAMES = {2548: 'Riverglades', 2482: 'Mount Hyjal', 2521: 'Zephras Isle', 2652: "Shen'dralas"}
+NAMES = {2548: 'Riverglades', 2482: 'Mount Hyjal', 2521: 'Zephras Isle', 2652: "Shen'dralas", 2665: 'Zephras Isle',
+         2524: 'Darkspear Islands'}
 # Zone corners asked in the game (Sven, 26.11.2026): C_Map.GetWorldPosFromMapPos(m, (0,0)) and (m, (1,1)) as (x, y).
 # Read as HereBeDragons reads them: the width from y, the height from x. Only zones that are not in QuestieDB's
-# conversion.json (that file comes first; an estimate never overwrites these). Continents (1415) are no zones here.
+# conversion.json (that file comes first; an estimate never overwrites these). Continents (1414, 1415) are no zones here.
+# (The instance the game gave with them, for the record: 2652 and 2482 are in Kalimdor (1), Riverglades in the Eastern
+# Kingdoms (0), Zephras Isle in an instance of its own (2991, both of its maps the same area), Darkspear Islands in 2997.)
 GAME_SOURCE = 'Spiel-API, Sven, 26.11.'
 GAME_CORNERS = {
     2652: ((-1900.0, 2025.0), (-3266.666015625, -25.0)),
     2482: ((6304.166015625, -922.916015625), (3989.5830078125, -4395.833984375)),
+    2521: ((4956.25, 4231.25), (1247.9169921875, -1331.25)),
+    2665: ((4956.25, 4231.25), (1247.9200439453, -1331.25)),
+    2548: ((-6466.666015625, -1891.666015625), (-9700.0, -6741.666015625)),
+    2524: ((447.916015625, 2918.75), (-835.416015625, 993.75)),
 }
 COLOURS = {
     'grund': bytes((24, 26, 31)), 'raster': bytes((36, 39, 46)), 'rahmen': bytes((47, 106, 160)), 'text': bytes((205, 208, 214)),
