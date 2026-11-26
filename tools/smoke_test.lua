@@ -36076,9 +36076,11 @@ step("Ways 0.2.4 S1.1 B2: the thread - the line pulled tight through the passage
         assert(Points() == "-12.5,12.5 -12.5,12.5 25,25 37.5,37.5 25,25 -12.5,12.5 -12.5,12.5", "the diagonal back: " .. Points())
         local a, b = Event(7), Event(9)
         assert(a and b and b - a > 30 and T.repairs == 0, "the diagonal back: the corner twice, apart along the thread")
-        -- (with the counter of 4 times the passages: the centre line)
-        state, reason = Thread({ { -1, 0 }, { 0, 0 }, { 1, 1 }, { 0, 0 }, { -1, 0 } })
+        -- (with a counter of 4 times the passages - a7/a8's: the centre line; a9's 16 times: done, part 2)
+        state, reason = Thread({ { -1, 0 }, { 0, 0 }, { 1, 1 }, { 0, 0 }, { -1, 0 } }, nil, nil, nil, 4 * 4)
         assert(state == "failed" and reason == "count", "the diagonal back with the counter: " .. tostring(reason))
+        state, reason = Thread({ { -1, 0 }, { 0, 0 }, { 1, 1 }, { 0, 0 }, { -1, 0 } })
+        assert(state == "done", "the diagonal back with 16 times the passages: " .. tostring(reason))
     end
     -- 9. the way comes back beside a square it passed (self-touch): no short cut to the later one
     do
@@ -36138,10 +36140,13 @@ step("Ways 0.2.4 S1.1 B2: the thread - the line pulled tight through the passage
             assert(state == "done" and T.repairs == 1 and Points() == "-37.5,12.5 -37.5,12.5 37.5,12.5 37.5,37.5 -37.5,37.5 -37.5,37.5", "the U repaired: " .. Points() .. ", " .. T.repairs)
             state = Thread({ { -1, 0 }, { 0, 0 }, { 1, 1 }, { 0, 1 }, { -1, 1 } }, nil, nil, nil, 100)
             assert(state == "done" and T.repairs == 1 and Points() == "-12.5,12.5 -12.5,12.5 25,25 37.5,37.5 -12.5,37.5 -12.5,37.5", "over the border: " .. Points())
-            -- with the counter of 4 times the passages the repair of the U is too much: the centre line
+            -- with a counter of 4 times the passages (a7/a8's) the repair of the U is too much: the centre line;
+            -- with a9's 16 times (part 2) it is done
             local reason
-            state, reason = Thread({ { -2, 0 }, { -1, 0 }, { 0, 0 }, { 1, 0 }, { 1, 1 }, { 0, 1 }, { -1, 1 }, { -2, 1 } })
+            state, reason = Thread({ { -2, 0 }, { -1, 0 }, { 0, 0 }, { 1, 0 }, { 1, 1 }, { 0, 1 }, { -1, 1 }, { -2, 1 } }, nil, nil, nil, 4 * 7)
             assert(state == "failed" and reason == "count", "the U repaired within the counter: " .. tostring(reason))
+            state, reason = Thread({ { -2, 0 }, { -1, 0 }, { 0, 0 }, { 1, 0 }, { 1, 1 }, { 0, 1 }, { -1, 1 }, { -2, 1 } })
+            assert(state == "done" and T.repairs == 1, "the U repaired within 16 times the passages: " .. tostring(reason))
             -- a repair that would add no anchor (all squares between taken for anchors): the centre line at once
             Core.threadAnchorTest = function() return true end
             state, reason = Thread({ { -2, 0 }, { -1, 0 }, { 0, 0 }, { 1, 0 }, { 1, 1 }, { 0, 1 }, { -1, 1 }, { -2, 1 } }, nil, nil, nil, 100)
@@ -37344,6 +37349,65 @@ step("Ways 0.2.4 S1.1 R1 N2: at a change of what is shown the arrow's texture ta
     methods.SetRotation, HBD.GetWorldVector, GetPlayerFacing = keepRot, keepVector, keepFacing
     W.Done()
     if not ok then error(err, 0) end
+end)
+
+-- (0.2.4 a9, S1.1 F4.3-F4.6) helpers of the a9 steps: a centre line made by hand from squares (x, y) and the kinds
+-- of the edges into the squares 2.. (OBS when not given); you and the node on the end middles unless given
+local A9 = {}
+function A9.Centre(squares, kinds, player, node)
+    local Core = ns.WaysCore
+    local c = Core.NewCentre()
+    local pts = { player or { (squares[1][1] + 0.5) * 25, (squares[1][2] + 0.5) * 25 } }
+    for _, q in ipairs(squares) do pts[#pts + 1] = { (q[1] + 0.5) * 25, (q[2] + 0.5) * 25 } end
+    pts[#pts + 1] = node or { pts[#pts][1], pts[#pts][2] }
+    local raw = 0
+    for i, p in ipairs(pts) do
+        c.x[i], c.y[i] = p[1], p[2]
+        c.kind[i] = (i <= 2 or i == #pts) and -1 or (kinds and kinds[i - 2] or Core.OBS)
+        if i > 1 then
+            local dx, dy = p[1] - pts[i - 1][1], p[2] - pts[i - 1][2]
+            raw = raw + math.sqrt(dx * dx + dy * dy)
+        end
+        c.raw[i] = raw
+    end
+    c.n, c.len = #pts, raw
+    c.head, c.tail = c.raw[2], raw - c.raw[#pts - 1]
+    return c
+end
+-- the squares of a walk: from (x, y), steps "E" (+x), "W", "N" (+y, as Codex' cases have it), "S"
+function A9.Walk(x, y, steps)
+    local out = { { x, y } }
+    for s in steps:gmatch(".") do
+        local d = ({ E = { 1, 0 }, W = { -1, 0 }, N = { 0, 1 }, S = { 0, -1 } })[s]
+        x, y = x + d[1], y + d[2]
+        out[#out + 1] = { x, y }
+    end
+    return out
+end
+
+step("Ways 0.2.4 S1.1 a9 part 2: a thread's whole budget is 16 times its passages; a call of the core does 32 units at the most, asked for more or not - a unit is a passage, point or corner booked, the call and the counter count the same, no double count (0.2.4 a9, F4.3 §2, F4.4 §2, order point 2)", function()
+    local Core = ns.WaysCore
+    local T = Core.NewThread()
+    -- a long straight way of ridden steps east: nothing to repair, every piece of work one unit
+    local squares = {}
+    for x = 0, 120 do squares[#squares + 1] = { x, 10 } end
+    local c = A9.Centre(squares)
+    Core.ThreadStart(T, c, 1)
+    assert(T.limit == 16 * (c.n - 3), ("the budget: %d, 16 times the %d passages is %d"):format(T.limit, c.n - 3, 16 * (c.n - 3)))
+    local calls, most, sum = 0, 0, 0
+    while T.state == "work" do
+        local before = T.used
+        local used = Core.ThreadStep(T, 1000) -- (far more than 32 asked for)
+        assert(used == T.used - before, ("a call says %d units, the counter went up by %d"):format(used, T.used - before))
+        if used > most then most = used end
+        sum, calls = sum + used, calls + 1
+    end
+    assert(T.state == "done", "the straight way's thread: " .. tostring(T.reason))
+    assert(most == 32, ("asked for 1,000: a call did %d units at the most, not 32"):format(most))
+    assert(sum == T.used and calls >= math.ceil(T.used / 32), "the calls together are the counter")
+    -- asked for less than 32: that many
+    Core.ThreadStart(T, c, 2)
+    assert(Core.ThreadStep(T, 5) == 5 and T.used == 5, "asked for 5: 5 units")
 end)
 
 step("Ways donation: canonical own pieces, no private fields, bounds and sliced multipart export", function()

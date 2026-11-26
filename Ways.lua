@@ -2144,7 +2144,8 @@ function M.ThreadStart(T, c, gen)
     T.stamp = T.stamp + 1
     T.used, T.repairs, T.reason, T.state = 0, 0, nil, "work"
     local n = c.n
-    T.limit = (M.threadFactor or 4) * (n - 3) -- (M.threadFactor: the tests, another counter)
+    -- (0.2.4 a9, F4.3 §2, F4.4 §2) the whole budget: 16 times the passages (M.threadFactor: the tests, another one)
+    T.limit = (M.threadFactor or 16) * (n - 3)
     T.en, T.gs, T.pc, T.pslot, T.far = 0, 1, 0, -1, 4
     if n < 4 then return Fail(T, "short") end -- (one square: nothing to pull tight)
     local t = T.t
@@ -2158,11 +2159,19 @@ function M.ThreadStart(T, c, gen)
     Begin(T, 2)
 end
 
+-- (0.2.4 a9, F4.4 §2, order point 2) A call does `budget` units at the most and never more than 32, whatever it is
+-- asked for: a unit is what the counter books - a passage the funnel or the events take, a point written or given
+-- back, an anchor made, a corner drawn. The call and the counter count the same (the call returns what the counter
+-- went up by): no second count. A piece that books more than one unit at once (a repair gives back the points
+-- after its anchor) is done whole; a call starts no new piece after its 32.
+local CALL_UNITS = 32
+M.threadCall = CALL_UNITS
 function M.ThreadStep(T, budget)
-    local used = 0
-    while used < budget and T.state == "work" do
+    local cap = M.threadCall
+    if budget > cap then budget = cap end
+    local start = T.used
+    while T.used - start < budget and T.state == "work" do
         if not Book(T, 1) then break end
-        used = used + 1
         local phase = T.phase
         if phase == 1 then
             local n = T.t.n
@@ -2176,7 +2185,7 @@ function M.ThreadStep(T, budget)
             FinishPoint(T)
         end
     end
-    return used
+    return T.used - start
 end
 
 -- (the tests) in one go
