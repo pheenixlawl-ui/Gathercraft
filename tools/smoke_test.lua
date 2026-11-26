@@ -35304,13 +35304,18 @@ step("Ways 0.2.4: /gcr perf on has a part 'Ways' and, at the end of its line, th
             assert(peak, "the line does not end with the ways' numbers: " .. line:sub(-320))
             -- (0.2.4 a7, S1.1 B5) and the threads': done (repaired), on the centre line (by the counter, the guard, another error), booked;
             -- (0.2.4 a8, Codex M3) and the most distances a change of what is shown read
+            -- (0.2.4 a9: given up, the straight line stays; then the ways shown as a thread, the corners, the quotas)
             local threads, repaired, fell, count, guard, other, booked, reads = line:match(
-                "; (%d+) threads %((%d+) repaired%), (%d+) on the centre line %((%d+) counter, (%d+) guard, (%d+) other%), (%d+) booked; a change of what is shown read (%d+) distances at the most$")
-            assert(threads, "the line does not end with the threads' numbers: " .. line:sub(-200))
+                "; (%d+) threads %((%d+) repaired%), (%d+) on the straight line %((%d+) counter, (%d+) guard, (%d+) other%), (%d+) booked; a change of what is shown read (%d+) distances at the most; ")
+            assert(threads, "the line does not hold the threads' numbers: " .. line:sub(-400))
+            local shown, ways, arcs, sharp, arcWays, roundWays = line:match(
+                "; (%d+) of (%d+) ways shown as a thread; corners: (%d+) drawn round, (%d+) left sharp by the check; (%d+) of (%d+) ways with a corner to round have an arc$")
+            assert(shown, "the line does not end with the a9 numbers: " .. line:sub(-200))
             return { peak = tonumber(peak), limit = tonumber(limit), step = tonumber(step), requests = tonumber(requests), given = tonumber(given),
                 late = tonumber(late), dropped = tonumber(dropped), builds = tonumber(builds), over = tonumber(over), back = tonumber(back),
                 threads = tonumber(threads), repaired = tonumber(repaired), fell = tonumber(fell), count = tonumber(count), guard = tonumber(guard),
-                other = tonumber(other), booked = tonumber(booked), reads = tonumber(reads) }
+                other = tonumber(other), booked = tonumber(booked), reads = tonumber(reads),
+                shown = tonumber(shown), ways = tonumber(ways), arcs = tonumber(arcs), sharp = tonumber(sharp), arcWays = tonumber(arcWays), roundWays = tonumber(roundWays) }
         end
         slash("perf off")
         -- a run on the U, measured: one build, one request, the way shown
@@ -35341,7 +35346,11 @@ step("Ways 0.2.4: /gcr perf on has a part 'Ways' and, at the end of its line, th
         assert(w.given == 0 and w.late == 0 and w.dropped == 0 and w.over == 0, "nothing given up, late, dropped or over the limits")
         -- (S1.1) a thread for every way shown, none given up, the work they booked
         assert(w.threads >= 1 and w.threads <= w.requests and w.fell == w.count + w.guard + w.other and w.fell == 0 and w.booked > 0,
-            ("the threads: %d done, %d on the centre line, %d booked"):format(w.threads, w.fell, w.booked))
+            ("the threads: %d done, %d on the straight line, %d booked"):format(w.threads, w.fell, w.booked))
+        -- (0.2.4 a9, part 7) every way of the net published shown as its thread; the U's corners drawn round, none left
+        -- sharp; every way with a corner to round has an arc
+        assert(w.ways >= 1 and w.shown == w.ways and w.arcs > 0 and w.sharp == 0 and w.roundWays >= 1 and w.arcWays == w.roundWays,
+            ("a9: %d of %d ways shown as a thread, %d corners round, %d sharp, %d of %d ways with an arc"):format(w.shown, w.ways, w.arcs, w.sharp, w.arcWays, w.roundWays))
         -- the next minute starts from nothing; a zone above the limits and a search given up are counted
         ns.StopRun(true)
         W.Pieces(WAYS.Snake({}, 40, 40, 100, 81))

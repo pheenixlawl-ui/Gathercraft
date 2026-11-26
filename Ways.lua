@@ -1428,7 +1428,7 @@ function M.NewThread()
         -- (0.2.4 a9) the finished drawing with its arcs (f), an arc's points (qx, qy), its crossings' yards (fs); the
         -- corner drawn next (ai), what the arcs made shorter so far (ad), the first event not passed yet (ae), arcs
         -- drawn, corners left sharp by the check
-        f = NewCentre(), qx = {}, qy = {}, fs = {}, ai = 0, ad = 0, ae = 0, arcs = 0, sharp = 0,
+        f = NewCentre(), qx = {}, qy = {}, fs = {}, ai = 0, ad = 0, ae = 0, arcs = 0, sharp = 0, tries = 0,
         c = nil, gen = -1, state = "none", reason = nil, used = 0, limit = 0, repairs = 0,
         phase = 0, u = 0, ax = 0, ay = 0, au = 0, lx = 0, ly = 0, lu = 0, rx = 0, ry = 0, ru = 0,
         sk = 0, wu = 0, wk = 0, wt = 0, fk = 0,
@@ -2281,7 +2281,7 @@ end
 local function ArcBegin(T)
     local F, t = T.f, T.t
     F.n, F.dn = 0, 0
-    T.ai, T.ad, T.ae, T.arcs, T.sharp = 2, 0, 1, 0, 0
+    T.ai, T.ad, T.ae, T.arcs, T.sharp, T.tries = 2, 0, 1, 0, 0, 0
     FPoint(F, t.x[t.dk[1]], t.y[t.dk[1]])
     T.phase = 5
 end
@@ -2332,6 +2332,7 @@ local function ArcStep(T)
         FPoint(F, vx, vy)
         return
     end
+    T.tries = T.tries + 1 -- (a corner to round)
     local half = th / 2
     local R = ARC_RADIUS
     local r2 = (la < lb and la or lb) / 2 / math.tan(half)
@@ -2522,7 +2523,10 @@ local function Clock() return (ns.WaysClock or debugprofilestop)() end
 -- The frame sum: what S1 took in the frame going on (a frame is one value of GetTime)
 local frameAt, frameSum = -1, 0
 local diag = { peak = 0, step = 0, requests = 0, cancelled = 0, late = 0, over = 0, builds = 0, invalid = 0, dropped = 0, ops = 0,
-    threads = 0, repaired = 0, fellCount = 0, fellGuard = 0, fellOther = 0, booked = 0, pubReads = 0, pubPeak = 0 }
+    threads = 0, repaired = 0, fellCount = 0, fellGuard = 0, fellOther = 0, booked = 0, pubReads = 0, pubPeak = 0,
+    -- (0.2.4 a9, F4.5 §5, F4.6 §5) ways of the net published, their threads shown; corners drawn round and left sharp by
+    -- the check; ways with a corner to round, and of them the ones with an arc
+    ways = 0, shown = 0, arcs = 0, sharp = 0, roundWays = 0, arcWays = 0 }
 local function Frame()
     local now = GetTime()
     if now ~= frameAt then frameAt, frameSum = now, 0 end
@@ -3055,8 +3059,16 @@ local function ThreadWork(budget)
         threadWant = nil
         diag.threads, diag.booked = diag.threads + 1, diag.booked + T.used
         if T.repairs > 0 then diag.repaired = diag.repaired + 1 end
+        diag.arcs, diag.sharp = diag.arcs + T.arcs, diag.sharp + T.sharp
+        if T.tries > 0 then
+            diag.roundWays = diag.roundWays + 1
+            if T.arcs > 0 then diag.arcWays = diag.arcWays + 1 end
+        end
         -- (0.2.4 a9, F4.6 §4) shown: the finished drawing with its arcs - the maps and the arrow read this one list
-        if (disp.kind == "straight" or disp.kind == "centre") and disp.gen == nav.core.gen then used = used + PublishDisplay(T.f.view, "thread") end
+        if (disp.kind == "straight" or disp.kind == "centre") and disp.gen == nav.core.gen then
+            used = used + PublishDisplay(T.f.view, "thread")
+            diag.shown = diag.shown + 1
+        end
     elseif T.state == "failed" then
         threadWant = nil
         diag.booked = diag.booked + T.used
@@ -3171,6 +3183,7 @@ local function Step()
                     read.pub = read.pub + 1
                     -- (S1.1 B5, F4 §D) its thread: a job of its own, after this publication
                     threadWant, threadAsk = nav.core.gen, threadAsk + 1
+                    diag.ways = diag.ways + 1
                     nav.stamp = -1
                     nav.source = SourceText(nav.core.front.percent)
                     req.active = false
@@ -3397,17 +3410,22 @@ ns.WaysSpend = function(ms) if Outside() then Spend(ms) end end
 --   the ones given up - the centre line stays - by the counter, by the guard, by another error; the work
 --   they booked (a passage or point looked at, a point written).
 --   (0.2.4 a8, Codex M3) a change of what is shown: the most distances one read to find its place.
+--   (0.2.4 a9, F4.5 §5, F4.6 §5) given up, the straight line stays (no longer the centre line); the ways of the net
+--   published and of them the ones shown as a thread; the corners drawn round and the ones the check left sharp;
+--   the ways with a corner to round and of them the ones with an arc (the two quotas of F4.6 §5).
 ns.WaysPerf = function(reset)
     if reset then
         diag.peak, diag.step, diag.requests, diag.cancelled, diag.late = 0, 0, 0, 0, 0
         diag.over, diag.builds, diag.invalid, diag.dropped = 0, 0, 0, 0
         diag.threads, diag.repaired, diag.fellCount, diag.fellGuard, diag.fellOther, diag.booked = 0, 0, 0, 0, 0, 0
         diag.pubPeak = 0
+        diag.ways, diag.shown, diag.arcs, diag.sharp, diag.roundWays, diag.arcWays = 0, 0, 0, 0, 0, 0
         return
     end
-    return ("ways: largest frame %.2f ms (limit %.1f), longest step %.2f ms, %d requests (%d given up, %d late, %d dropped), %d builds (%d over the limits), %d taken back at once; %d threads (%d repaired), %d on the centre line (%d counter, %d guard, %d other), %d booked; a change of what is shown read %d distances at the most")
+    return ("ways: largest frame %.2f ms (limit %.1f), longest step %.2f ms, %d requests (%d given up, %d late, %d dropped), %d builds (%d over the limits), %d taken back at once; %d threads (%d repaired), %d on the straight line (%d counter, %d guard, %d other), %d booked; a change of what is shown read %d distances at the most; %d of %d ways shown as a thread; corners: %d drawn round, %d left sharp by the check; %d of %d ways with a corner to round have an arc")
         :format(diag.peak, FRAME_MS, diag.step, diag.requests, diag.cancelled, diag.late, diag.dropped, diag.builds, diag.over, diag.invalid,
-            diag.threads, diag.repaired, diag.fellCount + diag.fellGuard + diag.fellOther, diag.fellCount, diag.fellGuard, diag.fellOther, diag.booked, diag.pubPeak)
+            diag.threads, diag.repaired, diag.fellCount + diag.fellGuard + diag.fellOther, diag.fellCount, diag.fellGuard, diag.fellOther, diag.booked, diag.pubPeak,
+            diag.shown, diag.ways, diag.arcs, diag.sharp, diag.arcWays, diag.roundWays)
 end
 
 -- for /gcr perf and the tests: the counters, and what is going on
