@@ -35232,14 +35232,15 @@ step("Ways 0.2.4: /gcr perf on has a part 'Ways' and, at the end of its line, th
             local peak, limit, step, requests, given, late, dropped, builds, over, back = line:match(
                 "; ways: largest frame ([%d%.]+) ms %(limit ([%d%.]+)%), longest step ([%d%.]+) ms, (%d+) requests %((%d+) given up, (%d+) late, (%d+) dropped%), (%d+) builds %((%d+) over the limits%), (%d+) taken back at once; ")
             assert(peak, "the line does not end with the ways' numbers: " .. line:sub(-320))
-            -- (0.2.4 a7, S1.1 B5) and the threads': done (repaired), on the centre line (by the counter, the guard, another error), booked
-            local threads, repaired, fell, count, guard, other, booked = line:match(
-                "; (%d+) threads %((%d+) repaired%), (%d+) on the centre line %((%d+) counter, (%d+) guard, (%d+) other%), (%d+) booked$")
-            assert(threads, "the line does not end with the threads' numbers: " .. line:sub(-160))
+            -- (0.2.4 a7, S1.1 B5) and the threads': done (repaired), on the centre line (by the counter, the guard, another error), booked;
+            -- (0.2.4 a8, Codex M3) and the most distances a change of what is shown read
+            local threads, repaired, fell, count, guard, other, booked, reads = line:match(
+                "; (%d+) threads %((%d+) repaired%), (%d+) on the centre line %((%d+) counter, (%d+) guard, (%d+) other%), (%d+) booked; a change of what is shown read (%d+) distances at the most$")
+            assert(threads, "the line does not end with the threads' numbers: " .. line:sub(-200))
             return { peak = tonumber(peak), limit = tonumber(limit), step = tonumber(step), requests = tonumber(requests), given = tonumber(given),
                 late = tonumber(late), dropped = tonumber(dropped), builds = tonumber(builds), over = tonumber(over), back = tonumber(back),
                 threads = tonumber(threads), repaired = tonumber(repaired), fell = tonumber(fell), count = tonumber(count), guard = tonumber(guard),
-                other = tonumber(other), booked = tonumber(booked) }
+                other = tonumber(other), booked = tonumber(booked), reads = tonumber(reads) }
         end
         slash("perf off")
         -- a run on the U, measured: one build, one request, the way shown
@@ -36997,6 +36998,124 @@ step("Ways 0.2.4 S1.1 R1 M2: the guard checks a guessed edge (CON, GREV) as a wh
             W.Done()
             if not ok then error(err, 0) end
         end
+    end
+end)
+-- (0.2.4 a8, Codex' check of a6/a7, M3) A change of what is shown (T1, a thread done) set the display's
+-- segment and pair to the first ones and went forwards from there: late on a long way the frame of the change
+-- read the whole way's distances again (Codex: 80/399/799 for the centre line, 82/402/802 for the thread at
+-- 80/400/800 steps), and none of it was booked.
+step("Ways 0.2.4 S1.1 R1 M3: a late change of what is shown finds its place by a bounded search, not from the way's start - stairs of 80, 400, 800 steps that turn at every middle, four squares before the end: to the centre line and to the thread O(log n) distances read in that frame, counted, the place the same; the centre line readable in that frame (0.2.4 a8, F4 §D, F4.1 §B, Codex M3)", function()
+    local Core = ns.WaysCore
+    local Near = WAYS.Near
+    -- every read of t[field] while it is on: how many
+    local function Count(t, field)
+        local real, n = t[field], 0
+        t[field] = setmetatable({}, { __index = function(_, k) n = n + 1 return real[k] end, __newindex = real })
+        return function() t[field] = real return n end
+    end
+    for _, steps in ipairs({ 80, 400, 800 }) do
+        -- a stair that turns at every middle (no three middles in a line: the centre line keeps every point):
+        -- along, up, along, down, ... - twice as long as the straight line (a way of the net to 3 times it)
+        local sq, x, y = { { 5, 5 } }, 5, 5
+        for i = 1, steps do
+            local k = (i - 1) % 4
+            if k == 0 or k == 2 then x = x + 1 elseif k == 1 then y = y + 1 else y = y - 1 end
+            sq[#sq + 1] = { x, y }
+        end
+        local e = {}
+        WAYS.Ride(e, sq)
+        local W = WAYS.World(e)
+        -- (a zone the long ones fit in: 1000 x 500 squares, and the mock's HereBeDragons going by it)
+        local HBD = LibStub("HereBeDragons-2.0")
+        local OFF = 30000
+        local keepHBD = { HBD.GetWorldCoordinatesFromZone, HBD.GetPlayerWorldPosition, HBD.GetZoneCoordinatesFromWorld, HBD.GetZoneDistance }
+        W.w, W.h = 25000, 12500
+        HBD.GetWorldCoordinatesFromZone = function(_, zx, zy, map) return zx * W.w + (map - 1400) * OFF, zy * W.h, 1 end
+        HBD.GetPlayerWorldPosition = function() return player.x * W.w + (player.map - 1400) * OFF, player.y * W.h, 1 end
+        HBD.GetZoneCoordinatesFromWorld = function(_, wx, wy, map) return (wx - (map - 1400) * OFF) / W.w, wy / W.h end
+        HBD.GetZoneDistance = function(_, m1, x1, y1, m2, x2, y2)
+            local ax, ay = x1 * W.w + (m1 - 1400) * OFF, y1 * W.h
+            local bx, by = x2 * W.w + (m2 - 1400) * OFF, y2 * W.h
+            return math.sqrt((ax - bx) ^ 2 + (ay - by) ^ 2)
+        end
+        local function World(yx, yy) return yx + (W.Z - 1400) * OFF, yy end
+        local ok, err = pcall(function()
+            W.At(sq[1][1], sq[1][2])
+            W.Run({ W.Node(sq[#sq][1], sq[#sq][2]) }, 2)
+            for _ = 1, 60 do
+                if W.Read().state == "net" then break end
+                advance(0.1)
+            end
+            do
+                local _, net, _, ctx = ns.WaysState()
+                assert(W.Read().state == "net", ("%d steps: test setup: a way of the net (%s; ready %s, over %s, building %s, %s %s, %s yd)"):format(steps, W.Read().state,
+                    tostring(net.ready), tostring(net.over), tostring(net.building), tostring(ctx and ctx.q.result), tostring(ctx and ctx.q.reason), tostring(ctx and ctx.q.yards)))
+            end
+            -- (the thread in one go - its counter is not what this step is about)
+            Core.threadFactor = 100
+            local tstate, treason = ns.WaysThreadNow()
+            Core.threadFactor = nil
+            assert(tstate == "done" and ns.WaysDisplay().kind == "thread", ("%d steps: test setup: the thread shown (%s %s)"):format(steps, tostring(tstate), tostring(treason)))
+            -- four squares before the end: the navigation's progress taken along square by square, as the head tick
+            -- would (it looks 50 yd ahead)
+            local nav = ns.WaysState()
+            local wx, wy
+            for i = 1, #sq - 4 do
+                wx, wy = World((sq[i][1] + 0.5) * 25, (sq[i][2] + 0.5) * 25)
+                Core.Progress(nav.core, wx, wy)
+            end
+            local near = sq[#sq - 4]
+            W.At(near[1], near[2])
+            local d = nav.core.front.yards - nav.core.rest
+            assert(nav.core.on and nav.core.rest < 8 * 25, ("%d steps: test setup: four squares before the end (%.1f yd left)"):format(steps, nav.core.rest))
+            local diag = ns.WaysDiag()
+            -- (a) the thread -> the centre line (T1's change): its place d on it, readable in this frame
+            local cf = nav.core.cf.view
+            local undo = Count(cf, "cum")
+            ns.WaysPublishDisplay(cf, "centre")
+            local readCentre = undo()
+            local disp = ns.WaysDisplay()
+            assert(disp.kind == "centre" and Near(disp.pos, d) and cf.cum[disp.seg] <= d + 1e-9 and (disp.seg == cf.n - 1 or d < cf.cum[disp.seg + 1]),
+                ("%d steps, the centre line: at %.3f, segment %d (%.3f - %.3f), d %.3f"):format(steps, disp.pos, disp.seg, cf.cum[disp.seg], cf.cum[disp.seg + 1] or -1, d))
+            assert(ns.WaysRead(ns.run).points == cf and ns.WaysArrow(ns.run, wx, wy) ~= nil, steps .. " steps: the centre line not readable in the frame of the change")
+            -- (b) the centre line -> the thread: d through the pairs, the segment of that place
+            local T = ns.WaysThread()
+            local tv = T.t.view
+            -- (where a search from the start puts it)
+            local at
+            if d <= T.er[1] then at = T.es[1] - (T.er[1] - d) elseif d >= T.er[T.en] then at = T.es[T.en] + (d - T.er[T.en]) else
+                local i = 1
+                while i < T.en - 1 and T.er[i + 1] <= d do i = i + 1 end
+                local r0, r1 = T.er[i], T.er[i + 1]
+                at = r1 <= r0 and T.es[i + 1] or T.es[i] + (d - r0) * (T.es[i + 1] - T.es[i]) / (r1 - r0)
+            end
+            if at > tv.len then at = tv.len end
+            local u1, u2, u3 = Count(tv, "cum"), Count(T, "er"), Count(T, "es")
+            ns.WaysPublishDisplay(tv, "thread")
+            local readThread = u1() + u2() + u3()
+            disp = ns.WaysDisplay()
+            assert(disp.kind == "thread" and math.abs(disp.pos - at) < 1e-6 and tv.cum[disp.seg] <= at + 1e-9 and (disp.seg == tv.n - 1 or at < tv.cum[disp.seg + 1]),
+                ("%d steps, the thread: at %.3f (want %.3f), segment %d"):format(steps, disp.pos, at, disp.seg))
+            local log = math.ceil(math.log(math.max(cf.n, T.en, 2)) / math.log(2))
+            assert(readCentre <= 2 * log + 8 and readThread <= 4 * log + 16,
+                ("%d steps: %d distances read for the centre line, %d for the thread (%d points, %d pairs; log %d)"):format(steps, readCentre, readThread, cf.n, T.en, log))
+            -- counted: the distances the last change read
+            assert(diag.pubReads == readThread and diag.pubPeak >= diag.pubReads,
+                ("%d steps: %s counted for the change, %d read"):format(steps, tostring(diag.pubReads), readThread))
+            -- the time of a change (the mock: the clock at 1 ms, so many changes)
+            local t0 = os.clock()
+            for _ = 1, 100 do
+                ns.WaysPublishDisplay(cf, "centre")
+                ns.WaysPublishDisplay(tv, "thread")
+            end
+            local ms = (os.clock() - t0) * 1000 / 200
+            assert(ms <= 0.25, ("%d steps: a change of what is shown takes %.4f ms"):format(steps, ms))
+            note("MEASURE S1.1 R1 M3 " .. steps, ("four squares before the end: %d distances read to the centre line, %d to the thread (%d points, %d pairs), %.4f ms a change (mock)"):format(readCentre, readThread, cf.n, T.en, ms))
+        end)
+        Core.threadFactor = nil
+        HBD.GetWorldCoordinatesFromZone, HBD.GetPlayerWorldPosition, HBD.GetZoneCoordinatesFromWorld, HBD.GetZoneDistance = keepHBD[1], keepHBD[2], keepHBD[3], keepHBD[4]
+        W.Done()
+        if not ok then error(err, 0) end
     end
 end)
 

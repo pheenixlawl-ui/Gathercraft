@@ -2238,7 +2238,7 @@ local function Clock() return (ns.WaysClock or debugprofilestop)() end
 -- The frame sum: what S1 took in the frame going on (a frame is one value of GetTime)
 local frameAt, frameSum = -1, 0
 local diag = { peak = 0, step = 0, requests = 0, cancelled = 0, late = 0, over = 0, builds = 0, invalid = 0, dropped = 0, ops = 0,
-    threads = 0, repaired = 0, fellCount = 0, fellGuard = 0, fellOther = 0, booked = 0 }
+    threads = 0, repaired = 0, fellCount = 0, fellGuard = 0, fellOther = 0, booked = 0, pubReads = 0, pubPeak = 0 }
 local function Frame()
     local now = GetTime()
     if now ~= frameAt then frameAt, frameSum = now, 0 end
@@ -2288,13 +2288,39 @@ local function Conv(fx, fy, mapID) return HBD:GetWorldCoordinatesFromZone(fx, fy
 -- (the points the maps put into world yards in one step of the work: 16 at the most, F4.1 §B)
 local MAP_POINTS = 16
 local convStep = 0
+-- (0.2.4 a8, Codex M3) the distances read by Locate and ThreadAt (a change of what is shown counts them)
+local seen = 0
+local WALK = 4 -- forwards from the last place this many at the most, then by halves
 -- The segment of a line for a place along it, forwards from s: on the border of two segments the
--- next one (the very end of the way: the last one); a segment of no length is passed over.
+-- next one (the very end of the way: the last one); a segment of no length is passed over - the segment
+-- before the first point beyond the place. From s a few steps forwards (once a frame it moves one or two),
+-- else by halves in the distances, which never fall: O(log n) from wherever it starts.
 local function Locate(b, s, at)
     local cum, n = b.cum, b.n
-    if not s or s < 1 or s >= n or cum[s] > at then s = 1 end
-    while s < n - 1 and (cum[s + 1] <= at or cum[s + 1] == cum[s]) do s = s + 1 end
-    return s
+    if n < 3 then return 1 end
+    local lo = 1
+    if s and s >= 1 and s < n then
+        seen = seen + 1
+        if cum[s] <= at then
+            for _ = 1, WALK do
+                if s >= n - 1 then return n - 1 end
+                seen = seen + 1
+                if cum[s + 1] > at then return s end
+                s = s + 1
+            end
+            lo = s
+        end
+    end
+    -- the first point in lo + 1 .. n beyond the place (n - 1 when none is)
+    local a, z = lo + 1, n
+    while a < z do
+        local m = floor((a + z) / 2)
+        seen = seen + 1
+        if cum[m] > at then z = m else a = m + 1 end
+    end
+    seen = seen + 1
+    if cum[a] > at then return a - 1 end
+    return n - 1
 end
 -- (S1.1 B3, F3 §4, F4 §A/§F) Where the yards d along the way of the net lie on the thread: between the
 -- pairs (r, s) of its passages and anchors, in a straight line; never falling (two passages at one corner:
@@ -2303,15 +2329,47 @@ end
 local function ThreadAt(d)
     local T = thread
     local er, es, en = T.er, T.es, T.en
-    if d <= er[1] then return es[1] - (er[1] - d) end
-    if d >= er[en] then return es[en] + (d - er[en]) end
-    local i = disp.mi
-    if i < 1 or i >= en or er[i] > d then i = 1 end
-    while i < en - 1 and er[i + 1] <= d do i = i + 1 end
+    seen = seen + 2
+    local first, last = er[1], er[en]
+    if d <= first then
+        seen = seen + 1
+        return es[1] - (first - d)
+    end
+    if d >= last then
+        seen = seen + 1
+        return es[en] + (d - last)
+    end
+    -- (0.2.4 a8, Codex M3) the pair before the first one beyond d: a few forwards from the last one, else by
+    -- halves (d lies before the last pair's r, so there is one beyond it)
+    local i, lo = disp.mi, 1
+    if i >= 1 and i < en then
+        seen = seen + 1
+        if er[i] <= d then
+            for _ = 1, WALK do
+                seen = seen + 1
+                if er[i + 1] > d then
+                    lo = nil
+                    break
+                end
+                i = i + 1
+            end
+            if lo then lo = i end
+        end
+    end
+    if lo then
+        local a, z = lo + 1, en
+        while a < z do
+            local m = floor((a + z) / 2)
+            seen = seen + 1
+            if er[m] > d then z = m else a = m + 1 end
+        end
+        i = a - 1
+    end
     disp.mi = i
-    local r0, r1 = er[i], er[i + 1]
-    if r1 <= r0 then return es[i + 1] end
-    return es[i] + (d - r0) * (es[i + 1] - es[i]) / (r1 - r0)
+    seen = seen + 4
+    local r0, r1, s0, s1 = er[i], er[i + 1], es[i], es[i + 1]
+    if r1 <= r0 then return s1 end
+    return s0 + (d - r0) * (s1 - s0) / (r1 - r0)
 end
 -- The display's place for the navigation's progress (once a frame, with Follow): the yards of the way you
 -- have come (d), on the centre line the same yards, on the thread where they lie on it
@@ -2392,12 +2450,19 @@ end
 -- progress stay as they are (this is never M.Publish); the drawing under way is given up and its
 -- dots hidden in this frame; the display revision counts, so the maps start on the new geometry and
 -- a step begun for the old one writes nothing.
+-- (0.2.4 a8, Codex M3) Its place on the new geometry by a bounded search (Locate, ThreadAt: O(log n) from the
+-- way's start), never by going along the way from the start. The distances it read are counted (/gcr perf)
+-- and returned: the step it is done in books them.
 local function PublishDisplay(buf, kind)
     if drawer then drawer.Hide() end
     disp.buf, disp.kind, disp.seg, disp.mi = buf, kind, 1, 1
     read.pub = read.pub + 1
+    seen = 0
     DisplayFollow()
     read.seg, read.pos = disp.seg, disp.pos
+    diag.pubReads = seen
+    if seen > diag.pubPeak then diag.pubPeak = seen end
+    return seen
 end
 
 local function SetState(state)
@@ -2701,7 +2766,7 @@ local function ThreadWork(budget)
         threadWant = nil
         diag.threads, diag.booked = diag.threads + 1, diag.booked + T.used
         if T.repairs > 0 then diag.repaired = diag.repaired + 1 end
-        if disp.kind == "centre" and disp.gen == nav.core.gen then PublishDisplay(T.t.view, "thread") end
+        if disp.kind == "centre" and disp.gen == nav.core.gen then used = used + PublishDisplay(T.t.view, "thread") end
     elseif T.state == "failed" then
         threadWant = nil
         diag.booked = diag.booked + T.used
@@ -2833,7 +2898,7 @@ local function Step()
                 -- for the old kinds any more.
                 k.early = true
                 threadWant = nil
-                if disp.kind == "thread" then PublishDisplay(nav.core.cf.view, "centre") end
+                if disp.kind == "thread" then used = used + PublishDisplay(nav.core.cf.view, "centre") end
             end
             if k.done then
                 req.active, keeping = false, false
@@ -3020,16 +3085,18 @@ ns.WaysSpend = function(ms) if Outside() then Spend(ms) end end
 --   (0.2.4 a7, S1.1 B5, F4.1 §D) threads: smooth lines done (of them repaired with protective anchors) and
 --   the ones given up - the centre line stays - by the counter, by the guard, by another error; the work
 --   they booked (a passage or point looked at, a point written).
+--   (0.2.4 a8, Codex M3) a change of what is shown: the most distances one read to find its place.
 ns.WaysPerf = function(reset)
     if reset then
         diag.peak, diag.step, diag.requests, diag.cancelled, diag.late = 0, 0, 0, 0, 0
         diag.over, diag.builds, diag.invalid, diag.dropped = 0, 0, 0, 0
         diag.threads, diag.repaired, diag.fellCount, diag.fellGuard, diag.fellOther, diag.booked = 0, 0, 0, 0, 0, 0
+        diag.pubPeak = 0
         return
     end
-    return ("ways: largest frame %.2f ms (limit %.1f), longest step %.2f ms, %d requests (%d given up, %d late, %d dropped), %d builds (%d over the limits), %d taken back at once; %d threads (%d repaired), %d on the centre line (%d counter, %d guard, %d other), %d booked")
+    return ("ways: largest frame %.2f ms (limit %.1f), longest step %.2f ms, %d requests (%d given up, %d late, %d dropped), %d builds (%d over the limits), %d taken back at once; %d threads (%d repaired), %d on the centre line (%d counter, %d guard, %d other), %d booked; a change of what is shown read %d distances at the most")
         :format(diag.peak, FRAME_MS, diag.step, diag.requests, diag.cancelled, diag.late, diag.dropped, diag.builds, diag.over, diag.invalid,
-            diag.threads, diag.repaired, diag.fellCount + diag.fellGuard + diag.fellOther, diag.fellCount, diag.fellGuard, diag.fellOther, diag.booked)
+            diag.threads, diag.repaired, diag.fellCount + diag.fellGuard + diag.fellOther, diag.fellCount, diag.fellGuard, diag.fellOther, diag.booked, diag.pubPeak)
 end
 
 -- for /gcr perf and the tests: the counters, and what is going on
