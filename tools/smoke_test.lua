@@ -37608,6 +37608,7 @@ step("Ways 0.2.4 S1.1 a9 part 3: a GREV edge is smoothed like OBS and REV, only 
         assert(found, "test setup: the connector is in the way shown")
         assert(ns.WaysThreadNow() == "done" and ns.WaysDisplay().kind == "thread", "test setup: its thread shown")
         local gen, pub = core.gen, r.pub
+        local stamp0 = ns.WaysThread().stamp -- (a thread started after this one: its stamp is higher)
         W.Clock("fast")
         local keepStep = Core.KeepStep
         Core.KeepStep = function(c, budget)
@@ -37639,7 +37640,11 @@ step("Ways 0.2.4 S1.1 a9 part 3: a GREV edge is smoothed like OBS and REV, only 
         local _, want = ns.WaysThread()
         assert(early and early.kind == "straight" and early.pub == pub + 1 and not early.done, "CON -> REV: T1 in the frame of the change (the straight line), the check still open")
         r = W.Read()
-        assert(k.done and k.ok and r.percent == 0 and want == gen and core.gen == gen, ("CON -> REV: T2, the new kinds (%s %%), a thread wanted for them"):format(tostring(r.percent)))
+        -- (a thread for them: still wanted, or - with more work a frame, as after other steps - already started anew
+        -- for this generation and done in the frame of T2; the steps below check it is the new kinds')
+        local th2 = ns.WaysThread()
+        assert(k.done and k.ok and r.percent == 0 and core.gen == gen and (want == gen or (th2.stamp > stamp0 and th2.gen == gen)),
+            ("CON -> REV: T2, the new kinds (%s %%), a thread wanted for them (wanted %s, started anew %s)"):format(tostring(r.percent), tostring(want), tostring(th2.stamp > stamp0)))
         -- the thread for the new kinds: the former connector smoothed, its middles no points of it
         assert(ns.WaysThreadNow() == "done", "the thread for the new kinds")
         local th = ns.WaysThread().t
