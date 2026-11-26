@@ -38400,6 +38400,86 @@ step("Ways 0.2.4 S1.1 a9 R1 N2: every event's point is where the finished drawin
     end
     assert(arcs > 1000, "test setup: arcs drawn on the random ways")
 end)
+-- (0.2.4 a9 R1, Codex N3: a corner left sharp keeps the thread at it - is the piece put together there checked?) The
+-- proof the report gives: the pieces beside a sharp corner run from it to the next point of the drawing - a point of
+-- the thread, or a neighbouring arc's touching point, which lies on the thread's stretch to that corner (tl is half
+-- the shorter stretch at the most: two arcs never meet) - so each is a piece of a stretch of the thread, checked
+-- when the thread was. This step holds that for every corner the drawing keeps.
+step("Ways 0.2.4 S1.1 a9 R1 N3: a corner the drawing keeps (left sharp by the check or never to round) has on both sides pieces of the thread's stretches at it - a neighbouring arc's touching point on that stretch; 1,000 random ways, the corners left sharp by the check among them", function()
+    local Core = ns.WaysCore
+    local OBS, REV, CON, GREV = Core.OBS, Core.REV, Core.CON, Core.GREV
+    local T = Core.NewThread()
+    -- p on the stretch from a to b (closed, 1e-6)
+    local function On(px, py, ax, ay, bx, by)
+        local dx, dy = bx - ax, by - ay
+        local l2 = dx * dx + dy * dy
+        if l2 == 0 then return math.abs(px - ax) < 1e-6 and math.abs(py - ay) < 1e-6 end
+        local u = ((px - ax) * dx + (py - ay) * dy) / l2
+        if u < -1e-9 or u > 1 + 1e-9 then return false end
+        local ex, ey = ax + u * dx - px, ay + u * dy - py
+        return ex * ex + ey * ey < 1e-12
+    end
+    local seed = 2611
+    local function Rand(n)
+        seed = (seed * 16807) % 2147483647
+        return seed % n
+    end
+    local D4 = { { 1, 0 }, { 0, 1 }, { -1, 0 }, { 0, -1 } }
+    local D8 = { { 1, 0 }, { 1, 1 }, { 0, 1 }, { -1, 1 }, { -1, 0 }, { -1, -1 }, { 0, -1 }, { 1, -1 } }
+    local KINDS = { OBS, OBS, OBS, OBS, OBS, OBS, REV, REV, CON, GREV }
+    local corners, sharpWays = 0, 0
+    for w = 1, 1000 do
+        local dirs = w % 3 == 0 and D8 or D4
+        local sq, seen, x, y = { { 0, 0 } }, { ["0,0"] = true }, 0, 0
+        for _ = 1, 3 + Rand(50) do
+            local moved = false
+            for _ = 1, 8 do
+                local d = dirs[Rand(#dirs) + 1]
+                local nx, ny = x + d[1], y + d[2]
+                if not seen[nx .. "," .. ny] then
+                    x, y, moved = nx, ny, true
+                    seen[x .. "," .. y] = true
+                    sq[#sq + 1] = { x, y }
+                    break
+                end
+            end
+            if not moved then break end
+        end
+        local kk = {}
+        for i = 1, #sq - 1 do kk[i] = KINDS[Rand(#KINDS) + 1] end
+        local player = { 12.5 + Rand(25) - 12, 12.5 + Rand(25) - 12 }
+        local node = { (x + 0.5) * 25 + Rand(25) - 12, (y + 0.5) * 25 + Rand(25) - 12 }
+        assert(Core.Thread(T, A9.Centre(sq, kk, player, node), 1) == "done", "random way " .. w)
+        if T.sharp > 0 then sharpWays = sharpWays + 1 end
+        local t, F = T.t, T.f
+        -- the thread's drawn points in order; each kept in the drawing: its neighbours there on its stretches
+        -- (the drawing walked along: each drawn point of the thread is there itself, or as an arc's five points
+        -- whose middle one is 4 yd from it at the most)
+        local k, kept = 1, 0
+        for i = 1, t.dn do
+            local v = t.dk[i]
+            if F.x[k] == t.x[v] and F.y[k] == t.y[v] then
+                if i > 1 and k > 1 then
+                    local p = t.dk[i - 1]
+                    assert(On(F.x[k - 1], F.y[k - 1], t.x[p], t.y[p], t.x[v], t.y[v]), ("random way %d: the drawing's point before the corner %d is off the thread's stretch to it"):format(w, i))
+                end
+                if i < t.dn and k < F.n then
+                    local q = t.dk[i + 1]
+                    assert(On(F.x[k + 1], F.y[k + 1], t.x[v], t.y[v], t.x[q], t.y[q]), ("random way %d: the drawing's point after the corner %d is off the thread's stretch from it"):format(w, i))
+                end
+                corners, kept, k = corners + 1, kept + 1, k + 1
+            else
+                assert(k + 4 <= F.n and math.sqrt((F.x[k + 2] - t.x[v]) ^ 2 + (F.y[k + 2] - t.y[v]) ^ 2) <= 4 + 1e-6,
+                    ("random way %d: the thread's point %d is neither in the drawing nor drawn round there"):format(w, i))
+                k = k + 5
+            end
+        end
+        assert(k == F.n + 1, ("random way %d: the drawing has %d points more than the thread and its arcs"):format(w, F.n + 1 - k))
+        -- (every drawn point of the thread not drawn round is a point of the drawing, as it is)
+        assert(kept == t.dn - T.arcs, ("random way %d: %d of the thread's points kept, %d drawn and %d drawn round"):format(w, kept, t.dn, T.arcs))
+    end
+    assert(sharpWays > 50 and corners > 1000, ("test setup: %d ways with a corner left sharp by the check, %d corners kept"):format(sharpWays, corners))
+end)
 step("Ways 0.2.4 S1.1 a9 measure: the real clock on Codex' two 800 ways in a net of 8,000 squares (only with GC_MEASURE_A9 set)", function()
     if not os.getenv("GC_MEASURE_A9") then return end
     local Core = ns.WaysCore
