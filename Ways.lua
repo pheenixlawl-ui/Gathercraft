@@ -1425,6 +1425,10 @@ function M.NewThread()
         es = {}, er = {}, ex = {}, ey = {}, eu = {}, ek = {}, en = 0, gs = 1,
         prot = {}, stamp = 0,
         sv = {}, pc = 0, pslot = -1, far = 0, -- (0.2.4 a8, Codex M1) the proposals' kept states, SNAP values each; how many; one seen; the funnel's furthest slot
+        -- (0.2.4 a9) the finished drawing with its arcs (f), an arc's points (qx, qy), its crossings' yards (fs); the
+        -- corner drawn next (ai), what the arcs made shorter so far (ad), the first event not passed yet (ae), arcs
+        -- drawn, corners left sharp by the check
+        f = NewCentre(), qx = {}, qy = {}, fs = {}, ai = 0, ad = 0, ae = 0, arcs = 0, sharp = 0,
         c = nil, gen = -1, state = "none", reason = nil, used = 0, limit = 0, repairs = 0,
         phase = 0, u = 0, ax = 0, ay = 0, au = 0, lx = 0, ly = 0, lu = 0, rx = 0, ry = 0, ru = 0,
         sk = 0, wu = 0, wk = 0, wt = 0, fk = 0,
@@ -2117,6 +2121,234 @@ local function EventSlot(T)
     end
 end
 
+---------------------------------------------------------------------------
+-- (0.2.4 a9, F4.5 §4, F4.6 §3) Arcs. The thread checked, its corners drawn round: at every point drawn where it
+-- turns by 10 degrees or more - not at a diagonal's corner, not at a CON edge's middle, not at you, the first and
+-- the last square's middle or the node - the corner is replaced by a circular arc that touches both stretches:
+-- the radius as large as it may be up to 12 yd, the touching points no further from the corner than half the
+-- shorter stretch, and the arc no further from the corner than the check margin (4 yd). Drawn as its two
+-- touching points and 3 points between them (4 chords).
+--   The finished drawing is checked arc by arc (the straight bits between are the thread's, checked by the
+--   events): from its first touching point, in the square the thread is in there, each chord is cut at the
+--   passages the thread crosses between the touching points, in their order - a side crossed inside the side
+--   cut by the check margin, a diagonal's corner exactly at its point - and each piece between two cuts has both
+--   ends in one square of the way (closed, THREAD_TOL; the square is convex, so the piece lies in it). An arc
+--   that does not hold: that corner stays sharp (counted), the rest keeps its arcs (F4.6 §3: the one exception
+--   to "never a corner", a single one at a tight place).
+--   The finished drawing is T.f; one corner a piece of work, booked like the rest; nothing is made: the lists
+--   are written over.
+---------------------------------------------------------------------------
+local cos, sin, abs = math.cos, math.sin, math.abs
+local ARC_MIN = math.rad(10)   -- a turn smaller than this stays (F4.5 §4)
+local ARC_MAX = math.rad(179)  -- (a turn back on itself: no circle touches both)
+local ARC_RADIUS = 12          -- yards at the most
+M.threadArcs = true            -- (the tests, the picture of a8 beside a9: false, no arcs)
+
+-- the square j of the way holds (x, y), closed, within THREAD_TOL
+local function InSquare(c, j, x, y)
+    local cx, cy = c.x[j], c.y[j]
+    return x >= cx - HALF - THREAD_TOL and x <= cx + HALF + THREAD_TOL and y >= cy - HALF - THREAD_TOL and y <= cy + HALF + THREAD_TOL
+end
+
+-- Where the chord from (px, py) to (qx, qy), from its share lo on, crosses the passage of step j (between the
+-- squares j and j + 1): its share; nil: it does not; false: it crosses the side's line outside the side cut by
+-- the check margin (but on the side).
+local function CrossAt(c, j, px, py, qx, qy, lo)
+    local x, y = c.x, c.y
+    local dx, dy = x[j + 1] - x[j], y[j + 1] - y[j]
+    local mx, my = x[j] + dx / 2, y[j] + dy / 2
+    local vx, vy = qx - px, qy - py
+    if dx ~= 0 and dy ~= 0 then
+        -- a diagonal's corner: only exactly through its point
+        local len2 = vx * vx + vy * vy
+        if len2 <= 0 then return end
+        local t = ((mx - px) * vx + (my - py) * vy) / len2
+        if t < lo - 1e-9 or t > 1 + 1e-9 then return end
+        local ex, ey = px + t * vx - mx, py + t * vy - my
+        if ex * ex + ey * ey > 1e-12 then return end
+        return t
+    end
+    local reach = HALF - CHECK_MARGIN
+    local t
+    if dx ~= 0 then
+        -- a side across x (the line x = mx)
+        if vx == 0 then return end
+        t = (mx - px) / vx
+        if t < lo - 1e-9 or t > 1 + 1e-9 then return end
+        local cy = py + t * vy
+        if cy < my - HALF - THREAD_TOL or cy > my + HALF + THREAD_TOL then return end
+        if cy < my - reach - 1e-9 or cy > my + reach + 1e-9 then return false end
+    else
+        if vy == 0 then return end
+        t = (my - py) / vy
+        if t < lo - 1e-9 or t > 1 + 1e-9 then return end
+        local cx = px + t * vx
+        if cx < mx - HALF - THREAD_TOL or cx > mx + HALF + THREAD_TOL then return end
+        if cx < mx - reach - 1e-9 or cx > mx + reach + 1e-9 then return false end
+    end
+    if t < lo then t = lo elseif t > 1 then t = 1 end
+    return t
+end
+
+-- The check of an arc (T.qx, T.qy 1..5) from square j: the passages of the events from T.ae on up to the old
+-- yards sb (the ones the thread crosses between the touching points), in their order. base: the drawing's yards
+-- at the first touching point; the crossings' yards into T.fs (1..). true when the arc holds.
+local function ArcHolds(T, j, sb, base)
+    local c = T.c
+    local qx, qy, fs = T.qx, T.qy, T.fs
+    local es, eu, ek, en = T.es, T.eu, T.ek, T.en
+    local e = T.ae
+    if not InSquare(c, j, qx[1], qy[1]) then return false end
+    local nf, along = 0, base
+    for h = 1, 4 do
+        local p1x, p1y, p2x, p2y = qx[h], qy[h], qx[h + 1], qy[h + 1]
+        local len = sqrt((p2x - p1x) ^ 2 + (p2y - p1y) ^ 2)
+        local lo = 0
+        while true do
+            -- the next event in the arc: a passage (its crossing); an anchor's middle (the corner) is passed
+            while e <= en and es[e] <= sb and ek[e] == 3 do e = e + 1 end
+            if not (e <= en and es[e] <= sb) then break end
+            local pj = (eu[e] - 1) / 2
+            if pj ~= j then return false end
+            local tc = CrossAt(c, pj, p1x, p1y, p2x, p2y, lo)
+            if tc == false then return false end
+            if not tc then break end
+            nf = nf + 1
+            fs[nf] = along + tc * len
+            lo, j, e = tc, pj + 1, e + 1
+        end
+        if not InSquare(c, j, p2x, p2y) then return false end
+        along = along + len
+    end
+    -- every passage between the touching points crossed?
+    while e <= en and es[e] <= sb and ek[e] == 3 do e = e + 1 end
+    return not (e <= en and es[e] <= sb)
+end
+M.ArcHolds = ArcHolds
+
+-- (the arc's points, worked out into T.qx, T.qy 1..5: the touching points and the 3 between)
+local function ArcPoints(T, vx, vy, ux, uy, wx, wy, th, R, tl)
+    local qx, qy = T.qx, T.qy
+    local ax, ay = vx - tl * ux, vy - tl * uy
+    local sgn = (ux * wy - uy * wx) > 0 and 1 or -1
+    local ox, oy = ax - sgn * R * uy, ay + sgn * R * ux
+    local rx, ry = ax - ox, ay - oy
+    qx[1], qy[1] = ax, ay
+    for i = 1, 3 do
+        local a = sgn * th * i / 4
+        local ca, sa = cos(a), sin(a)
+        qx[i + 1], qy[i + 1] = ox + rx * ca - ry * sa, oy + rx * sa + ry * ca
+    end
+    qx[5], qy[5] = vx + tl * wx, vy + tl * wy
+end
+
+-- write a point of the finished drawing (its yards along it in raw and dcum; it is drawn whole: dk[k] = k)
+local function FPoint(F, x, y)
+    local m = F.n
+    local s = 0
+    if m > 0 then
+        local dx, dy = x - F.x[m], y - F.y[m]
+        s = F.raw[m] + sqrt(dx * dx + dy * dy)
+    end
+    m = m + 1
+    F.x[m], F.y[m], F.raw[m], F.dk[m], F.dcum[m] = x, y, s, m, s
+    F.n, F.dn = m, m
+end
+
+-- the events up to the old yards s (inclusive: and at s) are behind the drawing written
+local function PassPairs(T, s)
+    local es, e = T.es, T.ae
+    while e <= T.en and es[e] <= s do e = e + 1 end
+    T.ae = e
+end
+
+-- the square of the way the thread is in just after the last event passed (all events up to the arc's first
+-- touching point are): after a passage the square beyond it, at an anchor's middle its square
+local function SquareAt(T)
+    local e = T.ae - 1
+    if e < 1 then return 2 end
+    local u = T.eu[e]
+    if T.ek[e] == 3 then return floor(u / 2) end
+    return (u - 1) / 2 + 1
+end
+
+local function ArcBegin(T)
+    local F, t = T.f, T.t
+    F.n, F.dn = 0, 0
+    T.ai, T.ad, T.ae, T.arcs, T.sharp = 2, 0, 1, 0, 0
+    FPoint(F, t.x[t.dk[1]], t.y[t.dk[1]])
+    T.phase = 5
+end
+
+-- can the drawn point (thread point k) be drawn round at all (F4.5 §4)?
+local function Roundable(T, k)
+    local u, c = T.vu[k], T.c
+    if u <= 4 or u >= 2 * (c.n - 1) then return false end -- (you, the first square's middle; the last one's, the node)
+    local j = floor(u / 2)
+    if u % 2 == 1 then
+        local dx, dy = c.x[j + 1] - c.x[j], c.y[j + 1] - c.y[j]
+        return dx == 0 or dy == 0 -- (a diagonal's corner stays a point)
+    end
+    return not (Fixed(c.kind[j]) or Fixed(c.kind[j + 1])) -- (a CON edge's middle stays)
+end
+
+-- one corner: drawn round (and checked) or sharp; at the end the finished drawing's own numbers
+local function ArcStep(T)
+    local t, F = T.t, T.f
+    local dk, i, dn = t.dk, T.ai, t.dn
+    local x, y = t.x, t.y
+    if i >= dn then
+        PassPairs(T, huge)
+        FPoint(F, x[dk[dn]], y[dk[dn]])
+        F.len, F.tail, F.head = F.raw[F.n], t.tail, t.head
+        F.conv, F.map, F.w, F.h = t.conv, t.map, t.w, t.h
+        F.pwx, F.pwy, F.twx, F.twy = t.pwx, t.pwy, t.twx, t.twy
+        F.stamp = F.stamp + 1
+        local v = F.view
+        v.n, v.len, v.tail = F.n, F.len, F.tail
+        T.state = "done"
+        return
+    end
+    T.ai = i + 1
+    local k = dk[i]
+    local vx, vy = x[k], y[k]
+    local sv = t.dcum[i]
+    local px, py, qx, qy = x[dk[i - 1]], y[dk[i - 1]], x[dk[i + 1]], y[dk[i + 1]]
+    local ax, ay, bx, by = vx - px, vy - py, qx - vx, qy - vy
+    local la, lb = sqrt(ax * ax + ay * ay), sqrt(bx * bx + by * by)
+    local th = 0
+    if la > 0 and lb > 0 then
+        ax, ay, bx, by = ax / la, ay / la, bx / lb, by / lb
+        th = math.atan2(abs(ax * by - ay * bx), ax * bx + ay * by)
+    end
+    if not (M.threadArcs and th >= ARC_MIN and th <= ARC_MAX and Roundable(T, k)) then
+        PassPairs(T, sv)
+        FPoint(F, vx, vy)
+        return
+    end
+    local half = th / 2
+    local R = ARC_RADIUS
+    local r2 = (la < lb and la or lb) / 2 / math.tan(half)
+    if r2 < R then R = r2 end
+    local r3 = CHECK_MARGIN / (1 / cos(half) - 1)
+    if r3 < R then R = r3 end
+    local tl = R * math.tan(half)
+    ArcPoints(T, vx, vy, ax, ay, bx, by, th, R, tl)
+    local sa, sb = sv - tl, sv + tl
+    PassPairs(T, sa)
+    local dx0, dy0 = T.qx[1] - F.x[F.n], T.qy[1] - F.y[F.n]
+    if not ArcHolds(T, SquareAt(T), sb, F.raw[F.n] + sqrt(dx0 * dx0 + dy0 * dy0)) then
+        -- that corner stays sharp
+        T.sharp = T.sharp + 1
+        PassPairs(T, sv)
+        FPoint(F, vx, vy)
+        return
+    end
+    for h = 1, 5 do FPoint(F, T.qx[h], T.qy[h]) end
+    PassPairs(T, sb)
+    T.arcs = T.arcs + 1
+end
+
 -- the end: the node, then the points drawn (one a piece)
 local function FinishPoint(T)
     local t, c = T.t, T.c
@@ -2154,7 +2386,7 @@ local function FinishPoint(T)
     t.stamp = t.stamp + 1 -- (a new line: no world place put in before counts)
     local v = t.view
     v.n, v.len, v.tail = dn, t.len, t.tail
-    T.state = "done"
+    ArcBegin(T)
 end
 
 -- A thread for the centre line c (of the way generation gen). In pieces of work: ThreadStep(T, budget)
@@ -2201,6 +2433,8 @@ function M.ThreadStep(T, budget)
             if T.state == "work" and T.t.n > n and not Confirm(T) and T.phase == 1 and Pending(T) then T.phase = 4 end
         elseif phase == 2 or phase == 4 then
             EventSlot(T)
+        elseif phase == 5 then
+            ArcStep(T)
         else
             FinishPoint(T)
         end

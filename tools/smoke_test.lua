@@ -37594,6 +37594,151 @@ step("Ways 0.2.4 S1.1 a9 part 4: the funnel works on sides cut by 6 yd at both e
     end
 end)
 
+step("Ways 0.2.4 S1.1 a9 part 5: arcs at the thread's corners - radius up to 12 yd, 4 yd at the most off the corner, 3 points between the touching points; the finished drawing checked arc by arc against the passages (inside the sides cut by 4 yd, a diagonal's corner exactly, every piece in one square); an arc that does not hold leaves its corner sharp, counted; Codex' cases 2/2, 4/4, 3/3, the three squares rejected (0.2.4 a9, F4.5 §4, F4.6 §3/§6)", function()
+    local Core = ns.WaysCore
+    local OBS, REV, CON, GREV = Core.OBS, Core.REV, Core.CON, Core.GREV
+    local T = Core.NewThread()
+    local function Arcs(c)
+        local state, reason = Core.Thread(T, c, 1)
+        assert(state == "done", "test setup: a thread: " .. tostring(reason))
+        return T.arcs, T.sharp
+    end
+    -- 1. Codex' three positive cases (F4.6 §6: green only with valid arcs in the finished drawing)
+    local kinds = {}
+    for i = 1, 12 do kinds[i] = GREV end
+    local a, s = Arcs(A9.Centre(A9.Walk(10, 10, "ENENENENENEN"), kinds))
+    assert(a == 2 and s == 0, ("the twelve GREV edges: %d arcs, %d sharp"):format(a, s))
+    local F, yAt = T.f, nil
+    for k = 1, F.n - 1 do
+        if F.x[k] < 275 and F.x[k + 1] >= 275 then yAt = F.y[k] + (275 - F.x[k]) / (F.x[k + 1] - F.x[k]) * (F.y[k + 1] - F.y[k]) end
+    end
+    assert(yAt and math.abs(yAt - 269.181) < 0.001, "the twelve GREV edges: the first arc crosses x = 275 at y " .. tostring(yAt) .. " (Codex: 269.181, the side allowed to 271)")
+    a, s = Arcs(A9.Centre(A9.Walk(0, 0, "EENNEE")))
+    assert(a == 4 and s == 0, ("the tight S curve: %d arcs, %d sharp"):format(a, s))
+    a, s = Arcs(A9.Centre(A9.Walk(0, 0, "ENW")))
+    assert(a == 3 and s == 0 and T.f.n == 1 + 3 * 5 + 1, ("the U: %d arcs, %d sharp, %d points"):format(a, s, T.f.n))
+    -- a CON edge stays from middle to middle: no arc at its middles
+    a, s = Arcs(A9.Centre(A9.Walk(0, 0, "ENNE"), { OBS, CON, OBS, OBS }))
+    local mids = 0
+    for k = 1, T.f.n do
+        if (T.f.x[k] == 37.5 and T.f.y[k] == 37.5) or (T.f.x[k] == 37.5 and T.f.y[k] == 12.5) then mids = mids + 1 end
+    end
+    assert(mids == 2, "a CON edge: its two middles are points of the drawing (" .. mids .. ")")
+    -- 2. Codex' three squares meeting at (25, 25), the north-east one missing: his arc's points all lie in squares
+    -- of the way, but the chord (25.726 | 24.622) -> (24.622 | 25.726) has its middle (25.174 | 25.174) in the
+    -- missing square - the check rejects it; a chain that crosses both sides inside their cut parts holds
+    do
+        local c = A9.Centre({ { 1, 0 }, { 0, 0 }, { 0, 1 } }) -- (from (1,0) west into (0,0), north into (0,1))
+        local T3 = Core.NewThread()
+        T3.c = c
+        T3.eu[1], T3.ek[1], T3.es[1] = 5, 1, 10 -- (the side x = 25)
+        T3.eu[2], T3.ek[2], T3.es[2] = 7, 2, 11 -- (the side y = 25)
+        T3.en = 2
+        local function Chain(pts)
+            for i, p in ipairs(pts) do T3.qx[i], T3.qy[i] = p[1], p[2] end
+            T3.ae = 1
+            return Core.ArcHolds(T3, 2, 100, 0)
+        end
+        assert(not Chain({ { 29, 21 }, { 25.726, 24.622 }, { 24.622, 25.726 }, { 21, 29 }, { 17, 33 } }), "Codex' three squares: the arc through the missing square held")
+        assert(Chain({ { 29, 15 }, { 25, 15 }, { 15, 20 }, { 15, 25 }, { 15, 30 } }), "a chain crossing both sides inside their cut parts: rejected")
+        assert(not Chain({ { 29, 22 }, { 25, 22 }, { 15, 20 }, { 15, 25 }, { 15, 30 } }), "a chain crossing the side 3 yd from its end (outside the 4 yd): held")
+    end
+    -- 3. the local fallback: a way of five squares where one arc holds and one does not - that corner stays sharp,
+    -- the counter +1, the other arc kept (one of the random ways below, M1's seed)
+    a, s = Arcs(A9.Centre({ { 0, 0 }, { 1, 0 }, { 0, -1 }, { -1, -1 }, { -1, -2 } }, { REV, OBS, GREV, OBS }, { 4.5, 18.5 }, { -6.5, -25.5 }))
+    assert(a == 1 and s == 1, ("one arc holds, one does not: %d arcs, %d sharp"):format(a, s))
+    -- 4. an independent check of every finished drawing (written here, not the code's): along the drawing, from the
+    -- first square, each passage in its order crossed at the first point of the drawing on the side cut by 4 yd
+    -- (a diagonal's corner: on its point), every point in the square it is in; 1,000 random ways
+    local function Check(c, F)
+        local j, last = 2, c.n - 1
+        for k = 1, F.n - 1 do
+            local px, py, qx, qy = F.x[k], F.y[k], F.x[k + 1], F.y[k + 1]
+            local lo = 0
+            while j < last do
+                local ax, ay, bx, by = c.x[j], c.y[j], c.x[j + 1], c.y[j + 1]
+                local mx, my = (ax + bx) / 2, (ay + by) / 2
+                local t
+                local vx, vy = qx - px, qy - py
+                if ax ~= bx and ay ~= by then
+                    local l2 = vx * vx + vy * vy
+                    if l2 > 0 then
+                        local u = ((mx - px) * vx + (my - py) * vy) / l2
+                        local ex, ey = px + u * vx - mx, py + u * vy - my
+                        if u >= lo - 1e-9 and u <= 1 + 1e-9 and ex * ex + ey * ey <= 1e-10 then t = u end
+                    end
+                else
+                    -- along x or y: the side's line, its cut part [m - 8.5, m + 8.5]
+                    local across = ax ~= bx
+                    local a0, va, w0, vw, mw, ma = px, vx, py, vy, mx, my
+                    if not across then a0, va, w0, vw, mw, ma = py, vy, px, vx, my, mx end
+                    if va == 0 then
+                        if math.abs(a0 - mw) <= 1e-9 then
+                            if vw == 0 then
+                                if math.abs(w0 + lo * vw - ma) <= 8.5 + 1e-9 then t = lo end
+                            else
+                                local t1, t2 = (ma - 8.5 - w0) / vw, (ma + 8.5 - w0) / vw
+                                if t1 > t2 then t1, t2 = t2, t1 end
+                                local u = math.max(lo, t1)
+                                if u <= math.min(1, t2) + 1e-12 then t = u end
+                            end
+                        end
+                    else
+                        local u = (mw - a0) / va
+                        if u >= lo - 1e-9 and u <= 1 + 1e-9 and math.abs(w0 + u * vw - ma) <= 8.5 + 1e-9 then t = math.max(u, lo) end
+                    end
+                end
+                if not t then break end
+                lo, j = t, j + 1
+            end
+            if k + 1 < F.n then
+                local cx, cy = c.x[j], c.y[j]
+                if math.abs(qx - cx) > 12.5 + 0.01 or math.abs(qy - cy) > 12.5 + 0.01 then return ("point %d not in square %d"):format(k + 1, j) end
+            end
+        end
+        if j ~= last then return ("passages crossed: %d of %d"):format(j - 2, last - 2) end
+    end
+    local seed = 2611
+    local function Rand(n)
+        seed = (seed * 16807) % 2147483647
+        return seed % n
+    end
+    local D4 = { { 1, 0 }, { 0, 1 }, { -1, 0 }, { 0, -1 } }
+    local D8 = { { 1, 0 }, { 1, 1 }, { 0, 1 }, { -1, 1 }, { -1, 0 }, { -1, -1 }, { 0, -1 }, { 1, -1 } }
+    local KINDS = { OBS, OBS, OBS, OBS, OBS, OBS, REV, REV, CON, GREV }
+    local ways, arcs, sharp = 0, 0, 0
+    for w = 1, 1000 do
+        local dirs = w % 3 == 0 and D8 or D4
+        local sq, seen, x, y = { { 0, 0 } }, { ["0,0"] = true }, 0, 0
+        for _ = 1, 3 + Rand(50) do
+            local moved = false
+            for _ = 1, 8 do
+                local d = dirs[Rand(#dirs) + 1]
+                local nx, ny = x + d[1], y + d[2]
+                if not seen[nx .. "," .. ny] then
+                    x, y, moved = nx, ny, true
+                    seen[x .. "," .. y] = true
+                    sq[#sq + 1] = { x, y }
+                    break
+                end
+            end
+            if not moved then break end
+        end
+        local kk = {}
+        for i = 1, #sq - 1 do kk[i] = KINDS[Rand(#KINDS) + 1] end
+        local player = { 12.5 + Rand(25) - 12, 12.5 + Rand(25) - 12 }
+        local node = { (x + 0.5) * 25 + Rand(25) - 12, (y + 0.5) * 25 + Rand(25) - 12 }
+        local c = A9.Centre(sq, kk, player, node)
+        local state, reason = Core.Thread(T, c, 1)
+        assert(state == "done", ("random way %d: %s %s"):format(w, state, tostring(reason)))
+        local why = Check(c, T.f)
+        assert(not why, ("random way %d: the finished drawing breaks the rules: %s"):format(w, tostring(why)))
+        ways, arcs, sharp = ways + 1, arcs + T.arcs, sharp + T.sharp
+    end
+    assert(arcs > 0 and sharp < arcs, "test setup: arcs drawn")
+    note("MEASURE S1.1 a9 arcs", ("%d random ways: %d arcs, %d corners left sharp by the check"):format(ways, arcs, sharp))
+end)
+
 step("Ways donation: canonical own pieces, no private fields, bounds and sliced multipart export", function()
     assert(loadfile(ROOT .. "/tools/ways_donation_test.lua"))()("codec", {ns=ns})
 end)

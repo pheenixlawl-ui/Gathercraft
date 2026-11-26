@@ -13,6 +13,9 @@
 --                            e <slot> <kind> <s> <r> <x> <y>       the events (kind 0 corner,
 --                                                                  1 side across x, 2 across y, 3 anchor)
 --                            d <k> <k> ...                         the points drawn
+--                            f <x> <y> <s>                         (0.2.4 a9) the finished drawing with its arcs,
+--                                                                  one line a point, s its yards along it
+--                            a <arcs> <sharp>                      arcs drawn, corners left sharp by the check
 --                            end
 -- Only Ways.lua's core is used (ns.WaysCore); the rest of the addon is not loaded.
 local ROOT, IN, OUT = arg[1], arg[2], arg[3]
@@ -83,6 +86,12 @@ while line do
             local d = {}
             for k = 1, t.dn do d[k] = tostring(t.dk[k]) end
             out:write("d " .. table.concat(d, " ") .. "\n")
+            -- (0.2.4 a9) the finished drawing with its arcs: its points, and the arcs drawn / corners left sharp
+            local F = T.f
+            if F and F.n > 0 then
+                for k = 1, F.n do out:write(("f %s %s %s\n"):format(g(F.x[k]), g(F.y[k]), g(F.raw[k]))) end
+                out:write(("a %d %d\n"):format(T.arcs or 0, T.sharp or 0))
+            end
         end
         out:write("end\n")
         count = count + 1
