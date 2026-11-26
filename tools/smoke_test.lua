@@ -36921,6 +36921,84 @@ step("Ways 0.2.4 S1.1 R1 M1: the look ahead only proposes - protective anchors o
         note("MEASURE S1.1 R1 M1", ("240 ways: %d threads the same with and without the look ahead, %d shorter with it, none longer; %d repaired; within 4 times the passages %d done, %d without it"):format(same, shorter, repaired, done4, doneOff4))
     end
 end)
+-- (0.2.4 a8, Codex' check of a6/a7, M2) The guard looked at a guessed edge (CON, GREV) only where it crosses its
+-- side or corner - a bend inside the right square passed it, though the edge is to stay the straight stretch
+-- between its middles (F4 §E). Codex put one in with B5's hook: done, 74 of 128, the thread shown.
+step("Ways 0.2.4 S1.1 R1 M2: the guard checks a guessed edge (CON, GREV) as a whole - every piece of the thread on it on the straight stretch from middle to middle, a bend before or after its crossing gives the thread up: the centre line, one guard (0.2.4 a8, F4 §E, Codex M2)", function()
+    local Core = ns.WaysCore
+    -- a CON edge: two rides side by side on row 10, (17,10) -> (18,10) guessed between them; a GREV edge: a fall
+    -- seen once from (10,10) into (11,10) - the way back (11,10) -> (10,10) is guessed
+    local function Connector()
+        local e = {}
+        WAYS.Ride(e, { { 14, 10 }, { 15, 10 }, { 16, 10 }, { 17, 10 } })
+        WAYS.Ride(e, { { 18, 10 }, { 19, 10 }, { 20, 10 }, { 21, 10 } })
+        return e, { 14, 10 }, { 21, 10 }, { 437.5, 262.5 }, { 462.5, 262.5 }
+    end
+    local function WayBack()
+        local e = {}
+        WAYS.Ride(e, { { 6, 10 }, { 7, 10 }, { 8, 10 }, { 9, 10 }, { 10, 10 } })
+        WAYS.Piece(e, 10, 10, 1, 0, { falls = 1 })
+        WAYS.Ride(e, { { 11, 10 }, { 12, 10 }, { 13, 10 }, { 14, 10 }, { 15, 10 } })
+        return e, { 15, 10 }, { 6, 10 }, { 287.5, 262.5 }, { 262.5, 262.5 }
+    end
+    -- the bend: put into the thread between the guessed edge's middles, when the stretch that ends on the second
+    -- middle is done (B5's hook) - "before": off the line in the first square, then the crossing at the side's
+    -- middle; "after": the crossing, then off the line in the second square
+    local function Bend(a, b, where)
+        local mx, my = (a[1] + b[1]) / 2, (a[2] + b[2]) / 2
+        local dx = b[1] > a[1] and 1 or -1
+        local off = where == "before" and { a[1] + 5 * dx, a[2] + 3 } or { b[1] - 5 * dx, b[2] - 3 }
+        return function(T)
+            local t = T.t
+            local k = t.n
+            if not (t.x[k] == b[1] and t.y[k] == b[2] and t.x[k - 1] == a[1] and t.y[k - 1] == a[2]) then return end
+            local slot = T.vu[k] - 1 -- (the passage between the two middles)
+            local p1, p2 = off, { mx, my }
+            if where == "after" then p1, p2 = { mx, my }, off end
+            t.x[k + 2], t.y[k + 2], T.vu[k + 2], T.va[k + 2] = t.x[k], t.y[k], T.vu[k], T.va[k]
+            t.x[k], t.y[k], T.vu[k], T.va[k] = p1[1], p1[2], slot, 0
+            t.x[k + 1], t.y[k + 1], T.vu[k + 1], T.va[k + 1] = p2[1], p2[2], slot, 0
+            for q = k, k + 2 do
+                local ex, ey = t.x[q] - t.x[q - 1], t.y[q] - t.y[q - 1]
+                t.raw[q] = t.raw[q - 1] + math.sqrt(ex * ex + ey * ey)
+            end
+            t.n = k + 2
+            Core.threadBendTest = nil
+        end
+    end
+    for _, kind in ipairs({ { "CON", Connector }, { "GREV", WayBack } }) do
+        for _, where in ipairs({ "none", "before", "after" }) do
+            local e, from, to, a, b = kind[2]()
+            local W = WAYS.World(e)
+            local ok, err = pcall(function()
+                local d = ns.WaysDiag()
+                local guard, count, other = d.fellGuard, d.fellCount, d.fellOther
+                if where ~= "none" then Core.threadBendTest = Bend(a, b, where) end
+                W.At(from[1], from[2])
+                W.Run({ W.Node(to[1], to[2]) }, 2)
+                local nav = ns.WaysState()
+                assert(W.Read().state == "net", ("%s, %s: test setup: a way of the net (%s)"):format(kind[1], where, W.Read().state))
+                -- the guessed edge is in the way shown
+                local c, found = nav.core.cf, false
+                for i = 2, c.n - 1 do
+                    if c.x[i] == b[1] and c.y[i] == b[2] and c.x[i - 1] == a[1] and c.y[i - 1] == a[2] and c.kind[i] == Core[kind[1]] then found = true end
+                end
+                assert(found, kind[1] .. ": test setup: the guessed edge is not in the way")
+                local shown = ns.WaysDisplay().kind
+                if where == "none" then
+                    assert(shown == "thread" and d.fellGuard == guard and d.fellCount == count, ("%s without a bend: %s, %d guard"):format(kind[1], shown, d.fellGuard - guard))
+                else
+                    assert(Core.threadBendTest == nil, kind[1] .. ", " .. where .. ": test setup: the bend was not put in")
+                    assert(shown == "centre" and d.fellGuard == guard + 1 and d.fellCount == count and d.fellOther == other,
+                        ("%s, a bend %s the crossing: %s, %d guard, %d counter, %d other"):format(kind[1], where, shown, d.fellGuard - guard, d.fellCount - count, d.fellOther - other))
+                end
+            end)
+            Core.threadBendTest = nil
+            W.Done()
+            if not ok then error(err, 0) end
+        end
+    end
+end)
 
 step("Ways donation: canonical own pieces, no private fields, bounds and sliced multipart export", function()
     assert(loadfile(ROOT .. "/tools/ways_donation_test.lua"))()("codec", {ns=ns})

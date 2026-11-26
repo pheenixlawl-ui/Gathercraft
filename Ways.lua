@@ -1928,6 +1928,39 @@ local function Within(T, j, kb, tb)
     return true
 end
 
+-- (0.2.4 a8, Codex M2, F4 §E) A guessed edge (CON, GREV) is the straight stretch between its middles, every
+-- piece of it: the line from the event before to the point (kb, tb) - the event, the thread's points between
+-- and the point - lies on the edge from middle j to middle j + 1, forwards (within THREAD_TOL), so a bend in
+-- the right square before or after the crossing gives the thread up too. No table, no function made.
+local function OnLine(ax, ay, dx, dy, len, px, py, last)
+    local qx, qy = px - ax, py - ay
+    local along, off = qx * dx + qy * dy, qx * dy - qy * dx
+    if off > THREAD_TOL or off < -THREAD_TOL or along < last - THREAD_TOL or along > len + THREAD_TOL then return nil end
+    if along > last then return along end
+    return last
+end
+local function OnEdge(T, j, kb, tb)
+    local c, t = T.c, T.t
+    local ax, ay = c.x[j], c.y[j]
+    local dx, dy = c.x[j + 1] - ax, c.y[j + 1] - ay
+    local len = sqrt(dx * dx + dy * dy)
+    if len <= 0 then return false end
+    dx, dy = dx / len, dy / len
+    local e = T.en
+    local last = OnLine(ax, ay, dx, dy, len, T.ex[e], T.ey[e], 0)
+    if not last then return false end
+    local tx, ty = t.x, t.y
+    for k = T.wk + 1, kb do
+        last = OnLine(ax, ay, dx, dy, len, tx[k], ty[k], last)
+        if not last then return false end
+    end
+    if kb < t.n then
+        last = OnLine(ax, ay, dx, dy, len, tx[kb] + tb * (tx[kb + 1] - tx[kb]), ty[kb] + tb * (ty[kb + 1] - ty[kb]), last)
+        if not last then return false end
+    end
+    return true
+end
+
 -- t from lo to hi of p + t d inside [b0, b1]
 local function Clip(p, d, b0, b1, lo, hi)
     if d == 0 then
@@ -1994,8 +2027,9 @@ local function EventSlot(T)
     if what == -1 then return Fail(T, "step") end
     local j = floor(u / 2)
     if u % 2 == 0 then
-        -- the anchor's middle that ends the stretch: its pair
+        -- the anchor's middle that ends the stretch: its pair (after a guessed edge into it: on that edge)
         if not Within(T, j, ke, 0) then return Fail(T, "guard") end
+        if Fixed(c.kind[j]) and not OnEdge(T, j - 1, ke, 0) then return Fail(T, "guard") end
         T.wu, T.wk, T.wt = u + 1, ke, 0
         Event(T, t.x[ke], t.y[ke], u, 3, c.raw[j], t.raw[ke])
         return StretchChecked(T)
@@ -2040,6 +2074,7 @@ local function EventSlot(T)
             -- (the guard: from the event before to this crossing inside square j; a guessed edge crossed
             -- at the middle of its side or at its corner - the straight stretch between its middles)
             if not Within(T, j, k, lo) then return Fail(T, "guard") end
+            if Fixed(c.kind[j + 1]) and not OnEdge(T, j, k, lo) then return Fail(T, "guard") end
             if Fixed(c.kind[j + 1]) then
                 local mx, my = (c.x[j] + c.x[j + 1]) / 2, (c.y[j] + c.y[j + 1]) / 2
                 local qx, qy = vx + lo * dx - mx, vy + lo * dy - my
@@ -2050,6 +2085,7 @@ local function EventSlot(T)
             if T.state == "work" and T.phase == 2 and u + 1 == T.vu[ke] and (u + 1) % 2 == 0 then
                 -- (the anchor's middle that ends the stretch right after: its pair in the same piece of work)
                 if not Within(T, j + 1, ke, 0) then return Fail(T, "guard") end
+                if Fixed(c.kind[j + 1]) and not OnEdge(T, j, ke, 0) then return Fail(T, "guard") end
                 T.wu, T.wk, T.wt = u + 2, ke, 0
                 Event(T, t.x[ke], t.y[ke], u + 1, 3, c.raw[j + 1], t.raw[ke])
             end
