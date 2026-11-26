@@ -1407,6 +1407,12 @@ end
 local THREAD_TOL = 0.01 -- yards: two events at one point (F4.1 §C)
 local ON_EPS = 1e-7     -- yards: a point on a passage (the thread's points are exact, its crossings nearly)
 local HALF = TILE / 2
+-- (0.2.4 a9, F4.6 §2) Two margins at the ends of a straight passage (a side): the funnel works on sides cut by
+-- 6 yd at both ends (the construction margin); the finished drawing - arcs and all - must cross every side
+-- inside the side cut by 4 yd (the check margin). A diagonal's corner stays a point.
+local BUILD_MARGIN, CHECK_MARGIN = 6, 4
+M.buildMargin, M.checkMargin = BUILD_MARGIN, CHECK_MARGIN
+M.sideShare = (HALF - BUILD_MARGIN) / TILE -- (Slot, Ends: half a side less the margin, as a share of the step)
 
 -- One job per navigation. t: the thread as a line (x, y, raw = yards along the thread; the points drawn
 -- and the view as the centre line has them). Per point: vu its slot (2j: the middle of square j, 2j + 1:
@@ -1451,19 +1457,21 @@ local function Slot(T, u)
     if (dx ~= 0 and dx ~= TILE and dx ~= -TILE) or (dy ~= 0 and dy ~= TILE and dy ~= -TILE) or (dx == 0 and dy == 0) then return -1 end
     local mx, my = x[j] + dx / 2, y[j] + dy / 2
     if dx ~= 0 and dy ~= 0 then return 1, mx, my end
-    -- left of the way: (-dy, dx), half a side
-    local hx, hy = -dy / 2, dx / 2
+    -- left of the way: (-dy, dx), half a side less the construction margin at each end (0.2.4 a9, F4.6 §2)
+    local hx, hy = -dy * M.sideShare, dx * M.sideShare
     return 2, mx + hx, my + hy, mx - hx, my - hy
 end
 
--- The two ends of the passage of step j (a corner: twice the same point); nil past the way's net part
+-- The two ends of the passage of step j (a corner: twice the same point); nil past the way's net part.
+-- (0.2.4 a9, F4.6 §2) A side is cut by the construction margin at both ends: the funnel, the events and the
+-- look ahead all work on the same shortened passages.
 local function Ends(c, j)
     if j < 2 or j > c.n - 2 then return end
     local x, y = c.x, c.y
     local dx, dy = x[j + 1] - x[j], y[j + 1] - y[j]
     local mx, my = x[j] + dx / 2, y[j] + dy / 2
     if dx ~= 0 and dy ~= 0 then return mx, my, mx, my, dx, dy end
-    local hx, hy = -dy / 2, dx / 2
+    local hx, hy = -dy * M.sideShare, dx * M.sideShare
     return mx + hx, my + hy, mx - hx, my - hy, dx, dy
 end
 
@@ -1793,8 +1801,9 @@ local function Broken(T, a, b)
     return ek[a] == 0 or ek[b] == 0 or ek[a] == ek[b]
 end
 
-local function Repair(T, a, b)
-    local ja, jb = floor(T.eu[a] / 2), floor(T.eu[b] / 2)
+-- (0.2.4 a9) jbTo: the last square to anchor when it is not the one of event b (a passage the thread missed)
+local function Repair(T, a, b, jbTo)
+    local ja, jb = floor(T.eu[a] / 2), jbTo or floor(T.eu[b] / 2)
     if not Book(T, jb - ja) then return end
     local added = 0
     local anchor = M.threadAnchorTest or IsAnchor -- (the tests: a square taken for an anchor already)
@@ -2060,6 +2069,10 @@ local function EventSlot(T)
                 T.phase = 1
                 return
             end
+            -- (0.2.4 a9, part 4) the thread written never crosses this passage (the funnel went past it: with the
+            -- sides cut by the margin, a way round a corner point and back out over it): the squares from the
+            -- last event's to the one beyond this passage become protective anchors, the thread is found anew
+            if T.en >= 1 then return Repair(T, T.en, T.en, j + 1) end
             return Fail(T, "event")
         end
         local vx, vy = tx[k], ty[k]

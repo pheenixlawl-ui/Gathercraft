@@ -35989,22 +35989,23 @@ step("Ways 0.2.4 S1.1 B2: the thread - the line pulled tight through the passage
     local function Event(slot)
         for e = 1, T.en do if T.eu[e] == slot then return T.es[e], T.er[e], T.ek[e] end end
     end
-    -- 1. Codex' L of 100 yd (R2/R3): the corner square is cut at its corner (allowed: two sides at right
-    -- angles), the passages at 13.1762 and 39.5285 yd along the thread (at 12.5 and 37.5 along the way)
+    -- 1. Codex' L of 100 yd (R2/R3): the corner square is cut round its corner - (0.2.4 a9, F4.6 §2) 6 yd off it
+    -- on both sides (the sides cut by the construction margin); the passages at 12.6864 and 38.0592 yd along the
+    -- thread (at 12.5 and 37.5 along the way), the side after the corner 8.4853 yd on (no longer at one point)
     do
         local sq = { { 0, 0 }, { 1, 0 }, { 2, 0 }, { 2, 1 }, { 2, 2 } }
         local state, reason = Thread(sq)
         assert(state == "done", "the L: " .. tostring(reason))
-        assert(Points() == "12.5,12.5 12.5,12.5 50,25 62.5,62.5 62.5,62.5", "the L's thread: " .. Points())
+        assert(Points() == "12.5,12.5 12.5,12.5 50,19 56,25 62.5,62.5 62.5,62.5", "the L's thread: " .. Points())
         local s1, r1 = Event(5)
         local s2, r2 = Event(7)
         local s3, r3, k3 = Event(9)
-        assert(Tol(s1, 13.1762) and Near(r1, 12.5) and Tol(s2, 39.5285) and Near(r2, 37.5), ("the L's passages: %.4f / %.4f at %.1f / %.1f"):format(s1, s2, r1, r2))
-        assert(Near(s3, s2) and Near(r3, 62.5) and k3 == 2, "the L: the two sides at the corner at one point")
+        assert(Tol(s1, 12.6864) and Near(r1, 12.5) and Tol(s2, 38.0592) and Near(r2, 37.5), ("the L's passages: %.4f / %.4f at %.1f / %.1f"):format(s1, s2, r1, r2))
+        assert(Tol(s3, 38.0592 + 8.4853) and Near(r3, 62.5) and k3 == 2, "the L: the side after the corner 6 yd up and 6 yd across")
         assert(T.repairs == 0 and T.used <= T.limit, "the L: no repair")
         -- both ways round
         state = Thread({ { 2, 2 }, { 2, 1 }, { 2, 0 }, { 1, 0 }, { 0, 0 } })
-        assert(state == "done" and Points() == "62.5,62.5 62.5,62.5 50,25 12.5,12.5 12.5,12.5", "the L the other way: " .. Points())
+        assert(state == "done" and Points() == "62.5,62.5 62.5,62.5 56,25 50,19 12.5,12.5 12.5,12.5", "the L the other way: " .. Points())
     end
     -- 2. a stair of one ride (Codex' 80 steps): a few straight stretches, every diagonal's corner on it
     do
@@ -36046,23 +36047,24 @@ step("Ways 0.2.4 S1.1 B2: the thread - the line pulled tight through the passage
         local state = Thread({ { 0, 0 }, { 1, 1 }, { 2, 2 }, { 3, 2 } })
         assert(state == "done" and Points() == "12.5,12.5 12.5,12.5 25,25 50,50 87.5,62.5 87.5,62.5", "two diagonals: " .. Points())
     end
-    -- 5. Codex' U (R1): no way round the corner at (25, 25) - the middles of (1,0) and (1,1) are anchors
+    -- 5. Codex' U (R1): round the corner at (25, 25) - (0.2.4 a9, F4.6 §2) the three sides cut by 6 yd share no
+    -- point any more: the thread goes round 6 yd off the corner through the squares (1,0) and (1,1), no anchor
+    -- (a8: the middles of (1,0) and (1,1) anchors, the corner itself three passages at one point)
     do
         local sq = { { -2, 0 }, { -1, 0 }, { 0, 0 }, { 1, 0 }, { 1, 1 }, { 0, 1 }, { -1, 1 }, { -2, 1 } }
         local state, reason = Thread(sq)
         assert(state == "done", "the U: " .. tostring(reason))
-        assert(Points() == "-37.5,12.5 -37.5,12.5 37.5,12.5 37.5,37.5 -37.5,37.5 -37.5,37.5", "the U is cut short: " .. Points())
-        -- (0.2.4 a8, Codex M1: the look ahead only proposes - here decided when the funnel comes to the middle
-        -- after the first side: the funnel writes the corner next, straight from the thread's last point)
-        assert(Core.ThreadAnchor(T, 5) and Core.ThreadAnchor(T, 6) and T.repairs == 0, "the U: its protective anchors, decided as the funnel came to them")
+        assert(Points() == "-37.5,12.5 -37.5,12.5 25,19 31,25 25,31 -37.5,37.5 -37.5,37.5", "the U: " .. Points())
+        assert(not Core.ThreadAnchor(T, 5) and not Core.ThreadAnchor(T, 6) and T.repairs == 0, "the U: no protective anchor needed")
     end
-    -- 6. a diagonal's corner and a side back over it (a turn back): the square between is an anchor
+    -- 6. a diagonal's corner and a side back over it (a turn back): (0.2.4 a9) the side cut by 6 yd - from the
+    -- corner along the side to its cut end, no anchor (a8: the square between an anchor)
     do
         local state = Thread({ { -1, 0 }, { 0, 0 }, { 1, 1 }, { 0, 1 }, { -1, 1 } })
-        assert(state == "done" and Points() == "-12.5,12.5 -12.5,12.5 25,25 37.5,37.5 -12.5,37.5 -12.5,37.5", "a diagonal and a side back: " .. Points())
+        assert(state == "done" and Points() == "-12.5,12.5 -12.5,12.5 25,25 25,31 -12.5,37.5 -12.5,37.5", "a diagonal and a side back: " .. Points())
         -- and a side, then a diagonal back over its end
         state = Thread({ { -1, 0 }, { 0, 0 }, { 1, 0 }, { 0, 1 }, { -1, 1 } })
-        assert(state == "done" and Points() == "-12.5,12.5 -12.5,12.5 37.5,12.5 25,25 -12.5,37.5 -12.5,37.5", "a side and a diagonal back: " .. Points())
+        assert(state == "done" and Points() == "-12.5,12.5 -12.5,12.5 25,19 25,25 -12.5,37.5 -12.5,37.5", "a side and a diagonal back: " .. Points())
     end
     -- 7. the same side passed back (A -> B -> A): the middle of B
     do
@@ -36127,31 +36129,29 @@ step("Ways 0.2.4 S1.1 B2: the thread - the line pulled tight through the passage
         assert(state == "done" and Points():find("62.5,12.5 75,25 87.5,37.5", 1, true), "a connector: " .. Points())
         -- (0.2.4 a9, F4.5 §2: a GREV edge is smoothed - its middles are no points of the thread)
         state = Thread({ { 0, 0 }, { 1, 0 }, { 2, 0 }, { 3, 0 }, { 4, 0 }, { 5, 1 }, { 6, 1 } }, { 1, GREV, 1, 1, 1, 1 }, nil, nil, 100)
-        assert(state == "done" and Points() == "12.5,12.5 12.5,12.5 125,25 162.5,37.5 162.5,37.5", "the guessed way back, smoothed: " .. Points())
+        assert(state == "done" and Points() == "12.5,12.5 12.5,12.5 100,19 125,25 162.5,37.5 162.5,37.5", "the guessed way back, smoothed: " .. Points())
         state = Thread({ { 0, 0 }, { 1, 0 }, { 2, 1 }, { 3, 1 }, { 4, 2 }, { 5, 2 } }, { 1, CON, GREV, 1, 1 }, nil, nil, 100)
         -- (0.2.4 a9: the CON stays from middle to middle over its corner, the GREV after it is smoothed)
         assert(state == "done" and Points() == "12.5,12.5 12.5,12.5 37.5,12.5 50,25 62.5,37.5 100,50 137.5,62.5 137.5,62.5", "two guessed in a row: " .. Points())
     end
-    -- 14. the events find what the look ahead would have: with it off, the U is found (three passages at
-    -- one point), repaired with the same anchors, and the thread is the same; the check goes over the
-    -- border of two stretches (a diagonal's corner ends one, the side back over it begins the next)
+    -- 14. the events find what the look ahead would have: with it off the U and the turn back over a corner are
+    -- the same threads - (0.2.4 a9, F4.6 §2) no repair any more, the sides cut by 6 yd share no point; a way round
+    -- a corner point and out over it again (part 4) is repaired by the events - the passage the funnel missed:
+    -- the squares at the corner protective anchors; a repair that would add no anchor: given up
     do
         Core.threadAhead = false
         local ok, err = pcall(function()
             local state = Thread({ { -2, 0 }, { -1, 0 }, { 0, 0 }, { 1, 0 }, { 1, 1 }, { 0, 1 }, { -1, 1 }, { -2, 1 } }, nil, nil, nil, 100)
-            assert(state == "done" and T.repairs == 1 and Points() == "-37.5,12.5 -37.5,12.5 37.5,12.5 37.5,37.5 -37.5,37.5 -37.5,37.5", "the U repaired: " .. Points() .. ", " .. T.repairs)
+            assert(state == "done" and T.repairs == 0 and Points() == "-37.5,12.5 -37.5,12.5 25,19 31,25 25,31 -37.5,37.5 -37.5,37.5", "the U, the events alone: " .. Points() .. ", " .. T.repairs)
             state = Thread({ { -1, 0 }, { 0, 0 }, { 1, 1 }, { 0, 1 }, { -1, 1 } }, nil, nil, nil, 100)
-            assert(state == "done" and T.repairs == 1 and Points() == "-12.5,12.5 -12.5,12.5 25,25 37.5,37.5 -12.5,37.5 -12.5,37.5", "over the border: " .. Points())
-            -- with a counter of 4 times the passages (a7/a8's) the repair of the U is too much: the centre line;
-            -- with a9's 16 times (part 2) it is done
+            assert(state == "done" and T.repairs == 0 and Points() == "-12.5,12.5 -12.5,12.5 25,25 25,31 -12.5,37.5 -12.5,37.5", "over the border: " .. Points())
+            local round = { { 0, 0 }, { -1, 1 }, { 0, 2 }, { 1, 1 }, { 1, 2 }, { 0, 1 }, { -1, 0 }, { -2, 1 }, { -3, 0 } }
             local reason
-            state, reason = Thread({ { -2, 0 }, { -1, 0 }, { 0, 0 }, { 1, 0 }, { 1, 1 }, { 0, 1 }, { -1, 1 }, { -2, 1 } }, nil, nil, nil, 4 * 7)
-            assert(state == "failed" and reason == "count", "the U repaired within the counter: " .. tostring(reason))
-            state, reason = Thread({ { -2, 0 }, { -1, 0 }, { 0, 0 }, { 1, 0 }, { 1, 1 }, { 0, 1 }, { -1, 1 }, { -2, 1 } })
-            assert(state == "done" and T.repairs == 1, "the U repaired within 16 times the passages: " .. tostring(reason))
+            state, reason = Thread(round, nil, { 1.5, 23.5 }, { -59.5, 11.5 })
+            assert(state == "done" and T.repairs >= 1 and Points():find("37.5,37.5 37.5,62.5", 1, true), "round a corner, the events alone: " .. tostring(reason) .. " " .. Points())
             -- a repair that would add no anchor (all squares between taken for anchors): the centre line at once
             Core.threadAnchorTest = function() return true end
-            state, reason = Thread({ { -2, 0 }, { -1, 0 }, { 0, 0 }, { 1, 0 }, { 1, 1 }, { 0, 1 }, { -1, 1 }, { -2, 1 } }, nil, nil, nil, 100)
+            state, reason = Thread(round, nil, { 1.5, 23.5 }, { -59.5, 11.5 }, 100)
             assert(state == "failed" and reason == "repair", "a repair with no new anchor: " .. tostring(reason))
         end)
         Core.threadAhead, Core.threadAnchorTest = nil, nil
@@ -36187,7 +36187,8 @@ step("Ways 0.2.4 S1.1 B3: the display on the thread - d mapped through the pairs
     local function Nav() return (ns.WaysState()) end
     local function Shown() return ns.WaysRead(ns.run) end
     -- 1. Codex' 75/70 (R2, R3): the L of 100 yd, you on the middle (37.5 | 12.5): the navigation 25 / 75 / 0,
-    -- the display on the thread at 26.3523 yd (on the centre line: 25)
+    -- the display on the thread at 25.3728 yd (on the centre line: 25) - (0.2.4 a9, F4.6 §2: the corner cut 6 yd
+    -- off it, the pairs at 12.6864 / 38.0592 / 46.5445 for 12.5 / 37.5 / 62.5)
     do
         local W = World({ { 0, 0 }, { 1, 0 }, { 2, 0 }, { 2, 1 }, { 2, 2 } })
         local ok, err = pcall(function()
@@ -36201,23 +36202,24 @@ step("Ways 0.2.4 S1.1 B3: the display on the thread - d mapped through the pairs
             local core, r, disp = Nav().core, Shown(), ns.WaysDisplay()
             assert(Tol(core.pos, 25, 0.005) and Tol(core.rest, 75, 0.005) and Tol(math.sqrt(core.offD), 0, 0.005) and core.on,
                 ("the navigation with the thread shown: %.4f / %.4f / %.4f"):format(core.pos, core.rest, math.sqrt(core.offD)))
-            assert(disp.kind == "thread" and r.points == ns.WaysThread().t.view and Tol(r.pos, 26.3523),
-                ("the display on the thread: %s at %.4f, want 26.3523"):format(disp.kind, r.pos))
-            -- its own segment: the thread drawn is (12.5|12.5) (50|25) (62.5|62.5); 26.35 yd is on the first
+            assert(disp.kind == "thread" and r.points == ns.WaysThread().t.view and Tol(r.pos, 25.3728),
+                ("the display on the thread: %s at %.4f, want 25.3728"):format(disp.kind, r.pos))
+            -- its own segment: the thread drawn is (12.5|12.5) (50|19) (56|25) (62.5|62.5); 25.37 yd is on the first
             assert(r.seg == 1 and disp.seg == 1, "the display's segment: " .. r.seg)
-            -- the arrow: 30 yd ahead on the thread, from 26.3523: 16.8238 yd into the second stretch
+            -- the arrow: 30 yd ahead on the thread, from 25.3728: 8.8283 yd into the third stretch (from (56|25))
             local ax, ay = ns.WaysArrow(ns.run, W.World(37.5, 12.5))
-            local u = (26.3523 + 30 - 39.5285) / math.sqrt(12.5 ^ 2 + 37.5 ^ 2)
-            assert(ax and Tol(ax - (W.Z - 1400) * 6000, 50 + 12.5 * u, 0.002) and Tol(ay, 25 + 37.5 * u, 0.002),
+            local u = (25.3728 + 30 - 46.5445) / math.sqrt(6.5 ^ 2 + 37.5 ^ 2)
+            assert(ax and Tol(ax - (W.Z - 1400) * 6000, 56 + 6.5 * u, 0.002) and Tol(ay, 25 + 37.5 * u, 0.002),
                 ("the arrow on the thread: %.4f, %.4f"):format((ax or 0) - (W.Z - 1400) * 6000, ay or 0))
             -- the same place with the centre line shown: the place is d itself; and the thread again
             ns.WaysPublishDisplay()
             assert(ns.WaysDisplay().kind == "centre" and Tol(Shown().pos, 25, 0.005), ("on the centre line: %.4f, want 25"):format(Shown().pos))
-            assert(ns.WaysThreadNow() == "done" and Tol(Shown().pos, 26.3523), ("the thread again: %.4f"):format(Shown().pos))
-            -- the corner of the L: d from 37.5 to 62.5 (two passages at one point) - the place stands still
+            assert(ns.WaysThreadNow() == "done" and Tol(Shown().pos, 25.3728), ("the thread again: %.4f"):format(Shown().pos))
+            -- the corner of the L: d from 37.5 to 62.5 - (0.2.4 a9) the corner cut 6 yd off, the two sides 8.4853 yd
+            -- apart along the thread: the place goes along the cut, half way at d = 50
             W.At(2, 0)
             advance(0.2)
-            assert(Tol(Shown().pos, 39.5285), ("at the L's corner: %.4f, want 39.5285"):format(Shown().pos))
+            assert(Tol(Shown().pos, 42.3018), ("at the L's corner: %.4f, want 42.3018"):format(Shown().pos))
         end)
         W.Done()
         if not ok then error(err, 0) end
@@ -36286,9 +36288,10 @@ step("Ways 0.2.4 S1.1 B3: the display on the thread - d mapped through the pairs
             assert(ns.WaysThreadNow() == "done", "test setup: the L's thread")
             local r = Shown()
             local b = r.points
-            -- (the points drawn: you, the corner, the node; you on the first middle - no bit drawn for it)
-            assert(b.n == 3 and Near(b.cum[2], 39.5284707521) and r.seg == 1, ("the L drawn: %d points, segment %d"):format(b.n, r.seg))
-            -- the corner itself: d = 37.5 maps to 39.5285 = the border of segments 1 and 2 -> segment 2
+            -- (the points drawn: you, the two ends of the cut corner, the node; you on the first middle - no bit
+            -- drawn for it; 0.2.4 a9: the corner cut 6 yd off it)
+            assert(b.n == 4 and Near(b.cum[2], math.sqrt(1448.5)) and r.seg == 1, ("the L drawn: %d points, segment %d"):format(b.n, r.seg))
+            -- the passage into the corner square: d = 37.5 maps to 38.0592 = the border of segments 1 and 2 -> segment 2
             W.At(1, 0, 12.5, 0) -- (50 | 12.5): on the way at d = 37.5
             advance(0.2)
             r = Shown()
@@ -36296,7 +36299,7 @@ step("Ways 0.2.4 S1.1 B3: the display on the thread - d mapped through the pairs
             W.At(2, 2)
             advance(0.2)
             r = Shown()
-            assert(Tol(r.pos, b.len, 1e-6) and r.seg == 2, ("at the end: %.6f of %.6f, segment %d"):format(r.pos, b.len, r.seg))
+            assert(Tol(r.pos, b.len, 1e-6) and r.seg == 3, ("at the end: %.6f of %.6f, segment %d"):format(r.pos, b.len, r.seg))
             -- the arrow: the point 30 yd ahead is on the last bit (here of no length): the node
             assert(ns.WaysArrow(ns.run, W.World(62.5, 62.5)) == nil, "the arrow at the end turns to a point, not the node")
         end)
@@ -36622,13 +36625,16 @@ step("Ways 0.2.4 S1.1 B5: the thread's own job - after the way is published (the
             Core.threadBendTest = function(T)
                 local t = T.t
                 if t.n ~= 3 then return end
-                t.x[4], t.y[4], T.vu[4], T.va[4] = t.x[3], t.y[3], T.vu[3], T.va[3]
-                t.x[3], t.y[3], T.vu[3], T.va[3] = 287.5, 248, 5, 0 -- (in square (11,9): 2 yd off (11,10))
-                for k = 3, 4 do
+                -- (0.2.4 a9: two points, so that both sides are still crossed inside their cut parts - the bend
+                -- 2 yd off (11,10) in square (11,9), then back to the side's middle height before x = 300)
+                t.x[5], t.y[5], T.vu[5], T.va[5] = t.x[3], t.y[3], T.vu[3], T.va[3]
+                t.x[3], t.y[3], T.vu[3], T.va[3] = 295, 248, 5, 0
+                t.x[4], t.y[4], T.vu[4], T.va[4] = 299, 262.5, 5, 0
+                for k = 3, 5 do
                     local dx, dy = t.x[k] - t.x[k - 1], t.y[k] - t.y[k - 1]
                     t.raw[k] = t.raw[k - 1] + math.sqrt(dx * dx + dy * dy)
                 end
-                t.n = 4
+                t.n = 5
                 Core.threadBendTest = nil
             end
             W.At(10, 10)
@@ -36793,13 +36799,15 @@ step("Ways 0.2.4 S1.1 B5: the thread's own job - after the way is published (the
             Core.threadBendTest = function(T)
                 local t = T.t
                 if t.n ~= 3 then return end
-                t.x[4], t.y[4], T.vu[4], T.va[4] = t.x[3], t.y[3], T.vu[3], T.va[3]
-                t.x[3], t.y[3], T.vu[3], T.va[3] = 287.5, 250 - case[1], 5, 0 -- (below the side y = 250 of (11,10))
-                for k = 3, 4 do
+                -- (0.2.4 a9: two points - both sides crossed inside their cut parts, the bend below y = 250 between)
+                t.x[5], t.y[5], T.vu[5], T.va[5] = t.x[3], t.y[3], T.vu[3], T.va[3]
+                t.x[3], t.y[3], T.vu[3], T.va[3] = 295, 250 - case[1], 5, 0 -- (below the side y = 250 of (11,10))
+                t.x[4], t.y[4], T.vu[4], T.va[4] = 299, 262.5, 5, 0
+                for k = 3, 5 do
                     local dx, dy = t.x[k] - t.x[k - 1], t.y[k] - t.y[k - 1]
                     t.raw[k] = t.raw[k - 1] + math.sqrt(dx * dx + dy * dy)
                 end
-                t.n = 4
+                t.n = 5
                 Core.threadBendTest = nil
             end
             W.At(10, 10)
@@ -36893,8 +36901,9 @@ step("Ways 0.2.4 S1.1 R1 M1: the look ahead only proposes - protective anchors o
         local sq = { { 11, 15 }, { 12, 15 }, { 12, 16 }, { 12, 17 }, { 12, 18 }, { 12, 19 }, { 11, 19 }, { 11, 20 }, { 12, 20 } }
         local state, reason = Thread(sq)
         assert(state == "done", "the nine squares: " .. tostring(reason))
-        assert(math.abs(T.t.len - 135.3553) < 1e-4, ("the nine squares: %.4f yd shown, 135.3553 without a detour"):format(T.t.len))
-        assert(Points() == "287.5,387.5 287.5,387.5 300,400 300,475 300,500 312.5,512.5 312.5,512.5", "the nine squares: " .. Points())
+        -- (0.2.4 a9, F4.6 §2: 6 yd off the corners it bends round - 147.8794 yd, a8 135.3553)
+        assert(math.abs(T.t.len - 147.8794) < 1e-4, ("the nine squares: %.4f yd shown, 147.8794 without a detour"):format(T.t.len))
+        assert(Points() == "287.5,387.5 287.5,387.5 300,394 306,400 306,475 294,500 300,506 312.5,512.5 312.5,512.5", "the nine squares: " .. Points())
         assert(Protected() == 0 and T.repairs == 0 and T.used <= T.limit, ("the nine squares: %d protective anchors, %d repairs, %d of %d booked"):format(Protected(), T.repairs, T.used, T.limit))
         local whole = Whole()
         assert(Thread(sq, false) == "done" and Whole() == whole, "the nine squares: not the thread found without a look ahead")
@@ -36907,9 +36916,10 @@ step("Ways 0.2.4 S1.1 R1 M1: the look ahead only proposes - protective anchors o
     -- once, as in a7. All within 4 times the passages.
     do
         local cases = {
-            { { { -2, 0 }, { -1, 0 }, { 0, 0 }, { 1, 0 }, { 1, 1 }, { 0, 1 }, { -1, 1 }, { -2, 1 } }, "-37.5,12.5 -37.5,12.5 37.5,12.5 37.5,37.5 -37.5,37.5 -37.5,37.5", 2, 0 },
-            { { { -1, 0 }, { 0, 0 }, { 1, 0 }, { 0, 1 }, { -1, 1 } }, "-12.5,12.5 -12.5,12.5 37.5,12.5 25,25 -12.5,37.5 -12.5,37.5", 1, 0 },
-            { { { -1, 0 }, { 0, 0 }, { 1, 1 }, { 0, 1 }, { -1, 1 } }, "-12.5,12.5 -12.5,12.5 25,25 37.5,37.5 -12.5,37.5 -12.5,37.5", 1, 0 },
+            -- (0.2.4 a9, F4.6 §2: with the sides cut by 6 yd none of these breaks the rules any more - no anchor)
+            { { { -2, 0 }, { -1, 0 }, { 0, 0 }, { 1, 0 }, { 1, 1 }, { 0, 1 }, { -1, 1 }, { -2, 1 } }, "-37.5,12.5 -37.5,12.5 25,19 31,25 25,31 -37.5,37.5 -37.5,37.5", 0, 0 },
+            { { { -1, 0 }, { 0, 0 }, { 1, 0 }, { 0, 1 }, { -1, 1 } }, "-12.5,12.5 -12.5,12.5 25,19 25,25 -12.5,37.5 -12.5,37.5", 0, 0 },
+            { { { -1, 0 }, { 0, 0 }, { 1, 1 }, { 0, 1 }, { -1, 1 } }, "-12.5,12.5 -12.5,12.5 25,25 25,31 -12.5,37.5 -12.5,37.5", 0, 0 },
         }
         for i, case in ipairs(cases) do
             local state, reason = Thread(case[1])
@@ -36921,7 +36931,7 @@ step("Ways 0.2.4 S1.1 R1 M1: the look ahead only proposes - protective anchors o
         -- a side, then a diagonal over its end that the thread comes to along the side: no anchor (a7 made the
         -- thread go round the middle of (1,0), 10.36 yd longer)
         state = Thread({ { 1, -2 }, { 0, -1 }, { 0, 0 }, { 1, 0 }, { 0, 1 } })
-        assert(state == "done" and Points() == "37.5,-37.5 37.5,-37.5 25,-25 25,0 25,25 12.5,37.5 12.5,37.5" and Protected() == 0,
+        assert(state == "done" and Points() == "37.5,-37.5 37.5,-37.5 25,-25 19,0 25,19 25,25 12.5,37.5 12.5,37.5" and Protected() == 0,
             "a side and a diagonal over its end, the thread along the side: " .. Points())
     end
     -- 3. a long straight ride, then a U at its end: within 4 times the passages, the thread the events alone find,
@@ -36931,11 +36941,12 @@ step("Ways 0.2.4 S1.1 R1 M1: the look ahead only proposes - protective anchors o
         for x = 0, 30 do sq[#sq + 1] = { x, 0 } end
         sq[#sq + 1] = { 30, 1 }
         for x = 29, 26, -1 do sq[#sq + 1] = { x, 1 } end
+        -- (0.2.4 a9: the U at its end needs no anchor any more - the same thread and work with and without the look ahead)
         local state, reason = Thread(sq)
-        assert(state == "done" and Protected() == 2, "the ride and its U: " .. tostring(reason) .. ", " .. Protected() .. " protective anchors")
+        assert(state == "done" and Protected() == 0, "the ride and its U: " .. tostring(reason) .. ", " .. Protected() .. " protective anchors")
         local whole, used = Whole(), T.used
         state = Thread(sq, false, 100)
-        assert(state == "done" and Whole() == whole and T.repairs == 1 and used < T.used, ("the ride and its U: %d booked with the look ahead, %d by the events alone"):format(used, T.used))
+        assert(state == "done" and Whole() == whole and T.repairs == 0 and used == T.used, ("the ride and its U: %d booked with the look ahead, %d by the events alone"):format(used, T.used))
     end
     -- 3b. where it cannot be decided as the funnel comes to it, the thread is found anew from the proposal: a U whose
     -- corner the funnel writes later (confirmed then), a U the events find broken (repaired from the proposal) -
@@ -36948,7 +36959,8 @@ step("Ways 0.2.4 S1.1 R1 M1: the look ahead only proposes - protective anchors o
         for i, sq in ipairs(cases) do
             local state, reason = Thread(sq, nil, 100)
             local len, rep, t = T.t.len, T.repairs, T.t
-            assert(state == "done" and rep >= 1, ("winding ride %d: %s %s, %d repairs"):format(i, state, tostring(reason), rep))
+            -- (0.2.4 a9: with the cut sides no repair is needed any more - done, on the squares, never longer)
+            assert(state == "done", ("winding ride %d: %s %s, %d repairs"):format(i, state, tostring(reason), rep))
             for k = 2, t.n - 1 do
                 local inside = false
                 for _, q in ipairs(sq) do
@@ -37538,6 +37550,48 @@ step("Ways 0.2.4 S1.1 a9 part 3: a GREV edge is smoothed like OBS and REV, only 
     if W.keepStep then Core.KeepStep = W.keepStep end
     W.Done()
     if not ok then error(err, 0) end
+end)
+
+step("Ways 0.2.4 S1.1 a9 part 4: the funnel works on sides cut by 6 yd at both ends (the construction margin) - the thread keeps 6 yd from the squares' corners it bends around; a diagonal's corner stays a point; the check margin is 4 yd (0.2.4 a9, F4.6 §2)", function()
+    local Core = ns.WaysCore
+    assert(Core.buildMargin == 6 and Core.checkMargin == 4, "the margins: 6 yd to build, 4 yd to check")
+    local T = Core.NewThread()
+    local function Points()
+        local t, out = T.t, {}
+        for k = 1, t.n do out[k] = ("%g,%g"):format(t.x[k], t.y[k]) end
+        return table.concat(out, " ")
+    end
+    -- Codex' tight S curve (east, east, north, north, east, east): its four bends 6 yd from the corners
+    local state, reason = Core.Thread(T, A9.Centre(A9.Walk(0, 0, "EENNEE")), 1)
+    assert(state == "done" and Points() == "12.5,12.5 12.5,12.5 50,19 56,25 69,50 75,56 112.5,62.5 112.5,62.5", "the S curve: " .. Points() .. " " .. tostring(reason))
+    -- Codex' U (east, north, west): round the inner corner at (25, 25) 6 yd off on each side, no anchor needed
+    state, reason = Core.Thread(T, A9.Centre(A9.Walk(0, 0, "ENW")), 1)
+    assert(state == "done" and Points() == "12.5,12.5 12.5,12.5 25,19 31,25 25,31 12.5,37.5 12.5,37.5" and T.repairs == 0, "the U: " .. Points() .. " " .. tostring(reason))
+    -- a way round a corner point and out over it again (in over the corner (25, 50), the side y = 50 between, out
+    -- over the corner again): the funnel goes from the corner straight back to it and misses the cut side - the
+    -- events repair it, the squares at the corner protective anchors: the thread goes round through their middles
+    local sq = { { 0, 0 }, { -1, 1 }, { 0, 2 }, { 1, 1 }, { 1, 2 }, { 0, 1 }, { -1, 0 }, { -2, 1 }, { -3, 0 } }
+    state, reason = Core.Thread(T, A9.Centre(sq, nil, { 1.5, 23.5 }, { -59.5, 11.5 }), 1)
+    assert(state == "done" and T.repairs >= 1, "round the corner and out over it: " .. tostring(reason) .. ", " .. T.repairs .. " repairs")
+    assert(Points():find("37.5,37.5 37.5,62.5", 1, true), "round the corner: through the middles of the squares at it: " .. Points())
+    -- every point of a thread on a side lies 6 yd or more from the side's ends (twelve GREV edges and a stair of
+    -- diagonals and sides); a diagonal's corner is passed at its point
+    local kinds = {}
+    for i = 1, 12 do kinds[i] = Core.GREV end
+    for _, way in ipairs({ { A9.Walk(10, 10, "ENENENENENEN"), kinds }, { A9.Walk(0, 0, "EENEENNWNNEE") } }) do
+        local c = way[1]
+        state = Core.Thread(T, A9.Centre(c, way[2]), 1)
+        assert(state == "done", "test setup: a thread")
+        for k = 2, T.t.n - 1 do
+            local x, y = T.t.x[k], T.t.y[k]
+            local fx, fy = x / 25 - math.floor(x / 25), y / 25 - math.floor(y / 25)
+            local onX, onY = fx == 0, fy == 0
+            if onX ~= onY then
+                local along = onX and y - math.floor(y / 25) * 25 or x - math.floor(x / 25) * 25
+                assert(along >= 6 - 1e-9 and along <= 19 + 1e-9, ("(%g, %g): %g yd from a corner of its side"):format(x, y, math.min(along, 25 - along)))
+            end
+        end
+    end
 end)
 
 step("Ways donation: canonical own pieces, no private fields, bounds and sliced multipart export", function()
