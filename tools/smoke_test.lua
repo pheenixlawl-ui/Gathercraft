@@ -21012,6 +21012,117 @@ step("Sync 0.2.4 a16: the guild echo is learned only from a send the game took -
     advance(10)
     if not ok then error(err, 0) end
 end)
+-- (0.2.4 a16, order 2026-11-27_claude_auftrag_0.2.4-a16 part 2; a player on Discord: GathercraftSync landed on /1) A
+-- slow client had not joined General yet when the fixed 8 s after the login were over. Now the join waits for General
+-- (or another zone channel) in the channel list, 8 s at the earliest, 30 s at the latest (an instance, no General).
+-- What tells: the channel notice of a zone channel joined (CHAT_MSG_CHANNEL_NOTICE, its zone channel id > 0) or the
+-- list's update (CHANNEL_UI_UPDATE) with a name of the game's server channels in GetChannelList - each on its own.
+-- Driven by events and two one-shot timers, no ticker; one join, no other channel left or moved; with the public channel
+-- off never a join. The login of the Sync module alone (its frame), the mock's clock in steps of 0.25 s.
+step("Sync 0.2.4 a16: GathercraftSync is joined behind General - at 8 s when a zone channel is listed already, right after it when it comes between 8 and 30 s (the channel notice or the list's update, each alone), at 30 s without one; public off never; once, no ticker, no other channel touched", function()
+    local keep = { chan = GetChannelName, join = JoinTemporaryChannel, leave = LeaveChannelByName, list = GetChannelList,
+        server = EnumerateServerChannels, ticker = C_Timer.NewTicker, debug = ns.db.debug, public = ns.db.sync.public,
+        enabled = ns.db.sync.enabled }
+    local sync
+    for f in pairs(eventFrames.PLAYER_LOGIN or {}) do
+        if eventFrames.CHAT_MSG_ADDON and eventFrames.CHAT_MSG_ADDON[f] and eventFrames.ZONE_CHANGED_NEW_AREA and eventFrames.ZONE_CHANGED_NEW_AREA[f] then
+            assert(not sync, "test setup: two frames look like the Sync module's")
+            sync = f
+        end
+    end
+    assert(sync, "test setup: the Sync module's frame")
+    local listed, inSync, joins, leaves, tickers = {}, false, {}, 0, 0
+    local ok, err = pcall(function()
+        GetChannelList = function()
+            local t = {}
+            for i, name in ipairs(listed) do t[#t + 1], t[#t + 2], t[#t + 3] = i, name, false end
+            if inSync then t[#t + 1], t[#t + 2], t[#t + 3] = #listed + 1, "GathercraftSync", false end
+            return unpack(t)
+        end
+        EnumerateServerChannels = function() return "General", "Trade", "LocalDefense", "LookingForGroup" end
+        GetChannelName = function(name)
+            if name == "GathercraftSync" then return inSync and 9 or 0, name end
+            return 0
+        end
+        JoinTemporaryChannel = function(name) joins[#joins + 1] = { name = name, at = NOW } inSync = true end
+        LeaveChannelByName = function() leaves = leaves + 1 end
+        C_Timer.NewTicker = function(...) tickers = tickers + 1 return keep.ticker(...) end
+        ns.db.debug = true
+        -- one login: what to do at which second (0.25 s steps), until 60 s; the second GathercraftSync was there
+        local function Login(public, plan)
+            slash("sync off") -- (out of the channel: the next join is the login's)
+            advance(1)
+            ns.db.sync.enabled, ns.db.sync.public = true, public
+            for k in pairs(joins) do joins[k] = nil end
+            leaves, tickers = 0, 0
+            local t0 = NOW
+            sync.__scripts.OnEvent(sync, "PLAYER_LOGIN")
+            local at
+            for i = 1, 240 do
+                local s = i * 0.25
+                if plan[s] then plan[s]() end
+                advance(0.25)
+                if not at and select(4, ns.SyncSummary()) then at = NOW - t0 end
+            end
+            return at
+        end
+        local function General(how)
+            return function()
+                if how ~= "notice" then listed[#listed + 1] = "General" end
+                if how ~= "list" then fire("CHAT_MSG_CHANNEL_NOTICE", "YOU_CHANGED", "", "", "1. General - Durotar", "", "", 1, 1, "General") end
+                if how ~= "notice" then fire("CHANNEL_UI_UPDATE") end
+            end
+        end
+        local function Case(what, public, plan, want, joined)
+            local at = Login(public, plan)
+            if want then
+                assert(at and at >= want - 0.01 and at <= want + 0.26, ("%s: in the channel at %s s (wanted %s)"):format(what, tostring(at), want))
+            else
+                assert(not at, ("%s: in the channel at %s s (wanted never)"):format(what, tostring(at)))
+            end
+            assert(#joins == joined, ("%s: %d joins (wanted %d)"):format(what, #joins, joined))
+            for _, j in ipairs(joins) do assert(j.name == "GathercraftSync", what .. ": joined " .. tostring(j.name)) end
+            assert(leaves == 0 and tickers == 0, ("%s: %d channels left, %d tickers made"):format(what, leaves, tickers))
+            assert(not (eventFrames.CHANNEL_UI_UPDATE or {})[sync] and not (eventFrames.CHAT_MSG_CHANNEL_NOTICE or {})[sync],
+                what .. ": the channel events are still listened to after the login join")
+        end
+        -- General after 3 s: the join at 8 s
+        listed, inSync = {}, false
+        Case("General after 3 s", true, { [3] = General("both") }, 8, 1)
+        -- General after 20 s: right after it - by the notice alone, by the list's update alone
+        listed, inSync = {}, false
+        Case("General after 20 s, the notice alone", true, { [20] = General("notice") }, 20.25, 1)
+        listed, inSync = {}, false
+        Case("General after 20 s, the list's update alone", true, { [20] = General("list") }, 20.25, 1)
+        -- never General (an instance): at 30 s; a channel of the player's own is no zone channel
+        listed, inSync = {}, false
+        Case("never General", true, {}, 30, 1)
+        listed, inSync = {}, false
+        Case("only a channel of the player's own", true, { [3] = function()
+            listed[#listed + 1] = "MyGuildFriends"
+            fire("CHAT_MSG_CHANNEL_NOTICE", "YOU_JOINED", "", "", "1. MyGuildFriends", "", "", 0, 1, "MyGuildFriends")
+            fire("CHANNEL_UI_UPDATE")
+        end }, 30, 1)
+        -- the public channel off: never a join, General or not
+        listed, inSync = {}, false
+        Case("public off", false, { [3] = General("both"), [20] = General("both") }, nil, 0)
+        -- a /reload: GathercraftSync is in the list already - nothing to order, taken at 8 s without a join
+        listed, inSync = {}, true
+        Case("after a /reload, already in GathercraftSync", true, {}, 8, 0)
+        -- nothing in Sync.lua moves or leaves another channel, or touches the player's settings
+        local src = io.open(ROOT .. "/Sync.lua"):read("*a"):gsub("%-%-[^\n]*", "")
+        for _, call in ipairs({ "Swap", "JoinPermanentChannel", "JoinChannelByName", "SetCVar", "ChatFrame_AddChannel", "SetChannel" }) do
+            assert(not src:find(call, 1, true), "Sync.lua calls " .. call)
+        end
+    end)
+    GetChannelName, JoinTemporaryChannel, LeaveChannelByName = keep.chan, keep.join, keep.leave
+    GetChannelList, EnumerateServerChannels, C_Timer.NewTicker = keep.list, keep.server, keep.ticker
+    ns.db.debug = keep.debug
+    ns.db.sync.enabled, ns.db.sync.public = keep.enabled, keep.public
+    slash("sync on") -- (joined again at the mock's number)
+    advance(10)
+    if not ok then error(err, 0) end
+end)
 step("Crafting: /gcr crafttest marks unknown costs like the list (v0.1.14)", function()
     -- every reagent without a price for a moment: the diagnosis says ?, not 0c
     local oldPrice, oldVendor = ns.GetPrice, ns.db.vendorPrices
