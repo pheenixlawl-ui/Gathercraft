@@ -36436,6 +36436,7 @@ step("Ways 0.2.4: the run window says what the line follows - your ridden ways, 
     local HINTS = { "Uses the ways you have ridden yourself. Gaps between them are guessed.",
         "The run window shows the guessed share, without the first and last yards (always straight).",
         "Without height, a way may cross under a bridge or into a cave." }
+    local SHORT = "Gaps are guessed. The run window shows the guessed share." -- (0.2.4 a16: the one line; HINTS its tooltip)
     local LINES = { "Path: your ridden ways", "Path: your ridden ways (%d%% guessed)", "Path: straight line" }
     -- two rides side by side (a connector between them: guessed) and a third far off
     local e = {}
@@ -36502,10 +36503,14 @@ step("Ways 0.2.4: the run window says what the line follows - your ridden ways, 
         local page = label.__parent
         while page and not page.key do page = page.__parent end
         assert(page, "the switch is on no page")
+        -- (0.2.4 a16) one short line under the switch on its page; the three lines are its tooltip (see the a16 step)
+        local short
+        for _, f in ipairs(allFrames) do if f.__kind == "FontString" and f.__text == ns.L[SHORT] and f.__parent == page then short = f end end
+        assert(short, "the switch's line is not on its page")
         for i, hint in ipairs(HINTS) do
-            local fs
-            for _, f in ipairs(allFrames) do if f.__kind == "FontString" and f.__text == ns.L[hint] and f.__parent == page then fs = f end end
-            assert(fs, "hint " .. i .. " is not on the switch's page")
+            for _, f in ipairs(allFrames) do
+                assert(not (f.__kind == "FontString" and f.__text == ns.L[hint] and f.__parent == page), "hint " .. i .. " is still a line on the switch's page")
+            end
         end
         local used = ns.OptionsUsedHeight()
         assert(used[page.key] <= 640 - 112 - 18 - 4 - 66, ("Options %s: %d px, too long"):format(page.key, used[page.key]))
@@ -36533,7 +36538,7 @@ step("Ways 0.2.4: the run window says what the line follows - your ridden ways, 
         local n = 0
         for lang, d in pairs(ns.Locales) do
             n = n + 1
-            for _, key in ipairs({ LABEL, HINTS[1], HINTS[2], HINTS[3], LINES[1], LINES[2], LINES[3] }) do
+            for _, key in ipairs({ LABEL, HINTS[1], HINTS[2], HINTS[3], SHORT, LINES[1], LINES[2], LINES[3] }) do
                 assert(type(d[key]) == "string" and d[key] ~= "" and d[key] ~= key, lang .. ": not translated - " .. key)
             end
             local text = d[LINES[2]]
@@ -40393,53 +40398,139 @@ end)
 step("Ways donation: copy window, focus, Escape, hint once per character, no channel traffic", function()
     assert(loadfile(ROOT .. "/tools/ways_donation_ui_test.lua"))()({ns=ns,fire=fire,sent=sentMessages,slash=slash})
 end)
--- (0.2.4 a8, Codex' check of a6/a7: the known gap of a6) On Options › Fishing the heading "Ways" is a row of the
--- page's flowing layout (AddHeader, as in 9158a7d) - no test held it: without it the heading stayed where it was
--- made while the switch and the button under it moved with the rows.
-step("Options 0.2.4 a8: Fishing › Ways - the heading, the switch and the button are rows of the page, one under the other as the rows flow (Codex' check of a6/a7, the layout)", function()
-    local keep = ns.WaysDonationFormURL
-    ns.WaysDonationFormURL = "https://example.invalid/manual-form" -- (the button is shown with a form)
+-- (0.2.4 a16, order 2026-11-27_claude_auftrag_0.2.4-a16 part 3, Sven's word of 27.11.) The ways' donation stood on
+-- Fishing (a6) and was in the way there: it belongs to Sharing, under "Paths" - the switch and the button right under
+-- the route line's switch and its line, no heading of their own. Room for it: the three lines under "Route line and
+-- arrow follow your ridden paths" are one short line now (in Sven's screenshot "(always straight)" lay over "Without
+-- height..."), the three old lines are the switch's tooltip, the height warning with them. Sharing keeps its fixed rows,
+-- so nothing lies over anything only while every line under a switch stays one line - in all languages: the mock's
+-- widths (6 px a Latin letter, 11 a CJK sign, 12 px a line: wider than the game's small font) in the width the page has
+-- in the main window - 780 - 2 x 18 - 2 x 8 = 728 for the tab, 728 - 14 - 160 - 28 - 16 = 510 for the page; a line
+-- under a switch from x 30 (480 px), a switch's label from 28, the status lines from 6 (four lines and the channel
+-- note in their 76 px), the page's description in its two lines. No saved setting changes its name or value.
+step("Options 0.2.4 a16: the donation is on Sharing under Paths, Fishing has none; the route switch has one short line and its tooltip with the height warning; nothing on Sharing lies over anything in all languages; the button and the switch work there", function()
+    local L = ns.L
+    local SHORT = "Gaps are guessed. The run window shows the guessed share."
+    local TIP = { "Uses the ways you have ridden yourself. Gaps between them are guessed.",
+        "The run window shows the guessed share, without the first and last yards (always straight).",
+        "Without height, a way may cross under a bridge or into a cave." }
+    local ROUTE, HINTSW = "Route line and arrow follow your ridden paths", "Donation hint in chat"
+    local keep = { url = ns.WaysDonationFormURL, lang = ns.db.language, off = ns.db.waysDonationHintOff, section = ns.db.optionsSection,
+        add = GameTooltip.AddLine, chan = GetChannelName, join = JoinTemporaryChannel, public = ns.db.sync.public, enabled = ns.db.sync.enabled }
     local ok, err = pcall(function()
-        ns.ShowOptionsSection("general")
-        ns.ShowOptionsSection("fishing")
-        local L = ns.L
-        local button, label
+        ns.WaysDonationFormURL = "https://example.invalid/manual-form" -- (the button is shown with a form)
+        ns.ShowOptionsSection("general") ns.ShowOptionsSection("sync")
+        local function Find(kind, text, page)
+            for _, f in ipairs(allFrames) do
+                if f.__kind == kind and f.__text == text and (not page or f.__parent == page) and f.__parent ~= GathercraftWaysDonation then return f end
+            end
+        end
+        local function PageOf(f)
+            local p = f and f.__parent
+            while p and not p.key do p = p.__parent end
+            return p
+        end
+        local function Box(label) return label.__pts.LEFT and label.__pts.LEFT[1] end -- (a page with fixed rows)
+        local sync = PageOf(Find("FontString", L["Share nodes with other players"]))
+        local fishing = PageOf(Find("FontString", L["Fish key applies a lure when the pole has none"]))
+        assert(sync and sync.key == "sync" and fishing and fishing.key == "fishing" and not sync.rows, "test setup: the pages Sharing (fixed rows) and Fishing")
+        -- 1. Fishing has no donation line any more: no switch, no button, no heading "Ways"
         for _, f in ipairs(allFrames) do
-            if f.__kind == "Button" and f:GetText() == L["Share my ways..."] and f:GetParent() ~= GathercraftWaysDonation then button = f end
-            if f.__kind == "FontString" and f:GetText() == L["Donation hint in chat"] then label = f end
+            if f.__parent == fishing then
+                assert(f.__text ~= L[HINTSW] and f.__text ~= L["Share my ways..."] and f.__text ~= L["Ways"], "on Fishing still: " .. tostring(f.__text))
+            end
         end
-        assert(button and label, "test setup: the button and the switch's label on Fishing")
-        local page = button:GetParent()
-        local head
-        for _, f in ipairs(allFrames) do
-            if f.__kind == "FontString" and f.__parent == page and f:GetText() == L["Ways"] then head = f end
+        -- 2. on Sharing, under Paths: the route switch, its one line, the donation switch, the button, then "Right now"
+        local paths, now = Find("FontString", L["Paths"], sync), Find("FontString", L["Right now"], sync)
+        local route, donation = Find("FontString", L[ROUTE], sync), Find("FontString", L[HINTSW], sync)
+        local short, button = Find("FontString", L[SHORT], sync), Find("Button", L["Share my ways..."], sync)
+        assert(paths and now and route and donation and short and button, "test setup: Paths, Right now, the two switches, the line and the button on Sharing")
+        local function Y(f) return (f.__pts.TOPLEFT and f.__pts.TOPLEFT[2]) end
+        local ys = { Y(paths), Y(Box(route)), Y(short), Y(Box(donation)), Y(button), Y(now) }
+        for i = 2, #ys do assert(ys[i] < ys[i - 1], ("Sharing: row %d at %s is not under row %d at %s"):format(i, tostring(ys[i]), i - 1, tostring(ys[i - 1]))) end
+        assert(Y(Box(donation)) == Y(short) - 2 - 16 and Y(button) == Y(Box(donation)) - 26,
+            ("the donation: switch at %s, button at %s, the line above at %s"):format(tostring(Y(Box(donation))), tostring(Y(button)), tostring(Y(short))))
+        -- the route switch's one line; its old three lines only in its tooltip
+        for _, t in ipairs(TIP) do assert(not Find("FontString", L[t], sync), "still a line on Sharing: " .. t) end
+        local tip = {}
+        GameTooltip.AddLine = function(self, t, ...) tip[#tip + 1] = t return keep.add(self, t, ...) end
+        local box = Box(route)
+        assert(box.__scripts.OnEnter, "the route switch has no tooltip")
+        box.__scripts.OnEnter(box)
+        GameTooltip.AddLine = keep.add
+        assert(tip[1] == L[ROUTE] and tip[2] == L[TIP[1]] and tip[3] == L[TIP[2]] and tip[4] == L[TIP[3]] and #tip == 4,
+            "the route switch's tooltip: " .. table.concat(tip, " / "))
+        -- 3. the donation switch and the button work where they are now; the saved name and value as before
+        local dbox = Box(donation)
+        ns.db.waysDonationHintOff = nil
+        GathercraftOptions:Refresh()
+        assert(dbox:GetChecked(), "the donation hint is on unless turned off")
+        dbox:SetChecked(false) dbox.__scripts.OnClick(dbox)
+        assert(ns.db.waysDonationHintOff == true, "unticked is saved as " .. tostring(ns.db.waysDonationHintOff))
+        dbox:SetChecked(true) dbox.__scripts.OnClick(dbox)
+        assert(ns.db.waysDonationHintOff == nil, "ticked is saved as " .. tostring(ns.db.waysDonationHintOff))
+        assert(button:IsShown() and button.__scripts.OnClick, "the button is not shown on Sharing")
+        button.__scripts.OnClick(button)
+        assert(GathercraftWaysDonation and GathercraftWaysDonation:IsShown(), "the button on Sharing opens no donation window")
+        GathercraftWaysDonation:Hide()
+        -- 4. nothing on Sharing lies over anything, in every language (the status with its channel note: not in it yet)
+        GetChannelName = function(name) if name == "GathercraftSync" then return 0 end return keep.chan(name) end
+        JoinTemporaryChannel = function() end
+        ns.db.sync.enabled, ns.db.sync.public = true, true
+        slash("sync public") slash("sync public") -- (left and asked again: not in it)
+        assert(not select(4, ns.SyncSummary()), "test setup: not in the channel")
+        local function Px(text)
+            local px = 0
+            for ch in (text or ""):gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""):gmatch("[%z\1-\127\194-\244][\128-\191]*") do px = px + (#ch >= 3 and 11 or 6) end
+            return px
         end
-        local cb = label.__pts and label.__pts.TOPLEFT and label.__pts.TOPLEFT[1]
-        assert(head and cb and cb.__kind == "CheckButton", "test setup: the heading \"Ways\" and the switch on the page of the button")
-        -- all three are rows of the page's flowing layout, in this order, one after the other
-        local rows, ih, ic, ib = page.rows or {}, nil, nil, nil
-        for i, r in ipairs(rows) do
-            if r.holder == head then ih = i end
-            if r.cb == cb then ic = i end
-            if r.holder == button then ib = i end
+        local PAGE_W, ROOM = 510, 640 - 112 - 18 - 4 - 66
+        local seen = 0
+        for _, lang in ipairs(ns.LANGUAGES) do
+            if lang.code ~= "auto" then
+                seen = seen + 1
+                ns.db.language = lang.code ns.ApplyLanguage() GathercraftOptions:Refresh()
+                ns.ShowOptionsSection("sync")
+                sync.__scripts.OnUpdate(sync, 3) -- (the status lines, as every 2 s)
+                local status
+                for _, f in ipairs(allFrames) do
+                    if f.__parent == sync and f.__kind == "FontString" and type(f.__text) == "string" then
+                        local text, tl, right, left = f.__text, f.__pts.TOPLEFT, f.__pts.RIGHT, f.__pts.LEFT
+                        if left and left[1] and left[1].__kind == "CheckButton" then
+                            -- a switch's label: one line next to its box, inside the page
+                            assert(Px(text) <= PAGE_W - 28, ("%s: the label '%s' is %d px wide, the page has %d"):format(lang.code, text, Px(text), PAGE_W - 28))
+                        elseif right and tl and tl[1] == 30 then
+                            -- a line under a switch: one line in its 16 px
+                            assert(Px(text) <= PAGE_W - 30, ("%s: the line '%s' needs %d px, one line has %d"):format(lang.code, text, Px(text), PAGE_W - 30))
+                        elseif right and tl and tl[1] == 6 then
+                            status = text
+                        elseif right and tl and tl[1] == 0 and tl[2] == -34 then
+                            -- the page's description: two lines at the most (from -34 to the first switch at -62)
+                            assert(math.ceil(Px(text) / PAGE_W) <= 2, ("%s: the description needs %d lines"):format(lang.code, math.ceil(Px(text) / PAGE_W)))
+                        end
+                    end
+                end
+                assert(status and status:find(L["Not in the sharing channel yet (it is joined a few seconds after login)."], 1, true),
+                    lang.code .. ": the status lines with the channel note: " .. tostring(status))
+                local lines = 0
+                for line in (status .. "\n"):gmatch("(.-)\n") do lines = lines + math.max(1, math.ceil(Px(line) / (PAGE_W - 6))) end
+                assert(lines * 12 <= 76, ("%s: the status needs %d lines, it has room for %d"):format(lang.code, lines, math.floor(76 / 12)))
+                assert(ns.OptionsUsedHeight().sync <= ROOM, ("%s: Sharing goes down to %d px of %d"):format(lang.code, ns.OptionsUsedHeight().sync, ROOM))
+            end
         end
-        assert(ih and ic and ib and ic == ih + 1 and ib == ic + 1, ("the rows of Fishing: heading %s, switch %s, button %s"):format(tostring(ih), tostring(ic), tostring(ib)))
-        -- where the rows put them: the switch a heading's row (26) under the heading, the button a switch's row under it
-        local hx, hy = head.__pts.TOPLEFT[1], head.__pts.TOPLEFT[2]
-        local cx, cy = cb.__pts.TOPLEFT[1], cb.__pts.TOPLEFT[2]
-        local bx, by = button.__pts.TOPLEFT[1], button.__pts.TOPLEFT[2]
-        local lh = label:GetStringHeight() or 0
-        assert(type(hy) == "number" and hy - cy == 26 and cy - by == math.max(26, lh + 12),
-            ("heading at %s, switch at %s, button at %s (the switch's label %s high)"):format(tostring(hy), tostring(cy), tostring(by), tostring(lh)))
-        assert(hx == cx + 2 and bx == cx + 6, ("the columns: heading %s, switch %s, button %s"):format(tostring(hx), tostring(cx), tostring(bx)))
-        -- and the heading under the row before it
-        local prev = rows[ih - 1]
-        local pf = prev and (prev.holder or prev.cb or prev.fs)
-        local py = pf and pf.__pts and pf.__pts.TOPLEFT and pf.__pts.TOPLEFT[2]
-        assert(type(py) == "number" and hy < py, ("the heading at %s, the row before it at %s"):format(tostring(hy), tostring(py)))
+        assert(seen == 10, "ten languages of text (esMX shows esES): " .. seen)
+        -- the new line in every language
+        for lang, d in pairs(ns.Locales) do assert(type(d[SHORT]) == "string" and d[SHORT] ~= "" and d[SHORT] ~= SHORT, lang .. ": not translated - " .. SHORT) end
     end)
-    ns.WaysDonationFormURL = keep
-    ns.ShowOptionsSection("general")
+    GameTooltip.AddLine, GetChannelName, JoinTemporaryChannel = keep.add, keep.chan, keep.join
+    if GathercraftWaysDonation then GathercraftWaysDonation:Hide() end
+    ns.WaysDonationFormURL, ns.db.waysDonationHintOff = keep.url, keep.off
+    ns.db.sync.enabled, ns.db.sync.public = keep.enabled, keep.public
+    ns.db.language = keep.lang ns.ApplyLanguage()
+    slash("sync on") -- (joined again at the mock's number)
+    advance(3)
+    ns.ShowOptionsSection(keep.section or "map")
+    GathercraftOptions:Refresh()
     if not ok then error(err, 0) end
 end)
 step("Ways donation: no form hides the button, all nine translations and unchanged idle data", function()
@@ -40462,7 +40553,7 @@ step("Ways donation: no form hides the button, all nine translations and unchang
     end
     local keep=ns.WaysDonationFormURL
     ns.WaysDonationFormURL=""
-    ns.ShowOptionsSection("general") ns.ShowOptionsSection("fishing")
+    ns.ShowOptionsSection("general") ns.ShowOptionsSection("sync")
     local found
     for _, f in ipairs(allFrames) do
         if f.__kind=="Button" and f:GetText()==ns.L["Share my ways..."] and f:GetParent()~=GathercraftWaysDonation then
@@ -40472,10 +40563,10 @@ step("Ways donation: no form hides the button, all nine translations and unchang
     assert(found,"options button missing")
     assert(not found:IsShown(),"button visible without a form")
     ns.WaysDonationFormURL="https://example.invalid/manual-form"
-    ns.ShowOptionsSection("general") ns.ShowOptionsSection("fishing")
+    ns.ShowOptionsSection("general") ns.ShowOptionsSection("sync")
     assert(found:IsShown(),"button absent with a form")
     ns.WaysDonationFormURL=keep
-    ns.ShowOptionsSection("general") ns.ShowOptionsSection("fishing")
+    ns.ShowOptionsSection("general") ns.ShowOptionsSection("sync")
     ns.WaysDonationHintRefresh()
     if not keep or keep=="" then assert(not ns.WaysDonationHintFrame:GetScript("OnUpdate"),"idle polling without form") end
 end)
