@@ -74,7 +74,8 @@ local ANSWER_COOLDOWN = 300   -- seconds: a zone is answered at most once in thi
 local QUEUE_MAX = 60          -- outgoing messages waiting at most (about a minute of sending)
 local QUEUE_ANSWER_MAX = 20   -- answers to zone queries only while fewer than this wait
 local MAX_ITEM_ID = 2 ^ 31 - 1
-local JOIN_DELAY = 8          -- seconds after login (let General/Trade join first)
+local JOIN_DELAY = 8          -- seconds after login at the earliest (let General/Trade join first)
+local JOIN_LATEST = 30        -- (0.2.4 a16) seconds after login at the latest, General or not (see LoginJoin)
 local VERSION_MAX = 24        -- characters of a version a player may send (V:gc<version>)
 
 local TYPE_CODE = { herb = "h", ore = "o", chest = "c" }
@@ -1508,6 +1509,89 @@ frame:RegisterEvent("PLAYER_LOGIN")
 frame:RegisterEvent("CHAT_MSG_ADDON")
 frame:RegisterEvent("ZONE_CHANGED_NEW_AREA")
 
+---------------------------------------------------------------------------
+-- (0.2.4 a16, order part 2; a player on Discord: GathercraftSync landed on
+-- /1) The join after the login, once, behind General. A channel gets the
+-- lowest free number, and a slow client had no General yet when the fixed
+-- 8 s were over. Now the join waits for a zone channel (General, Trade, ...)
+-- in the channel list: 8 s after the login at the earliest, 30 s at the
+-- latest (an instance, no General). What tells: the notice of a zone channel
+-- joined (CHAT_MSG_CHANNEL_NOTICE, its zone channel id > 0) or the list's
+-- update (CHANNEL_UI_UPDATE) with one of the game's server channels in
+-- GetChannelList - each on its own. Two one-shot timers, and the two events
+-- only while it waits: no ticker. Nothing else is left, moved or set.
+-- Nothing to wait for at 8 s: sync or the public channel off (JoinChannel
+-- does nothing then, as before), or GathercraftSync in the list already (a
+-- /reload: nothing to order).
+---------------------------------------------------------------------------
+local loginJoin             -- nil (not armed), "early" (before 8 s), "wait", "done"
+local loginGen, loginAt = 0, 0
+local zoneSeen              -- a zone channel's notice came since the login
+
+-- the strings among the values (GetChannelList: id, name, disabled, ...); one that cannot be read: none at all
+local function Names(...)
+    local t = {}
+    for i = 1, select("#", ...) do
+        local v = select(i, ...)
+        if ns.AnySecret("sync channel list", v) then return {} end
+        if type(v) == "string" then t[#t + 1] = v end
+    end
+    return t
+end
+
+-- whether a zone channel is in the channel list: its name (or the part before " - ") one of the game's server channels
+local function ZoneListed()
+    if not (GetChannelList and EnumerateServerChannels) then return false end
+    local okS, server = pcall(function() return Names(EnumerateServerChannels()) end)
+    local okL, list = pcall(function() return Names(GetChannelList()) end)
+    if not (okS and okL) then return false end
+    local isServer = {}
+    for _, name in ipairs(server) do isServer[name] = true end
+    for _, name in ipairs(list) do
+        if name ~= CHANNEL and (isServer[name] or isServer[name:match("^(.-) %- ") or ""]) then return true end
+    end
+    return false
+end
+
+local function LoginJoin(why)
+    if loginJoin ~= "wait" then return end
+    loginJoin = "done"
+    frame:UnregisterEvent("CHANNEL_UI_UPDATE")
+    frame:UnregisterEvent("CHAT_MSG_CHANNEL_NOTICE")
+    JoinChannel()
+    Debug(("login join: %s (%.1f s after the login)"):format(why, GetTime() - loginAt))
+    C_Timer.After(2, CurrentZoneQuery)
+end
+
+-- from 8 s on, at every event while it waits: the join now when there is nothing (more) to wait for
+local function LoginJoinTry(why)
+    if loginJoin ~= "wait" then return end
+    if not (DB().enabled and DB().public) then return LoginJoin("sync or the public channel off") end
+    local id = GetChannelName(CHANNEL)
+    if not ns.AnySecret("sync channel number", id) and type(id) == "number" and id > 0 then
+        return LoginJoin("in " .. CHANNEL .. " already")
+    end
+    if zoneSeen or ZoneListed() then return LoginJoin(why) end
+end
+
+-- the login; told twice while it waits, the first one's timers stay. Returns the login's number for its timers.
+local function LoginJoinArm()
+    if loginJoin == "early" or loginJoin == "wait" then return loginGen end
+    loginGen, loginJoin, loginAt, zoneSeen = loginGen + 1, "early", GetTime(), nil
+    frame:RegisterEvent("CHANNEL_UI_UPDATE")
+    frame:RegisterEvent("CHAT_MSG_CHANNEL_NOTICE")
+    local gen = loginGen
+    C_Timer.After(JOIN_LATEST, function()
+        if gen == loginGen then LoginJoin(JOIN_LATEST .. " s, no zone channel seen") end
+    end)
+    return gen
+end
+local function LoginJoinEight(gen)
+    if gen ~= loginGen or loginJoin ~= "early" then return end
+    loginJoin = "wait"
+    LoginJoinTry("a zone channel in the list at " .. JOIN_DELAY .. " s")
+end
+
 frame:SetScript("OnEvent", function(self, event, ...)
     if event == "PLAYER_LOGIN" then
         local db = ns.db
@@ -1553,15 +1637,27 @@ frame:SetScript("OnEvent", function(self, event, ...)
                 PerfTime(t0)
             end)
         end
+        -- (0.2.4 a16) the channel behind General: at 8 s, or when a zone channel comes, 30 s at the latest (LoginJoin);
+        -- the zone's question 2 s after that join, as before
+        local gen = LoginJoinArm()
         C_Timer.After(JOIN_DELAY, function()
-            JoinChannel()
+            LoginJoinEight(gen)
             -- once per login in the guild: which Gathercraft this is (0.2.2 d1)
             if DB().enabled and IsInGuild() and not versionSaid.guild then
                 versionSaid.guild = true
                 SayVersion("GUILD")
             end
-            C_Timer.After(2, CurrentZoneQuery)
         end)
+    elseif event == "CHAT_MSG_CHANNEL_NOTICE" then
+        -- (0.2.4 a16) a zone channel joined: what the join after the login waits for
+        local notice, _, _, _, _, _, zoneID = ...
+        if ns.AnySecret("CHAT_MSG_CHANNEL_NOTICE", notice, zoneID) then return end
+        if (notice == "YOU_CHANGED" or notice == "YOU_JOINED") and type(zoneID) == "number" and zoneID > 0 then
+            zoneSeen = true
+            LoginJoinTry("a zone channel's notice")
+        end
+    elseif event == "CHANNEL_UI_UPDATE" then
+        LoginJoinTry("the channel list's update")
     elseif event == "CHAT_MSG_ADDON" then
         local prefix, text, distribution, sender, _, _, localID, name = ...
         if ns.AnySecret("CHAT_MSG_ADDON", prefix, text, distribution, sender) then return end

@@ -21059,9 +21059,9 @@ step("Sync 0.2.4 a16: GathercraftSync is joined behind General - at 8 s when a z
             sync.__scripts.OnEvent(sync, "PLAYER_LOGIN")
             local at
             for i = 1, 240 do
-                local s = i * 0.25
-                if plan[s] then plan[s]() end
                 advance(0.25)
+                local s = i * 0.25 -- (= NOW - t0: what is planned for this second happens now)
+                if plan[s] then plan[s]() end
                 if not at and select(4, ns.SyncSummary()) then at = NOW - t0 end
             end
             return at
@@ -21076,7 +21076,7 @@ step("Sync 0.2.4 a16: GathercraftSync is joined behind General - at 8 s when a z
         local function Case(what, public, plan, want, joined)
             local at = Login(public, plan)
             if want then
-                assert(at and at >= want - 0.01 and at <= want + 0.26, ("%s: in the channel at %s s (wanted %s)"):format(what, tostring(at), want))
+                assert(at and math.abs(at - want) < 0.01, ("%s: in the channel at %s s (wanted %s)"):format(what, tostring(at), want))
             else
                 assert(not at, ("%s: in the channel at %s s (wanted never)"):format(what, tostring(at)))
             end
@@ -21091,9 +21091,9 @@ step("Sync 0.2.4 a16: GathercraftSync is joined behind General - at 8 s when a z
         Case("General after 3 s", true, { [3] = General("both") }, 8, 1)
         -- General after 20 s: right after it - by the notice alone, by the list's update alone
         listed, inSync = {}, false
-        Case("General after 20 s, the notice alone", true, { [20] = General("notice") }, 20.25, 1)
+        Case("General after 20 s, the notice alone", true, { [20] = General("notice") }, 20, 1)
         listed, inSync = {}, false
-        Case("General after 20 s, the list's update alone", true, { [20] = General("list") }, 20.25, 1)
+        Case("General after 20 s, the list's update alone", true, { [20] = General("list") }, 20, 1)
         -- never General (an instance): at 30 s; a channel of the player's own is no zone channel
         listed, inSync = {}, false
         Case("never General", true, {}, 30, 1)
