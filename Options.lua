@@ -1058,7 +1058,7 @@ UpdateSyncStatus = function()
         (L["Waiting for confirmation by %d different players: %d"]):format(ns.SYNC_CONFIRMATIONS or 3, waiting),
     }
     if ns.db.sync.public and not joined then
-        lines[#lines + 1] = "|cffff8040" .. L["Not in the sharing channel yet (it is joined a few seconds after login)."] .. "|r"
+        lines[#lines + 1] = "|cffff8040" .. L["Not in the sharing channel yet (it is joined up to 30 seconds after login)."] .. "|r"
     end
     syncStatus:SetText(table.concat(lines, "\n"))
 end

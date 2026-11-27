@@ -40556,9 +40556,14 @@ step("Options 0.2.4 a16: the donation is on Sharing under Paths, Fishing has non
                 assert(status and status:find(L[NOTE], 1, true),
                     ("%s: the status lines with the channel note (sync %s, public %s, in the channel %s): %s"):format(lang.code,
                         tostring(ns.db.sync.enabled), tostring(ns.db.sync.public), tostring(select(4, ns.SyncSummary())), (tostring(status):gsub("\n", " / "))))
+                -- (0.2.4 a17) each status line one line: the four and the channel note are five in the 76 px (the game's
+                -- line is about 14 px - a sixth would run over the page's end)
                 local lines = 0
-                for line in (status .. "\n"):gmatch("(.-)\n") do lines = lines + math.max(1, math.ceil(Px(line) / (PAGE_W - 6))) end
-                assert(lines * 12 <= 76, ("%s: the status needs %d lines, it has room for %d"):format(lang.code, lines, math.floor(76 / 12)))
+                for line in (status .. "\n"):gmatch("(.-)\n") do
+                    lines = lines + 1
+                    assert(Px(line) <= PAGE_W - 6, ("%s: the status line '%s' needs %d px, one line has %d"):format(lang.code, line, Px(line), PAGE_W - 6))
+                end
+                assert(lines == 5, ("%s: %d status lines (four and the channel note)"):format(lang.code, lines))
                 assert(ns.OptionsUsedHeight().sync <= ROOM, ("%s: Sharing goes down to %d px of %d"):format(lang.code, ns.OptionsUsedHeight().sync, ROOM))
             end
         end
