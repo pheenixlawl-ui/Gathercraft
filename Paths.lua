@@ -326,8 +326,105 @@ local here = {} -- the square you are in: map, tx, ty, way (yards made in it), a
 -- look up there), the crossings made up there that wait for the fall to be known (map and key, the first pendN)
 here.pendMap, here.pendKey, here.pendN = {}, {}, 0
 
-local function Forget()
+---------------------------------------------------------------------------
+-- (0.2.4 a15) The landing seen early (F1) and a jump pressed (J). Order 2026-11-26_claude_auftrag_0.2.4-sturz-fix,
+-- Fassung 3; the diagnosis 2026-11-26_claude-code_diagnose-kamera-sturz (Sven, 26.11.2026: standing, the right mouse
+-- button held, jumping again and again - between two looks the ground was touched for a moment, the looks saw one
+-- long time up there and called it a fall).
+--   F1: a look that sees you in the air starts one watcher, an OnUpdate that asks IsFalling() at every frame. The
+-- first frame on the ground is the landing: the time up there ends there, once, and the watcher goes.
+--   In Sven's words (the exception to W5, never more than two looks a second):
+-- W5-Ausnahme (Sven, 26.11.): nur während der Luftzeit, nur `IsFalling()`, bis zur ersten Bodenberührung oder zum Abbruch.
+--   Whether it was a fall is decided at the looks only, as before: the time up there is the sum of the intervals of
+-- the valid looks, a fall from FALL_SECONDS on, and the crossings that waited for it get it then. The watcher can only
+-- end a time up there earlier - never book a fall. Landed before the fall is known: the crossings that waited are let go.
+--   J: a passive post-hook on JumpOrAscendStart keeps the time of the press - nothing else, installed once a UI session
+-- (at the first start of the recording). Only the looks read it. A press in the time up there before the fall is known
+-- starts that time anew, at the press: the crossings that waited for the time before are let go (the rides stay
+-- booked, only their fall can no longer come). A press after the fall is known changes nothing - the square keeps the
+-- fall it earned, and no crossing gets a second one from a key. A press from before the time up there (standing, or
+-- the jump that took you up) never counts; a landing and an abort let it go. No hook (no JumpOrAscendStart, no
+-- hooksecurefunc): F1 alone, the diagnosis says so.
+--   Bewusster Sollwert (the price of J): whoever presses jump during a real fall, before it is a second long, can lose
+-- its mark (Codex' probe: a fall from 0.10 to 1.60 s, a press at 0.90 s - 0 of 10). A press in the middle of a fall and
+-- a new jump after a landing no frame saw look the same.
+---------------------------------------------------------------------------
+local watcher = CreateFrame("Frame")
+local watching = false
+local jumpAt              -- the time of the last jump pressed (nil: none that counts)
+local jumpTried, jumpHooked = false, false
+local counts = { looks = 0, frames = 0, hooks = 0 } -- (the looks, the watcher's frames, the hook's calls: for the tests)
+
+local function Unwatch()
+    if watching then
+        watching = false
+        watcher:SetScript("OnUpdate", nil)
+    end
+end
+
+-- the diagnosis line of a time up there (/gcr paths diag on): at its end - its looks, the time seen, the time before
+-- the first look, the last interval of the looks, a fall or not; the frames the watcher saw up there, the touches of the
+-- ground it saw, the jumps pressed, the yards sideways between the first look up there and the last, the hook; and why
+-- it was stopped, where it ended without a landing
+local function Diag(stopped)
+    if not (here.diag and here.aloft) then return end
+    local dx, dy = (here.ex or 0) - (here.sx or 0), (here.ey or 0) - (here.sy or 0)
+    print((L["Gathercraft paths diag: in the air %d looks, %.2f s seen from the second look (%.2f s before the first), a look every %.2f s - %s; %d frames up there, %d touches of the ground seen, %d jumps pressed, %.1f yd sideways, jump hook %s"]):format(
+        here.looks or 0, here.air, here.air0, here.lastDt or 0, here.air >= FALL_SECONDS and L["a fall"] or L["no fall"], here.frames or 0,
+        here.touches or 0, counts.hooks - (here.hooks0 or counts.hooks), math.sqrt(dx * dx + dy * dy), jumpHooked and L["yes"] or L["no"])
+        .. (stopped and (L[" - stopped without a landing: %s"]):format(stopped) or ""))
+end
+
+-- (M3) The one abort, safe to call any time: the watcher goes, the press, the time up there and the crossings that
+-- waited are let go. It makes no landing up and books nothing.
+local function Abort(why)
+    if here.aloft then Diag(why) end
+    Unwatch()
+    jumpAt = nil
+    here.aloft, here.air, here.air0, here.pendN = false, 0, 0, 0
+end
+
+-- the landing, seen by the watcher or by a look: the time up there ends, once
+local function Land()
+    Diag()
+    Unwatch()
+    jumpAt = nil
+    here.aloft, here.air, here.pendN = false, 0, 0
+end
+
+-- the watcher's frame: IsFalling() and nothing else (W5-Ausnahme, see above); a value that cannot be read ends it
+local function Watch()
+    counts.frames = counts.frames + 1
+    local falling = IsFalling and IsFalling()
+    if ns.AnySecret("paths falling", falling) or type(falling) ~= "boolean" then return Abort(L["the fall value cannot be read"]) end
+    if falling then
+        here.frames = (here.frames or 0) + 1
+        return
+    end
+    here.touches = (here.touches or 0) + 1
+    Land()
+end
+Watch = Wrap("Paths", Watch) -- (/gcr perf on: under Paths)
+
+local function OnJump()
+    counts.hooks = counts.hooks + 1
+    jumpAt = GetTime()
+end
+OnJump = Wrap("Paths", OnJump)
+
+-- once a UI session, at the first start of the recording
+local function HookJump()
+    if jumpTried then return end
+    jumpTried = true
+    if type(hooksecurefunc) == "function" and type(JumpOrAscendStart) == "function" then
+        hooksecurefunc("JumpOrAscendStart", OnJump)
+        jumpHooked = true
+    end
+end
+
+local function Forget(why)
     here.map = nil
+    Abort(why)
 end
 
 local function ZoneSize(mapID)
@@ -374,49 +471,70 @@ local function Look()
     local dt = last and (now - last) or 0
     here.at = now
     if not last then here.map = nil end -- (the first look: a start, nothing to measure yet)
-    if (last and (dt <= 0 or dt > GAP_MAX)) or Elsewhere() then return Forget() end
+    if last and (dt <= 0 or dt > GAP_MAX) then return Forget(L["a gap between two looks"]) end
+    if Elsewhere() then return Forget(L["a taxi, flying, dead, a vehicle or an instance"]) end
     local speed = GetUnitSpeed and GetUnitSpeed("player")
     local falling = IsFalling and IsFalling()
     local swimming = IsSwimming and IsSwimming()
-    if ns.AnySecret("paths", speed, falling, swimming) or type(speed) ~= "number" then return Forget() end
+    if ns.AnySecret("paths", speed, falling, swimming) or type(speed) ~= "number" then return Forget(L["values the game hides"]) end
     local mapID, x, y = ns.GetPlayerPos()
-    if not mapID or not x or not y or Continent(mapID) ~= false then return Forget() end
+    if not mapID or not x or not y then return Forget(L["no position"]) end
+    if Continent(mapID) ~= false then return Forget(L["a continent's map"]) end
     local w, h = ZoneSize(mapID)
-    if not w then return Forget() end
+    if not w then return Forget(L["no size of the zone"]) end
     local tx, ty = floor(x * w / TILE), floor(y * h / TILE)
-    if tx < 0 or ty < 0 or tx >= GRID or ty >= GRID then return Forget() end
+    if tx < 0 or ty < 0 or tx >= GRID or ty >= GRID then return Forget(L["no size of the zone"]) end
+    counts.looks = counts.looks + 1
 
     if here.map ~= mapID then
         -- a new start (login, another zone, after anything that was skipped)
+        Abort(L["another zone"])
         here.map, here.tx, here.ty, here.way, here.air, here.fell, here.swam = mapID, tx, ty, 0, 0, false, false
-        here.aloft, here.air0, here.pendN = false, 0, 0
         return
     end
     if speed > 0 then here.way = here.way + speed * dt end
+    local px, py = x * w, y * h
     if falling == true then
         if here.aloft then
-            here.air = here.air + dt
+            if jumpAt and jumpAt > here.airAt and jumpAt <= now and not here.confirmed then
+                -- (J) a jump pressed in the time up there before the fall is known: it starts anew at the press; the
+                -- crossings that waited for the time before are let go (the rides stay booked) - see the price above
+                here.air, here.air0, here.airAt, here.pendN = now - jumpAt, 0, jumpAt, 0
+            else
+                here.air = here.air + dt
+            end
             here.looks = here.looks + 1
         else
             -- the first look in the air: how long you have been up there is not known - from here on
             here.aloft, here.air, here.air0, here.looks = true, 0, dt, 1
+            here.airAt, here.confirmed, here.frames, here.touches = now, false, 0, 0
+            here.sx, here.sy = px, py
+            -- (the jumps pressed up there: the hook's calls from the look before on - the jump that took you up too)
+            here.hooks0 = counts.hooks - ((jumpAt and jumpAt > now - dt) and 1 or 0)
+            -- (a press before this look - standing, or the jump that took you up - never counts)
+            jumpAt = nil
+            -- (F1) one watcher for the frames up there
+            if not watching then
+                watching = true
+                watcher:SetScript("OnUpdate", Watch)
+            end
         end
+        here.ex, here.ey, here.lastDt = px, py, dt
         if here.air >= FALL_SECONDS then
-            here.fell = true
+            here.fell, here.confirmed = true, true
+            jumpAt = nil -- (a press after it changes nothing)
             -- the crossings of this way down that waited: theirs too
             for i = 1, here.pendN do AddFall(p, here.pendMap[i], here.pendKey[i]) end
             here.pendN = 0
         end
     else
-        -- (0.2.4 r1, jump diagnosis) /gcr paths diag on: one line for every time in the air, at the
-        -- landing - its looks, the time seen (from the second look on), the time before the first
-        -- look, how far apart the looks were and whether it counts as a fall. For Sven to measure
-        -- what the game shows of a jump; this session only, nothing saved.
-        if here.diag and here.aloft then
-            print(("Gathercraft paths diag: in the air %d looks, %.2f s seen from the second look (%.2f s before the first), a look every %.2f s - %s"):format(
-                here.looks or 0, here.air, here.air0, dt, here.air >= FALL_SECONDS and "a fall" or "no fall"))
+        -- the landing seen by a look (the watcher saw none before it): the time up there ends, once. (0.2.4 r1, jump
+        -- diagnosis) /gcr paths diag on: its line, see Diag
+        if here.aloft then
+            here.lastDt = dt
+            Land()
         end
-        here.aloft, here.air, here.pendN = false, 0, 0
+        jumpAt = nil -- (a press on the ground never counts for a later time up there)
     end
     if swimming == true then here.swam = true end
 
@@ -462,6 +580,7 @@ end
 
 local function StartStop()
     if Enabled() then
+        HookJump()
         if not ticker then
             Forget()
             here.at = nil -- (the time it was off is no hitch)
@@ -470,7 +589,7 @@ local function StartStop()
     elseif ticker then
         ticker:Cancel()
         ticker = nil
-        Forget()
+        Forget(L["recording off"])
     end
 end
 
@@ -519,7 +638,7 @@ local function Command(rest)
         local total = p.total
         if arg == "yes" then
             p.zones, p.total = {}, 0
-            Forget()
+            Forget(L["paths cleared"])
             Changed(nil, "gone")
             ns.Print((L["Recorded paths deleted (%d path pieces). Your nodes and everything else are untouched."]):format(total))
         elseif total == 0 then
@@ -553,11 +672,14 @@ frame:SetScript("OnEvent", function(_, event)
         end
     else
         -- a loading screen: whatever square you were in, the next look starts anew
-        Forget()
+        Forget(L["a loading screen"])
     end
 end)
 
 ns.PathsLook = Look
+-- (0.2.4 a15, the tests) the watcher's frame; the looks, the watcher's frames and the hook's calls so far; whether
+-- the watcher runs and the hook is in
+ns.PathsWatch = function() return watcher, counts.looks, counts.frames, counts.hooks, watching, jumpHooked end
 ns.PathsEnabled = Enabled
 ns.PathsSetEnabled = SetEnabled
 ns.PathsCount = Count

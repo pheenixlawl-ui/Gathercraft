@@ -20,10 +20,17 @@ local NOW = 1000
 GetTime = function() return NOW end
 time = function() return 1792400000 + math.floor(NOW) end
 print = function(...) note("PRINT", ...) end
+-- (0.2.4 a15) also the global form hooksecurefunc(name, fn), as the game has it; how often a name was hooked
+local hooksDone = {}
 hooksecurefunc = function(t, name, fn)
+    if type(t) == "string" then t, name, fn = _G, t, name end
+    hooksDone[name] = (hooksDone[name] or 0) + 1
     local orig = t[name]
     t[name] = function(...) local r = { orig(...) } fn(...) return unpack(r) end
 end
+-- (0.2.4 a15) the game's jump (the key's binding calls it): here it does nothing but count; Paths hooks it
+local jumpsDone = 0
+JumpOrAscendStart = function() jumpsDone = jumpsDone + 1 return "jumped" end
 GetBuildInfo = function() return "1.60.1", "70450", "Oct", 16001 end
 InCombatLockdown = function() return false end
 IsShiftKeyDown = function() return false end
@@ -13521,6 +13528,171 @@ local function PathsWorld()
     return W
 end
 
+-- (0.2.4 a15) The paths diagnosis line, read back in the client's language: nil, or its numbers and words
+local function PathsDiag(text)
+    local L = ns.L
+    local fmt = L["Gathercraft paths diag: in the air %d looks, %.2f s seen from the second look (%.2f s before the first), a look every %.2f s - %s; %d frames up there, %d touches of the ground seen, %d jumps pressed, %.1f yd sideways, jump hook %s"]
+    local function Esc(s) return (s:gsub("[%^%$%(%)%%%.%[%]%*%+%-%?]", "%%%0")) end
+    local pos, pat = 1, "^"
+    while true do
+        local a, b, sp = fmt:find("(%%[%.%d]*[dfs])", pos)
+        if not a then break end
+        pat = pat .. Esc(fmt:sub(pos, a - 1))
+        local k = sp:sub(-1)
+        pat = pat .. (k == "d" and "(%-?%d+)" or k == "f" and "(%-?%d+%.%d+)" or "(.-)")
+        pos = b + 1
+    end
+    pat = pat .. Esc(fmt:sub(pos)) .. "(.*)$"
+    local v = { text:match(pat) }
+    if #v == 0 then return nil end
+    -- (the last word, the hook's yes or no, and what may follow it: the reason it was stopped)
+    local last = v[10] .. v[11]
+    local hook, tail
+    for _, word in ipairs({ L["yes"], L["no"] }) do
+        if not hook and last:sub(1, #word) == word then hook, tail = word, last:sub(#word + 1) end
+    end
+    local stopped = tail and tail:match("^" .. Esc((L[" - stopped without a landing: %s"]):gsub("%%s", "\1")):gsub("\1", "(.+)") .. "$")
+    return { looks = tonumber(v[1]), seen = v[2], before = v[3], every = v[4], result = v[5], frames = tonumber(v[6]), touches = tonumber(v[7]),
+        presses = tonumber(v[8]), yards = tonumber(v[9]), hook = hook, tail = tail, stopped = stopped }
+end
+-- the diagnosis lines printed since the log's line `mark`
+local function PathsDiagLines(mark)
+    local t = {}
+    for i = mark + 1, #log do
+        local text = log[i]:match("^PRINT (.*)$")
+        local d = text and PathsDiag(text)
+        if d then t[#t + 1] = d end
+    end
+    return t
+end
+
+-- (0.2.4 a15, the fall fix) A ride for times in the air, frame by frame. The looks' ticker is caught: the looks come at
+-- times the ride sets (on a grid of exactly 0.5 s, or a list), the frames at a set rate (each frame a timer: the mock
+-- calls the frames' OnUpdate after every timer), IsFalling() gives what was true at the start of the frame going on
+-- (windows {from, to, pressed}, both ends in; pressed: the jump key at its start), you ride east at 7 yd/s. As
+-- tools/model.py of the diagnosis: frames at k / fps, the looks at the phase + 0.5 k - here the times in the air are
+-- moved by the phase instead, so that the looks stay on their exact grid (two of their intervals are 1.0 to the bit).
+local function FallWorld()
+    local W = PathsWorld()
+    local F = { W = W, n = 0 }
+    local keepNT, keepFall = C_Timer.NewTicker, IsFalling
+    local look
+    -- (catch the ticker of a recording started in `fn`)
+    function F.Catch(fn)
+        look = nil
+        C_Timer.NewTicker = function(sec, f, n)
+            if sec == 0.5 and not look then
+                look = f
+                return { Cancel = function() if look == f then look = nil end end }
+            end
+            return keepNT(sec, f, n)
+        end
+        local ok, err = pcall(fn)
+        C_Timer.NewTicker = keepNT
+        if not ok then error(err, 0) end
+        assert(look, "test setup: the looks' ticker was not caught")
+    end
+    F.Catch(function() ns.PathsSetEnabled(false) ns.PathsSetEnabled(true) end)
+    local state = { base = nil, fps = 60, windows = {}, shift = 0, falling = nil }
+    IsFalling = function()
+        if state.falling ~= nil then return state.falling end
+        if not state.base then return false end
+        local t = math.floor((GetTime() - state.base) * state.fps + 1e-6) / state.fps
+        for _, w in ipairs(state.windows) do
+            if t >= w[1] - state.shift - 1e-6 and t <= w[2] - state.shift + 1e-6 then return true end
+        end
+        return false
+    end
+    F.state = state
+    function F.Look() if look then look() end end
+    -- a timer at exactly `at`
+    local function At(at, fn) timers[#timers + 1] = { at = at, fn = fn } end
+    F.At = At
+    -- One ride along a fresh row. o: fps (60), phase (0: the looks at 0, 0.5, 1, ...; with it the times in the air
+    -- earlier by it), looks (a list of times instead of the grid), windows, presses (more times the key is pressed),
+    -- seconds (how long: 6), x0 (yards into the ride's first square at the time 0: 19.5 - its edge at 0.79 s), at
+    -- (functions at times: {t, fn}).
+    -- Two looks on the ground before the time 0 (-1.0, -0.5). Returns the pieces of the row (count and falls of
+    -- the six first crossings east), the sum of their falls, the diagnosis lines.
+    function F.Ride(o)
+        -- (each ride on squares of its own: rows 2 to 98, then 20 squares further east - pieces from nothing)
+        local row, tx0 = 2 + 2 * (F.n % 49), 20 * math.floor(F.n / 49)
+        F.n = F.n + 1
+        assert(tx0 <= 180, "test setup: more rides than the zone has room for")
+        local fps = o.fps or 60
+        local phase = o.phase or 0
+        local x0 = o.x0 or 19.5
+        local seconds = o.seconds or 6
+        advance(1.0) -- (whatever was due)
+        local base = math.ceil(NOW) + 2
+        W.At(tx0 * 25 + x0 - 7 * 1.5, row * 25 + 12.5)
+        advance(base - 1.5 - NOW)
+        state.base, state.fps, state.windows, state.shift, state.falling = base, fps, o.windows or {}, phase, nil
+        local mark = #log
+        -- the frames: the position at each (7 yd/s east)
+        local frames = {}
+        local n0 = math.floor(-1.5 * fps)
+        for k = n0, math.floor(seconds * fps) do
+            local t = base + k / fps
+            At(t, function() W.At(tx0 * 25 + x0 + 7 * (GetTime() - base), row * 25 + 12.5) end)
+        end
+        -- the looks
+        local looks = o.looks
+        if not looks then
+            looks = {}
+            for k = -2, math.floor(seconds / 0.5) do looks[#looks + 1] = k * 0.5 end
+        else
+            local l = { -1.0, -0.5 }
+            for _, t in ipairs(looks) do l[#l + 1] = t end
+            looks = l
+        end
+        for _, t in ipairs(looks) do At(base + t, F.Look) end
+        -- the jump key: at the start of each window marked, and at the times asked
+        for _, w in ipairs(state.windows) do if w[3] then At(base + w[1] - phase, function() JumpOrAscendStart() end) end end
+        for _, t in ipairs(o.presses or {}) do At(base + t - phase, function() JumpOrAscendStart() end) end
+        for _, a in ipairs(o.at or {}) do At(base + a[1], a[2]) end
+        advance(base + seconds + 0.01 - NOW)
+        state.base = nil
+        local pieces, falls = {}, 0
+        for tx = tx0, tx0 + 5 do
+            local c, _, f = W.Piece(tx, row, 1, 0)
+            pieces[#pieces + 1] = { c or 0, f or 0 }
+            falls = falls + (f or 0)
+        end
+        return pieces, falls, PathsDiagLines(mark), row
+    end
+    -- at which of the ten places between the looks (0.00 .. 0.45 s) a ride's pieces got a fall: "0010000000"
+    function F.Places(o)
+        local t = {}
+        for i = 0, 9 do
+            local c = {}
+            for k, v in pairs(o) do c[k] = v end
+            c.phase = i * 0.05
+            local _, falls = F.Ride(c)
+            t[#t + 1] = falls > 0 and "1" or "0"
+        end
+        return table.concat(t)
+    end
+    -- jumps one after the other: n times `up` seconds in the air, `ground` between, from 0.1 s on (as model.py)
+    function F.Hops(up, ground, n, pressed)
+        local list, t = {}, 0.1
+        for i = 1, n do
+            list[i] = { t, t + up, pressed }
+            t = t + up + ground
+        end
+        return list
+    end
+    function F.Done()
+        state.base, state.falling = nil, nil
+        IsFalling = keepFall
+        -- (the recording with the game's ticker again)
+        ns.PathsSetEnabled(false)
+        ns.PathsSetEnabled(true)
+        W.Done()
+    end
+    return F
+end
+
 step("Paths: crossing from one 25-yard square into the next is counted, with a cost that does not depend on your speed (v0.1.22 W1, W2)", function()
     -- Sven, 12.11.2026: "wir brauchen die Routen". Collected only: every
     -- crossing between neighbouring squares with how often, its cost (the way
@@ -13748,13 +13920,8 @@ step("Paths: /gcr paths diag on - one line in chat for every time in the air, at
     -- counted as a fall): first the cause, then a change - a line for Sven to measure with.
     local W = PathsWorld()
     local ok, err = pcall(function()
-        local function Lines(mark)
-            local t = {}
-            for i = mark + 1, #log do
-                if log[i]:find("^PRINT") and log[i]:find("paths diag: in the air", 1, true) then t[#t + 1] = log[i] end
-            end
-            return t
-        end
+        -- (0.2.4 a15: the line is in the client's language - read back by PathsDiag)
+        local Lines = PathsDiagLines
         W.Start(100, 200)
         -- off by default: a time in the air gives no line
         local mark = #log
@@ -13768,15 +13935,16 @@ step("Paths: /gcr paths diag on - one line in chat for every time in the air, at
         mark = #log
         W.falling = true W.Step(3.5, 0) W.Step(3.5, 0) W.falling = false W.Step(3.5, 0)
         local l = Lines(mark)
-        assert(#l == 1 and l[1]:find("in the air 2 looks, 0.50 s seen", 1, true) and l[1]:find("a look every 0.50 s - no fall", 1, true),
-            "a jump: " .. table.concat(l, " / "))
+        assert(#l == 1 and l[1].looks == 2 and l[1].seen == "0.50" and l[1].every == "0.50" and l[1].result == ns.L["no fall"],
+            "a jump: " .. (#l == 1 and ("%s looks, %s s seen, every %s s, %s"):format(l[1].looks, l[1].seen, l[1].every, l[1].result) or (#l .. " lines")))
         -- a fall seen at four looks: 1.50 s seen, a fall
         mark = #log
         W.falling = true
         for _ = 1, 4 do W.Step(3.5, 0) end
         W.falling = false W.Step(3.5, 0)
         l = Lines(mark)
-        assert(#l == 1 and l[1]:find("in the air 4 looks, 1.50 s seen", 1, true) and l[1]:find("- a fall", 1, true), "a fall: " .. table.concat(l, " / "))
+        assert(#l == 1 and l[1].looks == 4 and l[1].seen == "1.50" and l[1].result == ns.L["a fall"],
+            "a fall: " .. (#l == 1 and ("%s looks, %s s seen, %s"):format(l[1].looks, l[1].seen, l[1].result) or (#l .. " lines")))
         -- off again: no line; the switch is not in the saved data
         ns.PathsCommand("diag off")
         mark = #log
@@ -13787,6 +13955,412 @@ step("Paths: /gcr paths diag on - one line in chat for every time in the air, at
     end)
     ns.PathsCommand("diag off")
     W.Done()
+    if not ok then error(err, 0) end
+end)
+-- (0.2.4 a15, order 2026-11-26_claude_auftrag_0.2.4-sturz-fix Fassung 3) Jumps one after the other are no fall: the
+-- watcher sees the frame on the ground between two of them (F1), a key pressed starts the time up there anew (J).
+-- Codex' 180: 2, 3 and 5 jumps with the key, 0.05, 0.10 and 0.20 s on the ground between, at ten places between the
+-- looks, at 20 and 60 frames a second - no fall (pieces and chat). Three jumps with 0.02 s on the ground at 20 frames a
+-- second: the watcher sees no frame down there - without the key (F1 alone) 10 of 10 places a fall, with it 0.
+step("Paths 0.2.4 a15 F1+J: jumps one after the other are no fall - 2, 3, 5 jumps with the key, 0.05 to 0.20 s on the ground, ten places, 20 and 60 fps: none; 0.02 s on the ground at 20 fps: F1 alone 10 of 10, with the key 0", function()
+    local F = FallWorld()
+    local ok, err = pcall(function()
+        ns.PathsCommand("diag on")
+        local rides = 0
+        for _, fps in ipairs({ 20, 60 }) do
+            for _, n in ipairs({ 2, 3, 5 }) do
+                for _, ground in ipairs({ 0.05, 0.10, 0.20 }) do
+                    for i = 0, 9 do
+                        local pieces, falls, lines = F.Ride({ fps = fps, phase = i * 0.05, windows = F.Hops(0.8, ground, n, true), seconds = 6.5 })
+                        rides = rides + 1
+                        local said = 0
+                        for _, d in ipairs(lines) do if d.result == ns.L["a fall"] then said = said + 1 end end
+                        assert(falls == 0 and said == 0, ("%d jumps with the key, %.2f s on the ground, %d fps, %.2f s after a look: %d falls on the pieces, %d said in chat"):format(n, ground, fps, i * 0.05, falls, said))
+                    end
+                end
+            end
+        end
+        assert(rides == 180, "test setup: " .. rides .. " rides")
+        -- without the key at 60 fps: the watcher alone (F1) sees the frame on the ground between two hops
+        for _, n in ipairs({ 2, 3, 5 }) do
+            for _, ground in ipairs({ 0.05, 0.10, 0.20 }) do
+                local got = F.Places({ fps = 60, windows = F.Hops(0.8, ground, n, false), seconds = 6.5 })
+                assert(got == "0000000000", ("%d hops without the key, %.2f s on the ground, 60 fps (F1 alone): falls at the ten places %s (want none)"):format(n, ground, got))
+            end
+        end
+        -- 0.02 s on the ground at 20 fps: no frame down there
+        local alone = F.Places({ fps = 20, windows = F.Hops(0.8, 0.02, 3, false), seconds = 6 })
+        assert(alone == "1111111111", "three jumps without the key, 0.02 s on the ground, 20 fps (F1 alone): falls at the ten places " .. alone .. " (want 1111111111 - the frames see no ground)")
+        local both = F.Places({ fps = 20, windows = F.Hops(0.8, 0.02, 3, true), seconds = 6 })
+        assert(both == "0000000000", "three jumps with the key, 0.02 s on the ground, 20 fps (F1+J): falls at the ten places " .. both .. " (want none)")
+    end)
+    ns.PathsCommand("diag off")
+    F.Done()
+    if not ok then error(err, 0) end
+end)
+
+-- Real falls without another key as before: from an edge 1.0 s - 1 of the 10 places (only where it starts at a look),
+-- 1.2 s 5, 1.5 and 2.5 s all 10; a jump off an edge of 2 s with the key only at the take-off: all 10. And the published
+-- limit: ten hops without the key, 0.45 s up and 0.05 s down, at 20 fps stay a false alarm at all ten places (the
+-- frames see none of the touches) - expected; there is no rule for "ten hops" as such.
+step("Paths 0.2.4 a15: real falls are seen as before - 1.0 s at 1 of 10 places, 1.2 s at 5, 1.5 and 2.5 s at all; a 2 s jump off an edge with the key at the take-off at all; ten hops without the key, 0.05 s down at 20 fps, a false alarm as published", function()
+    local F = FallWorld()
+    local ok, err = pcall(function()
+        ns.PathsCommand("diag on")
+        local function Fall(d, pressed) return { { 0.1, 0.1 + d, pressed } } end
+        local function Places(o)
+            local t = {}
+            for i = 0, 9 do
+                local c = {}
+                for k, v in pairs(o) do c[k] = v end
+                c.phase = i * 0.05
+                local _, falls, lines = F.Ride(c)
+                local said = 0
+                for _, d in ipairs(lines) do if d.result == ns.L["a fall"] then said = said + 1 end end
+                assert((falls > 0) == (said > 0), ("%.2f s after a look: %d falls on the pieces, %d said in chat"):format(i * 0.05, falls, said))
+                t[#t + 1] = falls > 0 and "1" or "0"
+            end
+            return table.concat(t)
+        end
+        for _, fps in ipairs({ 60, 20 }) do
+            local got = Places({ fps = fps, windows = Fall(1.0) })
+            assert(got == "0010000000", ("a fall of 1.0 s, %d fps: %s (want 0010000000)"):format(fps, got))
+            got = Places({ fps = fps, windows = Fall(1.2) })
+            assert(got == "0011111000", ("a fall of 1.2 s, %d fps: %s (want 0011111000)"):format(fps, got))
+            for _, d in ipairs({ 1.5, 2.5 }) do
+                got = Places({ fps = fps, windows = Fall(d) })
+                assert(got == "1111111111", ("a fall of %.1f s, %d fps: %s (want all ten)"):format(d, fps, got))
+            end
+            got = Places({ fps = fps, windows = Fall(2.0, true) })
+            assert(got == "1111111111", ("a 2 s jump off an edge, the key at the take-off, %d fps: %s (want all ten)"):format(fps, got))
+        end
+        local hops = Places({ fps = 20, windows = F.Hops(0.45, 0.05, 10, false), seconds = 7 })
+        assert(hops == "1111111111", "ten hops without the key, 0.45 s up, 0.05 s down, 20 fps: " .. hops .. " (published: a false alarm at all ten)")
+    end)
+    ns.PathsCommand("diag off")
+    F.Done()
+    if not ok then error(err, 0) end
+end)
+
+-- M1: a key pressed in the time up there. Before the fall is known it starts that time anew at the press - Bewusster
+-- Sollwert: a real fall from 0.10 to 1.60 s with a press at 0.90 s loses its mark at all ten places (expected, the
+-- price of J). After the fall is known a press changes nothing: the square keeps its fall, no crossing gets a second
+-- one. A press from standing does not start a later time up there anew. And Codex' case for the crossings that wait:
+-- the first look up there at 0.50 s, at 1.00 s the crossing A -> B (booked, it waits for the fall), the key at 1.10 s,
+-- looks up there at 1.50, 2.00, 2.50 s - A -> B stays 1 ride and 0 falls, the new time up there is a fall at 2.50 s
+-- (its square's next crossing gets it).
+step("Paths 0.2.4 a15 M1: a press before the fall is known starts the time up there anew (the price: a fall pressed in at 0.9 s is lost), after it nothing changes; a press from standing counts for nothing; Codex' case - the crossing that waited is let go, the new time is a fall at 2.50 s", function()
+    local F = FallWorld()
+    local ok, err = pcall(function()
+        ns.PathsCommand("diag on")
+        local function Places(o)
+            local t = {}
+            for i = 0, 9 do
+                local c = {}
+                for k, v in pairs(o) do c[k] = v end
+                c.phase = i * 0.05
+                local _, falls = F.Ride(c)
+                t[#t + 1] = falls > 0 and "1" or "0"
+            end
+            return table.concat(t)
+        end
+        -- an ordinary jump off an edge, the key at the take-off: as without the key
+        local plain = Places({ windows = { { 0.1, 2.1, false } } })
+        local edge = Places({ windows = { { 0.1, 2.1, true } } })
+        assert(plain == "1111111111" and edge == plain, "a jump off an edge: " .. edge .. " with the key at the take-off, " .. plain .. " without")
+        -- the price (expected): a real fall from 0.10 to 1.60 s, the key pressed at 0.90 s - its mark is lost
+        local lost = Places({ windows = { { 0.1, 1.6, false } }, presses = { 0.9 } })
+        local kept = Places({ windows = { { 0.1, 1.6, false } } })
+        assert(kept ~= "0000000000" and lost == "0000000000", "the price of J (expected): a fall from 0.10 to 1.60 s - " .. kept .. " without a press, " .. lost .. " with the key at 0.90 s (want none)")
+        -- after the fall is known (the third look up there at 1.50 s at the latest), a press at 2.10 s: the same falls,
+        -- and no piece with more falls than crossings
+        for i = 0, 9 do
+            local a = { F.Ride({ phase = i * 0.05, windows = { { 0.1, 2.6, false } } }) }
+            local b = { F.Ride({ phase = i * 0.05, windows = { { 0.1, 2.6, false } }, presses = { 2.1 } }) }
+            for k = 1, 6 do
+                assert(a[1][k][1] == b[1][k][1] and a[1][k][2] == b[1][k][2], ("a press after the fall is known (%.2f s after a look): piece %d %d/%d, without the press %d/%d"):format(i * 0.05, 99 + k, b[1][k][1], b[1][k][2], a[1][k][1], a[1][k][2]))
+                assert(b[1][k][2] <= b[1][k][1], ("a press after the fall is known: piece %d has %d falls in %d crossings"):format(99 + k, b[1][k][2], b[1][k][1]))
+            end
+            assert(b[2] >= 1, ("a press after the fall is known (%.2f s after a look): the fall was lost"):format(i * 0.05))
+        end
+        -- a press from standing (between the looks at -0.5 and 0.0 s) does not start the next time up there anew
+        local standing = Places({ windows = { { 0.1, 2.1, false } }, presses = { -0.3 } })
+        assert(standing == "1111111111", "a press from standing before a fall of 2 s: " .. standing .. " (want all ten)")
+        -- ... nor makes a later time up there longer: a press from standing, then 0.99 s in the air - never a fall
+        local short = Places({ windows = { { 0.1, 1.09, false } }, presses = { -0.3 } })
+        assert(short == "0000000000", "a press from standing, then 0.99 s in the air: " .. short .. " (want none)")
+        -- Codex' case: looks at 0.50 (the first up there), 1.00 (A -> B crossed), the key at 1.10, 1.50, 2.00, 2.50
+        -- (2.0 s in the air, landing at 2.80 s; A -> B at about 0.79 s, B -> C at about 4.36 s)
+        local pieces, falls, lines = F.Ride({ looks = { 0.0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0 }, windows = { { 0.45, 2.8, false } }, presses = { 1.1 }, seconds = 5.2 })
+        local ab, bc = pieces[1], pieces[2]
+        assert(ab[1] == 1 and ab[2] == 0, ("Codex' case: A -> B %d rides / %d falls (want 1 / 0: the crossing that waited is let go at the new start)"):format(ab[1], ab[2]))
+        assert(bc[1] == 1 and bc[2] == 1, ("Codex' case: B -> C %d rides / %d falls (want 1 / 1: the new time up there is a fall)"):format(bc[1], bc[2]))
+        local d = lines[#lines]
+        assert(#lines == 1 and d.result == ns.L["a fall"] and d.seen == "1.40" and d.presses == 1, ("Codex' case: the chat - %d lines, %s, %s s seen, %s pressed (want one, a fall, 1.40 s, 1)"):format(#lines,
+            tostring(d and d.result), tostring(d and d.seen), tostring(d and d.presses)))
+    end)
+    ns.PathsCommand("diag off")
+    F.Done()
+    if not ok then error(err, 0) end
+end)
+
+-- M2 (Codex' probes): the fall is decided at the looks only, the watcher only ends a time up there earlier. The first
+-- look up there at 0.50 s, the next at 1.04 s, the ground at 1.60 s: 2 looks, 0.54 s, no fall, the crossing 1 / 0. A
+-- landing at 1.55 s: no fall from a frame at 1.50 s. A crossing before the fall is known and the next one after the
+-- landing: both 1 / 1; a short jump for control: 1 / 0 and 1 / 0. A look and a frame that see the same landing: closed
+-- once (one line).
+step("Paths 0.2.4 a15 M2: the fall is booked at the looks only - 0.50/1.04 s up there, ground at 1.60: 2 looks, 0.54 s, no fall, 1/0; landed at 1.55: no fall from a frame at 1.50; a fall's crossings before and after the landing 1/1, a short jump's 1/0; one landing closed once", function()
+    local F = FallWorld()
+    local ok, err = pcall(function()
+        ns.PathsCommand("diag on")
+        -- 1. looks at 0.50 and 1.04 up there, the ground at 1.60 (the next look at 1.64)
+        local pieces, falls, lines = F.Ride({ looks = { 0.0, 0.5, 1.04, 1.64, 2.14, 2.64, 3.14 }, windows = { { 0.45, 1.6 - 1e-3, false } }, seconds = 3.3 })
+        local d = lines[1]
+        assert(#lines == 1 and d.looks == 2 and d.seen == "0.54" and d.result == ns.L["no fall"], ("0.50/1.04 up there, ground at 1.60: %d lines, %s looks, %s s, %s"):format(#lines, tostring(d and d.looks), tostring(d and d.seen), tostring(d and d.result)))
+        assert(falls == 0 and pieces[1][1] == 1 and pieces[1][2] == 0, ("0.50/1.04 up there: the crossing %d / %d (want 1 / 0), falls %d"):format(pieces[1][1], pieces[1][2], falls))
+        -- 2. landed at 1.55 (looks 0.50, 1.04, 1.58): the frame at 1.50 is 1.0 s after the first look up there - no fall
+        pieces, falls, lines = F.Ride({ looks = { 0.0, 0.5, 1.04, 1.58, 2.08, 2.58, 3.08 }, windows = { { 0.45, 1.55 - 1e-3, false } }, seconds = 3.3 })
+        assert(falls == 0 and #lines == 1 and lines[1].result == ns.L["no fall"], ("landed at 1.55: falls %d, chat %s"):format(falls, tostring(lines[1] and lines[1].result)))
+        -- 3. a fall (looks up there 0.5 .. 2.0, the fall known at 1.5, landing at 2.30): A -> B crossed before it is known,
+        -- B -> C after the landing - both 1 / 1; a short jump (0.8 s) over the same edges: 1 / 0 and 1 / 0
+        pieces = F.Ride({ windows = { { 0.45, 2.3, false } } })
+        assert(pieces[1][1] == 1 and pieces[1][2] == 1 and pieces[2][1] == 1 and pieces[2][2] == 1, ("a fall: A -> B %d/%d, B -> C %d/%d (want 1/1 and 1/1)"):format(pieces[1][1], pieces[1][2], pieces[2][1], pieces[2][2]))
+        pieces = F.Ride({ windows = { { 0.45, 1.25, true } } })
+        assert(pieces[1][1] == 1 and pieces[1][2] == 0 and pieces[2][1] == 1 and pieces[2][2] == 0, ("a short jump: A -> B %d/%d, B -> C %d/%d (want 1/0 and 1/0)"):format(pieces[1][1], pieces[1][2], pieces[2][1], pieces[2][2]))
+        -- 3b. landed before the fall is known, and a real fall right after it: the crossing of the time before keeps no
+        -- fall (it was let go at the landing)
+        pieces = F.Ride({ looks = { 0.0, 0.5, 1.04, 1.64, 2.14, 2.64, 3.14, 3.64, 4.14, 4.64, 5.14, 5.64 }, windows = { { 0.45, 1.6 - 1e-3, false }, { 1.7, 3.8, false } }, seconds = 5.8 })
+        assert(pieces[1][1] == 1 and pieces[1][2] == 0, ("landed, then a fall: A -> B of the time before %d/%d (want 1/0)"):format(pieces[1][1], pieces[1][2]))
+        -- 4. a landing a look and a frame see at the same time (the ground from 1.50 on, a look at 1.50): one line
+        pieces, falls, lines = F.Ride({ windows = { { 0.45, 1.5 - 1e-3, false } }, seconds = 3 })
+        assert(#lines == 1, ("a landing seen by a look and a frame at once: %d lines (want one)"):format(#lines))
+        -- and the other way round: the frame first (ground at 1.20), the look at 1.50 finds it over
+        pieces, falls, lines = F.Ride({ windows = { { 0.45, 1.2, false } }, seconds = 3 })
+        assert(#lines == 1 and lines[1].touches == 1, ("a landing seen by a frame first: %d lines, %s touches (want one, 1)"):format(#lines, tostring(lines[1] and lines[1].touches)))
+    end)
+    ns.PathsCommand("diag off")
+    F.Done()
+    if not ok then error(err, 0) end
+end)
+
+-- M3: one abort for the watcher, called on every way the recording stops or skips a look - off, a clear, the loading
+-- screen (leaving and entering the world), a new zone, and every invalid look: a gap of more than 2 s, a taxi,
+-- flying, dead, a vehicle, an instance, no position, values the game hides, a continent's map, no size of the zone;
+-- and a fall value the watcher cannot read. In the air from 0.1 s on to the end: the first look up there (0.5 s)
+-- starts the watcher, the look at 1.0 s books A -> B (it waits for the fall). The cause at 1.2 s; it acts at once or
+-- at the look at 1.5 s. Then: no OnUpdate is set, no frame asks, A -> B never gets the fall, the chat says why. A
+-- cause that stays (taken back at 2.4 s): no watcher while it is there; afterwards the first look is a new start and
+-- the second (3.0 s) starts one. A cause that is over at once (a clear, a loading screen, a new zone): the look at
+-- 1.5 s is a new start, the one at 2.0 s starts it. A gap (no look from 1.5 to 3.5 s): the look at 4.0 s ends it.
+step("Paths 0.2.4 a15 M3: every abort - off, clear, loading screen, a new zone, a gap, taxi, flying, dead, a vehicle, an instance, no position, hidden values, a continent, no size, an unreadable fall value - leaves no OnUpdate and no frame asking, books nothing later; the next valid look up there starts one watcher", function()
+    local F = FallWorld()
+    local watcherFrame = ns.PathsWatch()
+    local SECRET = newproxy(true)
+    local keepSecret = issecretvalue
+    local W = F.W
+    local keep = { taxi = UnitOnTaxi, fly = IsFlying, dead = UnitIsDeadOrGhost, vehicle = UnitInVehicle, inst = IsInInstance, pos = C_Map.GetPlayerMapPosition,
+        speed = GetUnitSpeed, map = player.map }
+    local ok, err = pcall(function()
+        ns.PathsCommand("diag on")
+        local L = ns.L
+        local function Watching() return (select(5, ns.PathsWatch())) end
+        local function Frames() return (select(3, ns.PathsWatch())) end
+        -- kind: "stays" (taken back at 2.4 s), "over" (over at once) or "gap"
+        local function Case(name, reason, kind, cause, undo)
+            local seen = {}
+            local look = F.Look
+            if kind == "gap" then
+                F.Look = function()
+                    local t = GetTime() - (F.state.base or 0)
+                    if not (t > 1.2 and t < 3.7) then look() end
+                end
+            end
+            local after = kind == "gap" and 4.05 or 1.55
+            local last = kind == "gap" and 4.45 or kind == "over" and 1.95 or 2.35
+            -- (down again at 5.2 s: the ride ends on the ground)
+            local o = { windows = { { 0.1, 5.2, false } }, seconds = 5.5, at = {
+                { 1.05, function() seen.before = Watching() end },
+                { 1.2, cause },
+                { after, function() seen.after, seen.script, seen.frames0 = Watching(), watcherFrame:GetScript("OnUpdate"), Frames() end },
+                { last, function() seen.frames1, seen.still = Frames(), Watching() end },
+                { 2.4, undo },
+                { 2.05, function() seen.at205 = Watching() end },
+                { 2.55, function() seen.at255 = Watching() end },
+                { 3.05, function() seen.at305 = Watching() end },
+                { 4.55, function() seen.at455 = Watching() end },
+                { 5.05, function() seen.at505 = Watching() end },
+            } }
+            local ok2, pieces, _, lines = pcall(F.Ride, o)
+            F.Look = look
+            if not ok2 then error(pieces, 0) end
+            assert(seen.before, name .. ": test setup - no watcher before the cause")
+            assert(seen.after == false and seen.script == nil, name .. ": after the abort the watcher still runs or its OnUpdate is set")
+            assert(seen.frames1 == seen.frames0, ("%s: %d frames asked after the abort"):format(name, (seen.frames1 or 0) - (seen.frames0 or 0)))
+            assert(seen.still == false, name .. ": a watcher started again before it was time")
+            -- A -> B: crossed at 0.79 s, booked at 1.0 s, waiting for the fall - never gets it from the time aborted
+            -- (a clear deletes it)
+            assert(pieces[1][2] == 0, ("%s: A -> B %d/%d - the fall came after the abort"):format(name, pieces[1][1], pieces[1][2]))
+            local why
+            for _, d in ipairs(lines) do if d.stopped and not why then why = d.stopped end end
+            assert(why == reason, ("%s: the chat says it stopped for '%s' (want '%s')"):format(name, tostring(why), reason))
+            -- again: only the look after the new start
+            if kind == "stays" then
+                assert(seen.at255 == false and seen.at305 == true, ("%s: after it was taken back - a watcher at 2.55 s %s, at 3.05 s %s (want no, yes)"):format(name, tostring(seen.at255), tostring(seen.at305)))
+            elseif kind == "over" then
+                assert(seen.at205 == true, ("%s: the look at 2.0 s started no watcher"):format(name))
+            else
+                assert(seen.at455 == false and seen.at505 == true, ("%s: after the gap - a watcher at 4.55 s %s, at 5.05 s %s (want no, yes)"):format(name, tostring(seen.at455), tostring(seen.at505)))
+            end
+        end
+        local ELSE = L["a taxi, flying, dead, a vehicle or an instance"]
+        Case("off", L["recording off"], "stays", function() ns.PathsCommand("off") end, function() F.Catch(function() ns.PathsCommand("on") end) end)
+        Case("clear", L["paths cleared"], "over", function() ns.PathsCommand("clear yes") end, function() end)
+        Case("leaving the world", L["a loading screen"], "over", function() fire("PLAYER_LEAVING_WORLD") end, function() end)
+        Case("entering the world", L["a loading screen"], "over", function() fire("PLAYER_ENTERING_WORLD") end, function() end)
+        Case("a new zone", L["another zone"], "over", function() player.map = 1411 end, function() player.map = keep.map end)
+        Case("an unreadable fall value", L["the fall value cannot be read"], "stays", function() F.state.falling = SECRET issecretvalue = function(v) return v == SECRET end end,
+            function() F.state.falling = nil issecretvalue = keepSecret end)
+        Case("a taxi", ELSE, "stays", function() UnitOnTaxi = function() return true end end, function() UnitOnTaxi = keep.taxi end)
+        Case("flying", ELSE, "stays", function() IsFlying = function() return true end end, function() IsFlying = keep.fly end)
+        Case("dead", ELSE, "stays", function() UnitIsDeadOrGhost = function() return true end end, function() UnitIsDeadOrGhost = keep.dead end)
+        Case("a vehicle", ELSE, "stays", function() UnitInVehicle = function() return true end end, function() UnitInVehicle = keep.vehicle end)
+        Case("an instance", ELSE, "stays", function() IsInInstance = function() return true, "party" end end, function() IsInInstance = keep.inst end)
+        Case("no position", L["no position"], "stays", function() C_Map.GetPlayerMapPosition = function() return nil end end, function() C_Map.GetPlayerMapPosition = keep.pos end)
+        Case("hidden values", L["values the game hides"], "stays", function() GetUnitSpeed = function() return SECRET end issecretvalue = function(v) return v == SECRET end end,
+            function() GetUnitSpeed = keep.speed issecretvalue = keepSecret end)
+        Case("no size of the zone", L["no size of the zone"], "stays", function() W.noSize = true end, function() W.noSize = nil end)
+        Case("a continent's map", L["a continent's map"], "stays", function() player.map = 1414 assert((ns.GetPlayerPos()) == 1414, "test setup: not on 1414") end,
+            function() player.map = keep.map end)
+        Case("a gap of more than 2 s", L["a gap between two looks"], "gap", function() end, function() end)
+    end)
+    UnitOnTaxi, IsFlying, UnitIsDeadOrGhost, UnitInVehicle, IsInInstance = keep.taxi, keep.fly, keep.dead, keep.vehicle, keep.inst
+    C_Map.GetPlayerMapPosition, GetUnitSpeed, player.map, W.noSize = keep.pos, keep.speed, keep.map, nil
+    issecretvalue = keepSecret
+    ns.PathsCommand("diag off")
+    F.Done()
+    if not ok then error(err, 0) end
+end)
+
+-- The hook and the costs. The post-hook on the game's jump, triggered by a call of the original: the original is
+-- called, its returns are kept, the press is seen; hooked once, also after the recording was switched off and on again.
+-- On the ground no frame asks; one jump with the key (0.8 s, 60 fps): the looks, the frames and the hook's calls counted
+-- apart. Without the hook API (no hooksecurefunc) a second Paths in a sandbox of its own runs F1 alone, without an
+-- error, and says so in its line.
+step("Paths 0.2.4 a15: the jump hook - the original called, its returns kept, hooked once after off and on; no frame asks on the ground, a jump's looks, frames and presses counted apart; without the hook API F1 alone and no error", function()
+    local F = FallWorld()
+    local ok, err = pcall(function()
+        ns.PathsCommand("diag on")
+        local _, looks0, frames0, hooks0, _, hooked = ns.PathsWatch()
+        assert(hooked, "the hook is not in (JumpOrAscendStart and hooksecurefunc are there)")
+        local done0 = jumpsDone
+        local r = JumpOrAscendStart()
+        assert(r == "jumped" and jumpsDone == done0 + 1, "the original jump was not called or its return lost: " .. tostring(r))
+        assert(select(4, ns.PathsWatch()) == hooks0 + 1, "the hook did not see the press")
+        for _ = 1, 3 do
+            ns.PathsCommand("off")
+            F.Catch(function() ns.PathsCommand("on") end)
+        end
+        assert(hooksDone["JumpOrAscendStart"] == 1, ("JumpOrAscendStart hooked %d times (once a session)"):format(hooksDone["JumpOrAscendStart"] or 0))
+        -- on the ground: no frame asks
+        local _, l1, f1 = ns.PathsWatch()
+        F.Ride({ windows = {}, seconds = 4 })
+        local _, l2, f2 = ns.PathsWatch()
+        assert(f2 == f1 and l2 > l1, ("on the ground: %d frames asked in %d looks"):format(f2 - f1, l2 - l1))
+        -- one jump with the key: 0.8 s at 60 fps
+        local _, l3, f3, h3 = ns.PathsWatch()
+        local _, _, lines = F.Ride({ windows = { { 0.1, 0.9, true } }, seconds = 3 })
+        local _, l4, f4, h4 = ns.PathsWatch()
+        note("MEASURE a15 one jump", ("0.8 s with the key at 60 fps: %d looks, %d frames asked, %d hook calls"):format(l4 - l3, f4 - f3, h4 - h3))
+        assert(h4 - h3 == 1 and f4 - f3 >= 20 and f4 - f3 <= 60, ("one jump: %d hook calls, %d frames asked (want 1, about 25)"):format(h4 - h3, f4 - f3))
+        assert(#lines == 1 and lines[1].presses == 1 and lines[1].hook == ns.L["yes"] and lines[1].touches == 1, ("one jump: the chat %s"):format(#lines == 1 and
+            ("%d pressed, hook %s, %d touches"):format(lines[1].presses, tostring(lines[1].hook), lines[1].touches) or (#lines .. " lines")))
+        -- without the hook API: a Paths of its own in a sandbox (no hooksecurefunc), on the same mock world
+        local env = setmetatable({ hooksecurefunc = false }, { __index = _G })
+        local made = {}
+        env.CreateFrame = function(...) local f = CreateFrame(...) made[#made + 1] = f return f end
+        local chunk = assert(loadfile(ROOT .. "/Paths.lua"))
+        setfenv(chunk, env)
+        local db = { paths = { zones = {}, total = 0, hinted = true } }
+        local own = { L = ns.L, AnySecret = ns.AnySecret, GetPlayerPos = ns.GetPlayerPos, GetZoneName = ns.GetZoneName, Print = function() end, PlayerMap = ns.PlayerMap, db = db }
+        local ok2, err2 = pcall(chunk, "Gathercraft", own)
+        assert(ok2, "the sandboxed Paths does not load: " .. tostring(err2))
+        local look
+        local keepNT = C_Timer.NewTicker
+        C_Timer.NewTicker = function(sec, f, n) if sec == 0.5 and not look then look = f return { Cancel = function() look = nil end } end return keepNT(sec, f, n) end
+        own.PathsSetEnabled(true)
+        C_Timer.NewTicker = keepNT
+        assert(look, "test setup: the sandboxed Paths has no ticker")
+        local hookedOwn = select(6, own.PathsWatch())
+        assert(not hookedOwn, "the sandboxed Paths has a hook without hooksecurefunc")
+        own.PathsCommand("diag on")
+        -- its looks with ours: three jumps with the key, 0.05 s on the ground, 60 fps (F1 sees the ground: no fall);
+        -- the same with 0.02 s at 20 fps (no frame sees it, no hook: a fall - F1 alone)
+        local ours = F.Look
+        F.Look = function() ours() if look then look() end end
+        local errs0 = #errors
+        -- (its lines are the ones that say the hook is not in)
+        local function Own(mark)
+            local t = {}
+            for _, d in ipairs(PathsDiagLines(mark)) do if d.hook == ns.L["no"] then t[#t + 1] = d end end
+            return t
+        end
+        local function Falls(list) local n = 0 for _, d in ipairs(list) do if d.result == ns.L["a fall"] then n = n + 1 end end return n end
+        local mark = #log
+        F.Ride({ fps = 60, windows = F.Hops(0.8, 0.05, 3, true), seconds = 5 })
+        local at60 = Own(mark)
+        mark = #log
+        F.Ride({ fps = 20, windows = F.Hops(0.8, 0.02, 3, true), seconds = 5 })
+        local at20 = Own(mark)
+        F.Look = ours
+        own.PathsCommand("diag off")
+        own.PathsSetEnabled(false)
+        for _, f in ipairs(made) do if f.UnregisterAllEvents then f:UnregisterAllEvents() end f:SetScript("OnUpdate", nil) f:SetScript("OnEvent", nil) end
+        assert(#errors == errs0, "the sandboxed Paths made an error: " .. tostring(errors[#errors]))
+        assert(#at60 >= 3 and Falls(at60) == 0, ("without the hook API, 0.05 s on the ground at 60 fps: %d lines, %d falls (F1 sees the ground: none)"):format(#at60, Falls(at60)))
+        assert(#at20 >= 1 and Falls(at20) == 1, ("without the hook API, 0.02 s on the ground at 20 fps: %d lines, %d falls (F1 alone: one)"):format(#at20, Falls(at20)))
+    end)
+    ns.PathsCommand("diag off")
+    F.Done()
+    if not ok then error(err, 0) end
+end)
+
+-- The diagnosis line in all ten languages: its texts in each translation, with the same placeholders; read back here
+-- in the client's language. A time up there with a landing: frames up there, touches seen, jumps pressed, yards
+-- sideways (7 yd/s for the time between the first look up there and the last), the hook - "yes".
+step("Paths 0.2.4 a15: the diagnosis line in all ten languages - frames up there, touches of the ground, jumps pressed, yards sideways, the hook and why it stopped; the same placeholders in every translation", function()
+    local keys = {
+        "Gathercraft paths diag: in the air %d looks, %.2f s seen from the second look (%.2f s before the first), a look every %.2f s - %s; %d frames up there, %d touches of the ground seen, %d jumps pressed, %.1f yd sideways, jump hook %s",
+        "a fall", "no fall", "yes", "no", " - stopped without a landing: %s", "the fall value cannot be read", "a gap between two looks",
+        "a taxi, flying, dead, a vehicle or an instance", "values the game hides", "no position", "a continent's map", "no size of the zone",
+        "another zone", "recording off", "paths cleared", "a loading screen",
+    }
+    local n = 0
+    for lang, dict in pairs(ns.Locales) do
+        n = n + 1
+        for _, key in ipairs(keys) do
+            local v = dict[key]
+            assert(type(v) == "string" and v ~= "", lang .. ": missing " .. key)
+            local a, b = {}, {}
+            for sp in key:gmatch("%%[%.%d]*[dfs]") do a[#a + 1] = sp end
+            for sp in v:gmatch("%%[%.%d]*[dfs]") do b[#b + 1] = sp end
+            assert(table.concat(a, " ") == table.concat(b, " "), lang .. ": the placeholders of " .. key)
+        end
+    end
+    assert(n == 9, "test setup: " .. n .. " translations")
+    local F = FallWorld()
+    local ok, err = pcall(function()
+        ns.PathsCommand("diag on")
+        -- a jump with the key: up from 0.1 to 1.3 s (the looks up there at 0.5 and 1.0 s), down at 1.30 s
+        local _, _, lines = F.Ride({ windows = { { 0.1, 1.3, true } }, seconds = 3 })
+        local d = lines[1]
+        assert(#lines == 1 and d.looks == 2 and d.seen == "0.50" and d.result == ns.L["no fall"], "a jump: " .. (d and (d.looks .. " looks " .. d.seen) or (#lines .. " lines")))
+        -- (49 frames up there from 0.5 to 1.3 s; the mock calls OnUpdate after every timer of its own too: a few more)
+        assert(d.frames >= 48 and d.frames <= 75 and d.touches == 1 and d.presses == 1 and d.hook == ns.L["yes"] and d.stopped == nil,
+            ("a jump: %d frames up there, %d touches, %d pressed, hook %s, stopped %s"):format(d.frames, d.touches, d.presses, tostring(d.hook), tostring(d.stopped)))
+        assert(math.abs(d.yards - 3.5) < 0.25, ("a jump: %.1f yd sideways (want 3.5: 7 yd/s for the half second between the two looks up there)"):format(d.yards))
+    end)
+    ns.PathsCommand("diag off")
+    F.Done()
     if not ok then error(err, 0) end
 end)
 step("Paths: nothing is learned where you are carried, dead, in an instance, teleported or where the client hides values (v0.1.22 W3)", function()
