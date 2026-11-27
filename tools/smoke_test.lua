@@ -18071,6 +18071,112 @@ step("Fishing: equip, lure, cast, reel", function()
     assert(_G.GathercraftPanel:IsShown(), "fishing panel not shown")
     _G.GathercraftPanel.__scripts.OnUpdate = _G.GathercraftPanel.__scripts.OnUpdate
 end)
+-- (0.2.4 a19, order 2026-11-28_claude_auftrag_0.2.4-a19 part 1; a player on Discord: Fishing 41, Nightcrawlers in the
+-- bags - every press said "You can't use that item.") The fish key takes only a lure the Fishing skill (the own rank,
+-- without the pole's or a lure's bonus) is high enough for: Nightcrawlers and the Aquadynamic Fish Lens need 50, Bright
+-- Baubles, the Flesh Eating Worm and the Aquadynamic Fish Attractor 100, the Shiny Bauble nothing. A lure too high is
+-- passed over - the next one that can be used, else a cast without a lure - and said once a session. And whatever the
+-- table does not know: a lure that two presses in a row tried to put on, the pole still without one, is passed over
+-- for the session (a line says it once); a skill-up lifts that. One thing a press, as before.
+step("Fishing 0.2.4 a19: the fish key never sticks on a lure - one the Fishing skill is too low for is passed over (said once), one that two presses in a row did not put on is passed over for the session, a skill-up tries it again", function()
+    local b = _G.GathercraftFishButton
+    local keep = { inv = GetInventoryItemID, enchant = GetWeaponEnchantInfo, count = C_Item.GetItemCount, profs = GetProfessions,
+        info = GetProfessionInfo, print = ns.Print, lure = ns.db.fishLure, name = C_Item.GetItemNameByID }
+    local NAMES = { [6533] = "Aquadynamic Fish Attractor", [6811] = "Aquadynamic Fish Lens", [7307] = "Flesh Eating Worm",
+        [6532] = "Bright Baubles", [6530] = "Nightcrawlers", [6529] = "Shiny Bauble" }
+    local bags, rank, lured, said = {}, 41, false, {}
+    local ok, err = pcall(function()
+        ns.db.fishLure = nil
+        GetInventoryItemID = function(_, slot) if slot == 16 then return 6256 end end -- (the pole in hand)
+        GetWeaponEnchantInfo = function() return lured end
+        C_Item.GetItemCount = function(id) return bags[id] or 0 end
+        C_Item.GetItemNameByID = function(id) return NAMES[id] or keep.name(id) end
+        GetProfessions = function() if rank then return 1, 2, nil, 4, nil, nil end end
+        GetProfessionInfo = function(i)
+            if i == 4 then return "Fishing", 0, rank, 300, 0, 0, 356, 25 end -- (a pole's +25 beside the rank)
+            return keep.info(i)
+        end
+        ns.Print = function(t) said[#said + 1] = t end
+        local function Press()
+            b.__scripts.PreClick(b)
+            local macro = b:GetAttribute("macrotext") or ""
+            return b.next, b.next == "apply lure" and tonumber(macro:match("item:(%d+)")) or nil
+        end
+        local function Said(text) local n = 0 for _, t in ipairs(said) do if t == text then n = n + 1 end end return n end
+        local TOO_LOW = ns.L["Fishing %d needed for %s - casting without that lure."]
+        local FAILED = ns.L["Couldn't apply %s - casting without that lure."]
+        -- 1. Fishing 41, Nightcrawlers and a Shiny Bauble: the Shiny Bauble
+        bags = { [6530] = 5, [6529] = 3 }
+        local what, lure = Press()
+        assert(what == "apply lure" and lure == 6529, ("Fishing 41, Nightcrawlers and a Shiny Bauble: %s %s"):format(tostring(what), tostring(lure)))
+        -- 2. Fishing 41, only Nightcrawlers: a cast, and the line once - also at the presses after
+        bags = { [6530] = 5 }
+        said = {}
+        for i = 1, 3 do
+            what = Press()
+            assert(what == "cast", ("Fishing 41, only Nightcrawlers, press %d: %s"):format(i, tostring(what)))
+        end
+        local line = TOO_LOW:format(50, "Nightcrawlers")
+        assert(Said(line) == 1 and #said == 1, "the line about the Nightcrawlers: " .. table.concat(said, " / "))
+        -- 3. Fishing 50: the Nightcrawlers are put on
+        rank = 50
+        what, lure = Press()
+        assert(what == "apply lure" and lure == 6530, ("Fishing 50, Nightcrawlers: %s %s"):format(tostring(what), tostring(lure)))
+        lured = true
+        assert(Press() == "cast", "the lure on the pole: a cast")
+        lured = false
+        -- 4. Fishing 120: the order of the lures as before
+        rank = 120
+        bags = { [6533] = 1, [6811] = 1, [7307] = 1, [6532] = 1, [6530] = 1, [6529] = 1 }
+        for _, id in ipairs({ 6533, 6811, 7307, 6532, 6530, 6529 }) do
+            what, lure = Press()
+            assert(what == "apply lure" and lure == id, ("Fishing 120: %s %s, wanted %d"):format(tostring(what), tostring(lure), id))
+            bags[id] = nil
+        end
+        -- 5. a lure that takes at the first try: nothing passed over, nothing said
+        said = {}
+        bags = { [6532] = 2 }
+        what, lure = Press()
+        lured = true
+        assert(what == "apply lure" and lure == 6532 and Press() == "cast", "a lure that takes")
+        lured = false
+        what, lure = Press()
+        assert(what == "apply lure" and lure == 6532 and #said == 0, ("the same lure again after it ran out: %s %s, said %s"):format(
+            tostring(what), tostring(lure), table.concat(said, " / ")))
+        -- 6. the skill not readable, a lure that never takes: presses 1 and 2 try it, the 3rd casts - and the line once
+        rank = nil
+        said = {}
+        bags = { [7307] = 4 }
+        local tried = {}
+        for i = 1, 4 do tried[i] = Press() end
+        assert(tried[1] == "apply lure" and tried[2] == "apply lure" and tried[3] == "cast" and tried[4] == "cast",
+            "the skill not readable, a lure that does not take: " .. table.concat(tried, ", "))
+        assert(Said(FAILED:format("Flesh Eating Worm")) == 1 and #said == 1, "the line about a lure that did not take: " .. table.concat(said, " / "))
+        -- a skill-up: tried again
+        fire("CHAT_MSG_SKILL", "Your skill in Fishing has increased to 42.")
+        assert(Press() == "apply lure", "after a skill-up the lure is tried again")
+        -- not two presses in a row: a cast between them counts anew
+        lured = false
+        -- 7. no lure in the bags: a cast, nothing said
+        said = {}
+        bags = {}
+        assert(Press() == "cast" and #said == 0, "no lure: a cast")
+        -- the texts in every language, with the same placeholders
+        for lang, d in pairs(ns.Locales) do
+            for _, key in ipairs({ "Fishing %d needed for %s - casting without that lure.", "Couldn't apply %s - casting without that lure." }) do
+                local tr = d[key]
+                assert(type(tr) == "string" and tr ~= "" and tr ~= key, lang .. ": not translated - " .. key)
+                local _, a = key:gsub("%%[ds]", "") local _, c = tr:gsub("%%[ds]", "")
+                assert(a == c and (key:find("%%d") == nil) == (tr:find("%%d") == nil), lang .. ": placeholders - " .. tr)
+            end
+        end
+    end)
+    GetInventoryItemID, GetWeaponEnchantInfo, C_Item.GetItemCount, GetProfessions = keep.inv, keep.enchant, keep.count, keep.profs
+    GetProfessionInfo, ns.Print, ns.db.fishLure, C_Item.GetItemNameByID = keep.info, keep.print, keep.lure, keep.name
+    fire("CHAT_MSG_SKILL", "") -- (nothing passed over for the steps after)
+    b.__scripts.PreClick(b)
+    if not ok then error(err, 0) end
+end)
 step("Fishing: a catch counts once (loot events twice, late, autoloot on and off)", function()
     -- seen on the live server (05.11.): one fish, the panel went from 12 to 14
     local prices = ns.db.prices[next(ns.db.prices)]
