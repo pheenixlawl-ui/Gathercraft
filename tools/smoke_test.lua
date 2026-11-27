@@ -18268,6 +18268,20 @@ step("Fishing 0.2.4 a20: the safety casts at the third press and pauses every lu
             assert(type(tr) == "string" and tr ~= "" and tr ~= key and select(2, tr:gsub("%%s", "")) == 1 and not tr:find("%%d"),
                 lang .. ": not translated or another placeholder - " .. tostring(tr))
         end
+        -- M2 (Codex' probe): Fishing 50, only Nightcrawlers; the 1st try fails, the 2nd takes - an event says it - then the
+        -- lure runs out with no press: the next press puts the Nightcrawlers on again, nothing paused, nothing said
+        Lift()
+        rank, bags, said = 50, { [6530] = 3 }, {}
+        assert(Seq(2) == "6530 6530", "M2, two tries")
+        lured = true
+        fire("UNIT_INVENTORY_CHANGED", "player")
+        lured = false
+        fire("UNIT_INVENTORY_CHANGED", "player")
+        local again = Seq(2)
+        assert(again == "6530 6530" and #said == 0, ("M2, after the lure took and ran out: %s, said %s"):format(again, table.concat(said, " / ")))
+        lured = true
+        assert(Seq(1) == "cast", "M2, the lure on: a cast")
+        lured = false
     end)
     GetInventoryItemID, GetWeaponEnchantInfo, C_Item.GetItemCount, GetProfessions = keep.inv, keep.enchant, keep.count, keep.profs
     GetProfessionInfo, ns.Print, ns.db.fishLure, C_Item.GetItemNameByID = keep.info, keep.print, keep.lure, keep.name
