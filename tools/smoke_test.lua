@@ -20081,18 +20081,19 @@ step("Sync 0.2.4 a13: left on purpose and joined again before the next send (0 a
         local at = #log
         slash("sync")
         for i = at + 1, #log do
-            local nr = log[i]:match("^PRINT .-%(#(%d+)%)") or (log[i]:match("^PRINT .-%(#%?%)") and "?")
+            -- (the line's number after its "#": some translations put it in full-width brackets)
+            local nr = log[i]:match("^PRINT .-#(%d+)") or (log[i]:match("^PRINT .-#%?") and "?")
             if nr then return nr end
         end
     end
     local ok, err = pcall(function()
         slash("sync on") -- (joined at 5)
         advance(2)
-        assert(Shown() == "5", "test setup: joined at 5, /gcr sync shows #" .. tostring(Shown()))
+        assert(Shown() == "5", "test setup: joined at 5, /gcr sync shows #" .. tostring((Shown())))
         number = 7
-        assert(Shown() == "7", "renumbered 5 -> 7: /gcr sync shows #" .. tostring(Shown()) .. " (want #7)")
+        assert(Shown() == "7", "renumbered 5 -> 7: /gcr sync shows #" .. tostring((Shown())) .. " (want #7)")
         number = 0
-        assert(Shown() == "?", "no number known: /gcr sync shows #" .. tostring(Shown()) .. " (want #?)")
+        assert(Shown() == "?", "no number known: /gcr sync shows #" .. tostring((Shown())) .. " (want #?)")
     end)
     GetChannelName = keep
     slash("sync on")
