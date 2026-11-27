@@ -148,6 +148,9 @@ end
 local function Prepare(pressed)
     if InCombatLockdown() then return end
     local mainHand = GetInventoryItemID("player", 16)
+    -- (0.2.4 a20, Codex' check of a19, M2) a lure on the pole - seen at any look, an event's too - ends the row of
+    -- tries: the one tried did take; when it runs out it is taken again as any other
+    if IsPole(mainHand) and HasLure() then tried.id, tried.n = nil, 0 end
     if not IsPole(mainHand) then
         local pole = PoleInBags()
         if pole then
