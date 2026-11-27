@@ -15,14 +15,15 @@ local BUTTON_NAME = "GathercraftFishButton"
 local BINDING = "CLICK " .. BUTTON_NAME .. ":LeftButton"
 local FISHING_SPELLS = { 131474, 7620, 7731, 7732, 18248 } -- newest first
 local POLE_CLASS, POLE_SUBCLASS = 2, 20 -- Weapon / Fishing Pole
--- Lures, best first: item ID -> bonus
+-- Lures, best first: item ID -> bonus; (0.2.4 a19) skill = the Fishing skill it needs - the own rank, without the
+-- pole's or a lure's bonus: the game asks that one
 local LURES = {
-    { id = 6533, bonus = 100 }, -- Aquadynamic Fish Attractor
-    { id = 6811, bonus = 50 },  -- Aquadynamic Fish Lens
-    { id = 7307, bonus = 75 },  -- Flesh Eating Worm
-    { id = 6532, bonus = 75 },  -- Bright Baubles
-    { id = 6530, bonus = 50 },  -- Nightcrawlers
-    { id = 6529, bonus = 25 },  -- Shiny Bauble
+    { id = 6533, bonus = 100, skill = 100 }, -- Aquadynamic Fish Attractor
+    { id = 6811, bonus = 50, skill = 50 },   -- Aquadynamic Fish Lens
+    { id = 7307, bonus = 75, skill = 100 },  -- Flesh Eating Worm
+    { id = 6532, bonus = 75, skill = 100 },  -- Bright Baubles
+    { id = 6530, bonus = 50, skill = 50 },   -- Nightcrawlers
+    { id = 6529, bonus = 25, skill = 0 },    -- Shiny Bauble
 }
 
 local button = CreateFrame("Button", BUTTON_NAME, UIParent, "SecureActionButtonTemplate")
@@ -79,10 +80,55 @@ local function PoleInBags()
     end
 end
 
+---------------------------------------------------------------------------
+-- (0.2.4 a19; a player on Discord: Fishing 41, Nightcrawlers in the bags -
+-- every press tried to put them on, the game said "You can't use that
+-- item.", the key never came to the cast) A lure is taken only when the
+-- Fishing skill is high enough for it; one too high is passed over - the next
+-- one that can be used, else a cast without a lure - and said once a session
+-- (only at a press). The skill not readable: no lure is passed over for it.
+-- And whatever the table does not know (another value on Forever, any other
+-- failure): a lure that two presses in a row tried to put on, the pole still
+-- without one at the next press, is passed over for the session - said once.
+-- A skill-up lifts that (a higher Fishing rank; when it cannot be read, a
+-- skill-up line), as do a /reload and a login. No error text is read: only
+-- counted. One thing a press, as before.
+---------------------------------------------------------------------------
+local passed = {}                 -- lure id -> true: passed over for the session (two presses did not put it on)
+local passedRank                  -- the Fishing rank when one was passed over (nil: not readable)
+local tried = { id = nil, n = 0 } -- the lure the last presses in a row tried to put on, and how many presses
+local told = {}                   -- lure id -> true: its line was said this session
+
+-- the own Fishing rank (without bonuses), nil when it cannot be read
+local function FishingRank()
+    if not ns.GetSkill then return end
+    local ok, rank = pcall(ns.GetSkill, "fish")
+    if ok and type(rank) == "number" and not ns.AnySecret("fishing rank", rank) then return rank end
+end
+
+local function LureName(id)
+    local name = C_Item and C_Item.GetItemNameByID and ns.Readable(C_Item.GetItemNameByID(id), "lure name")
+    if not name and GetItemInfo then name = ns.Readable((GetItemInfo(id)), "lure name") end
+    return name or ("item " .. id)
+end
+
+local function Tell(id, text, ...)
+    if told[id] then return end
+    told[id] = true
+    ns.Print((L[text]):format(...))
+end
+
+-- the best lure in the bags that is not passed over and that the Fishing skill is high enough for (not readable:
+-- any); and, when there is none, the first lure in the bags the skill is too low for
 local function BestLure()
+    local rank, tooLow = FishingRank(), nil
     for _, lure in ipairs(LURES) do
-        if ItemCount(lure.id) > 0 then return lure.id end
+        if not passed[lure.id] and ItemCount(lure.id) > 0 then
+            if not rank or rank >= lure.skill then return lure.id end
+            tooLow = tooLow or lure
+        end
     end
+    return nil, tooLow
 end
 
 local function HasLure()
@@ -90,8 +136,8 @@ local function HasLure()
     return hasMainHand
 end
 
--- Picks what the next key press does (out of combat only)
-local function Prepare()
+-- Picks what the next key press does (out of combat only); `pressed`: at the press itself (PreClick), not at an event
+local function Prepare(pressed)
     if InCombatLockdown() then return end
     local mainHand = GetInventoryItemID("player", 16)
     if not IsPole(mainHand) then
@@ -103,12 +149,22 @@ local function Prepare()
             return
         end
     elseif ns.db.fishLure ~= false and not HasLure() then
-        local lure = BestLure()
+        -- (0.2.4 a19) two presses in a row tried this lure and the pole still has none: passed over for the session
+        if pressed and tried.id and tried.n >= 2 then
+            passed[tried.id] = true
+            passedRank = FishingRank()
+            Tell(tried.id, "Couldn't apply %s - casting without that lure.", LureName(tried.id))
+            tried.id, tried.n = nil, 0
+        end
+        local lure, tooLow = BestLure()
         if lure then
             button:SetAttribute("type", "macro")
             button:SetAttribute("macrotext", "/use item:" .. lure .. "\n/use 16")
-            button.next = "apply lure"
+            button.next, button.lure = "apply lure", lure
             return
+        end
+        if pressed and tooLow then
+            Tell(tooLow.id, "Fishing %d needed for %s - casting without that lure.", tooLow.skill, LureName(tooLow.id))
         end
     end
     local spell = FishingSpell()
@@ -123,7 +179,15 @@ local function Prepare()
 end
 
 button:SetScript("PreClick", function()
-    if not InCombatLockdown() then Prepare() end
+    if not InCombatLockdown() then
+        Prepare(true)
+        -- (0.2.4 a19) the presses in a row that try to put the same lure on; anything else begins anew
+        if button.next == "apply lure" then
+            if tried.id == button.lure then tried.n = tried.n + 1 else tried.id, tried.n = button.lure, 1 end
+        else
+            tried.id, tried.n = nil, 0
+        end
+    end
     if not button.next and not InCombatLockdown() then
         ns.Print(L["You don't know Fishing yet. Visit a fishing trainer first."])
     end
@@ -492,6 +556,8 @@ events:RegisterEvent("PLAYER_LOGOUT")
 events:RegisterEvent("PLAYER_REGEN_ENABLED")
 events:RegisterEvent("UPDATE_BINDINGS")
 events:RegisterEvent("BAG_UPDATE_DELAYED")
+events:RegisterEvent("CHAT_MSG_SKILL")      -- (0.2.4 a19) a skill-up lifts the lures passed over
+events:RegisterEvent("SKILL_LINES_CHANGED")
 events:RegisterUnitEvent("UNIT_INVENTORY_CHANGED", "player")
 events:RegisterUnitEvent("UNIT_SPELLCAST_CHANNEL_START", "player")
 events:RegisterUnitEvent("UNIT_SPELLCAST_CHANNEL_STOP", "player")
@@ -544,6 +610,17 @@ events:SetScript("OnEvent", function(_, event, _, _, spellID)
         Prepare()
         -- a run or the questing mode going on: the gathering help again
         C_Timer.After(1, function() UpdateGatherHelp("login") end)
+    elseif event == "CHAT_MSG_SKILL" or event == "SKILL_LINES_CHANGED" then
+        -- (0.2.4 a19) a skill-up lifts what two presses passed over: the Fishing rank higher than then - or, when it
+        -- cannot be read (now or then), a skill-up line. No text of the line is read.
+        if next(passed) then
+            local rank = FishingRank()
+            if (rank and passedRank and rank > passedRank) or ((not rank or not passedRank) and event == "CHAT_MSG_SKILL") then
+                for id in pairs(passed) do passed[id] = nil end
+                passedRank = nil
+            end
+        end
+        Prepare()
     else
         Prepare()
     end
