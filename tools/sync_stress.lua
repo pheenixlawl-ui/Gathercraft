@@ -704,8 +704,18 @@ scenarios.mixed = function()
                 addError(("Mixed versions: the %s clients know %.0f%% of the new nodes, the floor is %d%%"):format(key, share, KNOWN_FLOOR["Mixed versions"]))
             end
         end
-        -- what the new ones heard: versions of new players only, never one of an old player
-        local most, wrong = 0, 0
+        -- what the new ones heard: the versions of the players that run - the new one, and (0.2.4 a14) the old one where
+        -- the old client says its version itself (0.2.2 d1 on: a "V:gc" message; 0.2.1 says none); never one that no
+        -- client sent
+        local oldSays = false
+        do
+            local f = io.open(OLD .. "/Sync.lua", "r")
+            if f then
+                oldSays = f:read("*a"):find('"V:gc"', 1, true) ~= nil
+                f:close()
+            end
+        end
+        local most, oldMost, wrong = 0, 0, 0
         for _, c in ipairs(groups.new) do
             c.out = {}
             c.ns.SyncCommand("")
@@ -715,12 +725,22 @@ scenarios.mixed = function()
                 addError("Mixed versions: " .. c.name .. " shows no versions line")
             else
                 for v, n in line:gmatch("([%w%.%-]+): (%d+)") do
-                    if v == newVersion then most = math.max(most, tonumber(n)) elseif v ~= "heard" then wrong = wrong + tonumber(n) end
+                    if v == newVersion then
+                        most = math.max(most, tonumber(n))
+                    elseif v == oldVersion and oldSays and oldVersion ~= newVersion then
+                        oldMost = math.max(oldMost, tonumber(n))
+                    elseif v ~= "heard" then
+                        wrong = wrong + tonumber(n)
+                    end
                 end
             end
         end
-        print(("  Versions heard by the new clients: at most %d of the %d other new players, %d of another version"):format(most, #groups.new - 1, wrong))
+        print(("  Versions heard by the new clients: at most %d of the %d other new players, at most %d of the %d old ones (%s %s), %d of another version"):format(most,
+            #groups.new - 1, oldMost, #groups.old, oldVersion, oldSays and "says its version" or "says none", wrong))
         if most < 1 or most > #groups.new - 1 then addError(("Mixed versions: a new client heard %d versions of %d other new players"):format(most, #groups.new - 1)) end
+        if oldSays and (oldMost < 1 or oldMost > #groups.old) then
+            addError(("Mixed versions: a new client heard %d versions of %d old players that say theirs"):format(oldMost, #groups.old))
+        end
         if wrong > 0 then addError(("Mixed versions: %d versions heard that no client sent"):format(wrong)) end
     end)
 end
