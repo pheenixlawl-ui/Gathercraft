@@ -21015,11 +21015,11 @@ end)
 -- (0.2.4 a16, order 2026-11-27_claude_auftrag_0.2.4-a16 part 2; a player on Discord: GathercraftSync landed on /1) A
 -- slow client had not joined General yet when the fixed 8 s after the login were over. Now the join waits for General
 -- (or another zone channel) in the channel list, 8 s at the earliest, 30 s at the latest (an instance, no General).
--- What tells: the channel notice of a zone channel joined (CHAT_MSG_CHANNEL_NOTICE, its zone channel id > 0) or the
--- list's update (CHANNEL_UI_UPDATE) with a name of the game's server channels in GetChannelList - each on its own.
+-- What tells: (a18) a name of the game's server channels in GetChannelList, looked at at 8 s and at each channel notice
+-- (CHAT_MSG_CHANNEL_NOTICE) or list's update (CHANNEL_UI_UPDATE) after that; a notice itself counts not (a16/a17 did).
 -- Driven by events and two one-shot timers, no ticker; one join, no other channel left or moved; with the public channel
 -- off never a join. The login of the Sync module alone (its frame), the mock's clock in steps of 0.25 s.
-step("Sync 0.2.4 a16: GathercraftSync is joined behind General - at 8 s when a zone channel is listed already, right after it when it comes between 8 and 30 s (the channel notice or the list's update, each alone), at 30 s without one; public off never; once, no ticker, no other channel touched; (a17) a zone channel left again before the join counts no more, another one still there does", function()
+step("Sync 0.2.4 a16: GathercraftSync is joined behind General - at 8 s when a zone channel is listed already, right after it when one comes into the list between 8 and 30 s (looked at at a channel notice or the list's update), at 30 s without one; public off never; once, no ticker, no other channel touched; (a17) a zone channel left again before the join counts no more, another one still there does; (a18) a notice alone not", function()
     local keep = { chan = GetChannelName, join = JoinTemporaryChannel, leave = LeaveChannelByName, list = GetChannelList,
         server = EnumerateServerChannels, ticker = C_Timer.NewTicker, debug = ns.db.debug, public = ns.db.sync.public,
         enabled = ns.db.sync.enabled }
@@ -21066,37 +21066,55 @@ step("Sync 0.2.4 a16: GathercraftSync is joined behind General - at 8 s when a z
             end
             return at
         end
+        -- General joined: "both" in the list, its notice and the list's update; "notice" its notice alone (not in the
+        -- list); "list" in the list and its update, no notice; (a18) "list, notice" in the list, its notice, no update
         local function General(how)
             return function()
                 if how ~= "notice" then listed[#listed + 1] = "General" end
                 if how ~= "list" then fire("CHAT_MSG_CHANNEL_NOTICE", "YOU_CHANGED", "", "", "1. General - Durotar", "", "", 1, 1, "General") end
-                if how ~= "notice" then fire("CHANNEL_UI_UPDATE") end
+                if how == "both" or how == "list" then fire("CHANNEL_UI_UPDATE") end
             end
         end
-        local function Case(what, public, plan, want, joined)
+        -- (a18) every case runs, what went wrong is told at the end; the debug line "login join: <why> (<s> s after the
+        -- login)" comes once per login and says when - and why, where a case names it
+        local fails = {}
+        local function Case(what, public, plan, want, joined, why)
+            local function check(cond, text) if not cond then fails[#fails + 1] = what .. ": " .. text end end
+            local mark = #log
             local at = Login(public, plan)
             if want then
-                assert(at and math.abs(at - want) < 0.01, ("%s: in the channel at %s s (wanted %s)"):format(what, tostring(at), want))
+                check(at and math.abs(at - want) < 0.01, ("in the channel at %s s (wanted %s)"):format(tostring(at), want))
             else
-                assert(not at, ("%s: in the channel at %s s (wanted never)"):format(what, tostring(at)))
+                check(not at, ("in the channel at %s s (wanted never)"):format(tostring(at)))
             end
-            assert(#joins == joined, ("%s: %d joins (wanted %d)"):format(what, #joins, joined))
-            for _, j in ipairs(joins) do assert(j.name == "GathercraftSync", what .. ": joined " .. tostring(j.name)) end
-            assert(leaves == 0 and tickers == 0, ("%s: %d channels left, %d tickers made"):format(what, leaves, tickers))
-            assert(not (eventFrames.CHANNEL_UI_UPDATE or {})[sync] and not (eventFrames.CHAT_MSG_CHANNEL_NOTICE or {})[sync],
-                what .. ": the channel events are still listened to after the login join")
+            check(#joins == joined, ("%d joins (wanted %d)"):format(#joins, joined))
+            for _, j in ipairs(joins) do check(j.name == "GathercraftSync", "joined " .. tostring(j.name)) end
+            check(leaves == 0 and tickers == 0, ("%d channels left, %d tickers made"):format(leaves, tickers))
+            check(not (eventFrames.CHANNEL_UI_UPDATE or {})[sync] and not (eventFrames.CHAT_MSG_CHANNEL_NOTICE or {})[sync],
+                "the channel events are still listened to after the login join")
+            local lines = {}
+            for i = mark + 1, #log do if log[i]:find("login join: ", 1, true) then lines[#lines + 1] = log[i] end end
+            check(#lines == 1, ("%d debug lines \"login join: ...\" (wanted 1)"):format(#lines))
+            local line = lines[1] or ""
+            if want then
+                local s = ("(%.1f s after the login)"):format(want)
+                check(line:find(s, 1, true), ("the debug line %q does not say %s"):format(line, s))
+            end
+            if why then check(line:find("login join: " .. why, 1, true), ("the debug line %q does not say why: %s"):format(line, why)) end
         end
         -- General after 3 s: the join at 8 s
         listed, inSync = {}, false
-        Case("General after 3 s", true, { [3] = General("both") }, 8, 1)
-        -- General after 20 s: right after it - by the notice alone, by the list's update alone
+        Case("General after 3 s", true, { [3] = General("both") }, 8, 1, "a zone channel in the list at 8 s")
+        -- General after 20 s: right after it - (a18) in the list, looked at at its notice alone, at the list's update alone
         listed, inSync = {}, false
-        Case("General after 20 s, the notice alone", true, { [20] = General("notice") }, 20, 1)
+        Case("General after 20 s, in the list, its notice alone", true, { [20] = General("list, notice") }, 20, 1,
+            "a zone channel in the list at a channel notice")
         listed, inSync = {}, false
-        Case("General after 20 s, the list's update alone", true, { [20] = General("list") }, 20, 1)
+        Case("General after 20 s, the list's update alone", true, { [20] = General("list") }, 20, 1,
+            "a zone channel in the list at the list's update")
         -- never General (an instance): at 30 s; a channel of the player's own is no zone channel
         listed, inSync = {}, false
-        Case("never General", true, {}, 30, 1)
+        Case("never General", true, {}, 30, 1, "30 s, no zone channel in the list")
         listed, inSync = {}, false
         Case("only a channel of the player's own", true, { [3] = function()
             listed[#listed + 1] = "MyGuildFriends"
@@ -21105,14 +21123,13 @@ step("Sync 0.2.4 a16: GathercraftSync is joined behind General - at 8 s when a z
         end }, 30, 1)
         -- the public channel off: never a join, General or not
         listed, inSync = {}, false
-        Case("public off", false, { [3] = General("both"), [20] = General("both") }, nil, 0)
+        Case("public off", false, { [3] = General("both"), [20] = General("both") }, nil, 0, "sync or the public channel off")
         -- a /reload: GathercraftSync is in the list already - nothing to order, taken at 8 s without a join
         listed, inSync = {}, true
-        Case("after a /reload, already in GathercraftSync", true, {}, 8, 0)
+        Case("after a /reload, already in GathercraftSync", true, {}, 8, 0, "in GathercraftSync already")
         -- (0.2.4 a17, order 2026-11-27_claude_auftrag_0.2.4-a17 part 1, Codex' check of a16, M1) a zone channel the
-        -- client left again before the join does not count any more: its notice YOU_LEFT takes back what its join said
-        -- (by the zone channel id, else by the base name); a list's update with an empty list takes back nothing (the
-        -- list may lag behind at the login); another zone channel still there counts on
+        -- client left again before the join does not count any more; another zone channel still there counts on - (a18)
+        -- by the list alone, see below
         local function Zone(name, id, index)
             return function()
                 listed[#listed + 1] = name
@@ -21135,19 +21152,57 @@ step("Sync 0.2.4 a16: GathercraftSync is joined behind General - at 8 s when a z
         listed, inSync = {}, false
         Case("General and LocalDefense at 3 s, General left at 6 s", true,
             { [3] = function() Zone("General", 1, 1)() Zone("LocalDefense", 22, 2)() end, [6] = Left("General", 1, 1) }, 8, 1)
-        -- the same by the notices alone (the list lags behind): what counts is LocalDefense's own entry
+        listed, inSync = {}, false
+        Case("General at 3 s, left at 6 s with a notice without its id (the base name)", true,
+            { [3] = Zone("General", 1, 1), [6] = Left("General", 0, 1) }, 30, 1)
+        -- (0.2.4 a18, order 2026-11-27_claude_auftrag_0.2.4-a18, Codex' check of a17) what counts is the channel list
+        -- alone: a notice is only the cue to look at it, nothing of it is kept. A notice alone with the list empty: 30 s
+        -- (before a18: 8 s) - also by the notices of two zone channels, also with an empty list's update in between
+        listed, inSync = {}, false
+        Case("General's notice alone at 3 s, the list stays empty", true, { [3] = General("notice") }, 30, 1,
+            "30 s, no zone channel in the list")
+        listed, inSync = {}, false
+        Case("General's notice at 3 s, the list empty at 6 s, no YOU_LEFT", true,
+            { [3] = General("notice"), [6] = function() fire("CHANNEL_UI_UPDATE") end }, 30, 1)
+        listed, inSync = {}, false
+        Case("General's notice alone at 20 s, not in the list", true, { [20] = General("notice") }, 30, 1)
         listed, inSync = {}, false
         Case("General and LocalDefense at 3 s by their notices alone, General left at 6 s", true,
             { [3] = function()
                 fire("CHAT_MSG_CHANNEL_NOTICE", "YOU_CHANGED", "", "", "1. General - Durotar", "", "", 1, 1, "General")
                 fire("CHAT_MSG_CHANNEL_NOTICE", "YOU_CHANGED", "", "", "2. LocalDefense - Durotar", "", "", 22, 2, "LocalDefense")
-            end, [6] = function() fire("CHAT_MSG_CHANNEL_NOTICE", "YOU_LEFT", "", "", "1. General - Durotar", "", "", 1, 1, "General") end }, 8, 1)
+            end, [6] = function() fire("CHAT_MSG_CHANNEL_NOTICE", "YOU_LEFT", "", "", "1. General - Durotar", "", "", 1, 1, "General") end }, 30, 1)
+        -- the list lags behind: General's notice at 3 s, in the list only from 12 s on - the join with that update
         listed, inSync = {}, false
-        Case("General at 3 s, left at 6 s with a notice without its id (the base name)", true,
-            { [3] = Zone("General", 1, 1), [6] = Left("General", 0, 1) }, 30, 1)
-        -- the list empty at 6 s without a YOU_LEFT (it lags behind): the notice of 3 s still counts
-        listed, inSync = {}, false
-        Case("General's notice at 3 s, the list empty at 6 s, no YOU_LEFT", true, { [3] = General("notice"), [6] = function() fire("CHANNEL_UI_UPDATE") end }, 8, 1)
+        Case("General's notice at 3 s, in the list at 12 s", true,
+            { [3] = General("notice"), [12] = function() listed[#listed + 1] = "General" fire("CHANNEL_UI_UPDATE") end }, 12, 1,
+            "a zone channel in the list at the list's update")
+        -- Codex' case: one General told by a notice with zone channel id 0 and its base name and one with id 1 (both
+        -- orders), in the list from 2 s; at 6 s left by a notice with its id alone, the list empty: 30 s - or 20 s when
+        -- General comes back then
+        for _, ids in ipairs({ { 0, 1 }, { 1, 0 } }) do
+            for _, back in ipairs({ false, true }) do
+                local plan = {
+                    [2] = function()
+                        listed[#listed + 1] = "General"
+                        fire("CHAT_MSG_CHANNEL_NOTICE", "YOU_JOINED", "", "", "1. General", "", "", ids[1], 1, "General")
+                        fire("CHANNEL_UI_UPDATE")
+                    end,
+                    [3] = function() fire("CHAT_MSG_CHANNEL_NOTICE", "YOU_CHANGED", "", "", "1. General - Durotar", "", "", ids[2], 1, "General") end,
+                    [6] = function()
+                        for i = #listed, 1, -1 do if listed[i] == "General" then table.remove(listed, i) end end
+                        fire("CHAT_MSG_CHANNEL_NOTICE", "YOU_LEFT", "", "", "1. General - Durotar", "", "", 1, 1, "")
+                        fire("CHANNEL_UI_UPDATE")
+                    end,
+                }
+                if back then plan[20] = Zone("General", 1, 1) end
+                listed, inSync = {}, false
+                Case(("General told with zone channel id %d, then %d, left at 6 s by its id alone, the list empty%s"):format(
+                    ids[1], ids[2], back and ", back at 20 s" or ""), true, plan, back and 20 or 30, 1,
+                    back and "a zone channel in the list at " or "30 s, no zone channel in the list")
+            end
+        end
+        assert(#fails == 0, #fails .. " login case(s) wrong:\n" .. table.concat(fails, "\n"))
         -- nothing in Sync.lua moves or leaves another channel, or touches the player's settings
         local src = io.open(ROOT .. "/Sync.lua"):read("*a"):gsub("%-%-[^\n]*", "")
         for _, call in ipairs({ "Swap", "JoinPermanentChannel", "JoinChannelByName", "SetCVar", "ChatFrame_AddChannel", "SetChannel" }) do
