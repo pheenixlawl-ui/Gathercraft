@@ -214,6 +214,59 @@ def t_csv_two_parts_and_damage():
     shutil.rmtree(base)
 
 
+def t_csv_many_fields():
+    """(Sven, 27.11.) the form with ten answer fields "Part 1" ... "Part 10" on one page, sent once: every cell of every
+    row that holds a part is a part; the parts are put together by the id and the part number of their head, whatever
+    the order of the fields and rows; empty fields are ignored; the old form with one field is read as before"""
+    base = fresh()
+    # (7,160 pieces in two zones - the format takes 8,000 a zone at the most)
+    three = ([(1434, x, y, N, 100, 0) for y in range(1, 80, 2) for x in range(120)] + [(1440, x, y, N, 100, 0) for y in range(1, 40, 2) for x in range(40)]
+             + [(1434, x, y, E, 100, 0) for y in range(2, 80, 2) for x in range(0, 119, 3)])
+    a = parts_of(three, IDS[0])
+    b = parts_of(big_records(), IDS[1])                                                             # 4,680 pieces
+    c = parts_of(three, IDS[2])                                                                     # (a part missing: never decoded)
+    check(len(a) == 3 and len(b) == 2 and len(c) == 3, 'fixture: donations of three, two and three parts')
+    head = ['Zeitstempel'] + ['Part %d' % i for i in range(1, 11)]
+
+    def row(cells):
+        r = ['27.11.2026 10:00:00'] + cells
+        return r + [''] * (len(head) - len(r))
+    rows = [head,
+            # A: its three parts in swapped fields, empty and blank fields between (CRLF and a trimmed end as Forms has)
+            row([a[2].replace('\n', '\r\n').rstrip('\r\n'), '', a[0].rstrip('\n'), '   ', a[1]]),
+            # B: over two rows in another order, part 1 twice (the same text in two fields)
+            row(['', b[1]]),
+            row([b[0], '', '', b[0]]),
+            # C: part 2 of 3 missing
+            row([c[2], c[0]])]
+    # (written as the form's export is: CSV line ends as they are, not doubled by the text mode)
+    with open(base / 'eingang' / 'neu.csv', 'w', encoding='utf-8', newline='') as f:
+        csv.writer(f).writerows(rows)
+    # the old form with one field, beside it
+    d = parts_of(walk(1434, 30, 30, [N] * 10), IDS[3])
+    with open(base / 'eingang' / 'alt.csv', 'w', encoding='utf-8', newline='') as f:
+        csv.writer(f).writerows([['Zeitstempel', 'Name im Spiel', 'Deine Wege'], ['26.11.2026 09:00:00', 'Testspieler', d[0]]])
+    code, out = run_tool(base)
+    text = report_text(base)
+    check(code == 0 and len(re.findall(r'^## Nr\. \d+', text, re.M)) == 4, 'many fields: four submissions, four numbers')
+    sections = {m.group(1): m.group(2) for m in re.finditer(r'^## Nr\. (\d+)\n(.*?)(?=^## |\Z)', text, re.M | re.S)}
+
+    def section(source):
+        return next((s for s in sections.values() if source in s), '')
+    sa = section('neu.csv, Zeile 2')
+    check('7.160 in 2 Zonen' in sa and 'abgelehnt' not in sa, 'many fields: three parts in swapped fields with empty ones between -> 7,160 pieces')
+    sb = section('neu.csv, Zeile 3')
+    check('neu.csv, Zeile 4' in sb and '4.680 in 1 Zonen' in sb and 'abgelehnt' not in sb,
+          'many fields: parts over two rows in another order, one part twice -> one donation of 4,680 pieces')
+    sc = section('neu.csv, Zeile 5')
+    check('abgelehnt: unvollständig, Teil 2 von 3 fehlt' in sc, 'many fields: a part missing -> "unvollständig, Teil 2 von 3 fehlt"')
+    sd = section('alt.csv, Zeile 2')
+    check('10 in 1 Zonen' in sd and 'abgelehnt' not in sd, 'the old form with one field beside it: read as before')
+    for bad in ('Part 1', 'Zeitstempel', 'Testspieler', '27.11.2026 10:00'):
+        check(bad not in text and bad not in out, 'many fields: "%s" (a column title or another column) not in the report' % bad)
+    shutil.rmtree(base)
+
+
 # ---------------------------------------------------------------- duplicates, accept, reject, the base net
 def t_duplicate_accept_reject():
     base = fresh()
@@ -399,6 +452,7 @@ def main():
     t_sv_reader()
     t_txt_and_edges()
     t_csv_two_parts_and_damage()
+    t_csv_many_fields()
     t_duplicate_accept_reject()
     t_deadline_and_patterns()
     t_own_overlap()

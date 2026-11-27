@@ -7,7 +7,10 @@
 Without --accept/--reject: reads every .csv (the form's export; only cells holding a
 donation are read, every other column is ignored) and .txt in eingang, puts the parts of a
 donation together by their envelope, checks part and whole checksums and decodes with
-tools/ways_donation.py. Writes <today>_pruefbericht.md and <today>_bilder/ into pruefung
+tools/ways_donation.py. Every cell of every row that holds a part is read: the old form
+with one answer field and the form with many ("Part 1" ... "Part 10", Sven 27.11.) alike -
+the parts are put together by the id and part number of their head, in whatever order of
+fields and rows; empty fields hold nothing; a part twice (the same text) counts once. Writes <today>_pruefbericht.md and <today>_bilder/ into pruefung
 and keeps the running numbers in pruefung/stand.json.
 
 Rules (order 2026-11-26_claude_auftrag_spenden-auswertung.md):
