@@ -39188,7 +39188,8 @@ step("Ways 0.2.4 S1.1 a9 measure: the real clock on Codex' two kinds of an 800 w
     -- (a build's steps, the collector stopped or not: the first step of each stage of a phase against the others - how
     -- many of each over 0.25 ms and over 0.2 ms, and their time per piece of work against the stage's others)
     local stage = { first = 0, firstOver = 0, firstHigh = 0, other = 0, otherOver = 0, otherHigh = 0, ratios = {} }
-    local dots = { both = 0, bothPins = 0, bothMs = 0, bothOwn = 0, world = 0, worldPins = 0, worldMs = 0, worldOwn = 0 }
+    local dots = { both = 0, bothPins = 0, bothMs = 0, bothOwn = 0, bothKb = 0, bothOwnKb = 0, world = 0, worldPins = 0, worldMs = 0, worldOwn = 0,
+        worldKb = 0, worldOwnKb = 0 }
     -- one spike's cause, from its own marks (s: its start's mark): the collector (a cycle ended, or memory was freed,
     -- in it); the computer (its canary 1.5 times the run's median or more); with the wrapped calls HereBeDragons' pins,
     -- the mock's widget methods or frames made (half its time or more in them); a run's start (the head's tick in the
@@ -39255,6 +39256,9 @@ step("Ways 0.2.4 S1.1 a9 measure: the real clock on Codex' two kinds of an 800 w
                         local own = MS[i] - (A.pins[i] - A.pins[s]) - (A.api[i] - A.api[s]) - (A.frames[i] - A.frames[s])
                         local g = (A.mini[i] - A.mini[s]) > 0 and "both" or "world"
                         dots[g], dots[g .. "Pins"], dots[g .. "Ms"], dots[g .. "Own"] = dots[g] + 1, dots[g .. "Pins"] + pins, dots[g .. "Ms"] + MS[i], dots[g .. "Own"] + own
+                        local kb = KB[i] - KB[s]
+                        dots[g .. "Kb"] = dots[g .. "Kb"] + kb
+                        dots[g .. "OwnKb"] = dots[g .. "OwnKb"] + kb - (A.pinsKb[i] - A.pinsKb[s]) - (A.apiKb[i] - A.apiKb[s]) - (A.framesKb[i] - A.framesKb[s])
                     end
                 end
             end
@@ -39452,9 +39456,11 @@ step("Ways 0.2.4 S1.1 a9 measure: the real clock on Codex' two kinds of an 800 w
                 calls and ", the calls wrapped" or "", table.concat(t, ", ")))
             if calls then
                 local d = dots
-                MNote("MEASURE a13 dots", ("map dots' steps with minimap pins %d (%.1f pins a step, %.4f ms a pin, of it %.4f ms outside the pins' calls, the widget methods and frames made); world map only %d (%.1f pins a step, %.4f ms a pin, of it %.4f ms)")
+                MNote("MEASURE a13 dots", ("map dots' steps with minimap pins %d (%.1f pins a step, %.4f ms a pin, of it %.4f ms outside the pins' calls, the widget methods and frames made; %.3f KB a pin, of it %.3f KB outside them); world map only %d (%.1f pins a step, %.4f ms a pin, of it %.4f ms; %.3f KB a pin, of it %.3f KB)")
                     :format(d.both, d.bothPins / math.max(1, d.both), d.bothMs / math.max(1, d.bothPins), d.bothOwn / math.max(1, d.bothPins),
-                        d.world, d.worldPins / math.max(1, d.world), d.worldMs / math.max(1, d.worldPins), d.worldOwn / math.max(1, d.worldPins)))
+                        d.bothKb / math.max(1, d.bothPins), d.bothOwnKb / math.max(1, d.bothPins),
+                        d.world, d.worldPins / math.max(1, d.world), d.worldMs / math.max(1, d.worldPins), d.worldOwn / math.max(1, d.worldPins),
+                        d.worldKb / math.max(1, d.worldPins), d.worldOwnKb / math.max(1, d.worldPins)))
             end
             table.sort(stage.ratios)
             local rq = stage.ratios
