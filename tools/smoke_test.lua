@@ -21220,7 +21220,7 @@ step("Sync 0.2.4 a16: GathercraftSync is joined behind General - at 8 s when a z
             "a zone channel in the list at the list's update")
         -- never General (an instance): at 30 s; a channel of the player's own is no zone channel
         listed, inSync = {}, false
-        Case("never General", true, {}, 30, 1, "30 s, no zone channel in the list")
+        Case("never General", true, {}, 30, 1, "30 s, no zone channel seen in the list")
         listed, inSync = {}, false
         Case("only a channel of the player's own", true, { [3] = function()
             listed[#listed + 1] = "MyGuildFriends"
@@ -21266,12 +21266,17 @@ step("Sync 0.2.4 a16: GathercraftSync is joined behind General - at 8 s when a z
         -- (before a18: 8 s) - also by the notices of two zone channels, also with an empty list's update in between
         listed, inSync = {}, false
         Case("General's notice alone at 3 s, the list stays empty", true, { [3] = General("notice") }, 30, 1,
-            "30 s, no zone channel in the list")
+            "30 s, no zone channel seen in the list")
         listed, inSync = {}, false
         Case("General's notice at 3 s, the list empty at 6 s, no YOU_LEFT", true,
             { [3] = General("notice"), [6] = function() fire("CHANNEL_UI_UPDATE") end }, 30, 1)
         listed, inSync = {}, false
         Case("General's notice alone at 20 s, not in the list", true, { [20] = General("notice") }, 30, 1)
+        -- (0.2.4 a19, Codex' check of a18, low) the 30 s line says what was seen, not what the list holds at 30 s: General
+        -- in the list from 29 s on without an event - the join at 30 s says "no zone channel seen in the list"
+        listed, inSync = {}, false
+        Case("General in the list from 29 s on, no event", true, { [29] = function() listed[#listed + 1] = "General" end }, 30, 1,
+            "30 s, no zone channel seen in the list")
         listed, inSync = {}, false
         Case("General and LocalDefense at 3 s by their notices alone, General left at 6 s", true,
             { [3] = function()
@@ -21305,7 +21310,7 @@ step("Sync 0.2.4 a16: GathercraftSync is joined behind General - at 8 s when a z
                 listed, inSync = {}, false
                 Case(("General told with zone channel id %d, then %d, left at 6 s by its id alone, the list empty%s"):format(
                     ids[1], ids[2], back and ", back at 20 s" or ""), true, plan, back and 20 or 30, 1,
-                    back and "a zone channel in the list at " or "30 s, no zone channel in the list")
+                    back and "a zone channel in the list at " or "30 s, no zone channel seen in the list")
             end
         end
         assert(#fails == 0, #fails .. " login case(s) wrong:\n" .. table.concat(fails, "\n"))
