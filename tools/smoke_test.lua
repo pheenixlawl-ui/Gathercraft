@@ -21019,7 +21019,7 @@ end)
 -- list's update (CHANNEL_UI_UPDATE) with a name of the game's server channels in GetChannelList - each on its own.
 -- Driven by events and two one-shot timers, no ticker; one join, no other channel left or moved; with the public channel
 -- off never a join. The login of the Sync module alone (its frame), the mock's clock in steps of 0.25 s.
-step("Sync 0.2.4 a16: GathercraftSync is joined behind General - at 8 s when a zone channel is listed already, right after it when it comes between 8 and 30 s (the channel notice or the list's update, each alone), at 30 s without one; public off never; once, no ticker, no other channel touched", function()
+step("Sync 0.2.4 a16: GathercraftSync is joined behind General - at 8 s when a zone channel is listed already, right after it when it comes between 8 and 30 s (the channel notice or the list's update, each alone), at 30 s without one; public off never; once, no ticker, no other channel touched; (a17) a zone channel left again before the join counts no more, another one still there does", function()
     local keep = { chan = GetChannelName, join = JoinTemporaryChannel, leave = LeaveChannelByName, list = GetChannelList,
         server = EnumerateServerChannels, ticker = C_Timer.NewTicker, debug = ns.db.debug, public = ns.db.sync.public,
         enabled = ns.db.sync.enabled }
@@ -21109,6 +21109,38 @@ step("Sync 0.2.4 a16: GathercraftSync is joined behind General - at 8 s when a z
         -- a /reload: GathercraftSync is in the list already - nothing to order, taken at 8 s without a join
         listed, inSync = {}, true
         Case("after a /reload, already in GathercraftSync", true, {}, 8, 0)
+        -- (0.2.4 a17, order 2026-11-27_claude_auftrag_0.2.4-a17 part 1, Codex' check of a16, M1) a zone channel the
+        -- client left again before the join does not count any more: its notice YOU_LEFT takes back what its join said
+        -- (by the zone channel id, else by the base name); a list's update with an empty list takes back nothing (the
+        -- list may lag behind at the login); another zone channel still there counts on
+        local function Zone(name, id, index)
+            return function()
+                listed[#listed + 1] = name
+                fire("CHAT_MSG_CHANNEL_NOTICE", "YOU_CHANGED", "", "", index .. ". " .. name .. " - Durotar", "", "", id, index, name)
+                fire("CHANNEL_UI_UPDATE")
+            end
+        end
+        local function Left(name, id, index)
+            return function()
+                for i = #listed, 1, -1 do if listed[i] == name then table.remove(listed, i) end end
+                fire("CHAT_MSG_CHANNEL_NOTICE", "YOU_LEFT", "", "", index .. ". " .. name .. " - Durotar", "", "", id, index, name)
+                fire("CHANNEL_UI_UPDATE")
+            end
+        end
+        listed, inSync = {}, false
+        Case("General at 3 s, left at 6 s, no zone channel again", true, { [3] = Zone("General", 1, 1), [6] = Left("General", 1, 1) }, 30, 1)
+        listed, inSync = {}, false
+        Case("General at 3 s, left at 6 s, back at 20 s", true,
+            { [3] = Zone("General", 1, 1), [6] = Left("General", 1, 1), [20] = Zone("General", 1, 1) }, 20, 1)
+        listed, inSync = {}, false
+        Case("General and LocalDefense at 3 s, General left at 6 s", true,
+            { [3] = function() Zone("General", 1, 1)() Zone("LocalDefense", 22, 2)() end, [6] = Left("General", 1, 1) }, 8, 1)
+        listed, inSync = {}, false
+        Case("General at 3 s, left at 6 s with a notice without its id (the base name)", true,
+            { [3] = Zone("General", 1, 1), [6] = Left("General", 0, 1) }, 30, 1)
+        -- the list empty at 6 s without a YOU_LEFT (it lags behind): the notice of 3 s still counts
+        listed, inSync = {}, false
+        Case("General's notice at 3 s, the list empty at 6 s, no YOU_LEFT", true, { [3] = General("notice"), [6] = function() fire("CHANNEL_UI_UPDATE") end }, 8, 1)
         -- nothing in Sync.lua moves or leaves another channel, or touches the player's settings
         local src = io.open(ROOT .. "/Sync.lua"):read("*a"):gsub("%-%-[^\n]*", "")
         for _, call in ipairs({ "Swap", "JoinPermanentChannel", "JoinChannelByName", "SetCVar", "ChatFrame_AddChannel", "SetChannel" }) do
