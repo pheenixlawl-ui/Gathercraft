@@ -575,7 +575,7 @@ function M.BuildStart(ctx, e)
     job.e, job.k = e, nil
     job.target = ctx.active == 1 and 2 or 1
     job.set = ctx.sets[job.target]
-    job.phase, job.i, job.stage = 1, 0, 0
+    job.phase, job.i, job.stage, job.opsKind = 1, 0, 0, nil
     job.done, job.over, job.disturbed, job.restarts = false, nil, false, 0
     job.pieces, job.cands, job.n, job.m, job.prev = 0, 0, 0, 0, nil
     job.nRev, job.nFall, job.nCon = 0, 0, 0
@@ -1184,7 +1184,7 @@ function M.QueryStart(ctx, nav, px, py, tx, ty, same)
     if same and nav.have then
         q.allow = nav.rest + sqrt(nav.offD) + SAME_SLACK
     end
-    q.phase, q.stage, q.i = 1, 0, 0
+    q.phase, q.stage, q.i, q.opsKind = 1, 0, 0, nil
     q.done, q.result, q.reason = false, nil, nil
     q.entry, q.exit = nil, nil
     q.expanded, q.cost, q.yards, q.rawN, q.segments = 0, 0, 0, 0, 0
@@ -2616,6 +2616,10 @@ local HBD = LibStub and LibStub("HereBeDragons-2.0", true)
 local L = ns.L or setmetatable({}, { __index = function(_, k) return k end })
 
 local function Clock() return (ns.WaysClock or debugprofilestop)() end
+-- (0.2.4 a13) M.mark(kind, work, ms): told every piece of S1's time in a frame - a step (its kind and work), the end
+-- of Work (kind -1), a way in from outside (nil), and where they start: a way in (-3), Work (-4). Only the measure
+-- step of tools/smoke_test.lua sets it; the game never does.
+M.mark = nil
 
 -- The frame sum: what S1 took in the frame going on (a frame is one value of GetTime)
 local frameAt, frameSum = -1, 0
@@ -2646,11 +2650,19 @@ local function Enter()
     local now = GetTime()
     if now ~= insideAt then insideAt, inside = now, 0 end
     inside = inside + 1
-    if inside == 1 then return Clock() end
+    if inside == 1 then
+        local t = Clock()
+        if M.mark then M.mark(-3, 0, 0) end
+        return t
+    end
 end
 local function Leave(t0)
     inside = inside - 1
-    if t0 then Spend(Clock() - t0) end
+    if t0 then
+        local ms = Clock() - t0
+        Spend(ms)
+        if M.mark then M.mark(nil, nil, ms) end
+    end
 end
 local function Outside() return inside <= 0 or insideAt ~= GetTime() end
 
@@ -2800,10 +2812,18 @@ work:Hide()
 -- over), or one of the other kinds of work. A kind starts at 32 pieces at the most and grows by a quarter at the most.
 local OPS_FIRST = 32
 local ops = {}
-local function Ops(kind, first)
+local function Ops(kind, first, stageStart)
     local n = ops[kind]
     if not n then
         n = first < OPS_FIRST and first or OPS_FIRST
+        ops[kind] = n
+    elseif stageStart then
+        -- (0.2.4 a13, Codex' check of a11, M2) the first step of a phase's stage in a new build or search: half of its
+        -- setting, and it grows from there as any setting does (a quarter at the most a step). The setting is the one the
+        -- stage had at its end the last time; in the measure step a stage's first step was over 0.2 ms ten to a hundred
+        -- times as often as its other steps (with the collector stopped too).
+        n = floor(n / 2)
+        if n < OPS_MIN then n = OPS_MIN end
         ops[kind] = n
     end
     return n
@@ -3228,7 +3248,9 @@ local function Step()
         end
         local job = ctx.job
         local kind = job.phase + 1000 * job.stage -- (0.2.4 a9 R1: each stage of a phase its own setting)
-        local used = M.BuildStep(ctx, Ops(kind, 400))
+        local stageStart = job.opsKind ~= kind
+        job.opsKind = kind
+        local used = M.BuildStep(ctx, Ops(kind, 400, stageStart))
         if job.done then
             net.building = false
             if job.over then
@@ -3249,7 +3271,9 @@ local function Step()
         if req.stage == "query" then
             local q = ctx.q
             local kind = 100 + q.phase + 1000 * (q.stage or 0) -- (0.2.4 a9 R1: each stage its own setting)
-            local used = M.QueryStep(ctx, Ops(kind, 200))
+            local stageStart = q.opsKind ~= kind
+            q.opsKind = kind
+            local used = M.QueryStep(ctx, Ops(kind, 200, stageStart))
             if q.done then
                 if q.result == "net" then
                     req.stage, req.i = "world", 0
@@ -3348,6 +3372,7 @@ end
 local function Work()
     Enter() -- (its own work is counted below, step by step; what it calls counts nothing of its own)
     local t0 = Clock()
+    if M.mark then M.mark(-4, 0, 0) end
     Frame()
     local now = GetTime()
     if net.building and now - net.t0 > BUILD_SECONDS then
@@ -3376,9 +3401,12 @@ local function Work()
         t0 = t1
         Spend(ms)
         Tune(kind, used, ms)
+        if M.mark then M.mark(kind, used, ms) end
     end
     if idle then work:Hide() end
-    Spend(Clock() - t0)
+    local tail = Clock() - t0
+    Spend(tail)
+    if M.mark then M.mark(-1, 0, tail) end
     Leave(nil)
 end
 work:SetScript("OnUpdate", Wrap("Ways", Work))

@@ -38833,6 +38833,85 @@ step("Ways 0.2.4 S1.1 a9 R1 M2: the work of a step is set per kind of work and p
     end
     assert(stage4 >= 2, ("test setup: the radix sorts' spreading (stage 4) seen in %d phases"):format(stage4))
 end)
+-- (0.2.4 a13, order 2026-11-27_claude_auftrag_0.2.4-a10-a11-nachbesserung part 3, Codex' check of a11 M2) The first
+-- step of a phase's stage in a new build or search does half of the stage's setting and grows from there as any
+-- setting does: the setting is the one the stage had at its end the last time, and in the measure step a stage's first
+-- step was over 0.2 ms ten to a hundred times as often as its other steps. A clock where each piece of work costs the
+-- same (every setting grows to the same mark): two runs, each with its build and its searches. In the second run a
+-- stage's first step does half of the setting the stage ended the first run with; a search's first step half of what
+-- it ended the search before with; a step after it a quarter more at the most; the way the same in both runs.
+step("Ways 0.2.4 a13: the first step of a stage in a new build or search does half of the stage's setting and grows from there a quarter at the most a step - the way the same", function()
+    local Core = ns.WaysCore
+    local W = WAYS.World(WAYS.Snake({}, 10, 10, 50, 40)) -- (2,000 squares)
+    local keepB, keepQ, keepBS, keepQS = Core.BuildStep, Core.QueryStep, Core.BuildStart, Core.QueryStart
+    -- per build and per search, its kinds in their order and each kind's budgets
+    local builds, queries = {}, {}
+    local function Note(list, kind, budget)
+        local job = list[#list]
+        if not job then return end
+        local l = job.by[kind]
+        if not l then l = {} job.by[kind] = l job.order[#job.order + 1] = kind end
+        l[#l + 1] = budget
+    end
+    local ways = {}
+    local ok, err = pcall(function()
+        Core.BuildStart = function(...) builds[#builds + 1] = { by = {}, order = {} } return keepBS(...) end
+        Core.QueryStart = function(...) queries[#queries + 1] = { by = {}, order = {} } return keepQS(...) end
+        Core.BuildStep = function(ctx, budget)
+            local j = ctx.job
+            Note(builds, j.phase + 1000 * (j.stage or 0), budget)
+            return keepB(ctx, budget)
+        end
+        Core.QueryStep = function(ctx, budget)
+            local q = ctx.q
+            Note(queries, 100 + q.phase + 1000 * (q.stage or 0), budget)
+            return keepQ(ctx, budget)
+        end
+        W.Clock("build") -- (each piece of work the same time: every setting goes up to the same mark)
+        for run = 1, 2 do
+            W.At(10, 10)
+            W.Run({ W.Node(40, 10) }, 6)
+            assert(W.Read().state == "net", ("test setup: run %d, a way in the net of 2,000 squares: %s"):format(run, tostring(W.Read().state)))
+            ways[run] = W.NavWay()
+            ns.StopRun(true)
+            advance(0.5)
+        end
+    end)
+    Core.BuildStep, Core.QueryStep, Core.BuildStart, Core.QueryStart = keepB, keepQ, keepBS, keepQS
+    W.Done()
+    if not ok then error(err, 0) end
+    assert(#builds == 2, ("test setup: %d builds in two runs"):format(#builds))
+    assert(ways[1] == ways[2], "the way of the second run is not the one of the first")
+    -- a job's kinds: the first step of each half of the setting it ended the job before with, the steps after it a
+    -- quarter more at the most
+    local checked = 0
+    local function Check(before, job, what)
+        for _, kind in ipairs(job.order) do
+            local l, b = job.by[kind], before and before.by[kind]
+            if b and b[#b] >= 32 then
+                checked = checked + 1
+                -- (the setting it ended with: its last step's budget or one more where it had come to its mark - the clock's
+                -- rounding -, else a quarter more at the most)
+                local setting = (#b >= 2 and b[#b] == b[#b - 1]) and b[#b] + 1 or b[#b] + math.max(1, math.floor(b[#b] / 4))
+                assert(2 * l[1] <= setting + 1, ("%s, kind %d: its first step did %d pieces - half of the %d at the most it ended the one before with is %d"):format(what, kind, l[1], setting, math.floor((setting + 1) / 2)))
+            end
+            for i = 2, #l do
+                local up = l[i - 1] + math.max(1, math.floor(l[i - 1] / 4))
+                assert(l[i] <= up, ("%s, kind %d: a step of %d after one of %d (a quarter more at the most: %d)"):format(what, kind, l[i], l[i - 1], up))
+            end
+        end
+    end
+    Check(builds[1], builds[2], "the second build")
+    local builtChecked = checked
+    for i = 2, #queries do Check(queries[i - 1], queries[i], "search " .. i) end
+    local qs = {}
+    for i, q in ipairs(queries) do
+        local t = {}
+        for _, kind in ipairs(q.order) do t[#t + 1] = kind .. ":" .. table.concat(q.by[kind], ",") end
+        qs[#qs + 1] = i .. " [" .. table.concat(t, " ") .. "]"
+    end
+    assert(builtChecked >= 5 and checked >= builtChecked + 5, ("test setup: %d of the build's stages and %d of the searches' looked at (searches: %s)"):format(builtChecked, checked - builtChecked, table.concat(qs, "; ")))
+end)
 -- (0.2.4 a9 R1, Codex M2: the spikes that stayed were the garbage collector's steps - a build of a net of 8,000 squares
 -- made its lists anew in every run, about 2 MB: the run's end let them go)
 -- A second run's build takes no memory (less than 1 KB with the collector stopped in a set of lists the first run
@@ -38975,7 +39054,235 @@ step("Ways 0.2.4 S1.1 a9 measure: the real clock on Codex' two kinds of an 800 w
     end
     local jitOff = os.getenv("GC_MEASURE_A9_JIT") == "off" and jit ~= nil
     if jitOff then jit.off() jit.flush() end
-    note("MEASURE a9 setup", ("clock %s, LuaJIT compiler %s"):format(cpu and "the thread's CPU time" or "wall", jitOff and "off" or "on"))
+    -- (0.2.4 a13) every line of the measurement also whole in the file GC_MEASURE_A13_OUT names (the run's log shows 160
+    -- characters of a line)
+    local outPath = os.getenv("GC_MEASURE_A13_OUT")
+    local function MNote(label, text)
+        note(label, text)
+        if outPath then
+            local f = io.open(outPath, "a")
+            if f then f:write(label, " ", text, "\n") f:close() end
+        end
+    end
+    MNote("MEASURE a9 setup", ("clock %s, LuaJIT compiler %s"):format(cpu and "the thread's CPU time" or "wall", jitOff and "off" or "on"))
+    -- (0.2.4 a13, Codex' check of a11, M2 open) Where a spike comes from. Ways tells every piece of S1's time in a frame
+    -- (M.mark: each step with its kind and work, Work's end, each way in from outside, and where Work and a way in
+    -- start). Each mark keeps the frame, the memory in use, the collector's cycles ended (a sentinel's finaliser counts
+    -- them) and a canary: the same small loop at every mark - how fast the computer runs the thread at that moment. The
+    -- marks' own time is taken off Ways' clock (a clock that stands still while they are made), and they make no
+    -- garbage: numbers in lists kept from run to run; only a spike's frame is written out.
+    --   GC_MEASURE_A13_GC=stop: the collector stopped for the length of a run - a control: a spike gone with it was the
+    -- collector's. GC_MEASURE_A13_CALLS=1: also the time and memory in HereBeDragons' pins, in the mock's widget methods
+    -- (in the game the client's own code) and in frames made, for the map dots' shares (the wrappers cost time of their
+    -- own, taken off as far as it goes: a run with them is for the shares, not for the counts).
+    local gcStop = os.getenv("GC_MEASURE_A13_GC") == "stop"
+    local calls = os.getenv("GC_MEASURE_A13_CALLS") == "1"
+    -- GC_MEASURE_A13_MARKS=off: no marks at all (the measurement as a11 had it)
+    local marks = os.getenv("GC_MEASURE_A13_MARKS") ~= "off"
+    local src = {}
+    for line in io.lines(ROOT .. "/Ways.lua") do src[#src + 1] = line end
+    local defined = {}
+    for i, l in ipairs(src) do
+        local name = l:match("^ns%.([%w_]+) = Wrap%(\"Ways\", function") or l:match("^local function ([%w_]+)%(")
+            or l:match("^([%w_]+) = function%(") or l:match("^function (M%.[%w_]+)%(")
+        if name then defined[i] = name end
+    end
+    local cycles = 0
+    local function Sentinel()
+        local p = newproxy(true)
+        getmetatable(p).__gc = function() cycles = cycles + 1 Sentinel() end
+    end
+    Sentinel()
+    -- (the collector's atomic phase, which is not done in small steps: it clears a weak table's entry - one is put
+    -- back at the next mark)
+    local weak, atomics = setmetatable({ {} }, { __mode = "v" }), 0
+    local over = 0 -- the marks' time, taken off the clock
+    local function V() return Now() - over end
+    local c0 = Now()
+    for _ = 1, 1000 do Now() end
+    local perRead = (Now() - c0) / 1001
+    -- what the wrapped calls add up to (the outermost wrapped call only: a call inside one is in its time)
+    local FIELDS = { "pins", "api", "frames", "pinsKb", "apiKb", "framesKb", "world", "mini" }
+    local acc = {}
+    for _, k in ipairs(FIELDS) do acc[k] = 0 end
+    -- the marks of the run going on, as lists of numbers: kind (a step's kind; -1 Work's end, -2 a way in's end, -3 a
+    -- way in's start, -4 Work's start), work, ms, memory, cycles, frame, canary, who (a way in of more than 0.02 ms:
+    -- the line its function starts on), and with the wrapped calls their sums
+    local K, U, MS, KB, CY, AT, CA, WHO = {}, {}, {}, {}, {}, {}, {}, {} -- (CY: the cycles ended and the atomic phases done)
+    local ACC = {}
+    for _, k in ipairs(FIELDS) do ACC[k] = {} end
+    local nR = 0
+    local function Mark(kind, used, ms)
+        local t = Now()
+        nR = nR + 1
+        local n = nR
+        if weak[1] == nil then atomics = atomics + 1 weak[1] = {} end
+        K[n], U[n], MS[n], KB[n], CY[n], AT[n], WHO[n] = kind or -2, used or 0, ms, collectgarbage("count"), cycles + atomics, GetTime(), 0
+        if kind == nil and ms > 0.02 then
+            local d = debug.getinfo(3, "S")
+            WHO[n] = d and d.linedefined or 0
+        end
+        if calls then for _, k in ipairs(FIELDS) do ACC[k][n] = acc[k] end end
+        local c = Now()
+        local x = 0
+        for i = 1, 400 do x = x + i * 0.5 end
+        CA[n] = Now() - c
+        over = over + (Now() - t)
+    end
+    local depth = 0
+    local function Finish(tin, a, o0, k0, slot, count, ...)
+        local b = Now()
+        depth = depth - 1
+        if k0 then
+            acc[slot] = acc[slot] + (b - a) - (over - o0)
+            acc[slot .. "Kb"] = acc[slot .. "Kb"] + (collectgarbage("count") - k0)
+            if count then acc[count] = acc[count] + 1 end
+        end
+        over = over + (a - tin) + (Now() - b) + perRead
+        return ...
+    end
+    local function Timed(f, slot, count)
+        return function(...)
+            local tin = Now()
+            local k0 = depth == 0 and collectgarbage("count") or nil
+            depth = depth + 1
+            local o0 = over
+            local a = Now()
+            return Finish(tin, a, o0, k0, slot, count, f(...))
+        end
+    end
+    local HBDPins = LibStub("HereBeDragons-Pins-2.0")
+    local keepPins, keepApi, keepCreate = {}, {}, CreateFrame
+    if calls and marks then
+        local pinNames = { AddWorldMapIconWorld = "world", AddMinimapIconWorld = "mini", RemoveAllWorldMapIcons = false, RemoveMinimapIcon = false,
+            RemoveWorldMapIcon = false, AddWorldMapIconMap = "world", AddMinimapIconMap = "mini", RemoveAllMinimapIcons = false }
+        for k, count in pairs(pinNames) do
+            if HBDPins[k] then keepPins[k] = HBDPins[k] HBDPins[k] = Timed(HBDPins[k], "pins", count or nil) end
+        end
+        for k, f in pairs(methods) do
+            if type(f) == "function" then keepApi[k] = f methods[k] = Timed(f, "api") end
+        end
+        CreateFrame = Timed(CreateFrame, "frames")
+    end
+    local function What(i, open)
+        local k = K[i]
+        if k == -1 then return "work's end" end
+        if k == -2 then
+            local w = WHO[i] ~= 0 and (defined[WHO[i]] or ("line " .. WHO[i])) or "a way in"
+            return "in: " .. w
+        end
+        return ("step %d/%d"):format(k, U[i])
+    end
+    -- a portion's start: a step the mark before it in Work, Work's end its last step, a way in its start
+    local function Part(i, s)
+        local t = ("%s %.4f ms (memory %+.1f KB, the collector's ends and atomic phases %d, canary %.4f ms"):format(What(i), MS[i], KB[i] - KB[s], CY[i] - CY[s], math.max(CA[i], CA[s]))
+        if calls then
+            local A = ACC
+            t = t .. ("; pins %.4f ms %+.1f KB, %d world %d minimap; widget methods %.4f ms %+.1f KB; frames made %.4f ms"):format(A.pins[i] - A.pins[s],
+                A.pinsKb[i] - A.pinsKb[s], A.world[i] - A.world[s], A.mini[i] - A.mini[s], A.api[i] - A.api[s], A.apiKb[i] - A.apiKb[s], A.frames[i] - A.frames[s])
+        end
+        return t .. ")"
+    end
+    local canaries = {}
+    local spikes, portionMax = {}, {}
+    -- (a build's steps, the collector stopped or not: the first step of each stage of a phase against the others - how
+    -- many of each over 0.25 ms and over 0.2 ms, and their time per piece of work against the stage's others)
+    local stage = { first = 0, firstOver = 0, firstHigh = 0, other = 0, otherOver = 0, otherHigh = 0, ratios = {} }
+    local dots = { both = 0, bothPins = 0, bothMs = 0, bothOwn = 0, world = 0, worldPins = 0, worldMs = 0, worldOwn = 0 }
+    -- one spike's cause, from its own marks (s: its start's mark): the collector (a cycle ended, or memory was freed,
+    -- in it); the computer (its canary 1.5 times the run's median or more); with the wrapped calls HereBeDragons' pins,
+    -- the mock's widget methods or frames made (half its time or more in them); a run's start (the head's tick in the
+    -- run's first frames); the head's tick; or the work of its kind
+    local function Cause(i, s, frameNo, median)
+        if CY[i] > CY[s] or KB[i] < KB[s] then return "the collector" end
+        local canary = math.max(CA[i], CA[s])
+        if canary >= 1.5 * median then return ("the computer (the canary %.1f times its median)"):format(canary / median) end
+        if calls then
+            local A = ACC
+            if A.pins[i] - A.pins[s] >= MS[i] / 2 then return "HereBeDragons' pins" end
+            if A.api[i] - A.api[s] >= MS[i] / 2 then return "the mock's widget methods" end
+            if A.frames[i] - A.frames[s] >= MS[i] / 2 then return "frames made" end
+        end
+        local w = What(i)
+        if w == "in: WaysTick" then return frameNo <= 12 and "a run's start (the head's tick)" or "the head's tick" end
+        if w:find("^in: ") then return w end
+        return "its own work"
+    end
+    local function Analyse(cell, n, runFrame0)
+        for i = 1, nR do canaries[i] = CA[i] end
+        for i = nR + 1, #canaries do canaries[i] = nil end
+        table.sort(canaries)
+        local median = canaries[math.max(1, math.floor(nR / 2))] or 0
+        -- each portion's start mark, the frames' sums and their largest part
+        local open, prev = nil, nil
+        local frameAt, frameSum, frameFirst, worst, worstStart = nil, 0, 1, nil, nil
+        local starts = {}
+        local function Close(last)
+            if frameAt and (worst or frameSum > 1.0) then
+                local frameNo = math.floor((frameAt - runFrame0) * 60 + 0.5)
+                local t = {}
+                for j = frameFirst, last do
+                    if starts[j] then t[#t + 1] = Part(j, starts[j]) end
+                end
+                local cause = worst and Cause(worst, worstStart, frameNo, median) or "the sum of its portions"
+                spikes[#spikes + 1] = cause
+                MNote("MEASURE a13 spike", ("%s %d, frame %d of the run: sum %.4f ms, the collector's ends and atomic phases %d; the largest part %s %.4f ms - %s; parts: %s")
+                    :format(cell, n, frameNo, frameSum, CY[last] - CY[frameFirst], worst and What(worst) or "-", worst and MS[worst] or 0, cause, table.concat(t, "; ")))
+            end
+        end
+        for i = 1, nR do
+            if AT[i] ~= frameAt then
+                Close(i - 1)
+                frameAt, frameSum, frameFirst, worst, worstStart = AT[i], 0, i, nil, nil
+            end
+            local k = K[i]
+            local s
+            if k == -3 then open = i
+            elseif k == -4 then open, prev = nil, i
+            elseif k == -2 then s, open = open, nil
+            elseif k == -1 then s, prev = prev, nil
+            else s, prev = prev, i end
+            starts[i] = s
+            if s then
+                frameSum = frameSum + MS[i]
+                local key = k >= 0 and k or What(i)
+                if MS[i] > (portionMax[key] or 0) then portionMax[key] = MS[i] end
+                if MS[i] > 0.25 and (not worst or MS[i] > MS[worst]) then worst, worstStart = i, s end
+                if calls and k == 202 then
+                    local A = ACC
+                    local pins = (A.world[i] - A.world[s]) + (A.mini[i] - A.mini[s])
+                    if pins > 0 then
+                        local own = MS[i] - (A.pins[i] - A.pins[s]) - (A.api[i] - A.api[s]) - (A.frames[i] - A.frames[s])
+                        local g = (A.mini[i] - A.mini[s]) > 0 and "both" or "world"
+                        dots[g], dots[g .. "Pins"], dots[g .. "Ms"], dots[g .. "Own"] = dots[g] + 1, dots[g .. "Pins"] + pins, dots[g .. "Ms"] + MS[i], dots[g .. "Own"] + own
+                    end
+                end
+            end
+        end
+        Close(nR)
+        -- the build's stages (a kind below 100 in its thousand: not a search's, not the dots' or the thread's)
+        local seenKind, perOp = {}, {}
+        for i = 1, nR do
+            local k = K[i]
+            if k > 0 and k % 1000 < 100 and starts[i] then
+                local first = not seenKind[k]
+                seenKind[k] = true
+                local g = first and "first" or "other"
+                stage[g] = stage[g] + 1
+                if MS[i] > 0.25 then stage[g .. "Over"] = stage[g .. "Over"] + 1 end
+                if MS[i] > 0.2 then stage[g .. "High"] = stage[g .. "High"] + 1 end
+                if U[i] >= 64 then
+                    local q = perOp[k] or { n = 0, sum = 0 }
+                    perOp[k] = q
+                    if first then q.first = MS[i] / U[i] else q.n, q.sum = q.n + 1, q.sum + MS[i] / U[i] end
+                end
+            end
+        end
+        for _, q in pairs(perOp) do
+            if q.first and q.n > 0 then stage.ratios[#stage.ratios + 1] = q.first / (q.sum / q.n) end
+        end
+        for i = 1, nR do starts[i] = nil end
+    end
     -- the two load ways of 800 edges: Codex' stairs (three east, one north-east: its diagonals' corners stay points -
     -- no arc) and (0.2.4 a9 R1, Codex N1) his way with arcs (eight east, four north, eight east, four south)
     local WAYS800 = {}
@@ -39053,7 +39360,7 @@ step("Ways 0.2.4 S1.1 a9 measure: the real clock on Codex' two kinds of an 800 w
                         HBD.GetZoneDistance = function(_, m1, x1, y1, m2, x2, y2)
                             return math.sqrt(((x1 - x2) * W.w + (m1 - m2) * OFF) ^ 2 + ((y1 - y2) * W.h) ^ 2)
                         end
-                        ns.WaysClock = Now
+                        ns.WaysClock, Core.mark = V, marks and Mark or nil
                         WorldMapFrame:Show()
                         if temp == "warm" then
                             -- (the net built once, before the warm runs)
@@ -39071,6 +39378,9 @@ step("Ways 0.2.4 S1.1 a9 measure: the real clock on Codex' two kinds of an 800 w
                     ns.db.nodes[W.Z] = { W.Node(way[#way][1], way[#way][2]) }
                     local gen0 = (select(1, ns.WaysState()) or { core = { gen = -1 } }).core
                     gen0 = gen0 and gen0.gen or -1
+                    nR = 0
+                    if gcStop then collectgarbage("collect") collectgarbage("stop") end
+                    local runFrame0 = GetTime()
                     ns.StartRun("ore", W.Z)
                     local frames, published, drawn = 0, nil, nil
                     local _, _, wh = ns.RouteWaysHead()
@@ -39086,6 +39396,8 @@ step("Ways 0.2.4 S1.1 a9 measure: the real clock on Codex' two kinds of an 800 w
                         arcs = ns.WaysThread().arcs, late = d.late, given = d.cancelled, over = d.over }
                     ns.StopRun(true)
                     advance(0.1)
+                    if gcStop then collectgarbage("restart") end
+                    if marks then Analyse(w8.name .. " " .. kind .. " " .. temp, n, runFrame0) end
                 end
                 if W then W.Done() end
                 results[#results + 1] = { way = w8.name, kind = kind, temp = temp, runs = runs }
@@ -39093,7 +39405,11 @@ step("Ways 0.2.4 S1.1 a9 measure: the real clock on Codex' two kinds of an 800 w
           end
         end
     end)
-    Core.ThreadStep, ns.WaysClock = keepStep, keepClock
+    Core.ThreadStep, ns.WaysClock, Core.mark = keepStep, keepClock, nil
+    for k, f in pairs(keepPins) do HBDPins[k] = f end
+    for k, f in pairs(keepApi) do methods[k] = f end
+    CreateFrame = keepCreate
+    if gcStop then collectgarbage("restart") end
     if jitOff then jit.on() end
     HBD.GetWorldCoordinatesFromZone, HBD.GetPlayerWorldPosition, HBD.GetZoneCoordinatesFromWorld, HBD.GetZoneDistance = keepHBD[1], keepHBD[2], keepHBD[3], keepHBD[4]
     WorldMapFrame:Hide()
@@ -39114,14 +39430,44 @@ step("Ways 0.2.4 S1.1 a9 measure: the real clock on Codex' two kinds of an 800 w
             if (x.arcs or 0) < minArcs then minArcs = x.arcs or 0 end
         end
         local cell = r.way .. " " .. r.kind .. " " .. r.temp
-        note("MEASURE a9 " .. cell, ("core %.4f ms, step %.4f ms (%d runs over 0.25), frame %.4f ms (%d runs over 1.0); published -> drawn %d frames (%.2f s), start -> drawn %d frames; %d runs not drawn; arcs %d at the least")
+        MNote("MEASURE a9 " .. cell, ("core %.4f ms, step %.4f ms (%d runs over 0.25), frame %.4f ms (%d runs over 1.0); published -> drawn %d frames (%.2f s), start -> drawn %d frames; %d runs not drawn; arcs %d at the least")
             :format(c, s, overStep, p, overFrame, fp, fp / 60, fr, miss, minArcs))
         for i, x in ipairs(r.runs) do
-            note("MEASURE a9 run", ("%s %d: core %.4f step %.4f frame %.4f pub %s drawn %s arcs %s (late %s, cancelled %s, over the limits %s)"):format(cell, i, x.core, x.step,
+            MNote("MEASURE a9 run", ("%s %d: core %.4f step %.4f frame %.4f pub %s drawn %s arcs %s (late %s, cancelled %s, over the limits %s)"):format(cell, i, x.core, x.step,
                 x.peak, tostring(x.pub), tostring(x.drawn), tostring(x.arcs), tostring(x.late), tostring(x.given), tostring(x.over)))
         end
         if miss > 0 then fails[#fails + 1] = ("%s: %d runs not drawn"):format(cell, miss) end
         if r.way == "arcs" and noArc > 0 then fails[#fails + 1] = ("%s: %d runs without an arc"):format(cell, noArc) end
+        if r == results[#results] then
+            -- (0.2.4 a13) the most each portion took in all the runs, the map dots' shares, every spike's cause
+            local keys = {}
+            for k in pairs(portionMax) do keys[#keys + 1] = k end
+            table.sort(keys, function(x, y)
+                if type(x) == type(y) then return x < y end
+                return type(x) == "number"
+            end)
+            local t = {}
+            for _, k in ipairs(keys) do t[#t + 1] = ("%s %.4f"):format(type(k) == "number" and ("step " .. k) or k, portionMax[k]) end
+            MNote("MEASURE a13 portions", ("the most each portion took (ms; the collector %s%s): %s"):format(gcStop and "stopped in the runs" or "running",
+                calls and ", the calls wrapped" or "", table.concat(t, ", ")))
+            if calls then
+                local d = dots
+                MNote("MEASURE a13 dots", ("map dots' steps with minimap pins %d (%.1f pins a step, %.4f ms a pin, of it %.4f ms outside the pins' calls, the widget methods and frames made); world map only %d (%.1f pins a step, %.4f ms a pin, of it %.4f ms)")
+                    :format(d.both, d.bothPins / math.max(1, d.both), d.bothMs / math.max(1, d.bothPins), d.bothOwn / math.max(1, d.bothPins),
+                        d.world, d.worldPins / math.max(1, d.world), d.worldMs / math.max(1, d.worldPins), d.worldOwn / math.max(1, d.worldPins)))
+            end
+            table.sort(stage.ratios)
+            local rq = stage.ratios
+            MNote("MEASURE a13 stages", ("a build's steps: the first of a stage %d (%d over 0.25 ms, %d over 0.2), the others %d (%d over 0.25 ms, %d over 0.2); time per piece of work, the first step against its stage's others: median %.2f, the quarter above %.2f, the most %.2f (%d stages)")
+                :format(stage.first, stage.firstOver, stage.firstHigh, stage.other, stage.otherOver, stage.otherHigh, rq[math.max(1, math.floor(#rq / 2))] or 0,
+                    rq[math.max(1, math.floor(#rq * 3 / 4))] or 0, rq[#rq] or 0, #rq))
+            local byCause = {}
+            for _, c in ipairs(spikes) do byCause[c] = (byCause[c] or 0) + 1 end
+            t = {}
+            for k, v in pairs(byCause) do t[#t + 1] = ("%s %d"):format(k, v) end
+            table.sort(t)
+            MNote("MEASURE a13 causes", ("%d frames with a part over 0.25 ms or a sum over 1.0 ms: %s"):format(#spikes, #t > 0 and table.concat(t, ", ") or "none"))
+        end
         if cpu and jitOff then
             if c > 0.25 then fails[#fails + 1] = ("%s: a call of the thread's core of %.4f ms (0.25 at the most)"):format(cell, c) end
             if overStep > 0 then fails[#fails + 1] = ("%s: %d runs with a step over 0.25 ms (%.4f at the most)"):format(cell, overStep, s) end
