@@ -348,14 +348,19 @@ end
 
 -- (0.2.4 a10, Sven 26.11.2026) A continent's map (mapType 2) is no place to learn: the game gives it as your map
 -- where it knows no zone (a mountain ridge beyond a zone's edge, the sea). Its pieces never join a zone's net, and a
--- continent is wider than a row of squares. The type of a map does not change: asked once per map.
+-- continent is wider than a row of squares. The type of a map does not change: asked once per map - (0.2.4 a13,
+-- Codex' check of a10, M2) once it is read. No information or no type yet (or one that cannot be read): nil - the look
+-- is left out, and the type is asked again at the next one.
 local MAP_CONTINENT = (Enum and Enum.UIMapType and Enum.UIMapType.Continent) or 2
 local continent = {}
 local function Continent(mapID)
     local c = continent[mapID]
     if c == nil then
-        local info = C_Map and C_Map.GetMapInfo and C_Map.GetMapInfo(mapID)
-        c = (info and not ns.AnySecret("paths map type", info.mapType) and info.mapType == MAP_CONTINENT) or false
+        if not (C_Map and C_Map.GetMapInfo) then return false end -- (a client without it: no continent, as before a10)
+        local info = C_Map.GetMapInfo(mapID)
+        local t = info and info.mapType
+        if t == nil or ns.AnySecret("paths map type", t) or type(t) ~= "number" or t < 0 or t ~= floor(t) then return nil end
+        c = t == MAP_CONTINENT
         continent[mapID] = c
     end
     return c
@@ -375,7 +380,7 @@ local function Look()
     local swimming = IsSwimming and IsSwimming()
     if ns.AnySecret("paths", speed, falling, swimming) or type(speed) ~= "number" then return Forget() end
     local mapID, x, y = ns.GetPlayerPos()
-    if not mapID or not x or not y or Continent(mapID) then return Forget() end
+    if not mapID or not x or not y or Continent(mapID) ~= false then return Forget() end
     local w, h = ZoneSize(mapID)
     if not w then return Forget() end
     local tx, ty = floor(x * w / TILE), floor(y * h / TILE)

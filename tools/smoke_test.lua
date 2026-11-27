@@ -33136,6 +33136,72 @@ step("Paths 0.2.4 a10: nothing is learned on a continent's map (mapType 2) - a r
     W.Done()
     if not ok then error(err, 0) end
 end)
+-- (0.2.4 a13, order 2026-11-27_claude_auftrag_0.2.4-a10-a11-nachbesserung part 2, Codex' check of a10, M2) Only a map
+-- type read is kept: a look whose map gives no information or no type yet is left out, and the type is asked again at
+-- the next look. Codex' cases on maps the session has not seen (Paths keeps a type per map): the continent whose first
+-- information is not there yet - type 2 from the second time Paths asks - gives no piece; a map whose information has
+-- no type gives none; a zone's map whose type comes late is learned once it is known (from the next square on), not
+-- before. Only Paths' own calls are answered late; the rest of the addon reads the map as it is.
+step("Paths 0.2.4 a13: only a map type read is kept - the continent's information there late, an information without a type: no piece; a zone's type there late: learned once it is known, not before (Codex' M2 of a10)", function()
+    local W = PathsWorld()
+    local HBD = LibStub("HereBeDragons-2.0")
+    local keepSize, keepMap, keepInfo, keepAt = HBD.GetZoneSize, player.map, C_Map.GetMapInfo, C_Map.GetMapInfoAtPosition
+    local LATE_CONTINENT, NO_TYPE, LATE_ZONE = 1520, 1521, 1522
+    local asked = { [LATE_CONTINENT] = 0, [NO_TYPE] = 0, [LATE_ZONE] = 0 }
+    local late = { [LATE_CONTINENT] = 1, [LATE_ZONE] = 10 } -- (Paths' first calls without an answer)
+    HBD.GetZoneSize = function(_, mapID)
+        if mapID == 1412 or asked[mapID] then return W.w, W.h end
+        return 0, 0
+    end
+    C_Map.GetMapInfo = function(id)
+        if asked[id] then
+            local d = debug.getinfo(2, "S")
+            local paths = d and d.source:match("[/\\]Paths%.lua$")
+            if paths then asked[id] = asked[id] + 1 end
+            if id == NO_TYPE then return {} end
+            if paths and asked[id] <= late[id] then return nil end
+            return { mapID = id, name = "Map" .. id, mapType = id == LATE_ZONE and 3 or 2, parentMapID = 947 }
+        end
+        return keepInfo(id)
+    end
+    C_Map.GetMapInfoAtPosition = function(map, x, y)
+        if asked[map] then return nil end -- (no zone under these maps)
+        return keepAt and keepAt(map, x, y)
+    end
+    local ok, err = pcall(function()
+        local function Ride(mapID, ty)
+            player.map = mapID
+            assert((ns.GetPlayerPos()) == mapID, "test setup: the player is on map " .. mapID)
+            W.Start(100, ty)
+            W.Go(1, 0, 150)
+        end
+        local before = W.Total()
+        -- the continent, its information there late
+        Ride(LATE_CONTINENT, 60)
+        for tx = 100, 104 do
+            assert(ns.PathsPiece(LATE_CONTINENT, tx, 60, 1, 0) == nil, ("the continent, its information there late: a piece %d -> %d was learned"):format(tx, tx + 1))
+        end
+        assert(ns.db.paths.zones[LATE_CONTINENT] == nil, "the continent, its information there late: a zone entry")
+        assert(asked[LATE_CONTINENT] == 2, ("the continent, its information there late: its type asked %d times (again after the look without it, then kept)"):format(asked[LATE_CONTINENT]))
+        -- an information without a type: asked again at every look, nothing learned
+        Ride(NO_TYPE, 62)
+        for tx = 100, 104 do
+            assert(ns.PathsPiece(NO_TYPE, tx, 62, 1, 0) == nil, ("an information without a type: a piece %d -> %d was learned"):format(tx, tx + 1))
+        end
+        assert(asked[NO_TYPE] >= 10, ("an information without a type: its type asked %d times (again at every look)"):format(asked[NO_TYPE]))
+        assert(W.Total() == before and ns.db.paths.zones[NO_TYPE] == nil, ("on the two maps: %d pieces learned"):format(W.Total() - before))
+        -- a zone's map, its type there late (ten looks): nothing before, from the next square after it on
+        Ride(LATE_ZONE, 64)
+        assert(ns.PathsPiece(LATE_ZONE, 100, 64, 1, 0) == nil, "the zone's type there late: the crossing 100 -> 101 was learned before the type was known")
+        for tx = 101, 104 do
+            assert(ns.PathsPiece(LATE_ZONE, tx, 64, 1, 0) == 1, ("the zone's type there late: no piece %d -> %d after it was known"):format(tx, tx + 1))
+        end
+        assert(asked[LATE_ZONE] == late[LATE_ZONE] + 1, ("the zone's type there late: asked %d times (%d without an answer, then kept)"):format(asked[LATE_ZONE], late[LATE_ZONE]))
+    end)
+    HBD.GetZoneSize, player.map, C_Map.GetMapInfo, C_Map.GetMapInfoAtPosition = keepSize, keepMap, keepInfo, keepAt
+    W.Done()
+    if not ok then error(err, 0) end
+end)
 step("Ways 0.2.4: the net - an edge for every piece you rode and its way back; a fall seen once has a guessed way back, a sure fall none; the counts read as saved; the diagonal; a cost under 1 (S1 W1)", function()
     local Core = ns.WaysCore
     local Piece, Ride, Edge, Near, Build = WAYS.Piece, WAYS.Ride, WAYS.Edge, WAYS.Near, WAYS.Build
