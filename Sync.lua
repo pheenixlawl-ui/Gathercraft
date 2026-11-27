@@ -407,6 +407,14 @@ local function Send(...)
     return false, result
 end
 
+-- (0.2.4 a16, Codex' check of a14) whether the game took a message: the result's success value (the game's Enum) or
+-- true (an older client); anything else - a refusal, an error caught in Send, a result that cannot be read - is no
+-- success. (The same rule as 0.2.5's WayOK for the ways.)
+local function SendOK(result)
+    if ns.AnySecret("sync send result", result) then return false end
+    return result == true or (RESULT.Success ~= nil and result == RESULT.Success)
+end
+
 -- (0.2.4 a10; the same function as 0.2.5 a4's for P and W, R1 H1) The number GathercraftSync has right now, read at
 -- the send: the game can give the channel another number while it runs, without a new join - the number kept at
 -- the join (channelID) may be another channel's by then. nil when it is not known (no number, or one that cannot be
@@ -426,7 +434,8 @@ local function Out(item, target)
     if item.target == "GUILD" then
         if IsInGuild() then
             ok, err = Send(PREFIX, item.text, "GUILD")
-            guildSent = true
+            -- (0.2.4 a16, Codex' check of a14) only a send the game took: a refused one or one that threw is no proof
+            guildSent = SendOK(ok)
         end
     elseif target then
         ok, err = Send(PREFIX, item.text, "CHANNEL", target)
