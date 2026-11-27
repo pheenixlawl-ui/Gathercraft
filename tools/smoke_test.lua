@@ -49,7 +49,10 @@ Ambiguate = function(n) return n end
 GetNormalizedRealmName = function() return "Forever" end
 UnitFactionGroup = function() return "Horde", "Horde" end
 CreateColor = function(r, g, b, a) return { r = r, g = g, b = b, a = a } end
-Enum = {}
+-- (0.2.5 S4a-2) the result codes of SendAddonMessage as the game has them (Success = 0)
+Enum = { SendAddonMessageResult = { Success = 0, InvalidPrefix = 1, InvalidMessage = 2, AddonMessageThrottle = 3, InvalidChatType = 4,
+    NotInGroup = 5, TargetRequired = 6, InvalidChannel = 7, ChannelThrottle = 8, GeneralError = 9, NotInGuild = 10,
+    AddOnMessageLockdown = 11, TargetOffline = 12 } }
 UiMapPoint = { CreateFromCoordinates = function(m, x, y) return { m = m, x = x, y = y } end }
 NUM_CHAT_WINDOWS = 10
 -- chat windows: CHAT_WIN[i] = { name, shown, docked }; closed tabs keep their name
@@ -20889,6 +20892,115 @@ step("Sync 0.2.4 a14: a text sent only to the guild is the proof for its echo th
         advance(12)
         expect(Did(From("GUILD", ASK, "Test Wisp"), "Test Wisp"), "own +0 heard +1", "a guild message of Test Wisp 12 s later (nothing was learned)")
         expect(Did(From("GUILD", ASK, "Test Band"), "Test Band"), "own +0 heard +1", "a guild message of Test Band 12 s later (nothing was learned)")
+    end)
+    GetChannelName, UnitName, C_ChatInfo.SendAddonMessage = keep.chan, keep.name, keep.send
+    ns.db.debug = keep.debug
+    ns.db.sync.enabled, ns.db.sync.public = keep.enabled, keep.public
+    for _, n in ipairs(made) do
+        for i, x in ipairs(ns.db.nodes[1412]) do if x == n then table.remove(ns.db.nodes[1412], i) break end end
+    end
+    slash("sync on") -- (joined again at the mock's number)
+    advance(10)
+    if not ok then error(err, 0) end
+end)
+-- (0.2.4 a16, order 2026-11-27_claude_auftrag_0.2.4-a16 part 1, Codex' check of a14, the middle finding) The proof for
+-- the echo in the guild is a send the game took: the result's success value (the game's Enum) or true (an older
+-- client). A send the game refused (a result code such as 3, the limit per prefix) or one that threw (caught in Send)
+-- is no proof - its text coming back in the guild from a two-part name is somebody else's, and nothing is learned, also
+-- not for that name's next message 12 s later. Each case with a fresh text and a name not known before; the public
+-- channel off, so the own node message goes to the guild only (as in a14).
+step("Sync 0.2.4 a16: the guild echo is learned only from a send the game took - success (0) or true learns the two-part name, a refused send (3, false) or one that threw learns nothing, also not 12 s later", function()
+    local keep = { chan = GetChannelName, name = UnitName, debug = ns.db.debug, public = ns.db.sync.public, enabled = ns.db.sync.enabled,
+        send = C_ChatInfo.SendAddonMessage }
+    local made = {}
+    local sends = {}
+    local answer -- what the mock's SendAddonMessage does: a value to return, or "throw"
+    local ok, err = pcall(function()
+        GetChannelName = function(name)
+            if name == "GathercraftSync" then return 7, name end
+            return 0
+        end
+        UnitName = function(u) if u == "player" then return "Test" end return keep.name(u) end
+        C_ChatInfo.SendAddonMessage = function(prefix, msg, chan, target)
+            sends[#sends + 1] = { prefix = prefix, msg = msg, chan = chan, target = target }
+            keep.send(prefix, msg, chan, target)
+            if answer == "throw" then error("refused by the client") end
+            return answer
+        end
+        ns.db.debug = true
+        ns.db.sync.enabled, ns.db.sync.public = true, true
+        slash("sync on")
+        advance(15)
+        slash("sync public") -- (off: guild and friends only)
+        assert(ns.db.sync.public == false, "test setup: the public channel is not off")
+        advance(10)
+        local function Perf()
+            local mark = #log
+            slash("perf")
+            local line
+            for i = mark + 1, #log do if log[i]:find("^PRINT") and log[i]:find("perf (", 1, true) then line = log[i] end end
+            assert(line, "/gcr perf printed no line")
+            return line
+        end
+        local function Number(line, pattern)
+            local v = line:match(pattern)
+            assert(v, "not in the line (" .. pattern .. "): " .. line)
+            return tonumber(v)
+        end
+        local function Heard(who)
+            local c = 0
+            for _, l in ipairs(log) do
+                if l:find("recv [", 1, true) and l:find("] " .. who .. "-", 1, true) then c = c + 1 end
+            end
+            return c
+        end
+        local function Did(fn, who)
+            local b, h = Number(Perf(), "own messages heard back (%d+)"), Heard(who)
+            fn()
+            return ("own %+d heard %+d"):format(Number(Perf(), "own messages heard back (%d+)") - b, Heard(who) - h)
+        end
+        local function expect(got, want, what) assert(got == want, ("%s: %s (wanted %s)"):format(what, got, want)) end
+        local function From(dist, text, who) return function() fire("CHAT_MSG_ADDON", "Gathercraft", text, dist, who .. "-Forever") end end
+        -- the own node message with the public channel off: one try to the guild, none to the channel; its text
+        local function Own(x)
+            local node = { id = "o1619", name = "Earthroot", type = "herb", x = x, y = 0.64, count = 1, last = time(), item = 2449 }
+            table.insert(ns.db.nodes[1412], node)
+            made[#made + 1] = node
+            local mark = (",%d,"):format(math.floor(x * 10000 + 0.5))
+            local s0 = #sends
+            ns.SyncShare(1412, node)
+            advance(3)
+            local guild, channel, text = 0, 0, nil
+            for i = s0 + 1, #sends do
+                local s = sends[i]
+                if s.prefix == "Gathercraft" and s.msg:find(mark, 1, true) then
+                    if s.chan == "GUILD" then guild, text = guild + 1, s.msg elseif s.chan == "CHANNEL" then channel = channel + 1 end
+                end
+            end
+            assert(guild == 1 and channel == 0, ("the public channel off: the own node message was tried %d times in the guild and %d times in the channel (once, never)"):format(guild, channel))
+            return text
+        end
+        local ASK = "Q:1412:998" -- (a node question nobody can add to)
+        local SUCCESS = Enum.SendAddonMessageResult.Success
+        assert(SUCCESS == 0 and Enum.SendAddonMessageResult.AddonMessageThrottle == 3, "test setup: the mock's result codes")
+        -- { what the game says, the name, own echo learned? } - each case its own text and a name never seen before
+        local CASES = {
+            { SUCCESS, "Test Erfolg", true, "a guild send the game took (success, 0)" },
+            { 3, "Test Abweis", false, "a guild send the game refused (3, the limit per prefix)" },
+            { "throw", "Test Fehler", false, "a guild send that threw (caught in Send)" },
+            { true, "Test Alt", true, "a guild send an older client took (true)" },
+            { false, "Test Nein", false, "a guild send an older client refused (false)" },
+        }
+        for i, c in ipairs(CASES) do
+            answer = c[1]
+            local text = Own(0.4100 + i * 0.0111)
+            answer = SUCCESS -- (what comes after goes out as it should)
+            local first = Did(From("GUILD", text, c[2]), c[2])
+            expect(first, c[3] and "own +1 heard +0" or "own +0 heard +1", c[4] .. ": its text back in the guild from " .. c[2])
+            advance(12)
+            expect(Did(From("GUILD", ASK, c[2]), c[2]), c[3] and "own +1 heard +0" or "own +0 heard +1",
+                c[4] .. ": a guild message of " .. c[2] .. " 12 s later")
+        end
     end)
     GetChannelName, UnitName, C_ChatInfo.SendAddonMessage = keep.chan, keep.name, keep.send
     ns.db.debug = keep.debug
