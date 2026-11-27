@@ -469,7 +469,7 @@ ns.Locales.zhTW = {
     ["Warnings for rare mobs, and auction prices where you need them."] = "稀有怪物提醒，以及在需要處顯示的拍賣價格。",
     ["Language, minimap button and the rest."] = "語言、小地圖按鈕及其他。",
     ["Hover a herb or vein on the minimap: Gathercraft remembers the spot."] = "將滑鼠指向小地圖上的草藥或礦脈：Gathercraft 會記住該位置。",
-    ["Only node spots are shared. Spots learned from the minimap follow once you harvest them."] = "只共享採集點的位置。從小地圖學到的位置在你採集後才會共享。",
+    ["Only node spots are shared. Minimap spots follow once you harvest them."] = "只共享採集點的位置。小地圖上的位置在你採集後共享。",
     ["%s seems hard to reach from here: trying another node."] = "從這裡似乎很難到達%s：換一個採集點。",
     ["%s left out for %d min (can't reach it)."] = "%s 暫時排除 %d 分鐘（無法到達）。",
     ["  /gcr unreachable  - can't get to the current node: leave it out for a while"] = "  /gcr unreachable  - 無法到達目前採集點：暫時排除",
@@ -767,6 +767,7 @@ ns.Locales.zhTW = {
     -- 0.2.4 S1: the route line's head and the arrow follow the paths you rode (Ways.lua)
     ["Route line and arrow follow your ridden paths"] = "路線和箭頭沿著你走過的路徑",
     ["Uses the ways you have ridden yourself. Gaps between them are guessed."] = "使用你自己走過的路徑。它們之間的空隙是推測的。",
+    ["Gaps are guessed. The run window shows the guessed share."] = "空隙是推測的。推測部分的比例顯示在採集路線視窗中。",
     ["The run window shows the guessed share, without the first and last yards (always straight)."] = "採集路線視窗顯示推測部分所佔比例，不含起點和終點的幾碼（始終為直線）。",
     ["Without height, a way may cross under a bridge or into a cave."] = "沒有高度資訊，路徑可能從橋下穿過或通往洞穴。",
     ["Path: your ridden ways"] = "路徑：你走過的路",

@@ -469,7 +469,7 @@ ns.Locales.ptBR = {
     ["Warnings for rare mobs, and auction prices where you need them."] = "Avisos de inimigos raros e preços de leilão onde você precisa.",
     ["Language, minimap button and the rest."] = "Idioma, botão do minimapa e o resto.",
     ["Hover a herb or vein on the minimap: Gathercraft remembers the spot."] = "Passe o mouse sobre uma erva ou veio no minimapa: o Gathercraft lembra o lugar.",
-    ["Only node spots are shared. Spots learned from the minimap follow once you harvest them."] = "Só os lugares dos nós são compartilhados. Os aprendidos no minimapa seguem quando você os coleta.",
+    ["Only node spots are shared. Minimap spots follow once you harvest them."] = "Só os lugares dos nós são compartilhados. Os do minimapa, após a coleta.",
     ["%s seems hard to reach from here: trying another node."] = "%s parece difícil de alcançar daqui: tentando outro nó.",
     ["%s left out for %d min (can't reach it)."] = "%s fica de fora por %d min (inalcançável).",
     ["  /gcr unreachable  - can't get to the current node: leave it out for a while"] = "  /gcr unreachable  - não dá para chegar ao nó atual: deixá-lo de fora por um tempo",
@@ -767,6 +767,7 @@ ns.Locales.ptBR = {
     -- 0.2.4 S1: the route line's head and the arrow follow the paths you rode (Ways.lua)
     ["Route line and arrow follow your ridden paths"] = "A linha da rota e a seta seguem os caminhos que você percorreu",
     ["Uses the ways you have ridden yourself. Gaps between them are guessed."] = "Usa os caminhos que você mesmo percorreu. As lacunas entre eles são estimadas.",
+    ["Gaps are guessed. The run window shows the guessed share."] = "As lacunas são estimadas. A janela da rota mostra a parte estimada.",
     ["The run window shows the guessed share, without the first and last yards (always straight)."] = "A janela da rota mostra a parte estimada, sem os primeiros e últimos metros (sempre retos).",
     ["Without height, a way may cross under a bridge or into a cave."] = "Sem altura, um caminho pode passar sob uma ponte ou entrar em uma caverna.",
     ["Path: your ridden ways"] = "Caminho: seus caminhos percorridos",

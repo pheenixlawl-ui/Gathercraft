@@ -502,7 +502,7 @@ ns.Locales.deDE = {
     ["Warnings for rare mobs, and auction prices where you need them."] = "Warnungen bei Rares und Auktionspreise dort, wo du sie brauchst.",
     ["Language, minimap button and the rest."] = "Sprache, Minikarten-Button und der Rest.",
     ["Hover a herb or vein on the minimap: Gathercraft remembers the spot."] = "Zeig auf der Minikarte auf ein Kraut oder Erz: Gathercraft merkt sich den Ort.",
-    ["Only node spots are shared. Spots learned from the minimap follow once you harvest them."] = "Geteilt werden nur Fundorte. Orte von der Minikarte folgen, sobald du sie abbaust.",
+    ["Only node spots are shared. Minimap spots follow once you harvest them."] = "Geteilt werden nur Fundorte. Orte von der Minikarte folgen nach dem Abbau.",
     ["%s learned from the minimap (position is a rough guess until you harvest it)."] = "%s von der Minikarte gelernt (Position ist grob geschätzt, bis du es erntest).",
     ["Learn nodes you point at on the minimap"] = "Vorkommen lernen, auf die du auf der Minikarte zeigst",
     ["Seen on the minimap: position is a rough guess until you harvest it."] = "Auf der Minikarte gesehen: Position ist grob geschätzt, bis du es erntest.",
@@ -796,6 +796,7 @@ ns.Locales.deDE = {
     -- 0.2.4 S1: the route line's head and the arrow follow the paths you rode (Ways.lua)
     ["Route line and arrow follow your ridden paths"] = "Routenlinie und Pfeil folgen deinen gerittenen Wegen",
     ["Uses the ways you have ridden yourself. Gaps between them are guessed."] = "Nutzt die Wege, die du selbst geritten bist. Lücken dazwischen sind geraten.",
+    ["Gaps are guessed. The run window shows the guessed share."] = "Lücken sind geraten. Den geratenen Anteil zeigt das Lauf-Fenster.",
     ["The run window shows the guessed share, without the first and last yards (always straight)."] = "Das Lauf-Fenster zeigt den geratenen Anteil, ohne die ersten und letzten Meter (immer gerade).",
     ["Without height, a way may cross under a bridge or into a cave."] = "Ohne Höhe kann ein Weg unter einer Brücke hindurch oder in eine Höhle führen.",
     ["Path: your ridden ways"] = "Weg: deine gerittenen Wege",

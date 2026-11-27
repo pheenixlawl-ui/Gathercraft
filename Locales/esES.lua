@@ -469,7 +469,7 @@ ns.Locales.esES = {
     ["Warnings for rare mobs, and auction prices where you need them."] = "Avisos de enemigos raros y precios de subasta donde los necesitas.",
     ["Language, minimap button and the rest."] = "Idioma, botón del minimapa y lo demás.",
     ["Hover a herb or vein on the minimap: Gathercraft remembers the spot."] = "Pasa el ratón sobre una hierba o veta en el minimapa: Gathercraft recuerda el lugar.",
-    ["Only node spots are shared. Spots learned from the minimap follow once you harvest them."] = "Solo se comparten los lugares de los nodos. Los aprendidos en el minimapa se comparten cuando los recolectas.",
+    ["Only node spots are shared. Minimap spots follow once you harvest them."] = "Solo se comparten lugares de nodos. Los del minimapa, al recolectarlos.",
     ["%s seems hard to reach from here: trying another node."] = "%s parece difícil de alcanzar desde aquí: probando otro nodo.",
     ["%s left out for %d min (can't reach it)."] = "%s queda fuera %d min (no se puede alcanzar).",
     ["  /gcr unreachable  - can't get to the current node: leave it out for a while"] = "  /gcr unreachable  - no llegas al nodo actual: dejarlo fuera un rato",
@@ -767,6 +767,7 @@ ns.Locales.esES = {
     -- 0.2.4 S1: the route line's head and the arrow follow the paths you rode (Ways.lua)
     ["Route line and arrow follow your ridden paths"] = "La línea de ruta y la flecha siguen tus caminos recorridos",
     ["Uses the ways you have ridden yourself. Gaps between them are guessed."] = "Usa los caminos que has recorrido tú. Los huecos entre ellos son estimados.",
+    ["Gaps are guessed. The run window shows the guessed share."] = "Los huecos son estimados. La ventana de la ruta muestra la parte estimada.",
     ["The run window shows the guessed share, without the first and last yards (always straight)."] = "La ventana de la ruta muestra la parte estimada, sin los primeros y últimos metros (siempre rectos).",
     ["Without height, a way may cross under a bridge or into a cave."] = "Sin altura, un camino puede pasar bajo un puente o entrar en una cueva.",
     ["Path: your ridden ways"] = "Camino: tus caminos recorridos",

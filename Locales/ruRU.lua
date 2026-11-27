@@ -469,7 +469,7 @@ ns.Locales.ruRU = {
     ["Warnings for rare mobs, and auction prices where you need them."] = "Оповещения о редких мобах и цены аукциона там, где они нужны.",
     ["Language, minimap button and the rest."] = "Язык, кнопка у миникарты и остальное.",
     ["Hover a herb or vein on the minimap: Gathercraft remembers the spot."] = "Наведите курсор на траву или жилу на миникарте: Gathercraft запомнит место.",
-    ["Only node spots are shared. Spots learned from the minimap follow once you harvest them."] = "Передаются только места точек. Места с миникарты передаются, когда вы их соберёте.",
+    ["Only node spots are shared. Minimap spots follow once you harvest them."] = "Передаются только места точек. С миникарты — после сбора.",
     ["%s seems hard to reach from here: trying another node."] = "%s отсюда, похоже, не достать: выбираю другой ресурс.",
     ["%s left out for %d min (can't reach it)."] = "%s исключён на %d мин (не добраться).",
     ["  /gcr unreachable  - can't get to the current node: leave it out for a while"] = "  /gcr unreachable  - до текущего ресурса не добраться: исключить на время",
@@ -767,6 +767,7 @@ ns.Locales.ruRU = {
     -- 0.2.4 S1: the route line's head and the arrow follow the paths you rode (Ways.lua)
     ["Route line and arrow follow your ridden paths"] = "Линия маршрута и стрелка следуют вашим путям",
     ["Uses the ways you have ridden yourself. Gaps between them are guessed."] = "Использует пути, по которым вы ездили сами. Промежутки между ними — догадка.",
+    ["Gaps are guessed. The run window shows the guessed share."] = "Промежутки — догадка. Долю догадок показывает окно маршрута.",
     ["The run window shows the guessed share, without the first and last yards (always straight)."] = "Окно маршрута показывает долю догадок, без первых и последних метров (они всегда прямые).",
     ["Without height, a way may cross under a bridge or into a cave."] = "Без высоты путь может пройти под мостом или уйти в пещеру.",
     ["Path: your ridden ways"] = "Путь: ваши пути",

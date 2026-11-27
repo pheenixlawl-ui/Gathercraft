@@ -469,7 +469,7 @@ ns.Locales.koKR = {
     ["Warnings for rare mobs, and auction prices where you need them."] = "희귀 몬스터 경고와 필요한 곳에 표시되는 경매장 가격입니다.",
     ["Language, minimap button and the rest."] = "언어, 미니맵 버튼 및 기타 설정입니다.",
     ["Hover a herb or vein on the minimap: Gathercraft remembers the spot."] = "미니맵의 약초나 광맥에 마우스를 올리면 Gathercraft가 위치를 기억합니다.",
-    ["Only node spots are shared. Spots learned from the minimap follow once you harvest them."] = "채집물 위치만 공유됩니다. 미니맵에서 배운 위치는 채집한 후에 공유됩니다.",
+    ["Only node spots are shared. Minimap spots follow once you harvest them."] = "채집물 위치만 공유됩니다. 미니맵 위치는 채집 후에 공유됩니다.",
     ["%s seems hard to reach from here: trying another node."] = "%s은(는) 여기서 가기 어려워 보입니다: 다른 채집물로 바꿉니다.",
     ["%s left out for %d min (can't reach it)."] = "%s을(를) %d분 동안 제외합니다 (갈 수 없음).",
     ["  /gcr unreachable  - can't get to the current node: leave it out for a while"] = "  /gcr unreachable  - 현재 채집물에 갈 수 없음: 잠시 제외",
@@ -767,6 +767,7 @@ ns.Locales.koKR = {
     -- 0.2.4 S1: the route line's head and the arrow follow the paths you rode (Ways.lua)
     ["Route line and arrow follow your ridden paths"] = "경로 선과 화살표가 내가 다닌 길을 따라감",
     ["Uses the ways you have ridden yourself. Gaps between them are guessed."] = "직접 다닌 길을 사용합니다. 그 사이의 빈 곳은 추측입니다.",
+    ["Gaps are guessed. The run window shows the guessed share."] = "빈 곳은 추측입니다. 추측 비율은 채집 경로 창에 표시됩니다.",
     ["The run window shows the guessed share, without the first and last yards (always straight)."] = "채집 경로 창에 추측 비율이 표시됩니다. 처음과 마지막 몇 미터(항상 직선)는 제외됩니다.",
     ["Without height, a way may cross under a bridge or into a cave."] = "높이 정보가 없어 길이 다리 밑이나 동굴 안으로 이어질 수 있습니다.",
     ["Path: your ridden ways"] = "길: 내가 다닌 길",

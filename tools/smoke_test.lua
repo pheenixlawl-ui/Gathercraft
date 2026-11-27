@@ -40425,15 +40425,16 @@ step("Options 0.2.4 a16: the donation is on Sharing under Paths, Fishing has non
                 if f.__kind == kind and f.__text == text and (not page or f.__parent == page) and f.__parent ~= GathercraftWaysDonation then return f end
             end
         end
-        local function PageOf(f)
-            local p = f and f.__parent
-            while p and not p.key do p = p.__parent end
+        -- the options' page of this key - the newest one (a step before may have had the options built again)
+        local function Page(key)
+            local p
+            for _, f in ipairs(allFrames) do if f.__kind == "Frame" and f.key == key and f.__parent == GathercraftOptions.__content then p = f end end
+            if not p then for _, f in ipairs(allFrames) do if f.__kind == "Frame" and f.key == key then p = f end end end
             return p
         end
         local function Box(label) return label.__pts.LEFT and label.__pts.LEFT[1] end -- (a page with fixed rows)
-        local sync = PageOf(Find("FontString", L["Share nodes with other players"]))
-        local fishing = PageOf(Find("FontString", L["Fish key applies a lure when the pole has none"]))
-        assert(sync and sync.key == "sync" and fishing and fishing.key == "fishing" and not sync.rows, "test setup: the pages Sharing (fixed rows) and Fishing")
+        local sync, fishing = Page("sync"), Page("fishing")
+        assert(sync and fishing and not sync.rows and sync:IsShown(), "test setup: the pages Sharing (fixed rows, shown) and Fishing")
         -- 1. Fishing has no donation line any more: no switch, no button, no heading "Ways"
         for _, f in ipairs(allFrames) do
             if f.__parent == fishing then
@@ -40511,7 +40512,8 @@ step("Options 0.2.4 a16: the donation is on Sharing under Paths, Fishing has non
                     end
                 end
                 assert(status and status:find(L["Not in the sharing channel yet (it is joined a few seconds after login)."], 1, true),
-                    lang.code .. ": the status lines with the channel note: " .. tostring(status))
+                    ("%s: the status lines with the channel note (sync %s, public %s, in the channel %s): %s"):format(lang.code,
+                        tostring(ns.db.sync.enabled), tostring(ns.db.sync.public), tostring(select(4, ns.SyncSummary())), (tostring(status):gsub("\n", " / "))))
                 local lines = 0
                 for line in (status .. "\n"):gmatch("(.-)\n") do lines = lines + math.max(1, math.ceil(Px(line) / (PAGE_W - 6))) end
                 assert(lines * 12 <= 76, ("%s: the status needs %d lines, it has room for %d"):format(lang.code, lines, math.floor(76 / 12)))

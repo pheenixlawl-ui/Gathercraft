@@ -260,8 +260,9 @@ local function ControlHolder()
     return holder
 end
 
--- get() returns the current state, set(on) changes it
-local function AddCheck(label, get, set)
+-- get() returns the current state, set(on) changes it; tip (0.2.4 a16): the
+-- keys of the lines of its tooltip, under the label (nil: no tooltip)
+local function AddCheck(label, get, set, tip)
     local cb = CreateFrame("CheckButton", nil, page, "UICheckButtonTemplate")
     cb:SetSize(24, 24)
     cb:SetPoint("TOPLEFT", colX, nextY)
@@ -280,6 +281,15 @@ local function AddCheck(label, get, set)
         set(self:GetChecked() and true or false)
         options:Refresh()
     end)
+    if tip then
+        cb:SetScript("OnEnter", function(self)
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            GameTooltip:AddLine(L[label], 1, 0.82, 0)
+            for _, key in ipairs(tip) do GameTooltip:AddLine(L[key], 1, 1, 1, true) end
+            GameTooltip:Show()
+        end)
+        cb:SetScript("OnLeave", GameTooltip_Hide)
+    end
     cb.get = get
     controls[#controls + 1] = cb
     nextY = nextY - 26
@@ -1183,7 +1193,8 @@ local function Build()
     AddCheck("Share nodes with other players",
         function() return ns.db.sync and ns.db.sync.enabled end,
         function(on) ns.SyncCommand(on and "on" or "off") end)
-    AddHint("Only node spots are shared. Spots learned from the minimap follow once you harvest them.")
+    -- (0.2.4 a16: one line in every language - this page has fixed rows; the old text ran over the next row)
+    AddHint("Only node spots are shared. Minimap spots follow once you harvest them.")
     AddCheck("Public channel (off = guild and friends only)",
         function() return ns.db.sync and ns.db.sync.public end,
         function(on)
@@ -1209,15 +1220,33 @@ local function Build()
     -- the last row (436 of 440 px); with the new pages of 0.3 it goes there.
     -- Off, the way shown is gone in the same frame (Ways.lua) and the line
     -- is drawn as before.
+    -- (0.2.4 a16, Sven 27.11.) One short line under it - its three lines lay
+    -- over each other on this page of fixed rows; they are its tooltip now,
+    -- the height warning with them.
     AddCheck("Route line and arrow follow your ridden paths",
         function() return not ns.db.routeWaysOff end,
         function(on)
             ns.db.routeWaysOff = not on or nil
             if ns.WaysOptionChanged then ns.WaysOptionChanged() end
-        end)
-    AddHint("Uses the ways you have ridden yourself. Gaps between them are guessed.")
-    AddHint("The run window shows the guessed share, without the first and last yards (always straight).")
-    AddHint("Without height, a way may cross under a bridge or into a cave.")
+        end,
+        { "Uses the ways you have ridden yourself. Gaps between them are guessed.",
+          "The run window shows the guessed share, without the first and last yards (always straight).",
+          "Without height, a way may cross under a bridge or into a cave." })
+    AddHint("Gaps are guessed. The run window shows the guessed share.")
+    -- (0.2.4 a16, Sven 27.11.) The donation of the ways (0.2.3) is back here,
+    -- under the paths it gives: on Fishing (a6) it was in the way. With the
+    -- one line above, this page goes down to 432 of 440 px.
+    AddCheck("Donation hint in chat",
+        function() return not ns.db.waysDonationHintOff end,
+        function(on) ns.WaysDonationHintSet(on) end)
+    local share = CreateFrame("Button", nil, page, "UIPanelButtonTemplate")
+    share:SetSize(240, 24)
+    share:SetPoint("TOPLEFT", colX + 6, nextY)
+    ns.LText(share, "Share my ways...")
+    share:SetScript("OnClick", function() ns.OpenWaysDonation() end)
+    share:SetShown(ns.WaysDonationLink() ~= nil)
+    page:HookScript("OnShow", function() share:SetShown(ns.WaysDonationLink() ~= nil) end)
+    nextY = nextY - 28
     -- what sharing did so far, kept up to date while the section is open
     nextY = nextY - 10
     AddHeader("Right now")
@@ -1291,22 +1320,7 @@ local function Build()
         function() return ns.db.fishLoudSplash end,
         function(on) ns.db.fishLoudSplash = on or nil end)
     AddHint("Sound effects at full volume, music and ambience quiet, while your line is out. Afterwards your volumes are back.")
-
-    -- (0.2.4 a6) the donation of the ways (0.2.3): here, not on Sharing - S1's block and the
-    -- donation's need 464 of 440 px there together (as decided for S4a-1, 24.11.2026)
-    AddHeader("Ways")
-    AddCheck("Donation hint in chat",
-        function() return not ns.db.waysDonationHintOff end,
-        function(on) ns.WaysDonationHintSet(on) end)
-    local share = CreateFrame("Button", nil, page, "UIPanelButtonTemplate")
-    share:SetSize(240, 24)
-    share:SetPoint("TOPLEFT", colX + 6, nextY)
-    ns.LText(share, "Share my ways...")
-    share:SetScript("OnClick", function() ns.OpenWaysDonation() end)
-    share:SetShown(ns.WaysDonationLink() ~= nil)
-    page:HookScript("OnShow", function() share:SetShown(ns.WaysDonationLink() ~= nil) end)
-    page.rows[#page.rows + 1] = { holder = share, x = colX + 6, h = 28 }
-    nextY = nextY - 28
+    -- (the donation of the ways stood here from 0.2.4 a6 to a15: it is on Sharing again, Sven 27.11.2026)
 
     Section("general")
     AddHeader("Language")
