@@ -40455,6 +40455,7 @@ step("Options 0.2.4 a16: the donation is on Sharing under Paths, Fishing has non
         "The run window shows the guessed share, without the first and last yards (always straight).",
         "Without height, a way may cross under a bridge or into a cave." }
     local ROUTE, HINTSW = "Route line and arrow follow your ridden paths", "Donation hint in chat"
+    local NOTE = "Not in the sharing channel yet (it is joined up to 30 seconds after login)." -- (0.2.4 a17)
     local keep = { url = ns.WaysDonationFormURL, lang = ns.db.language, off = ns.db.waysDonationHintOff, section = ns.db.optionsSection,
         add = GameTooltip.AddLine, chan = GetChannelName, join = JoinTemporaryChannel, public = ns.db.sync.public, enabled = ns.db.sync.enabled }
     local ok, err = pcall(function()
@@ -40551,7 +40552,8 @@ step("Options 0.2.4 a16: the donation is on Sharing under Paths, Fishing has non
                         end
                     end
                 end
-                assert(status and status:find(L["Not in the sharing channel yet (it is joined a few seconds after login)."], 1, true),
+                -- (0.2.4 a17) the channel note says the 30 s the join may take now
+                assert(status and status:find(L[NOTE], 1, true),
                     ("%s: the status lines with the channel note (sync %s, public %s, in the channel %s): %s"):format(lang.code,
                         tostring(ns.db.sync.enabled), tostring(ns.db.sync.public), tostring(select(4, ns.SyncSummary())), (tostring(status):gsub("\n", " / "))))
                 local lines = 0
@@ -40563,6 +40565,7 @@ step("Options 0.2.4 a16: the donation is on Sharing under Paths, Fishing has non
         assert(seen == 10, "ten languages of text (esMX shows esES): " .. seen)
         -- the new line in every language
         for lang, d in pairs(ns.Locales) do assert(type(d[SHORT]) == "string" and d[SHORT] ~= "" and d[SHORT] ~= SHORT, lang .. ": not translated - " .. SHORT) end
+        for lang, d in pairs(ns.Locales) do assert(type(d[NOTE]) == "string" and d[NOTE] ~= "" and d[NOTE] ~= NOTE and d[NOTE]:find("30", 1, true), lang .. ": not translated - " .. NOTE) end
     end)
     GameTooltip.AddLine, GetChannelName, JoinTemporaryChannel = keep.add, keep.chan, keep.join
     if GathercraftWaysDonation then GathercraftWaysDonation:Hide() end
