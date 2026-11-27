@@ -1588,7 +1588,8 @@ local function LoginJoinArm()
     frame:RegisterEvent("CHAT_MSG_CHANNEL_NOTICE")
     local gen = loginGen
     C_Timer.After(JOIN_LATEST, function()
-        if gen == loginGen then LoginJoin(JOIN_LATEST .. " s, no zone channel in the list") end
+        -- (0.2.4 a19, Codex' check of a18) what was seen until now - the list is not read again for a line
+        if gen == loginGen then LoginJoin(JOIN_LATEST .. " s, no zone channel seen in the list") end
     end)
     return gen
 end
