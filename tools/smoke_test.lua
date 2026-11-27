@@ -19977,7 +19977,9 @@ end)
 -- (0.2.4 a10, order 2026-11-26_claude_auftrag_0.2.4-node-kanal-fix, Codex' H1 of S4a-2 for the node messages) The game
 -- can give GathercraftSync another number while it runs, without a new join: the number kept at the join may be
 -- another channel's by then.
-step("Sync 0.2.4 a10: node messages go to the number GathercraftSync has right now - renumbered 5 -> 7 they go to 7; no number known, nothing goes to the channel and the message waits while the guild's go on; the number back, it goes out once; left on purpose, nothing waits", function()
+-- (0.2.4 a13) The step's body, with the time between "public off" and "public on" at its end; a13 adds a message made
+-- just before the off: its guild message goes out once, its channel message never.
+local function A10Channel(gap)
     slash("sync on")
     local keep = { send = C_ChatInfo.SendAddonMessage, chan = GetChannelName, public = ns.db.sync.public }
     local number = 5
@@ -20037,12 +20039,17 @@ step("Sync 0.2.4 a10: node messages go to the number GathercraftSync has right n
         n, mark = Share(0.4233)
         made[#made + 1] = n
         advance(3)
+        -- (0.2.4 a13) and one made just before the off: its channel message and its guild message both wait in the queue
+        local n2, mark2 = Share(0.4344)
+        made[#made + 1] = n2
         slash("sync public") -- (off)
-        advance(6)
+        if gap > 0 then advance(gap) end
         number = 7
         slash("sync public") -- (on again: joined at 7)
         advance(10)
-        assert(#Of(mark, "CHANNEL") == 0, "left on purpose: the message that waited went out after the next join")
+        assert(#Of(mark, "CHANNEL") == 0, ("left on purpose (%s s off): the message that waited went out after the next join"):format(gap))
+        assert(#Of(mark2, "CHANNEL") == 0, ("left on purpose (%s s off): the message made just before the off went out after the next join"):format(gap))
+        assert(#Of(mark2, "GUILD") == 1, ("left on purpose (%s s off): the guild's message made just before the off went out %d times (once)"):format(gap, #Of(mark2, "GUILD")))
     end)
     GetChannelName, C_ChatInfo.SendAddonMessage = keep.chan, keep.send
     ns.db.sync.public = keep.public
@@ -20050,6 +20057,45 @@ step("Sync 0.2.4 a10: node messages go to the number GathercraftSync has right n
         for i, x in ipairs(ns.db.nodes[1412]) do if x == n then table.remove(ns.db.nodes[1412], i) break end end
     end
     slash("sync on") -- (joined again at the mock's number)
+    advance(10)
+    if not ok then error(err, 0) end
+end
+step("Sync 0.2.4 a10: node messages go to the number GathercraftSync has right now - renumbered 5 -> 7 they go to 7; no number known, nothing goes to the channel and the message waits while the guild's go on; the number back, it goes out once; left on purpose, nothing waits", function()
+    A10Channel(6)
+end)
+-- (0.2.4 a13, order 2026-11-27_claude_auftrag_0.2.4-a10-a11-nachbesserung part 1, Codex' check of a10 M1) Left on purpose
+-- and joined again before the queue's next turn: the old public messages are let go all the same (a channel message
+-- belongs to the join it was made in); the guild's are kept. Codex' case: the a10 step with 0 and 0.1 s between
+-- "public off" and "public on" instead of 6. And /gcr sync shows the number GathercraftSync has now, not the one of the
+-- join (none known: "?").
+step("Sync 0.2.4 a13: left on purpose and joined again before the next send (0 and 0.1 s) - an old public message is let go, the guild's goes out once; /gcr sync shows the channel's number of now", function()
+    A10Channel(0)
+    A10Channel(0.1)
+    local keep = GetChannelName
+    local number = 5
+    GetChannelName = function(name)
+        if name == "GathercraftSync" then return number, name end
+        return 0
+    end
+    local function Shown()
+        local at = #log
+        slash("sync")
+        for i = at + 1, #log do
+            local nr = log[i]:match("^PRINT .-%(#(%d+)%)") or (log[i]:match("^PRINT .-%(#%?%)") and "?")
+            if nr then return nr end
+        end
+    end
+    local ok, err = pcall(function()
+        slash("sync on") -- (joined at 5)
+        advance(2)
+        assert(Shown() == "5", "test setup: joined at 5, /gcr sync shows #" .. tostring(Shown()))
+        number = 7
+        assert(Shown() == "7", "renumbered 5 -> 7: /gcr sync shows #" .. tostring(Shown()) .. " (want #7)")
+        number = 0
+        assert(Shown() == "?", "no number known: /gcr sync shows #" .. tostring(Shown()) .. " (want #?)")
+    end)
+    GetChannelName = keep
+    slash("sync on")
     advance(10)
     if not ok then error(err, 0) end
 end)

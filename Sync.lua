@@ -80,9 +80,13 @@ local VERSION_MAX = 24        -- characters of a version a player may send (V:gc
 local TYPE_CODE = { herb = "h", ore = "o", chest = "c" }
 local CODE_TYPE = { h = "herb", o = "ore", c = "chest" }
 
-local queue = {}              -- outgoing messages { text, target, answer }
+local queue = {}              -- outgoing messages { text, target, answer, gen }
 local sendTicker                -- the ticker that sends the queue, one message every SEND_INTERVAL
 local channelID
+-- (0.2.4 a13, Codex' check of a10, M1) counts at every leave on purpose (/gcr sync off, public off): a channel message
+-- belongs to the join it was made in - one made before the leave is let go, also when the channel is joined again
+-- before the queue's next turn. The guild's messages do not belong to a join.
+local channelGen = 0
 local rate = {}               -- sender -> { start, count }
 local lastQuery = {}          -- mapID -> time (kept in the saved data: a /reload doesn't ask again)
 local answering = {}          -- mapID -> our answer to a zone question, from the question to its last packet (see OnQuery)
@@ -233,7 +237,7 @@ local function Enqueue(text, target, answer)
         stats.dropped = stats.dropped + 1
         return false
     end
-    queue[#queue + 1] = { text = text, target = target, answer = answer }
+    queue[#queue + 1] = { text = text, target = target, answer = answer, gen = channelGen }
     return true
 end
 
@@ -449,8 +453,9 @@ local function SendNext()
         item = table.remove(queue, 1)
         if not item then return end
     until not (item.answer and AnswerStops(item.answer, item))
-    if item.target == "GUILD" or not (channelID and channelID > 0) then
-        -- (the guild's; a channel message after the channel was left: let go, as before)
+    if item.target == "GUILD" or not (channelID and channelID > 0) or item.gen ~= channelGen then
+        -- (the guild's; a channel message after the channel was left: let go, as before - (0.2.4 a13) also when it was
+        -- joined again since)
         return Out(item)
     end
     -- (0.2.4 a10) in the channel: to the number it has right now
@@ -1339,6 +1344,7 @@ local function LeaveChannel()
         LeaveChannelByName(CHANNEL)
     end
     channelID = nil
+    channelGen = channelGen + 1 -- (0.2.4 a13) what waits for the channel was made for the join that ends here
     versionSaid.channel = nil -- (joined again: said again)
 end
 
@@ -1389,7 +1395,9 @@ local function Status()
     ns.Print((L["Sync %s, public channel %s (%s), guild %s."]):format(
         DB().enabled and L["|cff00ff00ON|r"] or L["|cffff0000OFF|r"],
         DB().public and "on" or "off",
-        (channelID and channelID > 0) and ("#" .. channelID) or L["not joined"],
+        -- (0.2.4 a13) the number GathercraftSync has now (the one of the join may be another channel's by then); "?" while
+        -- the game gives none - its messages wait
+        (channelID and channelID > 0) and ("#" .. (WayChannel() or "?")) or L["not joined"],
         IsInGuild() and "yes" or "no"))
     print((L["  Players seen (1h): %d   Messages received: %d   Incoming: %.1f/s"]):format(
         peers, stats.received, incomingRate))
