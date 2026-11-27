@@ -422,14 +422,19 @@ ns.SyncWayChannel = WayChannel -- (the tests)
 -- one message out (a channel message to the number `target`; without one it is let go, as before)
 local function Out(item, target)
     local ok, err
+    local guildSent = false
     if item.target == "GUILD" then
         if IsInGuild() then
             ok, err = Send(PREFIX, item.text, "GUILD")
+            guildSent = true
         end
     elseif target then
         ok, err = Send(PREFIX, item.text, "CHANNEL", target)
     end
-    if item.target ~= "GUILD" then
+    -- (0.2.4 a14, Codex' check of a12, M1) a text that went to the guild is the proof for its echo there too: with the
+    -- public channel off the own messages go to the guild only (the receiving lets only GathercraftSync and the guild
+    -- teach a name)
+    if item.target ~= "GUILD" or guildSent then
         sentAt[item.text] = time()
         for text, t in pairs(sentAt) do
             if time() - t > 60 then sentAt[text] = nil end
