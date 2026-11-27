@@ -1523,10 +1523,15 @@ frame:RegisterEvent("ZONE_CHANGED_NEW_AREA")
 -- Nothing to wait for at 8 s: sync or the public channel off (JoinChannel
 -- does nothing then, as before), or GathercraftSync in the list already (a
 -- /reload: nothing to order).
+-- (0.2.4 a17, Codex' check of a16, M1) A notice counts per channel: a zone
+-- channel left again (YOU_LEFT) before the join counts no more - another one
+-- still there does.
 ---------------------------------------------------------------------------
 local loginJoin             -- nil (not armed), "early" (before 8 s), "wait", "done"
 local loginGen, loginAt = 0, 0
-local zoneSeen              -- a zone channel's notice came since the login
+-- (0.2.4 a17) the zone channels a notice said were joined since the login and no YOU_LEFT took back: its zone channel
+-- id (with none, its base name) -> its base name
+local zoneSeen = {}
 
 -- the strings among the values (GetChannelList: id, name, disabled, ...); one that cannot be read: none at all
 local function Names(...)
@@ -1553,6 +1558,40 @@ local function ZoneListed()
     return false
 end
 
+-- whether this base name is one of the game's server channels (General, Trade, LocalDefense, ...)
+local function ServerChannel(base)
+    if type(base) ~= "string" or base == "" or not EnumerateServerChannels then return false end
+    local ok, server = pcall(function() return Names(EnumerateServerChannels()) end)
+    if not ok then return false end
+    for _, name in ipairs(server) do
+        if name == base then return true end
+    end
+    return false
+end
+
+-- (0.2.4 a17, Codex' check of a16, M1) a channel notice while the login join waits: a zone channel joined (YOU_JOINED,
+-- YOU_CHANGED) is noted by its zone channel id - with none, by its base name if that is a server channel -; one left
+-- (YOU_LEFT) takes that back, by its id and by its base name. Only a YOU_LEFT takes back: an empty list at an update may
+-- just lag behind at the login. true: a zone channel was noted now.
+local function ZoneNotice(notice, zoneID, base)
+    local id = type(zoneID) == "number" and zoneID > 0 and zoneID or nil
+    if type(base) ~= "string" or base == "" then base = nil end
+    if notice == "YOU_JOINED" or notice == "YOU_CHANGED" then
+        local key = id or (ServerChannel(base) and base)
+        if not key then return false end
+        zoneSeen[key] = base or true
+        return true
+    elseif notice == "YOU_LEFT" then
+        if id then zoneSeen[id] = nil end
+        if base then
+            for key, name in pairs(zoneSeen) do
+                if key == base or name == base then zoneSeen[key] = nil end
+            end
+        end
+    end
+    return false
+end
+
 local function LoginJoin(why)
     if loginJoin ~= "wait" then return end
     loginJoin = "done"
@@ -1571,13 +1610,13 @@ local function LoginJoinTry(why)
     if not ns.AnySecret("sync channel number", id) and type(id) == "number" and id > 0 then
         return LoginJoin("in " .. CHANNEL .. " already")
     end
-    if zoneSeen or ZoneListed() then return LoginJoin(why) end
+    if next(zoneSeen) or ZoneListed() then return LoginJoin(why) end
 end
 
 -- the login; told twice while it waits, the first one's timers stay. Returns the login's number for its timers.
 local function LoginJoinArm()
     if loginJoin == "early" or loginJoin == "wait" then return loginGen end
-    loginGen, loginJoin, loginAt, zoneSeen = loginGen + 1, "early", GetTime(), nil
+    loginGen, loginJoin, loginAt, zoneSeen = loginGen + 1, "early", GetTime(), {}
     frame:RegisterEvent("CHANNEL_UI_UPDATE")
     frame:RegisterEvent("CHAT_MSG_CHANNEL_NOTICE")
     local gen = loginGen
@@ -1650,12 +1689,10 @@ frame:SetScript("OnEvent", function(self, event, ...)
         end)
     elseif event == "CHAT_MSG_CHANNEL_NOTICE" then
         -- (0.2.4 a16) a zone channel joined: what the join after the login waits for
-        local notice, _, _, _, _, _, zoneID = ...
-        if ns.AnySecret("CHAT_MSG_CHANNEL_NOTICE", notice, zoneID) then return end
-        if (notice == "YOU_CHANGED" or notice == "YOU_JOINED") and type(zoneID) == "number" and zoneID > 0 then
-            zoneSeen = true
-            LoginJoinTry("a zone channel's notice")
-        end
+        local notice, _, _, _, _, _, zoneID, _, base = ...
+        if ns.AnySecret("CHAT_MSG_CHANNEL_NOTICE", notice, zoneID, base) then return end
+        -- (0.2.4 a17) and one left again: taken back
+        if ZoneNotice(notice, zoneID, base) then LoginJoinTry("a zone channel's notice") end
     elseif event == "CHANNEL_UI_UPDATE" then
         LoginJoinTry("the channel list's update")
     elseif event == "CHAT_MSG_ADDON" then

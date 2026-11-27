@@ -21135,6 +21135,13 @@ step("Sync 0.2.4 a16: GathercraftSync is joined behind General - at 8 s when a z
         listed, inSync = {}, false
         Case("General and LocalDefense at 3 s, General left at 6 s", true,
             { [3] = function() Zone("General", 1, 1)() Zone("LocalDefense", 22, 2)() end, [6] = Left("General", 1, 1) }, 8, 1)
+        -- the same by the notices alone (the list lags behind): what counts is LocalDefense's own entry
+        listed, inSync = {}, false
+        Case("General and LocalDefense at 3 s by their notices alone, General left at 6 s", true,
+            { [3] = function()
+                fire("CHAT_MSG_CHANNEL_NOTICE", "YOU_CHANGED", "", "", "1. General - Durotar", "", "", 1, 1, "General")
+                fire("CHAT_MSG_CHANNEL_NOTICE", "YOU_CHANGED", "", "", "2. LocalDefense - Durotar", "", "", 22, 2, "LocalDefense")
+            end, [6] = function() fire("CHAT_MSG_CHANNEL_NOTICE", "YOU_LEFT", "", "", "1. General - Durotar", "", "", 1, 1, "General") end }, 8, 1)
         listed, inSync = {}, false
         Case("General at 3 s, left at 6 s with a notice without its id (the base name)", true,
             { [3] = Zone("General", 1, 1), [6] = Left("General", 0, 1) }, 30, 1)
