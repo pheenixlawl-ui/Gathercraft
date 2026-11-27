@@ -18104,7 +18104,7 @@ step("Fishing 0.2.4 a19: the fish key never sticks on a lure - one the Fishing s
         end
         local function Said(text) local n = 0 for _, t in ipairs(said) do if t == text then n = n + 1 end end return n end
         local TOO_LOW = ns.L["Fishing %d needed for %s - casting without that lure."]
-        local FAILED = ns.L["Couldn't apply %s - casting without that lure."]
+        local FAILED = ns.L["Couldn't apply %s - casting without lures until your Fishing skill goes up or you /reload."]
         -- 1. Fishing 41, Nightcrawlers and a Shiny Bauble: the Shiny Bauble
         bags = { [6530] = 5, [6529] = 3 }
         local what, lure = Press()
@@ -18163,7 +18163,7 @@ step("Fishing 0.2.4 a19: the fish key never sticks on a lure - one the Fishing s
         assert(Press() == "cast" and #said == 0, "no lure: a cast")
         -- the texts in every language, with the same placeholders
         for lang, d in pairs(ns.Locales) do
-            for _, key in ipairs({ "Fishing %d needed for %s - casting without that lure.", "Couldn't apply %s - casting without that lure." }) do
+            for _, key in ipairs({ "Fishing %d needed for %s - casting without that lure.", "Couldn't apply %s - casting without lures until your Fishing skill goes up or you /reload." }) do
                 local tr = d[key]
                 assert(type(tr) == "string" and tr ~= "" and tr ~= key, lang .. ": not translated - " .. key)
                 local _, a = key:gsub("%%[ds]", "") local _, c = tr:gsub("%%[ds]", "")
@@ -18174,6 +18174,105 @@ step("Fishing 0.2.4 a19: the fish key never sticks on a lure - one the Fishing s
     GetInventoryItemID, GetWeaponEnchantInfo, C_Item.GetItemCount, GetProfessions = keep.inv, keep.enchant, keep.count, keep.profs
     GetProfessionInfo, ns.Print, ns.db.fishLure, C_Item.GetItemNameByID = keep.info, keep.print, keep.lure, keep.name
     fire("CHAT_MSG_SKILL", "") -- (nothing passed over for the steps after)
+    b.__scripts.PreClick(b)
+    if not ok then error(err, 0) end
+end)
+-- (0.2.4 a20, order 2026-11-28_claude_auftrag_0.2.4-a20, Codex' check of a19) The safety counts right and casts at the
+-- third press for sure:
+--   M1 when it takes hold, that press is a cast - no other lure is looked for - and the lure step pauses for all lures
+--      until the Fishing skill goes up (as in a19) or a /reload; one line a session, at that press. A limit known
+--      beforehand (the table) still takes the cheaper lure at once.
+--   M2 a lure seen on the pole - at any look at the key, an event too - ends the row of tries: after it ran out it is
+--      taken as any other.
+--   M3 only the flank that runs the action counts: a bound key runs it on the key-down with ActionButtonUseKeyDown on,
+--      on the key-up with it off (Forever's SecureTemplates.lua); a click without a flank counts once.
+--   N1 the Fishing skill (and Herbalism's, Mining's): when the professions' list throws, the old skill list is read.
+step("Fishing 0.2.4 a20: the safety casts at the third press and pauses every lure until a skill-up; a lure seen on the pole ends the row of tries; only the flank that runs the action counts; the old skill list when the professions' list throws", function()
+    local b = _G.GathercraftFishButton
+    local keep = { inv = GetInventoryItemID, enchant = GetWeaponEnchantInfo, count = C_Item.GetItemCount, profs = GetProfessions,
+        info = GetProfessionInfo, print = ns.Print, lure = ns.db.fishLure, name = C_Item.GetItemNameByID, cvar = GetCVarBool,
+        lines = GetNumSkillLines, line = GetSkillLineInfo }
+    local NAMES = { [6533] = "Aquadynamic Fish Attractor", [6811] = "Aquadynamic Fish Lens", [7307] = "Flesh Eating Worm",
+        [6532] = "Bright Baubles", [6530] = "Nightcrawlers", [6529] = "Shiny Bauble" }
+    local bags, rank, lured, said, useDown = {}, nil, false, {}, nil
+    local ok, err = pcall(function()
+        ns.db.fishLure = nil
+        GetInventoryItemID = function(_, slot) if slot == 16 then return 6256 end end
+        GetWeaponEnchantInfo = function() return lured end
+        C_Item.GetItemCount = function(id) return bags[id] or 0 end
+        C_Item.GetItemNameByID = function(id) return NAMES[id] or keep.name(id) end
+        GetProfessions = function() if rank then return 1, 2, nil, 4, nil, nil end end
+        GetProfessionInfo = function(i)
+            if i == 4 then return "Fishing", 0, rank, 300, 0, 0, 356, 25 end
+            return keep.info(i)
+        end
+        if ns.FishKeyReset then ns.FishKeyReset() end -- (a new session: what the a19 step paused and said is gone)
+        GetCVarBool = function(name) if name == "ActionButtonUseKeyDown" then return useDown end end
+        ns.Print = function(t) said[#said + 1] = t end
+        -- a press: one PreClick without a flank (a click), or both flanks of a bound key - what the flank that runs the
+        -- action prepared (ActionButtonUseKeyDown on: the key-down; off: the key-up)
+        local function Press(flanks)
+            if not flanks then b.__scripts.PreClick(b, "LeftButton")
+            else
+                local runs
+                for _, down in ipairs({ true, false }) do
+                    b.__scripts.PreClick(b, "LeftButton", down)
+                    if down == (useDown == true) then runs = { b.next, b:GetAttribute("macrotext") or "" } end
+                end
+                local macro = runs[2]
+                return runs[1], runs[1] == "apply lure" and tonumber(macro:match("item:(%d+)")) or nil
+            end
+            local macro = b:GetAttribute("macrotext") or ""
+            return b.next, b.next == "apply lure" and tonumber(macro:match("item:(%d+)")) or nil
+        end
+        local function Seq(n, flanks)
+            local out = {}
+            for i = 1, n do
+                local what, lure = Press(flanks)
+                out[i] = what == "apply lure" and tostring(lure) or what
+            end
+            return table.concat(out, " ")
+        end
+        local FAILED = ns.L["Couldn't apply %s - casting without lures until your Fishing skill goes up or you /reload."]
+        local function Lift() fire("CHAT_MSG_SKILL", "Your skill in Fishing has increased.") end
+        -- M1: the skill not readable, Nightcrawlers and a Shiny Bauble, always refused: 6530, 6530, a cast with the line,
+        -- casts after it - no other lure is tried
+        Lift()
+        rank, bags, said = nil, { [6530] = 3, [6529] = 3 }, {}
+        local first = Seq(2)
+        assert(first == "6530 6530" and #said == 0, ("M1, presses 1-2: %s, said %s"):format(first, table.concat(said, " / ")))
+        local third = Seq(1)
+        assert(third == "cast" and #said == 1 and said[1] == FAILED:format("Nightcrawlers"),
+            ("M1, press 3: %s, said %s"):format(third, table.concat(said, " / ")))
+        local after = Seq(2)
+        assert(after == "cast cast" and #said == 1, ("M1, presses 4-5: %s, said %s"):format(after, table.concat(said, " / ")))
+        -- with all six: the same, the cast at the third press (the line said once a session)
+        Lift()
+        bags = { [6533] = 1, [6811] = 1, [7307] = 1, [6532] = 1, [6530] = 1, [6529] = 1 }
+        local six = Seq(5)
+        assert(six == "6533 6533 cast cast cast" and #said == 1, ("M1, all six lures: %s, said %d"):format(six, #said))
+        -- a skill-up: the lure step runs again
+        Lift()
+        assert(Seq(1) == "6533", "M1, after a skill-up the lure step runs again")
+        -- a limit known beforehand: Fishing 41, Nightcrawlers and a Shiny Bauble that takes - the bauble, nothing said
+        Lift()
+        rank, bags, said = 41, { [6530] = 3, [6529] = 3 }, {}
+        assert(Seq(1) == "6529" and #said == 0, "M1, Fishing 41: the Shiny Bauble at once")
+        lured = true
+        assert(Seq(1) == "cast" and #said == 0, "M1, the bauble took: a cast, nothing said")
+        lured = false
+        -- the line in every language, with the same placeholder
+        for lang, d in pairs(ns.Locales) do
+            local key = "Couldn't apply %s - casting without lures until your Fishing skill goes up or you /reload."
+            local tr = d[key]
+            assert(type(tr) == "string" and tr ~= "" and tr ~= key and select(2, tr:gsub("%%s", "")) == 1 and not tr:find("%%d"),
+                lang .. ": not translated or another placeholder - " .. tostring(tr))
+        end
+    end)
+    GetInventoryItemID, GetWeaponEnchantInfo, C_Item.GetItemCount, GetProfessions = keep.inv, keep.enchant, keep.count, keep.profs
+    GetProfessionInfo, ns.Print, ns.db.fishLure, C_Item.GetItemNameByID = keep.info, keep.print, keep.lure, keep.name
+    GetCVarBool, GetNumSkillLines, GetSkillLineInfo = keep.cvar, keep.lines, keep.line
+    fire("CHAT_MSG_SKILL", "") -- (nothing paused for the steps after)
     b.__scripts.PreClick(b)
     if not ok then error(err, 0) end
 end)
