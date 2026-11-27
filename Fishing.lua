@@ -88,16 +88,24 @@ end
 -- one that can be used, else a cast without a lure - and said once a session
 -- (only at a press). The skill not readable: no lure is passed over for it.
 -- And whatever the table does not know (another value on Forever, any other
--- failure): a lure that two presses in a row tried to put on, the pole still
--- without one at the next press, is passed over for the session - said once.
--- A skill-up lifts that (a higher Fishing rank; when it cannot be read, a
--- skill-up line), as do a /reload and a login. No error text is read: only
--- counted. One thing a press, as before.
+-- failure): when two presses in a row tried to put the same lure on and the
+-- pole still has none at the next press, (0.2.4 a20, Codex' check of a19,
+-- M1) that press is a cast - no other lure is looked for - and the lure step
+-- pauses for all lures: two failed tries without a known reason are seldom
+-- the one lure's, and the key costs two failed tries at the most. One line a
+-- session, at that press. A skill-up lifts the pause (a higher Fishing rank;
+-- when it cannot be read, a skill-up line), as do a /reload and a login. No
+-- error text is read: only counted. One thing a press, as before.
 ---------------------------------------------------------------------------
-local passed = {}                 -- lure id -> true: passed over for the session (two presses did not put it on)
-local passedRank                  -- the Fishing rank when one was passed over (nil: not readable)
+local paused = false              -- (a20) the lure step paused for all lures (two presses did not put one on)
+local pausedRank                  -- the Fishing rank when it paused (nil: not readable)
 local tried = { id = nil, n = 0 } -- the lure the last presses in a row tried to put on, and how many presses
-local told = {}                   -- lure id -> true: its line was said this session
+local told = {}                   -- lure id (or "pause") -> true: its line was said this session
+-- (the tests: a new session - what a /reload leaves of it: nothing)
+ns.FishKeyReset = function()
+    paused, pausedRank, tried.id, tried.n = false, nil, nil, 0
+    for k in pairs(told) do told[k] = nil end
+end
 
 -- the own Fishing rank (without bonuses), nil when it cannot be read
 local function FishingRank()
@@ -118,12 +126,12 @@ local function Tell(id, text, ...)
     ns.Print((L[text]):format(...))
 end
 
--- the best lure in the bags that is not passed over and that the Fishing skill is high enough for (not readable:
--- any); and, when there is none, the first lure in the bags the skill is too low for
+-- the best lure in the bags that the Fishing skill is high enough for (not readable: any); and, when there is none,
+-- the first lure in the bags the skill is too low for
 local function BestLure()
     local rank, tooLow = FishingRank(), nil
     for _, lure in ipairs(LURES) do
-        if not passed[lure.id] and ItemCount(lure.id) > 0 then
+        if ItemCount(lure.id) > 0 then
             if not rank or rank >= lure.skill then return lure.id end
             tooLow = tooLow or lure
         end
@@ -148,23 +156,24 @@ local function Prepare(pressed)
             button.next = "equip pole"
             return
         end
-    elseif ns.db.fishLure ~= false and not HasLure() then
-        -- (0.2.4 a19) two presses in a row tried this lure and the pole still has none: passed over for the session
+    elseif ns.db.fishLure ~= false and not HasLure() and not paused then
         if pressed and tried.id and tried.n >= 2 then
-            passed[tried.id] = true
-            passedRank = FishingRank()
-            Tell(tried.id, "Couldn't apply %s - casting without that lure.", LureName(tried.id))
+            -- (0.2.4 a20, M1) two presses in a row tried this lure and the pole still has none: this press casts, and
+            -- the lure step pauses for all lures
+            paused, pausedRank = true, FishingRank()
+            Tell("pause", "Couldn't apply %s - casting without lures until your Fishing skill goes up or you /reload.", LureName(tried.id))
             tried.id, tried.n = nil, 0
-        end
-        local lure, tooLow = BestLure()
-        if lure then
-            button:SetAttribute("type", "macro")
-            button:SetAttribute("macrotext", "/use item:" .. lure .. "\n/use 16")
-            button.next, button.lure = "apply lure", lure
-            return
-        end
-        if pressed and tooLow then
-            Tell(tooLow.id, "Fishing %d needed for %s - casting without that lure.", tooLow.skill, LureName(tooLow.id))
+        else
+            local lure, tooLow = BestLure()
+            if lure then
+                button:SetAttribute("type", "macro")
+                button:SetAttribute("macrotext", "/use item:" .. lure .. "\n/use 16")
+                button.next, button.lure = "apply lure", lure
+                return
+            end
+            if pressed and tooLow then
+                Tell(tooLow.id, "Fishing %d needed for %s - casting without that lure.", tooLow.skill, LureName(tooLow.id))
+            end
         end
     end
     local spell = FishingSpell()
@@ -556,7 +565,7 @@ events:RegisterEvent("PLAYER_LOGOUT")
 events:RegisterEvent("PLAYER_REGEN_ENABLED")
 events:RegisterEvent("UPDATE_BINDINGS")
 events:RegisterEvent("BAG_UPDATE_DELAYED")
-events:RegisterEvent("CHAT_MSG_SKILL")      -- (0.2.4 a19) a skill-up lifts the lures passed over
+events:RegisterEvent("CHAT_MSG_SKILL")      -- (0.2.4 a19) a skill-up lifts the pause of the lure step (a20)
 events:RegisterEvent("SKILL_LINES_CHANGED")
 events:RegisterUnitEvent("UNIT_INVENTORY_CHANGED", "player")
 events:RegisterUnitEvent("UNIT_SPELLCAST_CHANNEL_START", "player")
@@ -611,13 +620,12 @@ events:SetScript("OnEvent", function(_, event, _, _, spellID)
         -- a run or the questing mode going on: the gathering help again
         C_Timer.After(1, function() UpdateGatherHelp("login") end)
     elseif event == "CHAT_MSG_SKILL" or event == "SKILL_LINES_CHANGED" then
-        -- (0.2.4 a19) a skill-up lifts what two presses passed over: the Fishing rank higher than then - or, when it
-        -- cannot be read (now or then), a skill-up line. No text of the line is read.
-        if next(passed) then
+        -- (0.2.4 a19) a skill-up lifts what two presses paused (a20: the lure step): the Fishing rank higher than
+        -- then - or, when it cannot be read (now or then), a skill-up line. No text of the line is read.
+        if paused then
             local rank = FishingRank()
-            if (rank and passedRank and rank > passedRank) or ((not rank or not passedRank) and event == "CHAT_MSG_SKILL") then
-                for id in pairs(passed) do passed[id] = nil end
-                passedRank = nil
+            if (rank and pausedRank and rank > pausedRank) or ((not rank or not pausedRank) and event == "CHAT_MSG_SKILL") then
+                paused, pausedRank = false, nil
             end
         end
         Prepare()
