@@ -41117,9 +41117,11 @@ end)
 step("Ways donation: no form hides the button, all nine translations and unchanged idle data", function()
     local keys = {
         "Share my ways...", "Donation hint in chat", "The form is not ready yet",
-        "Form link (Ctrl+C)", "Part %d of %d", "Previous part", "Next part", "Preparing...",
+        "Form link (Ctrl+C)", "Part %d of %d - paste it into the field \"Part %d\"",
+        "Last part (%d of %d) - paste it into \"Part %d\", then submit the form once.",
+        "Paste it into the field \"Part 1\", then submit the form once.", "Previous part", "Next part", "Preparing...",
         "Could not prepare the ways. Close this window and try again.",
-        "Help build the path network for everyone. This text contains only the ways you have ridden, as 25-yard steps: no names, no prices, no times, no character. Copy it (Ctrl+C) and paste it into the form at the link below.",
+        "Help build the path network for everyone. This text contains only the ways you have ridden, as 25-yard steps: no names, no prices, no times, no character. Open the form at the link below. Copy each part (Ctrl+C) and paste it into its own field: Part 1 into \"Part 1\", Part 2 into \"Part 2\", and so on. Submit the form once, after the last part.",
         "Includes today's ways and this session. Nothing is uploaded by the addon; this is a submission for manual review.",
         "You have recorded %d path steps. Help build the path network for everyone: /gcr shareways (this hint will not show again)",
         "  /gcr shareways    - copy your ridden ways for the donation form",
@@ -41150,6 +41152,131 @@ step("Ways donation: no form hides the button, all nine translations and unchang
     ns.ShowOptionsSection("general") ns.ShowOptionsSection("sync")
     ns.WaysDonationHintRefresh()
     if not keep or keep=="" then assert(not ns.WaysDonationHintFrame:GetScript("OnUpdate"),"idle polling without form") end
+end)
+-- (0.2.4 release, order addendum "Spendenfenster", 28.11.) The form has the fields "Part 1" ... "Part 10" on one page,
+-- sent once; a donation came in with everything in field 1. The window says it now: each part into its own field,
+-- the form sent once after the last part. The status line of a part: "Part n of N - ... the field "Part n"", the last
+-- one "... then submit the form once", a single part the same without numbers. The field names stay English in every
+-- language. The status line sits above the buttons now (two lines at the most), the skipped line above it, the export
+-- field ends above that: nothing lies over anything, in every language (the mock's text measure: 6 px a letter, 11 px
+-- a CJK sign, 12 px a line).
+step("Ways donation 0.2.4: each part into its own field - the status line names the form's field \"Part n\" for every part and says to submit once at the last (1, 2 and 5 parts; enUS, deDE); the new description; in every language the keys with their numbers in order; nothing overlaps in the window in all eleven languages", function()
+    local DESC = "Help build the path network for everyone. This text contains only the ways you have ridden, as 25-yard steps: no names, no prices, no times, no character. Open the form at the link below. Copy each part (Ctrl+C) and paste it into its own field: Part 1 into \"Part 1\", Part 2 into \"Part 2\", and so on. Submit the form once, after the last part."
+    local PART = "Part %d of %d - paste it into the field \"Part %d\""
+    local LAST = "Last part (%d of %d) - paste it into \"Part %d\", then submit the form once."
+    local ONE = "Paste it into the field \"Part 1\", then submit the form once."
+    local keep = { lang = ns.db.language, url = ns.WaysDonationFormURL, paths = ns.db.paths }
+    local ok, err = pcall(function()
+        ns.WaysDonationFormURL = "https://example.invalid/manual-form"
+        local e = {}
+        for i = 1, 50 do e[((math.floor(i / 100) + 1) * 1024 + 2 * (i % 100) + 1) * 9 + 5] = (100 * 256 + 1) * 16384 + 600 end
+        ns.db.paths = { zones = { [1412] = { e = e } }, total = 50 }
+        ns.OpenWaysDonation()
+        local f = assert(_G.GathercraftWaysDonation, "the donation window")
+        for _ = 1, 10000 do
+            local update = f:GetScript("OnUpdate")
+            if not update then break end
+            update(f, 1 / 60)
+        end
+        assert(f.parts, "test setup: no parts")
+        -- the status line of part <n> of <total> parts, as the window shows it (stepped to by its buttons)
+        local function Status(n, total)
+            f.parts = {}
+            for i = 1, total do f.parts[i] = "GCWAYS2|part " .. i end
+            f.part = n + 1
+            f.previous:GetScript("OnClick")(f.previous) -- (to part n)
+            assert(f.part == n, ("test setup: at part %s, wanted %d"):format(tostring(f.part), n))
+            return f.status:GetText()
+        end
+        local fails = {}
+        local function check(cond, text) if not cond then fails[#fails + 1] = text end end
+        for _, code in ipairs({ "enUS", "deDE" }) do
+            ns.db.language = code ns.ApplyLanguage()
+            local L = ns.L
+            local want = {
+                { 1, 1, L[ONE] },
+                { 1, 2, L[PART]:format(1, 2, 1) }, { 2, 2, L[LAST]:format(2, 2, 2) },
+                { 1, 5, L[PART]:format(1, 5, 1) }, { 3, 5, L[PART]:format(3, 5, 3) }, { 5, 5, L[LAST]:format(5, 5, 5) },
+            }
+            for _, w in ipairs(want) do
+                local got = Status(w[1], w[2])
+                check(got == w[3], ("%s, part %d of %d: %q (wanted %q)"):format(code, w[1], w[2], tostring(got), w[3]))
+                check(tostring(got):find("\"Part " .. w[1] .. "\"", 1, true),
+                    ("%s, part %d of %d: the form's field \"Part %d\" not named as it is: %q"):format(code, w[1], w[2], w[1], tostring(got)))
+                local last = w[1] == w[2]
+                if code == "enUS" then
+                    check((tostring(got):find("submit", 1, true) ~= nil) == last,
+                        ("%s, part %d of %d: says to submit %s"):format(code, w[1], w[2], last and "not at the last part" or "before the last part"))
+                end
+            end
+        end
+        -- the window's description in enUS
+        ns.db.language = "enUS" ns.ApplyLanguage()
+        local desc
+        for _, fs in ipairs(allFrames) do
+            if fs.__parent == f and fs.__kind == "FontString" and fs.__text == DESC then desc = fs end
+        end
+        check(desc, "the window's description is not the new one")
+        -- in every language: the four keys, their numbers in the same order, the field names as they are
+        for lang, d in pairs(ns.Locales) do
+            for _, key in ipairs({ DESC, PART, LAST, ONE }) do
+                local tr = d[key]
+                local function Marks(s) local m = {} for x in tostring(s):gmatch("%%[ds]") do m[#m + 1] = x end return table.concat(m, " ") end
+                check(type(tr) == "string" and tr ~= "" and tr ~= key and Marks(tr) == Marks(key),
+                    ("%s: %q not translated or other numbers: %s"):format(lang, key:sub(1, 40), tostring(tr)))
+                for name in key:gmatch("\"(Part [%d%%]+d?)\"") do
+                    check(tostring(tr):find("\"" .. name .. "\"", 1, true), ("%s: the field %q is not named as it is: %s"):format(lang, name, tostring(tr)))
+                end
+            end
+        end
+        -- nothing lies over anything, in every language: the buttons where they were, the status line above them (two
+        -- lines at the most in its width), the skipped line above it, the export field above that; the description
+        -- leaves the export field 200 px at least
+        local function Px(text)
+            local px = 0
+            for ch in (text or ""):gmatch("[%z\1-\127\194-\244][\128-\191]*") do px = px + (#ch >= 3 and 11 or 6) end
+            return px
+        end
+        local function Lines(text, w) local n = 0 for para in (text .. "\n"):gmatch("([^\n]*)\n") do n = n + math.max(1, math.ceil(Px(para) / w)) end return n end
+        local prev, nextB = f.previous.__pts.BOTTOM, f.next.__pts.BOTTOM
+        check(prev[1] == -195 and prev[2] == 75 and nextB[1] == 195 and nextB[2] == 75, "the buttons moved")
+        local st, sk = f.status.__pts.BOTTOM, f.skipped.__pts.BOTTOM
+        local scrollBottom
+        for _, fr in ipairs(allFrames) do
+            if fr.__parent == f and fr.__kind == "ScrollFrame" then scrollBottom = fr.__pts.BOTTOMRIGHT[4] end
+        end
+        local W = f.status:GetWidth()
+        check(st and st[2] >= 75 + 24, ("the status line at %s, the buttons end at 99"):format(tostring(st and st[2])))
+        check(W >= 500 and W <= 580, ("the status line %s px wide (wanted the window's width)"):format(tostring(W)))
+        local seen = 0
+        for _, lang in ipairs(ns.LANGUAGES) do
+            if lang.code ~= "auto" then
+                seen = seen + 1
+                ns.db.language = lang.code ns.ApplyLanguage()
+                local L = ns.L
+                local most = 0
+                for _, s in ipairs({ L[ONE], L[PART]:format(10, 10, 10), L[LAST]:format(10, 10, 10), L["Preparing..."],
+                    L["Could not prepare the ways. Close this window and try again."] }) do
+                    most = math.max(most, Lines(s, W))
+                end
+                check(most <= 2, ("%s: the status line needs %d lines in %d px"):format(lang.code, most, W))
+                check(st[2] + 12 * most <= sk[2], ("%s: the status line (%d lines from %d) runs into the skipped line at %d"):format(lang.code, most, st[2], sk[2]))
+                local skLines = Lines(L["Skipped damaged path pieces: %d"]:format(9999), f.skipped:GetWidth() or 580)
+                check(skLines == 1, ("%s: the skipped line needs %d lines"):format(lang.code, skLines))
+                check(sk[2] + 12 <= scrollBottom, ("%s: the skipped line runs into the export field (at %s)"):format(lang.code, tostring(scrollBottom)))
+                local dl = Lines(L[DESC], 580)
+                local tl = Lines(L["Includes today's ways and this session. Nothing is uploaded by the addon; this is a submission for manual review."], 580)
+                local room = 560 - scrollBottom - (48 + 12 * dl + 10 + 12 * tl + 16)
+                check(dl <= 6 and room >= 200, ("%s: the description needs %d lines, the export field keeps %d px"):format(lang.code, dl, room))
+            end
+        end
+        check(seen == 10, "ten languages of text (esMX shows esES): " .. seen)
+        assert(#fails == 0, #fails .. " wrong:\n" .. table.concat(fails, "\n"))
+    end)
+    if _G.GathercraftWaysDonation then _G.GathercraftWaysDonation:Hide() end
+    ns.WaysDonationFormURL, ns.db.paths = keep.url, keep.paths
+    ns.db.language = keep.lang ns.ApplyLanguage()
+    if not ok then error(err, 0) end
 end)
 
 -- (0.2.4 a2) how many collects of farm runs were compared with a full collect (see step)
