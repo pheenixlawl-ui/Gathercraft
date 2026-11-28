@@ -190,17 +190,43 @@ local function Prepare(pressed)
     end
 end
 
-button:SetScript("PreClick", function()
-    if not InCombatLockdown() then
-        Prepare(true)
-        -- (0.2.4 a19) the presses in a row that try to put the same lure on; anything else begins anew
-        if button.next == "apply lure" then
-            if tried.id == button.lure then tried.n = tried.n + 1 else tried.id, tried.n = button.lure, 1 end
-        else
-            tried.id, tried.n = nil, 0
+-- (0.2.4 a20, Codex' check of a19, M3) Whether this flank of a press runs the action. The button is registered for the
+-- key-down and the key-up, and PreClick comes at both; the secure action button runs a bound key's action on one of
+-- them (Forever's SecureTemplates.lua, SecureActionButton_OnClick): on the key-down when the button's "useOnKeyDown"
+-- says so - without it, when ActionButtonUseKeyDown is on - or when it has a "pressAndHoldAction"; else on the key-up.
+-- A click without a flank (no `down`): it runs once.
+local function RunsAction(down)
+    if down == nil then return true end
+    local onDown = button:GetAttribute("useOnKeyDown")
+    if onDown == nil then
+        if GetCVarBool then
+            local ok, v = pcall(GetCVarBool, "ActionButtonUseKeyDown")
+            onDown = ok and v and true or false
+        elseif GetCVar then
+            local ok, v = pcall(GetCVar, "ActionButtonUseKeyDown")
+            onDown = ok and v == "1"
         end
     end
-    if not button.next and not InCombatLockdown() then
+    if button:GetAttribute("pressAndHoldAction") then onDown = true end
+    if down then return onDown and true or false end
+    return not onDown
+end
+
+button:SetScript("PreClick", function(_, _, down)
+    -- (a20) both flanks prepare the attributes; only the one that runs the action decides, counts and says something
+    local runs = RunsAction(down)
+    if not InCombatLockdown() then
+        Prepare(runs)
+        -- (0.2.4 a19) the presses in a row that try to put the same lure on; anything else begins anew
+        if runs then
+            if button.next == "apply lure" then
+                if tried.id == button.lure then tried.n = tried.n + 1 else tried.id, tried.n = button.lure, 1 end
+            else
+                tried.id, tried.n = nil, 0
+            end
+        end
+    end
+    if runs and not button.next and not InCombatLockdown() then
         ns.Print(L["You don't know Fishing yet. Visit a fishing trainer first."])
     end
 end)
