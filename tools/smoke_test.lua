@@ -21471,7 +21471,7 @@ end)
 -- number of GathercraftSync below the lowest number of a zone channel. Nothing is joined, left or moved for it; sync
 -- or the public channel off: nothing said. The login of the Sync module alone (its frame), the mock's clock in steps
 -- of 0.25 s; the list with the channels' numbers.
-step("Sync 0.2.4 a21: GathercraftSync on /1 before General from an older version - seen once a zone channel is in the list (8 s, a notice, the list's update, 30 s at the latest), said once a session in the chat and in /gcr sync while it is so; against the lowest numbered zone channel; nothing joined, left or moved; sync or public off nothing", function()
+step("Sync 0.2.4 a21: GathercraftSync on /1 before General from an older version - seen once a zone channel is in the list (8 s, a notice, the list's update, 30 s at the latest), said once a session in the chat and in /gcr sync while it is so; against the lowest numbered zone channel; nothing joined, left or moved; sync or public off nothing; (R1) GathercraftSync known by its name, its line late in the list: on until the list has it, 30 s at the latest", function()
     local keep = { chan = GetChannelName, join = JoinTemporaryChannel, leave = LeaveChannelByName, list = GetChannelList,
         server = EnumerateServerChannels, debug = ns.db.debug, public = ns.db.sync.public, enabled = ns.db.sync.enabled,
         say = ns.Print, print = print, byName = JoinChannelByName, swap = C_ChatInfo.SwapChatChannelsByChannelIndex }
@@ -21483,7 +21483,7 @@ step("Sync 0.2.4 a21: GathercraftSync on /1 before General from an older version
         end
     end
     assert(sync, "test setup: the Sync module's frame")
-    local chans, joins, leaves, swaps, byName, said, t0 = {}, 0, 0, 0, 0, {}, 0
+    local chans, joins, leaves, swaps, byName, said, t0, member = {}, 0, 0, 0, 0, {}, 0, nil
     local ok, err = pcall(function()
         -- the client's list: number, name, disabled - by number
         GetChannelList = function()
@@ -21498,8 +21498,13 @@ step("Sync 0.2.4 a21: GathercraftSync on /1 before General from an older version
             for _, c in ipairs(chans) do if c[2] == "GathercraftSync" then return c[1] end end
             return 0
         end
+        -- (R1, Codex' check of a21, M1) what the client says by the channel's name: apart from the list when a case
+        -- sets <member> - the list may not have the channel's line yet
         GetChannelName = function(name)
-            if name == "GathercraftSync" then local id = SyncNumber() return id, id > 0 and name or nil end
+            if name == "GathercraftSync" then
+                local id = member or SyncNumber()
+                return id, id > 0 and name or nil
+            end
             return 0
         end
         -- a join: the lowest free number, as the game gives it
@@ -21515,7 +21520,7 @@ step("Sync 0.2.4 a21: GathercraftSync on /1 before General from an older version
         C_ChatInfo.SwapChatChannelsByChannelIndex = function() swaps = swaps + 1 end
         ns.Print = function(text) said[#said + 1] = { text = tostring(text), at = NOW - t0 } end
         ns.db.debug = false
-        local HINT = ns.L["your sync channel is on /%d, before %s. To fix it: type /leave GathercraftSync and log out once - it will then join behind %s."]
+        local HINT = ns.L["your sync channel is on /%d, before %s. To fix it: type /leave GathercraftSync and log out once, then check with /chatlist."]
         local function Hints()
             local out = {}
             for _, s in ipairs(said) do if s.text:find("/leave GathercraftSync", 1, true) then out[#out + 1] = s end end
@@ -21548,6 +21553,7 @@ step("Sync 0.2.4 a21: GathercraftSync on /1 before General from an older version
             for k in pairs(chans) do chans[k] = nil end
             for _, c in ipairs(start) do chans[#chans + 1] = { c[1], c[2] } end
             ns.db.sync.enabled, ns.db.sync.public = opts.enabled ~= false, opts.public ~= false
+            member = opts.member
             joins, leaves, swaps, byName = 0, 0, 0, 0
             for k in pairs(said) do said[k] = nil end
             if not opts.same and ns.SyncOrderToldReset then ns.SyncOrderToldReset() end
@@ -21572,12 +21578,12 @@ step("Sync 0.2.4 a21: GathercraftSync on /1 before General from an older version
         -- line once at 8 s with /1 and General; nothing joined, left or moved; /gcr sync says it as long as it is so
         Login({ { 1, "GathercraftSync" } }, { [3] = function() Zone("General", 2)() Zone("LocalDefense", 4)() end })
         local h = Hints()
-        check(#h == 1 and h[1].text == HINT:format(1, "General", "General") and math.abs(h[1].at - 8) < 0.01,
+        check(#h == 1 and h[1].text == HINT:format(1, "General") and math.abs(h[1].at - 8) < 0.01,
             ("Sven's case: %d lines (wanted 1 at 8 s with /1 and General): %s at %s s"):format(#h, h[1] and h[1].text or "-", h[1] and h[1].at or "-"))
         check(joins == 0, ("Sven's case: %d joins (wanted none)"):format(joins))
         Nothing("Sven's case")
         local lines = SyncLines()
-        check(lines:find(HINT:format(1, "General", "General"), 1, true), "Sven's case: /gcr sync does not say it:\n" .. lines)
+        check(lines:find(HINT:format(1, "General"), 1, true), "Sven's case: /gcr sync does not say it:\n" .. lines)
         -- ... and no more once it is right (/leave, relog: GathercraftSync behind)
         chans[1][1] = 6
         lines = SyncLines()
@@ -21585,14 +21591,14 @@ step("Sync 0.2.4 a21: GathercraftSync on /1 before General from an older version
         -- 1b) General only at 20 s, the login join done at 8 s ("in GathercraftSync already"): the line at 20 s
         Login({ { 1, "GathercraftSync" } }, { [20] = Zone("General", 2) })
         h = Hints()
-        check(#h == 1 and h[1].text == HINT:format(1, "General", "General") and math.abs(h[1].at - 20) < 0.01,
+        check(#h == 1 and h[1].text == HINT:format(1, "General") and math.abs(h[1].at - 20) < 0.01,
             ("General at 20 s: %d lines (wanted 1 at 20 s): %s at %s s"):format(#h, h[1] and h[1].text or "-", h[1] and h[1].at or "-"))
         check(joins == 0, ("General at 20 s: %d joins (wanted none)"):format(joins))
         Nothing("General at 20 s")
         -- 1c) the zone channel's name as the client gives it
         Login({ { 1, "GathercraftSync" }, { 2, "General - Zephras Isle" } })
         h = Hints()
-        check(#h == 1 and h[1].text == HINT:format(1, "General - Zephras Isle", "General - Zephras Isle"),
+        check(#h == 1 and h[1].text == HINT:format(1, "General - Zephras Isle"),
             ("the name as the client gives it: %d lines: %s"):format(#h, h[1] and h[1].text or "-"))
         -- 2) the right order: General 1, LocalDefense 3, GathercraftSync 6 - nothing said, nothing in /gcr sync
         Login({ { 1, "General" }, { 3, "LocalDefense" }, { 6, "GathercraftSync" } })
@@ -21607,7 +21613,7 @@ step("Sync 0.2.4 a21: GathercraftSync on /1 before General from an older version
         -- 4) one zone channel only, behind it: GathercraftSync 1, LocalDefense 2 (no General) - the line names LocalDefense
         Login({ { 1, "GathercraftSync" }, { 2, "LocalDefense" } })
         h = Hints()
-        check(#h == 1 and h[1].text == HINT:format(1, "LocalDefense", "LocalDefense"),
+        check(#h == 1 and h[1].text == HINT:format(1, "LocalDefense"),
             ("LocalDefense only: %d lines (wanted 1 with LocalDefense): %s"):format(#h, h[1] and h[1].text or "-"))
         -- the lowest numbered zone channel counts, not General: LocalDefense 2, GathercraftSync 3, General 5 - behind
         -- a zone channel, nothing said
@@ -21632,14 +21638,41 @@ step("Sync 0.2.4 a21: GathercraftSync on /1 before General from an older version
         local first = #Hints()
         Login({ { 1, "GathercraftSync" }, { 2, "General" } }, nil, { same = true })
         check(first == 1 and #Hints() == 0, ("two logins in one session: %d, then %d lines (wanted 1, then none)"):format(first, #Hints()))
-        -- the line in every language: the same placeholders in the same order, /leave GathercraftSync as it is
-        local key = "your sync channel is on /%d, before %s. To fix it: type /leave GathercraftSync and log out once - it will then join behind %s."
+        -- (R1, Codex' check of a21, M1) in GathercraftSync by its name from the login on (GetChannelName 1), its line
+        -- not yet in the list: the look stays open until the list has it (its next update), 30 s at the latest, then
+        -- it ends quietly - one line at 12 s in both orders of arrival; nothing joined, left or moved
+        Login({ { 2, "General" } }, { [12] = function() chans[#chans + 1] = { 1, "GathercraftSync" } fire("CHANNEL_UI_UPDATE") end },
+            { member = 1 })
+        h = Hints()
+        check(#h == 1 and h[1].text == HINT:format(1, "General") and math.abs(h[1].at - 12) < 0.01,
+            ("R1, General in the list at 8 s, GathercraftSync's line at 12 s: %d lines (wanted 1 at 12 s): %s at %s s"):format(#h,
+                h[1] and h[1].text or "-", h[1] and h[1].at or "-"))
+        check(joins == 0, ("R1, General first: %d joins (wanted none)"):format(joins))
+        Nothing("R1, General first")
+        Login({ { 1, "GathercraftSync" } }, { [12] = function() chans[#chans + 1] = { 2, "General" } fire("CHANNEL_UI_UPDATE") end },
+            { member = 1 })
+        h = Hints()
+        check(#h == 1 and h[1].text == HINT:format(1, "General") and math.abs(h[1].at - 12) < 0.01,
+            ("R1, GathercraftSync's line at 8 s, General at 12 s: %d lines (wanted 1 at 12 s): %s at %s s"):format(#h,
+                h[1] and h[1].text or "-", h[1] and h[1].at or "-"))
+        check(joins == 0, ("R1, GathercraftSync first: %d joins (wanted none)"):format(joins))
+        Nothing("R1, GathercraftSync first")
+        -- its line not in the list until 30 s: nothing said - and the look is over (its line at 35 s: still nothing)
+        Login({ { 2, "General" } }, { [35] = function() chans[#chans + 1] = { 1, "GathercraftSync" } fire("CHANNEL_UI_UPDATE") end },
+            { member = 1 })
+        check(#Hints() == 0, ("R1, GathercraftSync's line not in the list until 30 s: %d lines (wanted none)"):format(#Hints()))
+        check(joins == 0, ("R1, its line late: %d joins (wanted none)"):format(joins))
+        Nothing("R1, its line late")
+        -- the line in every language: the same placeholders in the same order, /leave GathercraftSync and /chatlist as
+        -- they are (N1: it promises no place, it says what to do and how to look)
+        local key = "your sync channel is on /%d, before %s. To fix it: type /leave GathercraftSync and log out once, then check with /chatlist."
         for lang, d in pairs(ns.Locales) do
             local tr = d[key]
             local marks = {}
             for m in tostring(tr):gmatch("%%[ds]") do marks[#marks + 1] = m end
-            check(type(tr) == "string" and tr ~= key and table.concat(marks, " ") == "%d %s %s" and tr:find("/leave GathercraftSync", 1, true),
-                lang .. ": not translated, other placeholders or not /leave GathercraftSync - " .. tostring(tr))
+            check(type(tr) == "string" and tr ~= key and table.concat(marks, " ") == "%d %s" and tr:find("/leave GathercraftSync", 1, true)
+                and tr:find("/chatlist", 1, true),
+                lang .. ": not translated, other placeholders or not /leave GathercraftSync and /chatlist - " .. tostring(tr))
         end
         assert(#fails == 0, #fails .. " case(s) wrong:\n" .. table.concat(fails, "\n"))
     end)
