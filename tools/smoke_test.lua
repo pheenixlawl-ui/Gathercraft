@@ -5760,7 +5760,7 @@ step("Places: your faction cannot be read - only a trainer or vendor friendly to
     fire("ZONE_CHANGED_NEW_AREA")
     if not ok then error(err, 0) end
 end)
-step("Skill plan 2.0: texts in every language, the release 0.2.0 - its what's new stays, the TOC and the changelog are 0.2.3's (v0.2 A7)", function()
+step("Skill plan 2.0: texts in every language, the release 0.2.0 - its what's new stays, the TOC and the changelog are 0.2.4's (v0.2 A7)", function()
     -- 0.2 was built block by block under internal marks (b1 ... b3) and was
     -- published as one release: the TOC said 0.2.0, "What's new" has its
     -- entry and the changelog had its section with the date.
@@ -5768,8 +5768,8 @@ step("Skill plan 2.0: texts in every language, the release 0.2.0 - its what's ne
     -- 0.2.1: the TOC says 0.2.1; what follows checks the What's new of 0.2.0,
     -- which stays for players who skip a version. The changelog holds the
     -- current version only: the 0.2.0 section is in the history (tag v0.2.0).
-    -- the changelog is 0.2.3's (0.2.2's is in the history, tag v0.2.2); the TOC says the build's version
-    assert(version == "0.2.4-a21", "TOC version: " .. tostring(version))
+    -- the changelog is 0.2.4's (0.2.3's is in the history, tag v0.2.3); the TOC says the release's version
+    assert(version == "0.2.4", "TOC version: " .. tostring(version))
     version = "0.2.0"
     -- the two files of building block 2 load last: they read the data files only after login
     assert(toc:gsub("\r", ""):match("\nStarter%.lua\nSpawnCounts%.lua\nItemTooltip%.lua\n?$"), "the TOC does not end with Starter.lua, SpawnCounts.lua, ItemTooltip.lua")
@@ -5784,12 +5784,13 @@ step("Skill plan 2.0: texts in every language, the release 0.2.0 - its what's ne
     assert(entry, "What's new has no entry for 0.2.0")
     assert(not welcome:find('%["0%.2%.0%-'), "What's new has an entry for an internal build")
     -- "Coming next" names what comes after 0.2.0 (Sven, 20.11.2026), not what 0.2.0 ships; since the
-    -- release 0.2.3 the three points of the README's "Next up" that lead it (the roadmap of 24.11.2026)
-    assert(welcome:find('local COMING_NEXT = "Routes that follow the ways you ride · More spawn points for the new Forever zones · Disenchant values"', 1, true),
+    -- release 0.2.3 the three points of the README's "Next up" that lead it (the roadmap of 24.11.2026; 0.2.4:
+    -- the roadmap of 28.11.2026)
+    assert(welcome:find('local COMING_NEXT = "Ways shared between players automatically · Skip a whole group of nearby spots at once · Lower memory use"', 1, true),
         "Coming next is not the three points of Next up")
     assert(not welcome:find("Shopping list on the map", 1, true), "Coming next still names what 0.2.0 ships")
     local heading = changelog:match("^(## v[^\r\n]*)")
-    assert(heading == "## v0.2.3 – 2026-11-26", "CHANGELOG heading: " .. tostring(heading))
+    assert(heading == "## v0.2.4 – 2026-11-28", "CHANGELOG heading: " .. tostring(heading))
     -- the release shows "what's new" at the first login after 0.1.23, with the text of 0.2.0
     local keep = { meta = C_AddOns.GetAddOnMetadata, last = ns.db.lastVersion, fresh = ns.freshInstall }
     C_AddOns.GetAddOnMetadata = function() return version end
@@ -9346,8 +9347,11 @@ step("README says what the addon does, no more (v0.1.18 S8)", function()
     assert(text:find("An optional louder splash helps in busy spots.", 1, true), "README: the louder splash")
     local nextUp = text:match("Next up.-\n\n(.-)\n\n")
     -- (0.2.0: the rebuilt skill plan is published - it stands under "Live now", see the release step;
-    -- 0.2.3: the roadmap of 24.11.2026 - routes that follow your ways lead "Next up")
-    assert(nextUp and not nextUp:find("Skill plan rebuilt", 1, true) and nextUp:find("Routes that follow the ways you ride", 1, true)
+    -- 0.2.3: the roadmap of 24.11.2026 - routes that follow your ways lead "Next up"; 0.2.4, 28.11.2026: they are
+    -- live, the ways shared, the group skip and less memory lead it)
+    assert(nextUp and not nextUp:find("Skill plan rebuilt", 1, true) and not nextUp:find("Routes that follow the ways you ride", 1, true)
+        and nextUp:find("Ways shared between players automatically", 1, true) and nextUp:find("Skip a whole group of nearby spots at once", 1, true)
+        and nextUp:find("Lower memory use", 1, true)
         and nextUp:find("Disenchant values", 1, true) and nextUp:find("new Forever zones", 1, true), "README: Next up")
 end)
 step("README: the price text says what Prices.lua does (v0.1.18 F3)", function()
@@ -19588,45 +19592,49 @@ step("Welcome, what's new and the run summary (v0.1.13)", function()
     ns.db.summaryOff = nil
     SendChatMessage = nil
 end)
-step("What's new: 0.2.3 after an update, in this language and all translations; the README and the changelog of 0.2.3", function()
+step("What's new: 0.2.4 after an update, in this language and all translations; the README and the changelog of 0.2.4", function()
     local version = toc:match("## Version: ([%w%.%-]+)")
-    -- the release 0.2.3 (Sven, 25.11.2026); a 0.2.4 test build: the TOC says its mark, the window checked is 0.2.3's
-    assert(version == "0.2.4-a21", "TOC version: " .. tostring(version))
-    version = "0.2.3"
+    -- the release 0.2.4 (Sven, 28.11.2026)
+    assert(version == "0.2.4", "TOC version: " .. tostring(version))
     assert(toc:match("## Interface: (%d+)") == "16001", "TOC interface changed")
     local f = assert(io.open(ROOT .. "/Welcome.lua"))
     local src = f:read("*a") f:close()
-    local key = src:match('%["0%.2%.3"%] = "([^"]+)"')
-    -- the donation first, with its command; then the smoother runs, the best runs, the search range ring
-    assert(key and key:find("Share your ridden ways: /gcr shareways turns them into text you can send through a short form", 1, true)
-        and key:find("nothing is sent by itself", 1, true)
-        and key:find("Also new: smoother farm runs, your best runs per zone in the run summary", 1, true)
-        and key:find("a light-blue ring when the next node of a run is within search range", 1, true),
-        "no entry for 0.2.3 in Welcome.lua")
-    assert(not src:find('%["0%.2%.3%-'), "What's new has an entry for an internal build")
-    -- said as it is: nothing goes out by itself, no promise - no frame rates, no "no lag"
+    local key = src:match('%["0%.2%.4"%] = "([^"]+)"')
+    assert(key, "no entry for 0.2.4 in Welcome.lua")
+    -- in this order: the route line along your ways, smooth, with its switch; the fishing key; the sync channel -
+    -- no place promised for it (Codex' check of a21, N1)
+    local a = key:find("The route line and the arrow of a farm run follow the ways you have ridden, as a smooth line (switch: Options, Sharing, Paths).", 1, true)
+    local b = key:find("The fishing key no longer gets stuck on a lure you can't use yet.", 1, true)
+    local c = key:find("The sync channel no longer takes /1 on a slow login.", 1, true)
+    assert(a and b and c and a < b and b < c, "what's new 0.2.4: not the three points in their order: " .. key)
+    assert(not key:find("behind General", 1, true), "what's new 0.2.4 promises a place behind General")
+    assert(not src:find('%["0%.2%.4%-'), "What's new has an entry for an internal build")
+    -- said as it is: no promise - no frame rates, no "no lag"
     for _, word in ipairs({ "cheapest", "fastest", "guarantee", "fps", "no lag", "lag-free", "%", "every node", "correct", "forever", "for ever", "park", "always", "automatic" }) do
-        assert(not key:lower():find(word, 1, true), "what's new 0.2.3 says \"" .. word .. "\"")
+        assert(not key:lower():find(word, 1, true), "what's new 0.2.4 says \"" .. word .. "\"")
     end
-    -- no longer than the longest entry before (0.1.22, 404 characters; the
-    -- height of the window in this language is a step of its own)
-    assert(#key <= 404, "what's new 0.2.3 is long: " .. #key .. " characters")
+    -- no longer than the longest entry before (0.1.22, 404 characters; the height of the window in this language is a
+    -- step of its own)
+    assert(#key <= 404, "what's new 0.2.4 is long: " .. #key .. " characters")
     -- the entries before stay for players who skip a version
-    assert(src:match('%["0%.2%.1"%] = "([^"]+)"') and src:match('%["0%.2%.2"%] = "([^"]+)"'), "the 0.2.1 or 0.2.2 entry is gone")
-    -- every translation: the command as it is typed, no sign that does not belong into the text
+    assert(src:match('%["0%.2%.2"%] = "([^"]+)"') and src:match('%["0%.2%.3"%] = "([^"]+)"'), "the 0.2.2 or 0.2.3 entry is gone")
+    -- every translation: /1 as it is, the switch's place by the names the addon shows in that language, no sign that
+    -- does not belong into the text
     for _, code in ipairs({ "deDE", "esES", "frFR", "itIT", "koKR", "ptBR", "ruRU", "zhCN", "zhTW" }) do
         local loc = ns.Locales[code]
-        local t = loc and loc[key]
-        assert(type(t) == "string" and t ~= "" and t ~= key, "no translation in " .. code)
-        assert(t:find("/gcr shareways", 1, true), code .. ": the command is not named")
-        assert(not t:find('"', 1, true) and not t:find("\\", 1, true) and not t:find("%", 1, true), code .. ": a sign that does not belong into the text")
+        local tr = loc and loc[key]
+        assert(type(tr) == "string" and tr ~= "" and tr ~= key, "no translation in " .. code)
+        assert(tr:find("/1", 1, true), code .. ": /1 is not named")
+        assert(tr:find(loc["Sharing"], 1, true) and tr:find(loc["Paths"], 1, true), code .. ": the switch's place not by the names the addon shows: " .. tr)
+        assert(not tr:find('"', 1, true) and not tr:find("\\", 1, true) and not tr:find("%", 1, true), code .. ": a sign that does not belong into the text")
     end
-    -- README (the roadmap of 24.11.2026 with Sven's changes of 25.11.2026): the line on top, Live now,
-    -- Next up, the FAQ on the ways you ride, no roadmap picture
+    -- README (the roadmap of 28.11.2026): the line on top, Live now, Next up, Codex' notes of the 0.2.3 release check,
+    -- the FAQ on the ways you ride, no roadmap picture
     local rf = assert(io.open(ROOT .. "/README.md"))
     local readme = rf:read("*a") rf:close()
-    assert(readme:find("\n**New in 0.2.3:** share your ridden paths (`/gcr shareways`) · smoother farm runs · your best runs per zone · search range ring. Coming soon: routes that follow the ways you ride.\n", 1, true),
-        "README: no line New in 0.2.3 under the banner")
+    assert(readme:find("\n**New in 0.2.4:** the route line follows the ways you ride · fishing key fix · sync channel no longer grabs /1. Coming soon: ways shared between players.\n", 1, true),
+        "README: no line New in 0.2.4 under the banner")
+    assert(not readme:find("stays behind General", 1, true) and not readme:find("joins behind General", 1, true), "README promises a place behind General")
     assert(readme:find("Questing mode – gather along the way", 1, true) and readme:find("`/gcr quest`", 1, true), "README: no questing mode")
     assert(readme:find("Gathercraft is **actively developed** – expect **updates every week**.", 1, true) and not readme:find("almost every day", 1, true),
         "README: not \"updates every week\"")
@@ -19634,89 +19642,72 @@ step("What's new: 0.2.3 after an update, in this language and all translations; 
     assert(live, "README: no list \"Live now\"")
     for _, said in ipairs({ "- **Skill plan 2.0** – ", "- **Farm for plan** – ", "- **Item tooltips** for herbs, ores and reagents", "- **Trainers and recipe vendors on your map** – ",
         "- **Smoother farm runs** – ", "- **Your best runs per zone** and a **search range ring** around your target", "- **Skill plan counts what's in your bags** at its market value",
-        "- **Share your ridden paths** – `/gcr shareways` turns your recorded ways into text you can send through a short form, to help build a path network for everyone" }) do
+        "- **Share your ridden paths** – `/gcr shareways` turns your recorded ways into text you can send through a short form, to help build a path network for everyone",
+        "- **Routes that follow the ways you ride** – the route line and arrow lead along paths you have actually ridden instead of straight across cliffs" }) do
         assert(live:find(said, 1, true), "README, Live now: no line " .. said)
     end
     local nextUp = readme:match("Next up.-\n\n(.-)\n\n")
-    assert(nextUp and nextUp:find("- **Routes that follow the ways you ride** – ", 1, true) and nextUp:find("- **Ways shared between players automatically**", 1, true)
-        and not nextUp:find("Share your ridden paths", 1, true) and not nextUp:find("Smoother farm runs", 1, true) and not nextUp:find("Best time", 1, true),
+    assert(nextUp and nextUp:find("- **Ways shared between players automatically**", 1, true) and nextUp:find("- **Skip a whole group of nearby spots at once**", 1, true)
+        and nextUp:find("- **Lower memory use**", 1, true) and not nextUp:find("Routes that follow", 1, true) and not nextUp:find("Share your ridden paths", 1, true),
         "README: Next up")
+    -- Codex' notes of the 0.2.3 release check (README lines 47, 83, 137): a short route, not the shortest through every
+    -- node; what confirmations do, no promise about fakes; what sharing sends - the zone's question and the version too
+    assert(not readme:find("shortest path", 1, true) and readme:find("Gathercraft plans a short route through the nodes you selected on your continent", 1, true),
+        "README: the shortest path through every node")
+    assert(not readme:find("fake nodes go nowhere", 1, true)
+        and readme:find(("a stranger's node needs confirmations from %d different players before it counts"):format(ns.SYNC_CONFIRMATIONS), 1, true),
+        "README: the confirmations")
+    assert(readme:find("Node positions (object, zone, coordinates), a short question for a zone's nodes when you arrive, and the Gathercraft version you run. Nothing else about you or your character. Off with one click.", 1, true),
+        "README, FAQ: what sharing sends")
     assert(readme:find('\n**"Does Gathercraft record where I ride?"**\n\nYes – on your own computer only. It notes the ways you ride as rough 25-yard steps, so your routes can follow real paths instead of cutting across cliffs. Nothing is sent automatically. If you want to help, `/gcr shareways` shows your ways as text you can send through a short form – only the ways, no names, no times.\n', 1, true),
         "README, FAQ: no question on the ways you ride")
-    assert(not readme:find("roadmap.jpg", 1, true) and not io.open(ROOT .. "/docs/roadmap.jpg"), "README: the roadmap picture is still there")
-    -- the changelog: 0.2.3 only, with the date of the release
+    assert(not readme:find("roadmap.jpg", 1, true) and not io.open(ROOT .. "/docs/roadmap.jpg"), "README: the roadmap picture is back")
+    -- the changelog: 0.2.4 only, with the date of the release
     local cf = assert(io.open(ROOT .. "/CHANGELOG.md"))
     local changelog = cf:read("*a") cf:close()
-    assert(changelog:find("^## v0%.2%.3") and not changelog:find("## v0.2.2", 1, true), "CHANGELOG: not 0.2.3 only")
-    local heading = changelog:match("^(## v0%.2%.3[^\r\n]*)")
-    assert(heading == "## v0.2.3 – 2026-11-26", "CHANGELOG heading: " .. tostring(heading))
-    -- two groups, in this order: "Fixed" holds what was seen broken and seen mended in the game - nothing
-    -- of 0.2.3 (the jump of the path recording is not confirmed in the game: not named, Sven 25.11.2026)
-    local added, changed, fixed = changelog:find("\n### Added\n", 1, true), changelog:find("\n### Changed\n", 1, true), changelog:find("### Fixed", 1, true)
-    assert(added and changed and not fixed and added < changed, "CHANGELOG: not the groups Added, Changed")
-    assert(not changelog:lower():find("jump", 1, true), "CHANGELOG names the jump of the path recording")
+    assert(changelog:find("^## v0%.2%.4") and not changelog:find("## v0.2.3", 1, true), "CHANGELOG: not 0.2.4 only")
+    local heading = changelog:match("^(## v0%.2%.4[^\r\n]*)")
+    assert(heading == "## v0.2.4 – 2026-11-28", "CHANGELOG heading: " .. tostring(heading))
+    -- three groups, in this order; "Fixed" holds what Sven saw broken and saw mended in the game (live test of
+    -- 28.11.2026): the four of his list, no more
+    local added, changed, fixed = changelog:find("\n### Added\n", 1, true), changelog:find("\n### Changed\n", 1, true), changelog:find("\n### Fixed\n", 1, true)
+    assert(added and changed and fixed and added < changed and changed < fixed, "CHANGELOG: not the groups Added, Changed, Fixed")
+    local function Points(part) local n = 0 for _ in ("\n" .. part):gmatch("\n%- %*%*") do n = n + 1 end return n end
+    assert(Points(changelog:sub(added, changed - 1)) == 2 and Points(changelog:sub(changed, fixed - 1)) == 2 and Points(changelog:sub(fixed)) == 4,
+        "CHANGELOG: not two Added, two Changed and four Fixed")
+    -- what stays out (in the code, not seen broken and mended in the game; Sven 28.11.2026), and no place promised
+    for _, said in ipairs({ "Shared spots stay in GathercraftSync", "continent's map", "Your own spots in the guild", "paths diag", "vorgemerkt",
+        "joins behind General", "not on /1", "More starter spots" }) do
+        assert(not changelog:find(said, 1, true), "CHANGELOG names \"" .. said .. "\"")
+    end
     for _, said in ipairs({
-        -- the donation (a14): the command, the button, nothing sent, what the text holds
-        "**Share your ridden ways:**", "`/gcr shareways`", "\"Share my ways...\" in Options › Sharing", "Copy each part with Ctrl+C and send it through a short form",
-        "the window shows the form's link for you to copy", "Nothing is sent by itself, and no browser opens",
-        "rough 25-yard steps, how hard each was to ride and where you fell", "a random code for this submission: no names, no times, no prices",
-        -- the hint
-        "**A hint, once:**", "when you have recorded 2,000 path steps", "once per character, a minute after login and not in combat",
-        "\"Donation hint in chat\" (Options › Sharing)",
-        -- P3
-        "**Your best runs per zone:**", "your best of the last 20 runs in a zone", "nodes per hour and gold per hour, each on its own",
-        "a new personal best", "A run counts from 10 minutes of riding", "per character, filter and route goal, on this computer only",
-        -- P4
-        "**Search range:**", "150 yards unless you change \"Search range\" in Options › Rares & prices", "its gold pin gets a light-blue ring",
-        "\"In search range - no yellow dot? Press Skip.\"", "\"Show the search range on the minimap during farm runs\", off by default", "Nothing is skipped by itself",
-        -- mapdiag
-        "**`/gcr mapdiag`:** switches for testing map performance",
-        -- lauf-last, the skill plan, perf
-        "**Smoother farm runs:**", "less work and less memory while you ride", "a run keeps its points from plan to plan",
-        "**The skill plan counts your stock:**", "count at their market value",
-        "When two recipes cost the same per skill point, the plan prefers the one that uses less of your stock's value.",
-        "**`/gcr perf on`**", "how much garbage each part of the addon makes",
-        -- the starter spots (Sven 26.11.2026; the number and the zones are the data's: the starter data's changelog step)
-        "- **More starter spots:** 284 new gathering spots in three zones, from a player's saved gathers and confirmed shared spots.\n" }) do
+        -- S1 and S1.1
+        "**The route line follows your ridden ways:**", "the head of the route line and the arrow follow the ways you have ridden yourself",
+        "gaps between your ways are guessed", "\"Path: your ridden ways\" (with the guessed share, without the first and last yards) or \"Path: straight line\"",
+        "On unless you turn it off: \"Route line and arrow follow your ridden paths\" (Options › Sharing › Paths)",
+        "Without height, a way may cross under a bridge or into a cave.",
+        "**A smooth line along your ways:**", "with rounded corners", "Until it is ready, the line stays straight, as with the switch off.",
+        -- Changed
+        "**No hitch after a harvest:** a farm run gathers its points again only in the zones that changed, and the Smart plan improves the route in small bites, a little each frame.",
+        "**Sharing your ways:** the window now tells you to paste each part into its own field of the form (Part 1, Part 2, …) and to submit once at the end.",
+        -- Fixed
+        "**Auction prices for gear:** weapons and armour now get their cheapest buyout, shown as \"lowest offer\" in the tooltip.",
+        "Trade goods keep their market price.",
+        "**GathercraftSync no longer grabs /1 on a slow login:**", "up to 30 seconds (for example in an instance)",
+        "If your sync channel is still on /1 from an older version, Gathercraft tells you once per session how to fix it (type /leave GathercraftSync and log out once).",
+        "**Jumping is no fall:** jumping several times in a row no longer marks your recorded path as a fall. Real falls are still noted.",
+        "**The fishing key no longer gets stuck on a lure you can't use yet:** it picks one you can use, or casts without a lure." }) do
         assert(changelog:find(said, 1, true), "CHANGELOG: nothing about \"" .. said .. "\"")
     end
-    -- (Codex, release check 26.11.2026, M1) the 14eef34 notes said the step that uses your stock comes
-    -- first - the plan does the opposite. Not that again, and what the notes say of a tie is what the plan
-    -- does: two recipes, one point each, one material of 8c each, the material of one in the bags and the
-    -- other's bought - the plan takes the one that uses less of your stock's value (PlanCore's Prefer)
-    assert(not changelog:find("uses your stock comes first", 1, true) and not changelog:find("of two steps that cost the same", 1, true),
-        "CHANGELOG: the skill plan's tie the wrong way round")
-    do
-        local core = ns.PlanCore
-        local function Known(copper) return { status = "known", copper = copper } end
-        local function Tie(inBags) -- the material in the bags: 11 (A's) or 21 (B's); the other one is bought
-            local recipes = {}
-            for _, r in ipairs({ { "A", 10, 11 }, { "B", 20, 21 } }) do
-                recipes[#recipes + 1] = { prof = "Testing", key = r[1], name = r[1], product = r[2], made = 1, req = 1, yellow = 2, grey = 2,
-                    reagents = { { id = r[3], n = 1 } }, learn = "known" }
-            end
-            local plan = core.Compute({ prof = "Testing", skill = 1, target = 2, recipes = { Testing = recipes }, stock = { [inBags] = 5 },
-                prices = { [11] = Known(8), [21] = Known(8) }, values = { [inBags] = Known(8) }, professions = {}, recipeItemPrices = {}, caps = {} })
-            local okB, whyB = core.CheckBalance(plan)
-            assert(okB, "the books do not balance: " .. tostring(whyB))
-            local keys = {}
-            for _, s in ipairs(plan.steps) do keys[#keys + 1] = s.recipe.key end
-            return table.concat(keys, ",") .. " " .. tostring(plan.total)
-        end
-        local says = Tie(11)
-        assert(says == "B 8", "a tie, A's material in the bags: the plan takes " .. says .. ", the notes say B (less of your stock's value)")
-        says = Tie(21)
-        assert(says == "A 8", "a tie, B's material in the bags: the plan takes " .. says .. ", the notes say A (less of your stock's value)")
-    end
-    -- what the changelog must not promise: no frame rates (Codex), no "no lag"
-    for _, said in ipairs({ "cheapest", "fastest", "FPS", "fps", "frames per second", "no lag", "lag-free", "always", "the best", "all nodes", "forever", "for ever", "automatically" }) do
+    -- what the changelog must not promise: no frame rates (Codex), no "no lag" ("cheapest buyout" is a price's name)
+    for _, said in ipairs({ "fastest", "FPS", "fps", "frames per second", "no lag", "lag-free", "always", "the best", "all nodes", "forever", "for ever", "automatically" }) do
         assert(not changelog:find(said, 1, true), "CHANGELOG says \"" .. said .. "\"")
     end
-    -- the numbers it gives are the code's
-    assert(ns.RUN_HISTORY_KEEP == 20 and ns.RUN_HISTORY_MIN_ACTIVE == 600, "test setup: the run history keeps 20 runs, from 10 minutes")
-    -- the texts the changelog quotes are the ones the addon shows
-    for _, name in ipairs({ "Share my ways...", "Sharing", "Donation hint in chat", "Search range", "Rares & prices",
-        "In search range - no yellow dot? Press Skip.", "Show the search range on the minimap during farm runs" }) do
+    -- the numbers it gives are the code's: 30 s at the latest; the texts it quotes are the ones the addon shows
+    local sf = assert(io.open(ROOT .. "/Sync.lua"))
+    local sync = sf:read("*a") sf:close()
+    assert(sync:find("\nlocal JOIN_LATEST = 30 ", 1, true), "test setup: the login join waits 30 s at the latest")
+    for _, name in ipairs({ "Path: your ridden ways", "Path: straight line", "Route line and arrow follow your ridden paths", "Sharing", "Paths", "lowest offer", "Smart" }) do
         assert(ns.Locales.deDE[name], "the changelog quotes \"" .. name .. "\", which the addon does not show")
     end
     local keepMeta, keepVersion, keepFresh = C_AddOns.GetAddOnMetadata, ns.db.lastVersion, ns.freshInstall
@@ -19728,7 +19719,7 @@ step("What's new: 0.2.3 after an update, in this language and all translations; 
         -- the login after the update shows it once, in this language
         local win = _G.GathercraftWhatsNew
         if win then win:Hide() end
-        ns.db.lastVersion = "0.2.2"
+        ns.db.lastVersion = "0.2.3"
         ns.WelcomeOnLogin()
         win = _G.GathercraftWhatsNew
         assert(win and win:IsShown() and win.body:GetText() == text and win.title:GetText():find(version, 1, true),
@@ -19749,7 +19740,7 @@ end)
 step("What's new: a window with a box \"Coming next\", once per update, /gcr news (v0.1.19 Q5)", function()
     local L = ns.L
     local keep = { meta = C_AddOns.GetAddOnMetadata, last = ns.db.lastVersion, fresh = ns.freshInstall, height = methods.GetStringHeight }
-    local version = "0.2.3" -- the release: its text is the one that has to fit the window
+    local version = "0.2.4" -- the release: its text is the one that has to fit the window
     local ok, err = pcall(function()
         C_AddOns.GetAddOnMetadata = function() return version end
         ns.freshInstall = false
@@ -19761,8 +19752,8 @@ step("What's new: a window with a box \"Coming next\", once per update, /gcr new
         assert(coming and feedback, "no COMING_NEXT / FEEDBACK key in Welcome.lua")
         assert(not coming:find("%d%d%d%d") and not coming:lower():find("soon", 1, true), "Coming next: " .. coming)
         -- what comes after 0.2.0: the three points the README keeps under "Next up", nothing 0.2.0 ships
-        for _, shipped in ipairs({ "Skill plan", "Item tooltips", "Shopping list", "Farm for plan" }) do
-            assert(not coming:find(shipped, 1, true), "Coming next names what 0.2.0 ships: " .. coming)
+        for _, shipped in ipairs({ "Skill plan", "Item tooltips", "Shopping list", "Farm for plan", "Routes that follow" }) do
+            assert(not coming:find(shipped, 1, true), "Coming next names what is live already: " .. coming)
         end
         local rf = assert(io.open(ROOT .. "/README.md"))
         local readme = rf:read("*a") rf:close()
@@ -19776,11 +19767,13 @@ step("What's new: a window with a box \"Coming next\", once per update, /gcr new
         assert(points == 3, "Coming next: " .. points .. " points")
         local oldKey = "Skill plan 2.0 · Item tooltips · Shopping list on the map"
         local oldKey2 = "Smoother Loop routes · More spawn points for the new Forever zones · Disenchant values" -- (0.2.0 to 0.2.2)
+        local oldKey3 = "Routes that follow the ways you ride · More spawn points for the new Forever zones · Disenchant values" -- (0.2.3)
         for _, code in ipairs({ "deDE", "esES", "frFR", "itIT", "koKR", "ptBR", "ruRU", "zhCN", "zhTW" }) do
-            assert(ns.Locales[code] and ns.Locales[code][oldKey] == nil and ns.Locales[code][oldKey2] == nil, code .. " still has an old Coming next line")
+            assert(ns.Locales[code] and ns.Locales[code][oldKey] == nil and ns.Locales[code][oldKey2] == nil and ns.Locales[code][oldKey3] == nil,
+                code .. " still has an old Coming next line")
             local tr = ns.Locales[code][coming]
             local _, dots = tostring(tr):gsub(" · ", "")
-            assert(dots == 2 and tr:find("Forever", 1, true), ("%s: Coming next has to name three points and Forever: %s"):format(code, tostring(tr)))
+            assert(dots == 2, ("%s: Coming next has to name three points: %s"):format(code, tostring(tr)))
         end
         for _, key in ipairs({ coming, feedback, "Coming next", "What's new in %s" }) do
             for _, code in ipairs({ "deDE", "esES", "frFR", "itIT", "koKR", "ptBR", "ruRU", "zhCN", "zhTW" }) do
@@ -28038,7 +28031,7 @@ step("Farm for plan: every text in nine languages with the same placeholders, th
     -- The order's part 6; concept test 10 (long names in all 11 language
     -- codes). Since the release 0.2.0 the changelog and "What's new" name it.
     local toc = assert(io.open(ROOT .. "/Gathercraft.toc")):read("*a")
-    assert(toc:match("## Version: ([%w%.%-]+)") == "0.2.4-a21", "TOC version: " .. tostring(toc:match("## Version: ([%w%.%-]+)"))) -- (0.2.2, 0.2.3)
+    assert(toc:match("## Version: ([%w%.%-]+)") == "0.2.4", "TOC version: " .. tostring(toc:match("## Version: ([%w%.%-]+)"))) -- (0.2.2, 0.2.3, 0.2.4)
     local function Read(name) return assert(io.open(ROOT .. "/" .. name)):read("*a") end
     local farm = Read("PlanFarm.lua")
     -- ---- the texts: every L["..."] of PlanFarm.lua, the reasons it looks up, and the three in Route.lua and UI.lua
@@ -30485,27 +30478,23 @@ end)
 -- import, also in zones never visited (the first spots on 11 December), and
 -- it is gone (A1). It does not say starter spots are parked: the sync
 -- self-healing parks spots that came by sync only, never a starter spot.
-step("Starter data: the changelog gives the new spots and their zones as the data have them, makes no promise of completeness and says nothing of parking (0.2.2, 0.2.3)", function()
-    -- 0.2.2 P1 point 5: the starter data refreshed from the saved data of 21.11.2026, 797 -> 897 rows;
-    -- the 0.2.3 release again, from 25.11.2026, 897 -> 1181 rows, none lost (tools/starter_shipped.txt).
-    -- What 0.2.2 said of it is in the history (tag v0.2.2); the changelog of 0.2.3 has Sven's line of
-    -- 26.11.2026 (after Codex' release check): how many new spots, in how many zones, from where.
+step("Starter data: the changelog makes no promise of completeness and says nothing of parking; the data's new spots against 0.2.3's are gathering spots in the new Forever zones, none lost; 0.2.4 names no starter spots (0.2.2, 0.2.3, 0.2.4)", function()
+    -- 0.2.2 P1 point 5: the starter data refreshed from the saved data of 21.11.2026, 797 -> 897 rows; the 0.2.3
+    -- release again, from 25.11.2026, 897 -> 1181 rows; the 0.2.4 release, from 28.11.2026, 1181 -> 1366 rows, none
+    -- lost (tools/starter_shipped.txt). What 0.2.2 and 0.2.3 said of it is in the history (tags v0.2.2, v0.2.3); the
+    -- changelog of 0.2.4 has Sven's list of 28.11.2026, which names no starter spots.
     local f = assert(io.open(ROOT .. "/CHANGELOG.md"))
     local changelog = f:read("*a") f:close()
-    assert(GathercraftStarterData and GathercraftStarterData.version >= "forever-2026-11-21", "test setup: the starter data are older than 21.11.2026")
-    -- the line's number and zones are the data's: the rows of 0.2.2 (897, per zone and type) against the
-    -- rows now; new rows only herbs and ores (gathering spots), only in the new Forever zones, none lost
-    -- (0.2.4 release, the data commit: the data of 28.11.2026; the changelog is 0.2.3's until the release commit - its
-    -- line counts the data of 25.11.2026: 284 new spots in three zones)
-    assert(GathercraftStarterData.version >= "forever-2026-11-25", "the starter data are older than the line")
-    local of0223 = GathercraftStarterData.version ~= "forever-2026-11-25"
-    local before = { [1411] = { o = 1 }, [1412] = { h = 24, o = 30 }, [2482] = { h = 81, o = 59 }, [2521] = { h = 285, o = 151, c = 4 },
-        [2548] = { h = 125, o = 137 } }
+    assert(GathercraftStarterData and GathercraftStarterData.version == "forever-2026-11-28", "test setup: the starter data are not those of 28.11.2026")
+    -- the rows of 0.2.3 (1181, per zone and type) against the rows now: new rows only herbs and ores (gathering spots),
+    -- only in the new Forever zones, none lost
+    local before = { [1411] = { o = 1 }, [1412] = { h = 24, o = 30 }, [2482] = { h = 127, o = 130 }, [2521] = { h = 337, o = 176, c = 4 },
+        [2548] = { h = 193, o = 159 } }
     local new, zones, count = 0, {}, 0
     for z, list in pairs(GathercraftStarterData.nodes) do
         local got = {}
         for _, e in ipairs(list) do got[e[2]] = (got[e[2]] or 0) + 1 end
-        for t, was in pairs(before[z] or {}) do assert((got[t] or 0) >= was, ("zone %d type %s: fewer rows than 0.2.2"):format(z, t)) end
+        for t, was in pairs(before[z] or {}) do assert((got[t] or 0) >= was, ("zone %d type %s: fewer rows than 0.2.3"):format(z, t)) end
         for t, n in pairs(got) do
             local was = before[z] and before[z][t] or 0
             if n > was then
@@ -30516,14 +30505,8 @@ step("Starter data: the changelog gives the new spots and their zones as the dat
         end
     end
     for z in pairs(zones) do assert(FOREVER_ZONES[z], ("new starter spots in zone %d, not a new Forever zone"):format(z)) end
-    local line = changelog:match("\n%- %*%*More starter spots:%*%* ([^\n]*)")
-    assert(line, "CHANGELOG: no line on the starter spots")
-    local n, w = line:match("^(%d+) new gathering spots in (%a+) zones, from a player's saved gathers and confirmed shared spots%.$")
-    local words = { "one", "two", "three", "four", "five" }
-    if of0223 then new, count = 284, 3 end -- (what the data of 25.11.2026 had: the data commit 16634c0)
-    assert(n and tonumber(n) == new and w == words[count],
-        ("CHANGELOG: \"%s\" - the data have %d new spots in %d zones"):format(line, new, count))
-    assert(new == 284 and count == 3, ("test setup: %d new spots in %d zones, the data commit 16634c0 has 284 in 3"):format(new, count))
+    assert(new == 185 and count == 3, ("test setup: %d new spots in %d zones, the data commit e6fa1af has 185 in 3"):format(new, count))
+    assert(not changelog:find("More starter spots", 1, true), "CHANGELOG 0.2.4 names starter spots - not on Sven's list of 28.11.2026")
     -- no promise of completeness, not parked: no word of it, nor of the self-healing
     local low = changelog:lower()
     for _, said in ipairs({ "complete", "all spots", "every spot in", "park", "self-heal", "self heal", "selfheal" }) do
@@ -30929,8 +30912,8 @@ end)
 -- 0.2.1-a1 or after an older version shows the window of 0.2.1, once.
 step("Version 0.2.1: the TOC says it, /gcr shows it, the What's new window of 0.2.1 once after 0.2.0, 0.2.1-a1 or 0.1.23 (0.2.1)", function()
     local version = toc:match("## Version: ([%w%.%-]+)")
-    -- the TOC says the build's version (own step); the window checked is 0.2.1's
-    assert(version == "0.2.4-a21", "TOC version: " .. tostring(version))
+    -- the TOC says the release's version (own step); the window checked is 0.2.1's
+    assert(version == "0.2.4", "TOC version: " .. tostring(version))
     version = "0.2.1"
     local function Read(name) local f = assert(io.open(ROOT .. "/" .. name)) local s = f:read("*a") f:close() return s end
     -- "What's new" has the entry of 0.2.1, none for the test build
@@ -30939,7 +30922,7 @@ step("Version 0.2.1: the TOC says it, /gcr shows it, the What's new window of 0.
     assert(entry, "Welcome.lua has no What's new entry for 0.2.1")
     assert(not welcome:find('["0.2.1-a1"]', 1, true), "Welcome.lua has a What's new entry for the test build")
     -- the changelog is the next release's: 0.2.1's section is in the history (tag v0.2.1)
-    assert(Read("CHANGELOG.md"):match("^(## v[^\r\n]*)") == "## v0.2.3 – 2026-11-26", "the changelog is not 0.2.3's")
+    assert(Read("CHANGELOG.md"):match("^(## v[^\r\n]*)") == "## v0.2.4 – 2026-11-28", "the changelog is not 0.2.4's")
     -- /gcr: the main window shows the TOC version ("v" and it)
     assert(Read("Main.lua"):find('version:SetText(v and ("v" .. v) or "")', 1, true), "the main window does not show the TOC version")
     local keep = { meta = C_AddOns.GetAddOnMetadata, last = ns.db.lastVersion, fresh = ns.freshInstall }
@@ -32290,8 +32273,8 @@ end)
 -- with the date.
 step("Version 0.2.2: the TOC says it, /gcr shows it, the What's new window of 0.2.2 once after 0.2.2-a8, 0.2.2-a7, 0.2.2-a6, 0.2.2-a5, 0.2.2-a4, 0.2.2-a3, 0.2.2-a2, 0.2.2-a1, 0.2.1, 0.2.1-a1, 0.2.0 or 0.1.23 (0.2.2)", function()
     local version = toc:match("## Version: ([%w%.%-]+)")
-    -- a 0.2.4 test build: the TOC says its mark (own step); the window checked is 0.2.2's
-    assert(version == "0.2.4-a21", "TOC version: " .. tostring(version))
+    -- the release 0.2.4: the TOC says it (own step); the window checked is 0.2.2's
+    assert(version == "0.2.4", "TOC version: " .. tostring(version))
     version = "0.2.2"
     local function Read(name) local f = assert(io.open(ROOT .. "/" .. name)) local s = f:read("*a") f:close() return s end
     -- "What's new" has the entry of 0.2.2, none for a test build
@@ -32302,7 +32285,7 @@ step("Version 0.2.2: the TOC says it, /gcr shows it, the What's new window of 0.
         assert(not welcome:find('["' .. mark .. '"]', 1, true), "Welcome.lua has a What's new entry for the test build " .. mark)
     end
     -- the changelog is the next release's: 0.2.2's section is in the history (tag v0.2.2)
-    assert(Read("CHANGELOG.md"):match("^(## v[^\r\n]*)") == "## v0.2.3 – 2026-11-26", "the changelog is not 0.2.3's")
+    assert(Read("CHANGELOG.md"):match("^(## v[^\r\n]*)") == "## v0.2.4 – 2026-11-28", "the changelog is not 0.2.4's")
     -- /gcr: the main window shows the TOC version ("v" and it)
     assert(Read("Main.lua"):find('version:SetText(v and ("v" .. v) or "")', 1, true), "the main window does not show the TOC version")
     local keep = { meta = C_AddOns.GetAddOnMetadata, last = ns.db.lastVersion, fresh = ns.freshInstall }
@@ -32332,8 +32315,8 @@ end)
 -- changelog with the date: the first login after any of them shows the window of 0.2.3, once.
 step("Version 0.2.3: the TOC says it, /gcr shows it, the What's new window of 0.2.3 once after 0.2.3-a14, 0.2.3-a13, 0.2.3-a12, 0.2.3-a11, 0.2.3-a10, 0.2.3-a9, 0.2.3-a8, 0.2.3-a7, 0.2.3-a6, 0.2.3-a5, 0.2.3-a4, 0.2.3-a3, 0.2.3-a2, 0.2.3-a1, 0.2.2, 0.2.2-a8, 0.2.2-a7, 0.2.2-a6, 0.2.2-a5, 0.2.2-a4, 0.2.2-a3, 0.2.2-a2, 0.2.2-a1, 0.2.1, 0.2.1-a1, 0.2.0 or 0.1.23 (0.2.3)", function()
     local version = toc:match("## Version: ([%w%.%-]+)")
-    -- a 0.2.4 test build: the TOC says its mark (own step); the window checked is 0.2.3's
-    assert(version == "0.2.4-a21", "TOC version: " .. tostring(version))
+    -- the release 0.2.4: the TOC says it (own step); the window checked is 0.2.3's
+    assert(version == "0.2.4", "TOC version: " .. tostring(version))
     version = "0.2.3"
     local function Read(name) local f = assert(io.open(ROOT .. "/" .. name)) local s = f:read("*a") f:close() return s end
     -- "What's new" has the entry of 0.2.3, none for a test build; 0.2.2's stays
@@ -32345,7 +32328,7 @@ step("Version 0.2.3: the TOC says it, /gcr shows it, the What's new window of 0.
     end
     assert(welcome:find('["0.2.2"]', 1, true), "the What's new of 0.2.2 is gone")
     -- the changelog has its section, with the date
-    assert(Read("CHANGELOG.md"):match("^(## v[^\r\n]*)") == "## v0.2.3 – 2026-11-26", "the changelog has no section for 0.2.3")
+    assert(Read("CHANGELOG.md"):match("^(## v[^\r\n]*)") == "## v0.2.4 – 2026-11-28", "the changelog is not 0.2.4's")
     -- /gcr: the main window shows the TOC version ("v" and it)
     assert(Read("Main.lua"):find('version:SetText(v and ("v" .. v) or "")', 1, true), "the main window does not show the TOC version")
     local keep = { meta = C_AddOns.GetAddOnMetadata, last = ns.db.lastVersion, fresh = ns.freshInstall }
@@ -32397,35 +32380,39 @@ end)
 -- take) and the login join's 30 s line, 0.2.4-a20 for the fish key's safety (a cast at the third press, a pause of
 -- the lure step, a lure seen on the pole ends the tries, only the flank that runs counts) and the second way of
 -- reading a skill, 0.2.4-a21 for GathercraftSync on /1 before General from an older version (seen, said once).
--- No What's new window for them: 0.2.4, its changelog and its What's new come with its release commit.
-step("Version 0.2.4-a21: the TOC says it, /gcr shows it, no What's new window after 0.2.4-a20, 0.2.4-a19, 0.2.4-a18, 0.2.4-a17, 0.2.4-a16, 0.2.4-a15, 0.2.4-a14, 0.2.4-a13, 0.2.4-a12, 0.2.4-a11, 0.2.4-a10, 0.2.4-a9, 0.2.4-a8, 0.2.4-a7, 0.2.4-a6, 0.2.4-a5, 0.2.4-a4, 0.2.4-a3, 0.2.4-a2, 0.2.4-a1, 0.2.3, 0.2.3-a14, 0.2.3-a13, 0.2.3-a12, 0.2.3-a11, 0.2.3-a10, 0.2.3-a9, 0.2.3-a8, 0.2.3-a7, 0.2.3-a6, 0.2.3-a5, 0.2.3-a4, 0.2.3-a3, 0.2.3-a2, 0.2.3-a1, 0.2.2, 0.2.2-a8, 0.2.2-a7, 0.2.2-a6, 0.2.2-a5, 0.2.2-a4, 0.2.2-a3, 0.2.2-a2, 0.2.2-a1, 0.2.1, 0.2.1-a1, 0.2.0 or 0.1.23 (0.2.4 a21)", function()
+-- No What's new window for them. The release (Sven, 28.11.2026) says 0.2.4, has its What's new and the changelog
+-- with the date: the first login after any of them shows the window of 0.2.4, once.
+step("Version 0.2.4: the TOC says it, /gcr shows it, the What's new window of 0.2.4 once after 0.2.4-a21, 0.2.4-a20, 0.2.4-a19, 0.2.4-a18, 0.2.4-a17, 0.2.4-a16, 0.2.4-a15, 0.2.4-a14, 0.2.4-a13, 0.2.4-a12, 0.2.4-a11, 0.2.4-a10, 0.2.4-a9, 0.2.4-a8, 0.2.4-a7, 0.2.4-a6, 0.2.4-a5, 0.2.4-a4, 0.2.4-a3, 0.2.4-a2, 0.2.4-a1, 0.2.3, 0.2.3-a14, 0.2.3-a13, 0.2.3-a12, 0.2.3-a11, 0.2.3-a10, 0.2.3-a9, 0.2.3-a8, 0.2.3-a7, 0.2.3-a6, 0.2.3-a5, 0.2.3-a4, 0.2.3-a3, 0.2.3-a2, 0.2.3-a1, 0.2.2, 0.2.2-a8, 0.2.2-a7, 0.2.2-a6, 0.2.2-a5, 0.2.2-a4, 0.2.2-a3, 0.2.2-a2, 0.2.2-a1, 0.2.1, 0.2.1-a1, 0.2.0 or 0.1.23 (0.2.4)", function()
     local version = toc:match("## Version: ([%w%.%-]+)")
-    assert(version == "0.2.4-a21", "TOC version: " .. tostring(version))
+    assert(version == "0.2.4", "TOC version: " .. tostring(version))
     local function Read(name) local f = assert(io.open(ROOT .. "/" .. name)) local s = f:read("*a") f:close() return s end
-    -- "What's new" has no entry for it, nor for 0.2.4 yet: the build is not a release; 0.2.3's and 0.2.2's stay
+    -- "What's new" has the entry of 0.2.4, none for a test build; 0.2.3's and 0.2.2's stay
     local welcome = Read("Welcome.lua")
-    for _, mark in ipairs({ "0.2.3-a1", "0.2.3-a2", "0.2.3-a3", "0.2.3-a4", "0.2.3-a5", "0.2.3-a6", "0.2.3-a7", "0.2.3-a8", "0.2.3-a9", "0.2.3-a10", "0.2.3-a11", "0.2.3-a12", "0.2.3-a13", "0.2.3-a14", "0.2.4-a1", "0.2.4-a2", "0.2.4-a3", "0.2.4-a4", "0.2.4-a5", "0.2.4-a6", "0.2.4-a7", "0.2.4-a8", "0.2.4-a9", "0.2.4-a10", "0.2.4-a11", "0.2.4-a12", "0.2.4-a13", "0.2.4-a14", "0.2.4-a15", "0.2.4-a16", "0.2.4-a17", "0.2.4-a18", "0.2.4-a19", "0.2.4-a20", "0.2.4-a21", "0.2.4" }) do
-        assert(not welcome:find('["' .. mark .. '"]', 1, true), "Welcome.lua has a What's new entry for " .. mark)
+    local entry = welcome:match('%["0%.2%.4"%] = "([^"]+)"')
+    assert(entry, "Welcome.lua has no What's new entry for 0.2.4")
+    for _, mark in ipairs({ "0.2.3-a1", "0.2.3-a2", "0.2.3-a3", "0.2.3-a4", "0.2.3-a5", "0.2.3-a6", "0.2.3-a7", "0.2.3-a8", "0.2.3-a9", "0.2.3-a10", "0.2.3-a11", "0.2.3-a12", "0.2.3-a13", "0.2.3-a14", "0.2.4-a1", "0.2.4-a2", "0.2.4-a3", "0.2.4-a4", "0.2.4-a5", "0.2.4-a6", "0.2.4-a7", "0.2.4-a8", "0.2.4-a9", "0.2.4-a10", "0.2.4-a11", "0.2.4-a12", "0.2.4-a13", "0.2.4-a14", "0.2.4-a15", "0.2.4-a16", "0.2.4-a17", "0.2.4-a18", "0.2.4-a19", "0.2.4-a20", "0.2.4-a21" }) do
+        assert(not welcome:find('["' .. mark .. '"]', 1, true), "Welcome.lua has a What's new entry for the test build " .. mark)
     end
     assert(welcome:find('["0.2.3"]', 1, true) and welcome:find('["0.2.2"]', 1, true), "the What's new of 0.2.3 or 0.2.2 is gone")
-    -- the changelog is 0.2.3's (the release merged in)
-    local changelog = Read("CHANGELOG.md")
-    assert(changelog:match("^(## v[^\r\n]*)") == "## v0.2.3 – 2026-11-26" and not changelog:find("0.2.4", 1, true),
-        "the changelog is not 0.2.3's, or has a 0.2.4 section")
+    -- the changelog has its section, with the date
+    assert(Read("CHANGELOG.md"):match("^(## v[^\r\n]*)") == "## v0.2.4 – 2026-11-28", "the changelog has no section for 0.2.4")
     -- /gcr: the main window shows the TOC version ("v" and it)
     assert(Read("Main.lua"):find('version:SetText(v and ("v" .. v) or "")', 1, true), "the main window does not show the TOC version")
     local keep = { meta = C_AddOns.GetAddOnMetadata, last = ns.db.lastVersion, fresh = ns.freshInstall }
     local ok, err = pcall(function()
         C_AddOns.GetAddOnMetadata = function(_, field) if field == "Version" then return version end end
         ns.freshInstall = false
-        for _, before in ipairs({ "0.2.4-a20", "0.2.4-a19", "0.2.4-a18", "0.2.4-a17", "0.2.4-a16", "0.2.4-a15", "0.2.4-a14", "0.2.4-a13", "0.2.4-a12", "0.2.4-a11", "0.2.4-a10", "0.2.4-a9", "0.2.4-a8", "0.2.4-a7", "0.2.4-a6", "0.2.4-a5", "0.2.4-a4", "0.2.4-a3", "0.2.4-a2", "0.2.4-a1", "0.2.3", "0.2.3-a14", "0.2.3-a13", "0.2.3-a12", "0.2.3-a11", "0.2.3-a10", "0.2.3-a9", "0.2.3-a8", "0.2.3-a7", "0.2.3-a6", "0.2.3-a5", "0.2.3-a4", "0.2.3-a3", "0.2.3-a2", "0.2.3-a1", "0.2.2", "0.2.2-a8", "0.2.2-a7", "0.2.2-a6", "0.2.2-a5", "0.2.2-a4", "0.2.2-a3", "0.2.2-a2", "0.2.2-a1", "0.2.1", "0.2.1-a1", "0.2.0", "0.1.23" }) do
+        for _, before in ipairs({ "0.2.4-a21", "0.2.4-a20", "0.2.4-a19", "0.2.4-a18", "0.2.4-a17", "0.2.4-a16", "0.2.4-a15", "0.2.4-a14", "0.2.4-a13", "0.2.4-a12", "0.2.4-a11", "0.2.4-a10", "0.2.4-a9", "0.2.4-a8", "0.2.4-a7", "0.2.4-a6", "0.2.4-a5", "0.2.4-a4", "0.2.4-a3", "0.2.4-a2", "0.2.4-a1", "0.2.3", "0.2.3-a14", "0.2.3-a13", "0.2.3-a12", "0.2.3-a11", "0.2.3-a10", "0.2.3-a9", "0.2.3-a8", "0.2.3-a7", "0.2.3-a6", "0.2.3-a5", "0.2.3-a4", "0.2.3-a3", "0.2.3-a2", "0.2.3-a1", "0.2.2", "0.2.2-a8", "0.2.2-a7", "0.2.2-a6", "0.2.2-a5", "0.2.2-a4", "0.2.2-a3", "0.2.2-a2", "0.2.2-a1", "0.2.1", "0.2.1-a1", "0.2.0", "0.1.23" }) do
             local win = _G.GathercraftWhatsNew
             if win then win:Hide() end
             ns.db.lastVersion = before
             ns.WelcomeOnLogin()
             win = _G.GathercraftWhatsNew
-            assert(not (win and win:IsShown()), "a What's new window after " .. before)
-            assert(ns.db.lastVersion == "0.2.4-a21", "after " .. before .. " not remembered: " .. tostring(ns.db.lastVersion))
+            assert(win and win:IsShown() and win.body:GetText() == ns.L[entry], "no What's new window of 0.2.4 after " .. before)
+            assert(ns.db.lastVersion == "0.2.4", "after " .. before .. " not remembered: " .. tostring(ns.db.lastVersion))
+            win:Hide()
+            ns.WelcomeOnLogin()
+            assert(not win:IsShown(), "the What's new window again at the next login after " .. before)
         end
     end)
     local win = _G.GathercraftWhatsNew

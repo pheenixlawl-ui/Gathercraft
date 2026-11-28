@@ -1,14 +1,15 @@
-## v0.2.3 – 2026-11-26
+## v0.2.4 – 2026-11-28
 
 ### Added
-- **Share your ridden ways:** `/gcr shareways` (or "Share my ways..." in Options › Sharing) turns the ways you have recorded into text. Copy each part with Ctrl+C and send it through a short form; the window shows the form's link for you to copy. Nothing is sent by itself, and no browser opens. The text holds only the ways – rough 25-yard steps, how hard each was to ride and where you fell – and a random code for this submission: no names, no times, no prices.
-- **A hint, once:** when you have recorded 2,000 path steps, a chat line points you to `/gcr shareways` – once per character, a minute after login and not in combat. Turn it off with "Donation hint in chat" (Options › Sharing).
-- **Your best runs per zone:** the run summary shows your best of the last 20 runs in a zone – nodes per hour and gold per hour, each on its own – and tells you when a run is a new personal best. A run counts from 10 minutes of riding; best runs are kept per character, filter and route goal, on this computer only.
-- **Search range:** during a farm run, once the node the run heads for is within the range of Find Herbs / Find Minerals (150 yards unless you change "Search range" in Options › Rares & prices), its gold pin gets a light-blue ring and the run window says "In search range - no yellow dot? Press Skip." A ring of dots on the minimap can show the range ("Show the search range on the minimap during farm runs", off by default). Nothing is skipped by itself.
-- **`/gcr mapdiag`:** switches for testing map performance.
+- **The route line follows your ridden ways:** during a farm run, the head of the route line and the arrow follow the ways you have ridden yourself instead of a straight line; gaps between your ways are guessed. The run window says what the line follows right now: "Path: your ridden ways" (with the guessed share, without the first and last yards) or "Path: straight line". On unless you turn it off: "Route line and arrow follow your ridden paths" (Options › Sharing › Paths). Without height, a way may cross under a bridge or into a cave.
+- **A smooth line along your ways:** the line is pulled tight through the ways you rode, with rounded corners, instead of following every 25-yard step. Until it is ready, the line stays straight, as with the switch off.
 
 ### Changed
-- **Smoother farm runs:** less work and less memory while you ride. The route line's head no longer makes garbage around the minimap pins, a run keeps its points from plan to plan, and gathering a run's points again after a harvest skips the zones on other continents and the kind checks where nothing is unticked.
-- **The skill plan counts your stock:** materials you already have count at their market value. When two recipes cost the same per skill point, the plan prefers the one that uses less of your stock's value.
-- **`/gcr perf on`** also shows how much garbage each part of the addon makes, next to its time, and the addon's memory at the start and at the end.
-- **More starter spots:** 284 new gathering spots in three zones, from a player's saved gathers and confirmed shared spots.
+- **No hitch after a harvest:** a farm run gathers its points again only in the zones that changed, and the Smart plan improves the route in small bites, a little each frame.
+- **Sharing your ways:** the window now tells you to paste each part into its own field of the form (Part 1, Part 2, …) and to submit once at the end.
+
+### Fixed
+- **Auction prices for gear:** weapons and armour now get their cheapest buyout, shown as "lowest offer" in the tooltip. With a few single offers, the price was the dearest of them. Trade goods keep their market price.
+- **GathercraftSync no longer grabs /1 on a slow login:** after login, the sharing channel waits until General or another zone channel is there – up to 30 seconds (for example in an instance). If your sync channel is still on /1 from an older version, Gathercraft tells you once per session how to fix it (type /leave GathercraftSync and log out once).
+- **Jumping is no fall:** jumping several times in a row no longer marks your recorded path as a fall. Real falls are still noted.
+- **The fishing key no longer gets stuck on a lure you can't use yet:** it picks one you can use, or casts without a lure.

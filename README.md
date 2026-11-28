@@ -2,7 +2,7 @@
   <img src="docs/banner.png" alt="Gathercraft – Gather. Route. Profit." width="100%">
 </p>
 
-**New in 0.2.3:** share your ridden paths (`/gcr shareways`) · smoother farm runs · your best runs per zone · search range ring. Coming soon: routes that follow the ways you ride.
+**New in 0.2.4:** the route line follows the ways you ride · fishing key fix · sync channel no longer grabs /1. Coming soon: ways shared between players.
 
 <h3 align="center"><i>Peacebloom fears you now.</i></h3>
 
@@ -44,7 +44,7 @@ Herbs and ores are recorded the moment you gather them, no setup. On top of that
 
 **🧭 The Route That Thinks Ahead**
 
-Hit *Herbs*, *Ores* or *Herbs + Ores* and go. Gathercraft plans the shortest path through every node you selected on your continent and re-plans while you ride – or, with the **route type** *Loop*, rides one fixed round through all spawn points again and again, like the routes in farming guides. It only sends you to nodes you can actually gather, and with the **route goal** it goes for what you need: **skill-ups** while you level, **gold** once you're done – or simply as many nodes as possible. Your target stays put until you reach it, and at 25 yards (you choose) it already moves on to the next one. Grab a node you spotted yourself and the route picks up from where you are. Spawn points that keep turning up empty get visited less – Gathercraft learns them while you farm. Pick the route line you like: seven colors, dots, fine dots, a solid line or big dots. The Zones tab shows Kalimdor and the Eastern Kingdoms side by side: *Only herbs* or *Only ores* is one click – or tick single materials per zone.
+Hit *Herbs*, *Ores* or *Herbs + Ores* and go. Gathercraft plans a short route through the nodes you selected on your continent and re-plans while you ride – or, with the **route type** *Loop*, rides one fixed round through all spawn points again and again, like the routes in farming guides. It only sends you to nodes you can actually gather, and with the **route goal** it goes for what you need: **skill-ups** while you level, **gold** once you're done – or simply as many nodes as possible. Your target stays put until you reach it, and at 25 yards (you choose) it already moves on to the next one. Grab a node you spotted yourself and the route picks up from where you are. Spawn points that keep turning up empty get visited less – Gathercraft learns them while you farm. Pick the route line you like: seven colors, dots, fine dots, a solid line or big dots. The Zones tab shows Kalimdor and the Eastern Kingdoms side by side: *Only herbs* or *Only ores* is one click – or tick single materials per zone.
 
 **🗡️ Questing mode – gather along the way**
 
@@ -80,7 +80,7 @@ A rare walks into view and an announcer roars **"RARE!"**, with a warning across
 
 **🤝 Stronger Together**
 
-Optional node sharing with other Gathercraft players. Guild and friends are trusted instantly; strangers need confirmations, so fake nodes go nowhere. In brand-new zones, a node someone else found shows up right away as a grey pin – it joins your routes once confirmed. `/gcr sync` shows who shared what, and where; *Options → Sharing* counts the spots other players sent you.
+Optional node sharing with other Gathercraft players. Guild and friends are trusted instantly; a stranger's node needs confirmations from 3 different players before it counts. In brand-new zones, a node someone else found shows up right away as a grey pin – it joins your routes once confirmed. `/gcr sync` shows who shared what, and where; *Options → Sharing* counts the spots other players sent you.
 
 **🌍 Every client language**
 
@@ -134,7 +134,7 @@ Prices come from your own scan, so they're as fresh as your last visit. Some tra
 
 **"What does sharing send?"**
 
-Node positions only (object, zone, coordinates). Nothing about you or your character. Off with one click.
+Node positions (object, zone, coordinates), a short question for a zone's nodes when you arrive, and the Gathercraft version you run. Nothing else about you or your character. Off with one click.
 
 **"Does Gathercraft record where I ride?"**
 
@@ -167,13 +167,15 @@ Gathercraft is **actively developed** – expect **updates every week**. Here's 
 - **Your best runs per zone** and a **search range ring** around your target
 - **Skill plan counts what's in your bags** at its market value
 - **Share your ridden paths** – `/gcr shareways` turns your recorded ways into text you can send through a short form, to help build a path network for everyone
+- **Routes that follow the ways you ride** – the route line and arrow lead along paths you have actually ridden instead of straight across cliffs
 - One-key fishing with its own panel, RARE! announcer, optional node sharing
 - 10 languages, works in every client language
 
 **🔨 Next up**
 
-- **Routes that follow the ways you ride** – the route line and arrow lead along paths you have actually ridden instead of straight across cliffs
 - **Ways shared between players automatically** – a path network for every Gathercraft player
+- **Skip a whole group of nearby spots at once**
+- **Lower memory use**
 - **A new options window** – every setting explained, pages that scroll, a search box
 - **More spawn points for the new Forever zones** as soon as they are known
 - **Disenchant values**
