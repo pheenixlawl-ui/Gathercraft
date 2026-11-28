@@ -107,26 +107,45 @@ local function ProfessionSlots()
 end
 ns.ProfessionSlots = ProfessionSlots
 
--- found, unclear, rank, maxRank, effective: found = a line readable as this
--- profession; unclear = some line could be it but can't be read
-local function FindProfession(nodeType)
+-- the profession's place in the game's list of professions: found, unclear, the place
+local function FromSlots(nodeType)
     local slots, unclear = ProfessionSlots()
     for _, slot in ipairs(slots) do
-        if slot.line == SKILL_LINE[nodeType] then
-            return true, false, Remember(nodeType, slot.rank, slot.maxRank, slot.modifier)
+        if slot.line == SKILL_LINE[nodeType] then return true, false, slot end
+    end
+    return false, unclear
+end
+
+-- the profession's line in the old skill list, by its name: found, unclear, rank, maxRank, modifier
+local function FromSkillLines(nodeType)
+    local unclear = false
+    local count = ns.Readable(GetNumSkillLines(), "skills")
+    if not count then unclear = true end
+    for i = 1, count or 0 do
+        local name, isHeader, _, rank, _, modifier, maxRank = GetSkillLineInfo(i)
+        if ns.AnySecret("skills", name, isHeader) then
+            unclear = true -- hidden: this line can't tell
+        elseif not isHeader and name and SKILL_NAMES[nodeType] and SKILL_NAMES[nodeType][name:lower()] then
+            return true, false, rank, maxRank, modifier
         end
     end
+    return false, unclear
+end
+
+-- found, unclear, rank, maxRank, effective: found = a line readable as this
+-- profession; unclear = some line could be it but can't be read.
+-- (0.2.4 a20, Codex' check of a19, N1) Each way of reading on its own: when
+-- the game's list of professions throws, the old skill list is still read
+-- (that it threw makes a "not found" unclear). Both work: as before.
+local function FindProfession(nodeType)
+    local unclear = false
+    local ok, found, slotsUnclear, slot = pcall(FromSlots, nodeType)
+    if ok and found then return true, false, Remember(nodeType, slot.rank, slot.maxRank, slot.modifier) end
+    unclear = not ok or slotsUnclear or false
     if GetNumSkillLines and GetSkillLineInfo then
-        local count = ns.Readable(GetNumSkillLines(), "skills")
-        if not count then unclear = true end
-        for i = 1, count or 0 do
-            local name, isHeader, _, rank, _, modifier, maxRank = GetSkillLineInfo(i)
-            if ns.AnySecret("skills", name, isHeader) then
-                unclear = true -- hidden: this line can't tell
-            elseif not isHeader and name and SKILL_NAMES[nodeType] and SKILL_NAMES[nodeType][name:lower()] then
-                return true, false, Remember(nodeType, rank, maxRank, modifier)
-            end
-        end
+        local okL, foundL, linesUnclear, rank, maxRank, modifier = pcall(FromSkillLines, nodeType)
+        if okL and foundL then return true, false, Remember(nodeType, rank, maxRank, modifier) end
+        if not okL or linesUnclear then unclear = true end
     end
     return false, unclear
 end
