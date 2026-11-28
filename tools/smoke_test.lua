@@ -18291,6 +18291,19 @@ step("Fishing 0.2.4 a20: the safety casts at the third press and pauses every lu
             assert(flanks == "7307 7307 cast cast", ("M3, ActionButtonUseKeyDown %s: %s"):format(tostring(setting), flanks))
         end
         useDown = nil
+        -- N1 (Codex' probe): the professions' list throws, the old skill list gives Fishing 41: Nightcrawlers and a Shiny
+        -- Bauble - the bauble; and Herbalism by the same way
+        Lift()
+        GetProfessions = function() error("the professions' list is not there") end
+        GetNumSkillLines = function() return 2 end
+        GetSkillLineInfo = function(i)
+            if i == 1 then return "Fishing", false, nil, 41, nil, 0, 300 end
+            if i == 2 then return "Herbalism", false, nil, 60, nil, 0, 150 end
+        end
+        bags, said = { [6530] = 3, [6529] = 3 }, {}
+        assert(Seq(1) == "6529", "N1, the professions' list throws: the old skill list - the Shiny Bauble")
+        local herb = ns.GetSkill and ns.GetSkill("herb")
+        assert(herb == 60, "N1, Herbalism by the old skill list: " .. tostring(herb))
     end)
     GetInventoryItemID, GetWeaponEnchantInfo, C_Item.GetItemCount, GetProfessions = keep.inv, keep.enchant, keep.count, keep.profs
     GetProfessionInfo, ns.Print, ns.db.fishLure, C_Item.GetItemNameByID = keep.info, keep.print, keep.lure, keep.name
