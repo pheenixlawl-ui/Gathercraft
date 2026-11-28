@@ -18282,6 +18282,15 @@ step("Fishing 0.2.4 a20: the safety casts at the third press and pauses every lu
         lured = true
         assert(Seq(1) == "cast", "M2, the lure on: a cast")
         lured = false
+        -- M3: both flanks a press, a lure that never takes, the skill not readable - after exactly two tries that ran, the
+        -- third press casts; ActionButtonUseKeyDown on and off
+        for _, setting in ipairs({ true, false }) do
+            Lift()
+            useDown, rank, bags = setting, nil, { [7307] = 2 }
+            local flanks = Seq(4, true)
+            assert(flanks == "7307 7307 cast cast", ("M3, ActionButtonUseKeyDown %s: %s"):format(tostring(setting), flanks))
+        end
+        useDown = nil
     end)
     GetInventoryItemID, GetWeaponEnchantInfo, C_Item.GetItemCount, GetProfessions = keep.inv, keep.enchant, keep.count, keep.profs
     GetProfessionInfo, ns.Print, ns.db.fishLure, C_Item.GetItemNameByID = keep.info, keep.print, keep.lure, keep.name
