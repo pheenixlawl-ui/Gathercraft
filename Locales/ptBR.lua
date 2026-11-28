@@ -262,6 +262,7 @@ ns.Locales.ptBR = {
     ["Sync %s, public channel %s (%s), guild %s."] = "Sync %s, canal público %s (%s), guilda %s.",
     ["not joined"] = "fora do canal",
     ["Sync enabled."] = "Sync ligado.",
+    ["your sync channel is on /%d, before %s. To fix it: type /leave GathercraftSync and log out once - it will then join behind %s."] = "seu canal de sincronização está em /%d, antes de %s. Para corrigir: digite /leave GathercraftSync e saia do jogo uma vez - então ele entrará depois de %s.",
     ["Sync disabled."] = "Sync desligado.",
     ["Public sync "] = "Sync público ",
     ["off (guild and friends only)"] = "desligado (só guilda e amigos)",

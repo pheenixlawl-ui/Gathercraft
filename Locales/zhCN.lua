@@ -262,6 +262,7 @@ ns.Locales.zhCN = {
     ["Sync %s, public channel %s (%s), guild %s."] = "同步%s，公共频道%s（%s），公会%s。",
     ["not joined"] = "未加入",
     ["Sync enabled."] = "已开启同步。",
+    ["your sync channel is on /%d, before %s. To fix it: type /leave GathercraftSync and log out once - it will then join behind %s."] = "你的同步频道在 /%d，位于 %s 之前。解决方法：输入 /leave GathercraftSync 并登出一次 - 之后它会排在 %s 之后。",
     ["Sync disabled."] = "已关闭同步。",
     ["Public sync "] = "公共同步 ",
     ["off (guild and friends only)"] = "关闭（仅公会和好友）",

@@ -1398,6 +1398,7 @@ local function CountPending()
     return n
 end
 
+local OrderLine -- (0.2.4 a21) GathercraftSync before the zone channels: the line, or nil (below)
 local function Status()
     local peers, now, recent = 0, time(), {}
     for name, p in pairs(stats.peers) do
@@ -1414,6 +1415,9 @@ local function Status()
         -- the game gives none - its messages wait
         (channelID and channelID > 0) and ("#" .. (WayChannel() or "?")) or L["not joined"],
         IsInGuild() and "yes" or "no"))
+    -- (0.2.4 a21) GathercraftSync before the zone channels (from an older version): the line, as long as it is so
+    local orderLine = OrderLine and OrderLine()
+    if orderLine then print("  " .. orderLine) end
     print((L["  Players seen (1h): %d   Messages received: %d   Incoming: %.1f/s"]):format(
         peers, stats.received, incomingRate))
     print((L["  Imported this session: %d   Waiting for confirmation: %d"]):format(stats.imported, CountPending()))
@@ -1599,6 +1603,102 @@ local function LoginJoinEight(gen)
     LoginJoinTry(JOIN_DELAY .. " s")
 end
 
+---------------------------------------------------------------------------
+-- (0.2.4 a21, Sven's live test with a20) GathercraftSync on /1 from an
+-- older version: the game keeps a channel of one's own over the logout and
+-- joins it at the login itself, before General - the login join sees "in it
+-- already" and joins nothing. Seen now: once a zone channel is in the list,
+-- looked at where the login join looks (8 s, a channel notice, the list's
+-- update - also when the join is done already), at 30 s at the latest.
+-- GathercraftSync's number below the lowest number of a zone channel: said
+-- once a session in the chat, and in /gcr sync while it is so. Nothing is
+-- joined, left or moved for it: the player's /leave and a relog put it
+-- behind, as a new join. Sync or the public channel off: nothing. Its own
+-- frame for the two events; the login join's stay as they are.
+---------------------------------------------------------------------------
+local orderCheck            -- nil (not armed), "early" (before 8 s), "wait", "done"
+local orderGen = 0
+local orderTold             -- the line was said this session
+local orderFrame = CreateFrame("Frame")
+
+local function Pack(...) return { n = select("#", ...), ... } end
+
+-- GathercraftSync's number, and the lowest numbered zone channel's number and name (as the client gives it) in the
+-- channel list (GetChannelList: number, name, disabled, ...); nothing when the list cannot be read
+local function ChannelOrder()
+    if not (GetChannelList and EnumerateServerChannels) then return end
+    local okS, server = pcall(function() return Names(EnumerateServerChannels()) end)
+    local okL, list = pcall(function() return Pack(GetChannelList()) end)
+    if not (okS and okL) then return end
+    local isServer = {}
+    for _, name in ipairs(server) do isServer[name] = true end
+    local mine, zoneID, zoneName
+    for i = 1, list.n, 3 do
+        local id, name = list[i], list[i + 1]
+        if ns.AnySecret("sync channel order", id, name) then return end
+        if type(id) == "number" and type(name) == "string" then
+            if name == CHANNEL then
+                mine = id
+            elseif (isServer[name] or isServer[name:match("^(.-) %- ") or ""]) and (not zoneID or id < zoneID) then
+                zoneID, zoneName = id, name
+            end
+        end
+    end
+    return mine, zoneID, zoneName
+end
+
+OrderLine = function()
+    if not (DB().enabled and DB().public) then return end
+    local mine, zoneID, zoneName = ChannelOrder()
+    if not (mine and zoneID and mine < zoneID) then return end
+    local name = ns.Readable(zoneName, "sync channel order") or "General"
+    return (L["your sync channel is on /%d, before %s. To fix it: type /leave GathercraftSync and log out once - it will then join behind %s."]):format(mine, name, name)
+end
+
+local function OrderDone(why)
+    orderCheck = "done"
+    orderFrame:UnregisterEvent("CHANNEL_UI_UPDATE")
+    orderFrame:UnregisterEvent("CHAT_MSG_CHANNEL_NOTICE")
+    Debug(("channel order: %s (%.1f s after the login)"):format(why, GetTime() - loginAt))
+end
+
+-- from 8 s on, at every channel event while it waits, and at 30 s (last): decided once a zone channel is in the list
+local function OrderTry(when, last)
+    if orderCheck ~= "wait" then return end
+    if not (DB().enabled and DB().public) then return OrderDone("sync or the public channel off") end
+    local mine, zoneID = ChannelOrder()
+    if not zoneID then
+        if last then OrderDone(JOIN_LATEST .. " s, no zone channel in the list") end
+        return
+    end
+    local line = OrderLine()
+    if line and not orderTold then
+        orderTold = true
+        ns.Print(line)
+    end
+    OrderDone(("%s /%s, the first zone channel /%d, at %s"):format(CHANNEL, tostring(mine or "-"), zoneID, when))
+end
+
+-- the login (told twice while it waits: the first one's timers stay); returns the login's number for its timers
+local function OrderArm()
+    if orderCheck == "early" or orderCheck == "wait" then return orderGen end
+    orderGen, orderCheck = orderGen + 1, "early"
+    local gen = orderGen
+    C_Timer.After(JOIN_LATEST, function() if gen == orderGen then OrderTry(JOIN_LATEST .. " s", true) end end)
+    return gen
+end
+local function OrderEight(gen)
+    if gen ~= orderGen or orderCheck ~= "early" then return end
+    orderCheck = "wait"
+    orderFrame:RegisterEvent("CHANNEL_UI_UPDATE")
+    orderFrame:RegisterEvent("CHAT_MSG_CHANNEL_NOTICE")
+    OrderTry(JOIN_DELAY .. " s")
+end
+orderFrame:SetScript("OnEvent", Wrap("Sync", function(_, event)
+    OrderTry(event == "CHANNEL_UI_UPDATE" and "the list's update" or "a channel notice")
+end))
+ns.SyncOrderToldReset = function() orderTold = nil end -- for the tests (tools/smoke_test.lua): a new session
+
 frame:SetScript("OnEvent", function(self, event, ...)
     if event == "PLAYER_LOGIN" then
         local db = ns.db
@@ -1647,8 +1747,10 @@ frame:SetScript("OnEvent", function(self, event, ...)
         -- (0.2.4 a16) the channel behind General: at 8 s, or when a zone channel comes, 30 s at the latest (LoginJoin);
         -- the zone's question 2 s after that join, as before
         local gen = LoginJoinArm()
+        local orderAt = OrderArm() -- (0.2.4 a21) GathercraftSync before the zone channels, from an older version
         C_Timer.After(JOIN_DELAY, function()
             LoginJoinEight(gen)
+            OrderEight(orderAt)
             -- once per login in the guild: which Gathercraft this is (0.2.2 d1)
             if DB().enabled and IsInGuild() and not versionSaid.guild then
                 versionSaid.guild = true
