@@ -1647,12 +1647,16 @@ local function ChannelOrder()
     return mine, zoneID, zoneName
 end
 
-OrderLine = function()
-    if not (DB().enabled and DB().public) then return end
-    local mine, zoneID, zoneName = ChannelOrder()
+-- the line for one look at the list (GathercraftSync's number, the first zone channel's number and name), or nil;
+-- (0.2.4 release, Codex' check of a21, N1) it says what to do and how to look, it promises no place
+local function LineOf(mine, zoneID, zoneName)
     if not (mine and zoneID and mine < zoneID) then return end
     local name = ns.Readable(zoneName, "sync channel order") or "General"
-    return (L["your sync channel is on /%d, before %s. To fix it: type /leave GathercraftSync and log out once - it will then join behind %s."]):format(mine, name, name)
+    return (L["your sync channel is on /%d, before %s. To fix it: type /leave GathercraftSync and log out once, then check with /chatlist."]):format(mine, name)
+end
+OrderLine = function()
+    if not (DB().enabled and DB().public) then return end
+    return LineOf(ChannelOrder())
 end
 
 local function OrderDone(why)
@@ -1666,12 +1670,22 @@ end
 local function OrderTry(when, last)
     if orderCheck ~= "wait" then return end
     if not (DB().enabled and DB().public) then return OrderDone("sync or the public channel off") end
-    local mine, zoneID = ChannelOrder()
+    -- one look at the list: what is decided and what is said
+    local mine, zoneID, zoneName = ChannelOrder()
     if not zoneID then
         if last then OrderDone(JOIN_LATEST .. " s, no zone channel in the list") end
         return
     end
-    local line = OrderLine()
+    if not mine then
+        -- (0.2.4 release, Codex' check of a21, M1) in GathercraftSync by its name, its line not in the list yet: on at
+        -- the next update, 30 s at the latest - then it ends quietly
+        local id = GetChannelName(CHANNEL)
+        if not ns.AnySecret("sync channel number", id) and type(id) == "number" and id > 0 then
+            if last then OrderDone(JOIN_LATEST .. " s, " .. CHANNEL .. "'s line not in the list") end
+            return
+        end
+    end
+    local line = LineOf(mine, zoneID, zoneName)
     if line and not orderTold then
         orderTold = true
         ns.Print(line)
