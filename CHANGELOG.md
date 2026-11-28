@@ -11,6 +11,6 @@
 
 ### Fixed
 - **Auction prices for gear:** weapons and armour now get their cheapest buyout, shown as "lowest offer" in the tooltip. With a few single offers, the price was the dearest of them. Trade goods keep their market price.
-- **GathercraftSync no longer grabs /1 on a slow login:** after login, the sharing channel waits until General or another zone channel is there – up to 30 seconds (for example in an instance). If your sync channel is still on /1 from an older version, Gathercraft tells you once per session how to fix it (type /leave GathercraftSync and log out once).
+- **GathercraftSync waits for General after login:** the sharing channel now waits up to 30 seconds for General or another zone channel before it joins, so General can take its usual place first. If your sync channel is still on /1 from an older version, Gathercraft tells you once how to fix it (type /leave GathercraftSync and log out once).
 - **Jumping is no fall:** jumping several times in a row no longer marks your recorded path as a fall. Real falls are still noted.
 - **The fishing key no longer gets stuck on a lure you can't use yet:** it picks one you can use, or casts without a lure.

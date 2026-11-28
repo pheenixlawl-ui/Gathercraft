@@ -2,7 +2,7 @@
   <img src="docs/banner.png" alt="Gathercraft – Gather. Route. Profit." width="100%">
 </p>
 
-**New in 0.2.4:** the route line follows the ways you ride · fishing key fix · sync channel no longer grabs /1. Coming soon: ways shared between players.
+**New in 0.2.4:** the route line follows the ways you ride · fishing key fix · sync channel waits for General after login. Coming soon: ways shared between players.
 
 <h3 align="center"><i>Peacebloom fears you now.</i></h3>
 

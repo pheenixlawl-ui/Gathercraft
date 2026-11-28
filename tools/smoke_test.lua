@@ -19605,9 +19605,13 @@ step("What's new: 0.2.4 after an update, in this language and all translations; 
     -- no place promised for it (Codex' check of a21, N1)
     local a = key:find("The route line and the arrow of a farm run follow the ways you have ridden, as a smooth line (switch: Options, Sharing, Paths).", 1, true)
     local b = key:find("The fishing key no longer gets stuck on a lure you can't use yet.", 1, true)
-    local c = key:find("The sync channel no longer takes /1 on a slow login.", 1, true)
+    local c = key:find("After login, the sync channel waits for General or another zone channel before it joins.", 1, true)
     assert(a and b and c and a < b and b < c, "what's new 0.2.4: not the three points in their order: " .. key)
-    assert(not key:find("behind General", 1, true), "what's new 0.2.4 promises a place behind General")
+    -- (Codex' release check of 0.2.4, N1 of a21) no place promised for the channel: the code waits, it keeps no number
+    -- free - with General late or not there GathercraftSync may get /1
+    for _, said in ipairs({ "/1", "behind General", "before General", "grabs", "takes /", "its usual place", "no longer takes", "no longer grabs" }) do
+        assert(not key:find(said, 1, true), "what's new 0.2.4 promises the channel a place: \"" .. said .. "\"")
+    end
     assert(not src:find('%["0%.2%.4%-'), "What's new has an entry for an internal build")
     -- said as it is: no promise - no frame rates, no "no lag"
     for _, word in ipairs({ "cheapest", "fastest", "guarantee", "fps", "no lag", "lag-free", "%", "every node", "correct", "forever", "for ever", "park", "always", "automatic" }) do
@@ -19618,23 +19622,26 @@ step("What's new: 0.2.4 after an update, in this language and all translations; 
     assert(#key <= 404, "what's new 0.2.4 is long: " .. #key .. " characters")
     -- the entries before stay for players who skip a version
     assert(src:match('%["0%.2%.2"%] = "([^"]+)"') and src:match('%["0%.2%.3"%] = "([^"]+)"'), "the 0.2.2 or 0.2.3 entry is gone")
-    -- every translation: /1 as it is, the switch's place by the names the addon shows in that language, no sign that
-    -- does not belong into the text
+    -- every translation: no channel number, the switch's place by the names the addon shows in that language (the
+    -- first tab is "Options" in every language), no sign that does not belong into the text
     for _, code in ipairs({ "deDE", "esES", "frFR", "itIT", "koKR", "ptBR", "ruRU", "zhCN", "zhTW" }) do
         local loc = ns.Locales[code]
         local tr = loc and loc[key]
         assert(type(tr) == "string" and tr ~= "" and tr ~= key, "no translation in " .. code)
-        assert(tr:find("/1", 1, true), code .. ": /1 is not named")
-        assert(tr:find(loc["Sharing"], 1, true) and tr:find(loc["Paths"], 1, true), code .. ": the switch's place not by the names the addon shows: " .. tr)
+        assert(not tr:find("/1", 1, true) and not tr:find("/%d") , code .. ": a channel's number: " .. tr)
+        assert(tr:find("Options", 1, true) and tr:find(loc["Sharing"], 1, true) and tr:find(loc["Paths"], 1, true),
+            code .. ": the switch's place not by the names the addon shows: " .. tr)
         assert(not tr:find('"', 1, true) and not tr:find("\\", 1, true) and not tr:find("%", 1, true), code .. ": a sign that does not belong into the text")
     end
     -- README (the roadmap of 28.11.2026): the line on top, Live now, Next up, Codex' notes of the 0.2.3 release check,
     -- the FAQ on the ways you ride, no roadmap picture
     local rf = assert(io.open(ROOT .. "/README.md"))
     local readme = rf:read("*a") rf:close()
-    assert(readme:find("\n**New in 0.2.4:** the route line follows the ways you ride · fishing key fix · sync channel no longer grabs /1. Coming soon: ways shared between players.\n", 1, true),
+    assert(readme:find("\n**New in 0.2.4:** the route line follows the ways you ride · fishing key fix · sync channel waits for General after login. Coming soon: ways shared between players.\n", 1, true),
         "README: no line New in 0.2.4 under the banner")
-    assert(not readme:find("stays behind General", 1, true) and not readme:find("joins behind General", 1, true), "README promises a place behind General")
+    for _, said in ipairs({ "grabs /1", "takes /1", "not on /1", "no longer grabs", "no longer takes", "behind General", "before General" }) do
+        assert(not readme:find(said, 1, true), "README promises the channel a place: \"" .. said .. "\"")
+    end
     assert(readme:find("Questing mode – gather along the way", 1, true) and readme:find("`/gcr quest`", 1, true), "README: no questing mode")
     assert(readme:find("Gathercraft is **actively developed** – expect **updates every week**.", 1, true) and not readme:find("almost every day", 1, true),
         "README: not \"updates every week\"")
@@ -19677,7 +19684,7 @@ step("What's new: 0.2.4 after an update, in this language and all translations; 
         "CHANGELOG: not three Added, two Changed and four Fixed")
     -- what stays out (in the code, not seen broken and mended in the game; Sven 28.11.2026), and no place promised
     for _, said in ipairs({ "Shared spots stay in GathercraftSync", "continent's map", "Your own spots in the guild", "paths diag", "vorgemerkt",
-        "joins behind General", "not on /1" }) do
+        "joins behind General", "not on /1", "grabs /1", "takes /1", "no longer grabs", "no longer takes", "behind General", "before General" }) do
         assert(not changelog:find(said, 1, true), "CHANGELOG names \"" .. said .. "\"")
     end
     for _, said in ipairs({
@@ -19695,8 +19702,7 @@ step("What's new: 0.2.4 after an update, in this language and all translations; 
         -- Fixed
         "**Auction prices for gear:** weapons and armour now get their cheapest buyout, shown as \"lowest offer\" in the tooltip.",
         "Trade goods keep their market price.",
-        "**GathercraftSync no longer grabs /1 on a slow login:**", "up to 30 seconds (for example in an instance)",
-        "If your sync channel is still on /1 from an older version, Gathercraft tells you once per session how to fix it (type /leave GathercraftSync and log out once).",
+        "\n- **GathercraftSync waits for General after login:** the sharing channel now waits up to 30 seconds for General or another zone channel before it joins, so General can take its usual place first. If your sync channel is still on /1 from an older version, Gathercraft tells you once how to fix it (type /leave GathercraftSync and log out once).\n",
         "**Jumping is no fall:** jumping several times in a row no longer marks your recorded path as a fall. Real falls are still noted.",
         "**The fishing key no longer gets stuck on a lure you can't use yet:** it picks one you can use, or casts without a lure." }) do
         assert(changelog:find(said, 1, true), "CHANGELOG: nothing about \"" .. said .. "\"")
