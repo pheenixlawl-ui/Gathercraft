@@ -779,12 +779,14 @@ ns.Locales.ruRU = {
 
     -- Manual ways donation (0.2.3).
     ["Share my ways..."] = "Поделиться моими путями...",
-    ["Help build the path network for everyone. This text contains only the ways you have ridden, as 25-yard steps: no names, no prices, no times, no character. Copy it (Ctrl+C) and paste it into the form at the link below."] = "Помоги создать сеть путей для всех. Этот текст содержит только пройденные тобой пути, отрезками по 25 ярдов: без имён, цен, времени и персонажа. Скопируй его (Ctrl+C) и вставь в форму по ссылке ниже.",
+    ["Help build the path network for everyone. This text contains only the ways you have ridden, as 25-yard steps: no names, no prices, no times, no character. Open the form at the link below. Copy each part (Ctrl+C) and paste it into its own field: Part 1 into \"Part 1\", Part 2 into \"Part 2\", and so on. Submit the form once, after the last part."] = "Помоги создать сеть путей для всех. Этот текст содержит только пройденные тобой пути, отрезками по 25 ярдов: без имён, цен, времени и персонажа. Открой форму по ссылке ниже. Скопируй каждую часть (Ctrl+C) и вставь её в своё поле: часть 1 в \"Part 1\", часть 2 в \"Part 2\" и так далее. Отправь форму один раз, после последней части.",
     ["Includes today's ways and this session. Nothing is uploaded by the addon; this is a submission for manual review."] = "Включает сегодняшние пути и текущий сеанс. Аддон ничего не загружает; отправленные данные проверят вручную.",
     ["Form link (Ctrl+C)"] = "Ссылка на форму (Ctrl+C)",
     ["Skipped damaged path pieces: %d"] = "Пропущено повреждённых участков пути: %d",
     ["No valid path pieces."] = "Нет пригодных участков пути.",
-    ["Part %d of %d"] = "Часть %d из %d",
+    ["Part %d of %d - paste it into the field \"Part %d\""] = "Часть %d из %d - вставь её в поле \"Part %d\"",
+    ["Last part (%d of %d) - paste it into \"Part %d\", then submit the form once."] = "Последняя часть (%d из %d) - вставь её в \"Part %d\", затем отправь форму один раз.",
+    ["Paste it into the field \"Part 1\", then submit the form once."] = "Вставь его в поле \"Part 1\", затем отправь форму один раз.",
     ["Previous part"] = "Предыдущая часть",
     ["Next part"] = "Следующая часть",
     ["Preparing..."] = "Подготовка...",

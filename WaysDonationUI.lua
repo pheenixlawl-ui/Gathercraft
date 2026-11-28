@@ -22,7 +22,16 @@ local function Enable(b, yes) if yes then b:Enable() else b:Disable() end end
 local function Part(f, number)
     if not f.parts or number < 1 or number > #f.parts then return end
     f.part = number
-    f.status:SetText((L["Part %d of %d"]):format(number, #f.parts))
+    -- (0.2.4 release) each part into its own field of the form ("Part n", English: the form is), the form sent once
+    -- after the last part
+    local total = #f.parts
+    if total == 1 then
+        f.status:SetText(L["Paste it into the field \"Part 1\", then submit the form once."])
+    elseif number == total then
+        f.status:SetText((L["Last part (%d of %d) - paste it into \"Part %d\", then submit the form once."]):format(number, total, number))
+    else
+        f.status:SetText((L["Part %d of %d - paste it into the field \"Part %d\""]):format(number, total, number))
+    end
     Enable(f.previous, number > 1) Enable(f.next, number < #f.parts)
     f.edit:Show()
     Select(f.edit, f.parts[number])
@@ -50,14 +59,14 @@ local function NewWindow()
     local description = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     description:SetPoint("TOPLEFT", 20, -48) description:SetWidth(580)
     description:SetJustifyH("LEFT") description:SetWordWrap(true)
-    ns.LText(description, "Help build the path network for everyone. This text contains only the ways you have ridden, as 25-yard steps: no names, no prices, no times, no character. Copy it (Ctrl+C) and paste it into the form at the link below.")
+    ns.LText(description, "Help build the path network for everyone. This text contains only the ways you have ridden, as 25-yard steps: no names, no prices, no times, no character. Open the form at the link below. Copy each part (Ctrl+C) and paste it into its own field: Part 1 into \"Part 1\", Part 2 into \"Part 2\", and so on. Submit the form once, after the last part.")
     local detail = f:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     detail:SetPoint("TOPLEFT", description, "BOTTOMLEFT", 0, -10) detail:SetWidth(580)
     detail:SetJustifyH("LEFT") detail:SetWordWrap(true)
     ns.LText(detail, "Includes today's ways and this session. Nothing is uploaded by the addon; this is a submission for manual review.")
     local scroll = CreateFrame("ScrollFrame", nil, f, "UIPanelScrollFrameTemplate")
     scroll:SetPoint("TOPLEFT", detail, "BOTTOMLEFT", 0, -16)
-    scroll:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -42, 128)
+    scroll:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -42, 150) -- (0.2.4 release: the status line above the buttons)
     local function Edit(parent, multiline)
         local e = CreateFrame("EditBox", nil, parent)
         e:SetFontObject(GameFontHighlightSmall) e:SetAutoFocus(false)
@@ -78,10 +87,13 @@ local function NewWindow()
     local linkLabel = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     linkLabel:SetPoint("BOTTOMLEFT", f.link, "TOPLEFT", 0, 3)
     ns.LText(linkLabel, "Form link (Ctrl+C)")
+    -- (0.2.4 release) the status line says which field a part goes into: above the buttons, the window's width, two
+    -- lines at the most; the skipped line above it
     f.status = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    f.status:SetPoint("BOTTOM", 0, 78)
+    f.status:SetPoint("BOTTOM", 0, 104) f.status:SetWidth(580)
+    f.status:SetJustifyH("CENTER") f.status:SetWordWrap(true)
     f.skipped = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    f.skipped:SetPoint("BOTTOM", 0, 106)
+    f.skipped:SetPoint("BOTTOM", 0, 134) f.skipped:SetWidth(580)
     local function Button(label, x, fn)
         local b = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
         b:SetSize(165, 24) b:SetPoint("BOTTOM", x, 75)

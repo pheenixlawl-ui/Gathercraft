@@ -779,12 +779,14 @@ ns.Locales.koKR = {
 
     -- Manual ways donation (0.2.3).
     ["Share my ways..."] = "내 경로 공유...",
-    ["Help build the path network for everyone. This text contains only the ways you have ridden, as 25-yard steps: no names, no prices, no times, no character. Copy it (Ctrl+C) and paste it into the form at the link below."] = "모두를 위한 경로망 만들기에 참여하세요. 이 텍스트에는 직접 이동한 경로만 25야드 단위로 담깁니다. 이름, 가격, 시간, 캐릭터 정보는 없습니다. 복사(Ctrl+C)한 뒤 아래 링크의 양식에 붙여 넣으세요.",
+    ["Help build the path network for everyone. This text contains only the ways you have ridden, as 25-yard steps: no names, no prices, no times, no character. Open the form at the link below. Copy each part (Ctrl+C) and paste it into its own field: Part 1 into \"Part 1\", Part 2 into \"Part 2\", and so on. Submit the form once, after the last part."] = "모두를 위한 경로망 만들기에 참여하세요. 이 텍스트에는 직접 이동한 경로만 25야드 단위로 담깁니다. 이름, 가격, 시간, 캐릭터 정보는 없습니다. 아래 링크의 양식을 여세요. 각 부분을 복사(Ctrl+C)해서 각자의 칸에 붙여 넣으세요: 1부분은 \"Part 1\"에, 2부분은 \"Part 2\"에, 이런 식으로. 마지막 부분을 넣은 뒤 양식을 한 번만 제출하세요.",
     ["Includes today's ways and this session. Nothing is uploaded by the addon; this is a submission for manual review."] = "오늘과 이번 접속에서 이동한 경로도 포함됩니다. 애드온은 아무것도 업로드하지 않으며, 제출 자료는 사람이 검토합니다.",
     ["Form link (Ctrl+C)"] = "양식 링크(Ctrl+C)",
     ["Skipped damaged path pieces: %d"] = "건너뛴 손상된 경로 구간: %d",
     ["No valid path pieces."] = "유효한 경로 구간이 없습니다.",
-    ["Part %d of %d"] = "%d번째 부분 / 전체 %d개",
+    ["Part %d of %d - paste it into the field \"Part %d\""] = "부분 %d / %d - \"Part %d\" 칸에 붙여 넣으세요",
+    ["Last part (%d of %d) - paste it into \"Part %d\", then submit the form once."] = "마지막 부분 (%d / %d) - \"Part %d\"에 붙여 넣은 뒤 양식을 한 번 제출하세요.",
+    ["Paste it into the field \"Part 1\", then submit the form once."] = "\"Part 1\" 칸에 붙여 넣은 뒤 양식을 한 번 제출하세요.",
     ["Previous part"] = "이전 부분",
     ["Next part"] = "다음 부분",
     ["Preparing..."] = "준비 중...",

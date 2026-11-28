@@ -779,12 +779,14 @@ ns.Locales.esES = {
 
     -- Manual ways donation (0.2.3).
     ["Share my ways..."] = "Compartir mis caminos...",
-    ["Help build the path network for everyone. This text contains only the ways you have ridden, as 25-yard steps: no names, no prices, no times, no character. Copy it (Ctrl+C) and paste it into the form at the link below."] = "Ayuda a crear la red de caminos para todos. Este texto solo contiene los caminos que has recorrido, en tramos de 25 yardas: sin nombres, precios, horas ni personaje. Cópialo (Ctrl+C) y pégalo en el formulario del enlace de abajo.",
+    ["Help build the path network for everyone. This text contains only the ways you have ridden, as 25-yard steps: no names, no prices, no times, no character. Open the form at the link below. Copy each part (Ctrl+C) and paste it into its own field: Part 1 into \"Part 1\", Part 2 into \"Part 2\", and so on. Submit the form once, after the last part."] = "Ayuda a crear la red de caminos para todos. Este texto solo contiene los caminos que has recorrido, en tramos de 25 yardas: sin nombres, precios, horas ni personaje. Abre el formulario del enlace de abajo. Copia cada parte (Ctrl+C) y pégala en su propio campo: la parte 1 en \"Part 1\", la parte 2 en \"Part 2\", y así sucesivamente. Envía el formulario una sola vez, después de la última parte.",
     ["Includes today's ways and this session. Nothing is uploaded by the addon; this is a submission for manual review."] = "Incluye los caminos de hoy y de esta sesión. El addon no sube nada; el envío se revisa a mano.",
     ["Form link (Ctrl+C)"] = "Enlace al formulario (Ctrl+C)",
     ["Skipped damaged path pieces: %d"] = "Tramos dañados omitidos: %d",
     ["No valid path pieces."] = "No hay tramos válidos.",
-    ["Part %d of %d"] = "Parte %d de %d",
+    ["Part %d of %d - paste it into the field \"Part %d\""] = "Parte %d de %d - pégala en el campo \"Part %d\"",
+    ["Last part (%d of %d) - paste it into \"Part %d\", then submit the form once."] = "Última parte (%d de %d) - pégala en \"Part %d\" y luego envía el formulario una vez.",
+    ["Paste it into the field \"Part 1\", then submit the form once."] = "Pégalo en el campo \"Part 1\" y luego envía el formulario una vez.",
     ["Previous part"] = "Parte anterior",
     ["Next part"] = "Parte siguiente",
     ["Preparing..."] = "Preparando...",

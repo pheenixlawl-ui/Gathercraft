@@ -808,12 +808,14 @@ ns.Locales.deDE = {
 
     -- Manual ways donation (0.2.3).
     ["Share my ways..."] = "Meine Wege spenden...",
-    ["Help build the path network for everyone. This text contains only the ways you have ridden, as 25-yard steps: no names, no prices, no times, no character. Copy it (Ctrl+C) and paste it into the form at the link below."] = "Hilf, das Wegenetz für alle aufzubauen. Dieser Text enthält nur deine gefahrenen Wege in 25-Yard-Schritten: keine Namen, Preise, Zeiten oder Charakterangaben. Kopiere ihn (Strg+C) und füge ihn in das Formular unter dem Link unten ein.",
+    ["Help build the path network for everyone. This text contains only the ways you have ridden, as 25-yard steps: no names, no prices, no times, no character. Open the form at the link below. Copy each part (Ctrl+C) and paste it into its own field: Part 1 into \"Part 1\", Part 2 into \"Part 2\", and so on. Submit the form once, after the last part."] = "Hilf, das Wegenetz für alle aufzubauen. Dieser Text enthält nur deine gefahrenen Wege in 25-Yard-Schritten: keine Namen, Preise, Zeiten oder Charakterangaben. Öffne das Formular unter dem Link unten. Kopiere jeden Teil (Strg+C) und füge ihn in sein eigenes Feld ein: Teil 1 in \"Part 1\", Teil 2 in \"Part 2\" und so weiter. Schicke das Formular einmal ab, nach dem letzten Teil.",
     ["Includes today's ways and this session. Nothing is uploaded by the addon; this is a submission for manual review."] = "Enthält auch heutige Wege und diese Sitzung. Das Addon lädt nichts hoch; die Einreichung wird von Hand geprüft.",
     ["Form link (Ctrl+C)"] = "Formular-Link (Strg+C)",
     ["Skipped damaged path pieces: %d"] = "Beschädigte Wegstücke übersprungen: %d",
     ["No valid path pieces."] = "Keine gültigen Wegstücke.",
-    ["Part %d of %d"] = "Teil %d von %d",
+    ["Part %d of %d - paste it into the field \"Part %d\""] = "Teil %d von %d - füge ihn in das Feld \"Part %d\" ein",
+    ["Last part (%d of %d) - paste it into \"Part %d\", then submit the form once."] = "Letzter Teil (%d von %d) - füge ihn in \"Part %d\" ein und schicke dann das Formular einmal ab.",
+    ["Paste it into the field \"Part 1\", then submit the form once."] = "Füge ihn in das Feld \"Part 1\" ein und schicke dann das Formular einmal ab.",
     ["Previous part"] = "Voriger Teil",
     ["Next part"] = "Nächster Teil",
     ["Preparing..."] = "Wird vorbereitet...",

@@ -779,12 +779,14 @@ ns.Locales.itIT = {
 
     -- Manual ways donation (0.2.3).
     ["Share my ways..."] = "Condividi i miei percorsi...",
-    ["Help build the path network for everyone. This text contains only the ways you have ridden, as 25-yard steps: no names, no prices, no times, no character. Copy it (Ctrl+C) and paste it into the form at the link below."] = "Aiuta a costruire la rete di percorsi per tutti. Questo testo contiene solo i percorsi che hai seguito, in passi di 25 iarde: nessun nome, prezzo, orario o personaggio. Copialo (Ctrl+C) e incollalo nel modulo al link qui sotto.",
+    ["Help build the path network for everyone. This text contains only the ways you have ridden, as 25-yard steps: no names, no prices, no times, no character. Open the form at the link below. Copy each part (Ctrl+C) and paste it into its own field: Part 1 into \"Part 1\", Part 2 into \"Part 2\", and so on. Submit the form once, after the last part."] = "Aiuta a costruire la rete di percorsi per tutti. Questo testo contiene solo i percorsi che hai seguito, in passi di 25 iarde: nessun nome, prezzo, orario o personaggio. Apri il modulo al link qui sotto. Copia ogni parte (Ctrl+C) e incollala nel suo campo: la parte 1 in \"Part 1\", la parte 2 in \"Part 2\" e così via. Invia il modulo una sola volta, dopo l'ultima parte.",
     ["Includes today's ways and this session. Nothing is uploaded by the addon; this is a submission for manual review."] = "Include i percorsi di oggi e di questa sessione. L'addon non carica nulla; il contributo sarà verificato a mano.",
     ["Form link (Ctrl+C)"] = "Link al modulo (Ctrl+C)",
     ["Skipped damaged path pieces: %d"] = "Tratti danneggiati saltati: %d",
     ["No valid path pieces."] = "Nessun tratto valido.",
-    ["Part %d of %d"] = "Parte %d di %d",
+    ["Part %d of %d - paste it into the field \"Part %d\""] = "Parte %d di %d - incollala nel campo \"Part %d\"",
+    ["Last part (%d of %d) - paste it into \"Part %d\", then submit the form once."] = "Ultima parte (%d di %d) - incollala in \"Part %d\", poi invia il modulo una volta.",
+    ["Paste it into the field \"Part 1\", then submit the form once."] = "Incollalo nel campo \"Part 1\", poi invia il modulo una volta.",
     ["Previous part"] = "Parte precedente",
     ["Next part"] = "Parte successiva",
     ["Preparing..."] = "Preparazione...",

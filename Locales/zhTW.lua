@@ -779,12 +779,14 @@ ns.Locales.zhTW = {
 
     -- Manual ways donation (0.2.3).
     ["Share my ways..."] = "分享我的路徑...",
-    ["Help build the path network for everyone. This text contains only the ways you have ridden, as 25-yard steps: no names, no prices, no times, no character. Copy it (Ctrl+C) and paste it into the form at the link below."] = "幫助大家建立路徑網路。這段文字只包含你親自走過的路徑，以25碼為一段：沒有姓名、價格、時間或角色資訊。複製（Ctrl+C）後，貼到下方連結的表單中。",
+    ["Help build the path network for everyone. This text contains only the ways you have ridden, as 25-yard steps: no names, no prices, no times, no character. Open the form at the link below. Copy each part (Ctrl+C) and paste it into its own field: Part 1 into \"Part 1\", Part 2 into \"Part 2\", and so on. Submit the form once, after the last part."] = "幫助大家建立路徑網路。這段文字只包含你親自走過的路徑，以25碼為一段：沒有姓名、價格、時間或角色資訊。打開下方連結的表單。複製每一部分（Ctrl+C），分別貼到各自的欄位：第1部分貼到 \"Part 1\"，第2部分貼到 \"Part 2\"，以此類推。最後一部分貼上後，只提交一次表單。",
     ["Includes today's ways and this session. Nothing is uploaded by the addon; this is a submission for manual review."] = "包括今天和本次登入的路徑。插件不會上傳任何內容；提交的資料將由人工審核。",
     ["Form link (Ctrl+C)"] = "表單連結（Ctrl+C）",
     ["Skipped damaged path pieces: %d"] = "已略過的損壞路段：%d",
     ["No valid path pieces."] = "沒有有效路段。",
-    ["Part %d of %d"] = "第%d部分，共%d部分",
+    ["Part %d of %d - paste it into the field \"Part %d\""] = "第%d部分，共%d部分 - 貼到欄位 \"Part %d\"",
+    ["Last part (%d of %d) - paste it into \"Part %d\", then submit the form once."] = "最後一部分（第%d部分，共%d部分）- 貼到 \"Part %d\"，然後提交一次表單。",
+    ["Paste it into the field \"Part 1\", then submit the form once."] = "貼到欄位 \"Part 1\"，然後提交一次表單。",
     ["Previous part"] = "上一部分",
     ["Next part"] = "下一部分",
     ["Preparing..."] = "正在準備...",
