@@ -19673,11 +19673,11 @@ step("What's new: 0.2.4 after an update, in this language and all translations; 
     local added, changed, fixed = changelog:find("\n### Added\n", 1, true), changelog:find("\n### Changed\n", 1, true), changelog:find("\n### Fixed\n", 1, true)
     assert(added and changed and fixed and added < changed and changed < fixed, "CHANGELOG: not the groups Added, Changed, Fixed")
     local function Points(part) local n = 0 for _ in ("\n" .. part):gmatch("\n%- %*%*") do n = n + 1 end return n end
-    assert(Points(changelog:sub(added, changed - 1)) == 2 and Points(changelog:sub(changed, fixed - 1)) == 2 and Points(changelog:sub(fixed)) == 4,
-        "CHANGELOG: not two Added, two Changed and four Fixed")
+    assert(Points(changelog:sub(added, changed - 1)) == 3 and Points(changelog:sub(changed, fixed - 1)) == 2 and Points(changelog:sub(fixed)) == 4,
+        "CHANGELOG: not three Added, two Changed and four Fixed")
     -- what stays out (in the code, not seen broken and mended in the game; Sven 28.11.2026), and no place promised
     for _, said in ipairs({ "Shared spots stay in GathercraftSync", "continent's map", "Your own spots in the guild", "paths diag", "vorgemerkt",
-        "joins behind General", "not on /1", "More starter spots" }) do
+        "joins behind General", "not on /1" }) do
         assert(not changelog:find(said, 1, true), "CHANGELOG names \"" .. said .. "\"")
     end
     for _, said in ipairs({
@@ -19687,6 +19687,8 @@ step("What's new: 0.2.4 after an update, in this language and all translations; 
         "On unless you turn it off: \"Route line and arrow follow your ridden paths\" (Options › Sharing › Paths)",
         "Without height, a way may cross under a bridge or into a cave.",
         "**A smooth line along your ways:**", "with rounded corners", "Until it is ready, the line stays straight, as with the switch off.",
+        -- the starter spots (Sven 28.11.2026; the number and the zones are the data's: the starter data's changelog step)
+        "\n- **More starter spots:** 185 new gathering spots in the new zones Mount Hyjal, Zephras Isle and Riverglades.\n",
         -- Changed
         "**No hitch after a harvest:** a farm run gathers its points again only in the zones that changed, and the Smart plan improves the route in small bites, a little each frame.",
         "**Sharing your ways:** the window now tells you to paste each part into its own field of the form (Part 1, Part 2, …) and to submit once at the end.",
@@ -30478,11 +30480,12 @@ end)
 -- import, also in zones never visited (the first spots on 11 December), and
 -- it is gone (A1). It does not say starter spots are parked: the sync
 -- self-healing parks spots that came by sync only, never a starter spot.
-step("Starter data: the changelog makes no promise of completeness and says nothing of parking; the data's new spots against 0.2.3's are gathering spots in the new Forever zones, none lost; 0.2.4 names no starter spots (0.2.2, 0.2.3, 0.2.4)", function()
+step("Starter data: the changelog gives the new spots and their zones as the data have them (against 0.2.3's: gathering spots in the new Forever zones, none lost), under Added; no promise of completeness, nothing of parking (0.2.2, 0.2.3, 0.2.4)", function()
     -- 0.2.2 P1 point 5: the starter data refreshed from the saved data of 21.11.2026, 797 -> 897 rows; the 0.2.3
     -- release again, from 25.11.2026, 897 -> 1181 rows; the 0.2.4 release, from 28.11.2026, 1181 -> 1366 rows, none
     -- lost (tools/starter_shipped.txt). What 0.2.2 and 0.2.3 said of it is in the history (tags v0.2.2, v0.2.3); the
-    -- changelog of 0.2.4 has Sven's list of 28.11.2026, which names no starter spots.
+    -- changelog of 0.2.4 has Sven's list of 28.11.2026 and, by his word of the same day, a line on the starter spots under
+    -- Added, as 0.2.3 had one: their number and their zones are the data's.
     local f = assert(io.open(ROOT .. "/CHANGELOG.md"))
     local changelog = f:read("*a") f:close()
     assert(GathercraftStarterData and GathercraftStarterData.version == "forever-2026-11-28", "test setup: the starter data are not those of 28.11.2026")
@@ -30506,7 +30509,23 @@ step("Starter data: the changelog makes no promise of completeness and says noth
     end
     for z in pairs(zones) do assert(FOREVER_ZONES[z], ("new starter spots in zone %d, not a new Forever zone"):format(z)) end
     assert(new == 185 and count == 3, ("test setup: %d new spots in %d zones, the data commit e6fa1af has 185 in 3"):format(new, count))
-    assert(not changelog:find("More starter spots", 1, true), "CHANGELOG 0.2.4 names starter spots - not on Sven's list of 28.11.2026")
+    local line = changelog:match("\n%- %*%*More starter spots:%*%* ([^\n]*)")
+    assert(line, "CHANGELOG: no line on the starter spots")
+    -- the number, and the zones by name: every zone with new spots, no other (all of them are new Forever zones)
+    local n = tonumber(line:match("^(%d+) new gathering spots in the new zones "))
+    assert(n == new, ("CHANGELOG: \"%s\" - the data have %d new spots"):format(line, new))
+    local names, said = {}, line:match("in the new zones (.-)%.$")
+    for z in pairs(zones) do names[#names + 1] = FOREVER_ZONES[z] end
+    table.sort(names)
+    local listed = {}
+    for name in ((said or ""):gsub(" and ", ", ") .. ", "):gmatch("(.-), ") do listed[#listed + 1] = name end
+    table.sort(listed)
+    assert(table.concat(listed, "|") == table.concat(names, "|"), ("CHANGELOG: the zones \"%s\", the data have new spots in %s"):format(tostring(said), table.concat(names, ", ")))
+    assert(not line:find("mostly", 1, true), "CHANGELOG: \"mostly\" - every new spot is in these zones")
+    -- under Added (the release of 28.11.2026)
+    local added, changed = changelog:find("\n### Added\n", 1, true), changelog:find("\n### Changed\n", 1, true)
+    local at = changelog:find("\n- **More starter spots:**", 1, true)
+    assert(added and changed and at and added < at and at < changed, "CHANGELOG: the starter spots are not under Added")
     -- no promise of completeness, not parked: no word of it, nor of the self-healing
     local low = changelog:lower()
     for _, said in ipairs({ "complete", "all spots", "every spot in", "park", "self-heal", "self heal", "selfheal" }) do

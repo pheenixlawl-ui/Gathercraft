@@ -3,6 +3,7 @@
 ### Added
 - **The route line follows your ridden ways:** during a farm run, the head of the route line and the arrow follow the ways you have ridden yourself instead of a straight line; gaps between your ways are guessed. The run window says what the line follows right now: "Path: your ridden ways" (with the guessed share, without the first and last yards) or "Path: straight line". On unless you turn it off: "Route line and arrow follow your ridden paths" (Options › Sharing › Paths). Without height, a way may cross under a bridge or into a cave.
 - **A smooth line along your ways:** the line is pulled tight through the ways you rode, with rounded corners, instead of following every 25-yard step. Until it is ready, the line stays straight, as with the switch off.
+- **More starter spots:** 185 new gathering spots in the new zones Mount Hyjal, Zephras Isle and Riverglades.
 
 ### Changed
 - **No hitch after a harvest:** a farm run gathers its points again only in the zones that changed, and the Smart plan improves the route in small bites, a little each frame.
